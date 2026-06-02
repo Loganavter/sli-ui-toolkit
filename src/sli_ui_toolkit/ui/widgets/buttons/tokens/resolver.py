@@ -100,3 +100,16 @@ class TokenResolver:
 
         normal_key = f"{prefix}.background.normal" if prefix == "button.toggle" else f"{prefix}.background"
         return QColor(self._tm.get_color(normal_key))
+
+    @staticmethod
+    def get_contrasting_text_color(bg_color: QColor) -> QColor:
+        """Выбрать черный или белый текст для контраста на фоне.
+
+        Использует относительную яркость (luminance) по WCAG 2.0.
+        Если фон светлый (luminance > 0.5), вернуть черный текст.
+        Иначе - белый текст.
+        """
+        r, g, b = bg_color.red(), bg_color.green(), bg_color.blue()
+        # https://www.w3.org/TR/WCAG20/#relativeluminancedef
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+        return QColor("#000000") if luminance > 0.5 else QColor("#FFFFFF")

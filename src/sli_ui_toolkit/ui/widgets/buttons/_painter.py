@@ -98,12 +98,12 @@ class ButtonPainter:
                     painter.drawRoundedRect(rect_f, radius, radius)
 
         if rows:
-            ButtonPainter._draw_rows(painter, widget, rows, style, tm, compact=rows_compact)
+            ButtonPainter._draw_rows(painter, widget, rows, style, tm, compact=rows_compact, custom_bg_color=custom_bg_color)
         elif text and not icon_unchecked:
-            ButtonPainter._draw_text_only(painter, widget, text, style, tm)
+            ButtonPainter._draw_text_only(painter, widget, text, style, tm, custom_bg_color=custom_bg_color)
         elif text and icon_unchecked:
             ButtonPainter._draw_icon_and_text(
-                painter, widget, icon_unchecked, text, style, tm, icon_size
+                painter, widget, icon_unchecked, text, style, tm, icon_size, custom_bg_color=custom_bg_color
             )
         elif icon_unchecked:
             current_icon = icon_checked if (icon_checked and is_checked) else icon_unchecked
@@ -250,8 +250,12 @@ class ButtonPainter:
         return QColor(tm.get_color(normal_key))
 
     @staticmethod
-    def _draw_text_only(painter, widget, text, style, tm):
-        text_color = style.foreground_color or tm.get_color("dialog.text")
+    def _draw_text_only(painter, widget, text, style, tm, custom_bg_color=None):
+        if custom_bg_color is not None:
+            from sli_ui_toolkit.ui.widgets.buttons.tokens.resolver import TokenResolver
+            text_color = TokenResolver.get_contrasting_text_color(custom_bg_color)
+        else:
+            text_color = style.foreground_color or tm.get_color("dialog.text")
         painter.setPen(text_color)
 
         # Поддержка многострочного текста (разделённого \n)
@@ -269,7 +273,7 @@ class ButtonPainter:
             painter.drawText(widget.rect(), Qt.AlignmentFlag.AlignCenter, text)
 
     @staticmethod
-    def _draw_icon_and_text(painter, widget, icon_key, text, style, tm, icon_size):
+    def _draw_icon_and_text(painter, widget, icon_key, text, style, tm, icon_size, custom_bg_color=None):
         icon_px = int(style.icon_size_px or min(icon_size, 16))
         icon = resolve_icon(icon_key)
         pixmap = icon.pixmap(icon_px, icon_px)
@@ -280,7 +284,11 @@ class ButtonPainter:
 
         painter.drawPixmap(start_x, icon_y, pixmap)
 
-        text_color = style.foreground_color or tm.get_color("dialog.text")
+        if custom_bg_color is not None:
+            from sli_ui_toolkit.ui.widgets.buttons.tokens.resolver import TokenResolver
+            text_color = TokenResolver.get_contrasting_text_color(custom_bg_color)
+        else:
+            text_color = style.foreground_color or tm.get_color("dialog.text")
         painter.setPen(text_color)
         text_rect = QRect(start_x + icon_px + 6, 0, widget.width(), widget.height())
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter, text)
@@ -357,7 +365,7 @@ class ButtonPainter:
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, str(value))
 
     @staticmethod
-    def _draw_rows(painter, widget, rows, style, tm, compact: bool = False, row_gap: int = 2):
+    def _draw_rows(painter, widget, rows, style, tm, compact: bool = False, row_gap: int = 2, custom_bg_color=None):
         """Draw multiple rows of text with individual styling and height ratios.
 
         Args:
@@ -388,7 +396,13 @@ class ButtonPainter:
                 if row.weight == "bold":
                     font.setBold(True)
                 painter.setFont(font)
-                color = row.color or style.foreground_color or tm.get_color("dialog.text")
+                if row.color:
+                    color = row.color
+                elif custom_bg_color is not None:
+                    from sli_ui_toolkit.ui.widgets.buttons.tokens.resolver import TokenResolver
+                    color = TokenResolver.get_contrasting_text_color(custom_bg_color)
+                else:
+                    color = style.foreground_color or tm.get_color("dialog.text")
                 painter.setPen(color)
                 h_align = getattr(row, "h_align", Qt.AlignmentFlag.AlignHCenter)
                 painter.drawText(
