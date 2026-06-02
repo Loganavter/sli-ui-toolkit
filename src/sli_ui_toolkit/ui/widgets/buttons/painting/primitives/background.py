@@ -43,11 +43,13 @@ def draw_background_and_border(
     else:
         painter.drawRoundedRect(rect_f, radius, radius)
 
-    prefix = {"default": "button.toggle", "accent": "button.default", "delete": "button.delete",
-              "primary": "button.primary", "surface": "button.dialog.default"}.get(ctx.variant, "button.toggle")
-    border_key = f"{prefix}.border"
-    border_color = tm.try_get_color(border_key)
-    if border_color is not None:
-        painter.setPen(QPen(QColor(border_color), 1.0))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(rect_f, radius, radius)
+    # Only draw border if not using custom background color (custom colors may not match border palette)
+    if ctx.custom_bg_color is None:
+        prefix = {"default": "button.toggle", "accent": "button.default", "delete": "button.delete",
+                  "primary": "button.primary", "surface": "button.dialog.default"}.get(ctx.variant, "button.toggle")
+        border_key = f"{prefix}.border"
+        border_color = tm.try_get_color(border_key)
+        if border_color is not None:
+            painter.setPen(QPen(QColor(border_color), 1.0))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(rect_f, radius, radius)
