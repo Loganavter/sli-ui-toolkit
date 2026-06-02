@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sli-ui-toolkit"
+version = "0.2.0"
+description = "Reusable PyQt UI toolkit primitives for SLI desktop tools."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.6",
+    "markdown>=3.4",
+]
+license = { text = "MIT" }
+authors = [
+    { name = "Loganavter" },
+]
+
+[project.urls]
+Repository = "https://github.com/Loganavter/sli-ui-toolkit"
+Issues = "https://github.com/Loganavter/sli-ui-toolkit/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
