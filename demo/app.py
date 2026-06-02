@@ -46,6 +46,15 @@ class ButtonsPage(QWidget):
         custom_layout.addStretch()
         layout.addLayout(custom_layout)
 
+        layout.addWidget(GroupTitleLabel(text="Custom Colors with Alpha"))
+        alpha_layout = QHBoxLayout()
+        color_alpha = QColor("#E91E63")
+        color_alpha.setAlpha(180)
+        btn_alpha = Button(text="Alpha 70%", background_color=color_alpha)
+        alpha_layout.addWidget(btn_alpha)
+        alpha_layout.addStretch()
+        layout.addLayout(alpha_layout)
+
         layout.addStretch()
 
 
