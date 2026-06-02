@@ -86,7 +86,7 @@ class ButtonPainter:
         else:
             painter.drawRoundedRect(rect_f, radius, radius)
 
-        if widget.isEnabled():
+        if widget.isEnabled() and custom_bg_color is None:
             border_key = f"{prefix}.border"
             border_color = tm.try_get_color(border_key)
             if border_color is not None:
