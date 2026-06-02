@@ -25,16 +25,28 @@ class TokenResolver:
         variant: str,
         states: StateSet,
         override_bg: QColor | None = None,
+        custom_bg: QColor | None = None,
     ) -> QColor:
         """Разрешить цвет фона кнопки.
 
         Приоритет состояний:
         1. override_bg (программное переопределение)
-        2. custom background_color + состояние
+        2. custom_bg (произвольный цвет с auto-derivation)
         3. variant-специфичная логика (ghost, subtle, или по prefix)
         """
         if override_bg is not None:
             return override_bg
+
+        if custom_bg is not None:
+            if ButtonState.DISABLED in states:
+                c = QColor(custom_bg)
+                c.setAlpha(int(custom_bg.alpha() * 0.5))
+                return c
+            if ButtonState.PRESSED in states:
+                return custom_bg.darker(115)
+            if ButtonState.HOVERED in states:
+                return custom_bg.lighter(108)
+            return QColor(custom_bg)
 
         variant_lower = variant.lower()
         prefix = BUTTON_VARIANT_SCHEMA.get(variant_lower, "button.toggle")

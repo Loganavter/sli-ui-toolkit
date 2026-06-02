@@ -57,6 +57,7 @@ class ButtonPainter:
         icon_size: int = 22,
         show_strike_through: bool = False,
         override_bg_color: QColor | None = None,
+        custom_bg_color: QColor | None = None,
         is_footer: bool = False,
     ):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -70,6 +71,7 @@ class ButtonPainter:
             prefix, variant, style, tm,
             is_pressed, is_checked, is_hovered,
             override_bg=override_bg_color,
+            custom_bg=custom_bg_color,
         )
 
         painter.setPen(Qt.PenStyle.NoPen)
@@ -184,9 +186,16 @@ class ButtonPainter:
     @staticmethod
     def _resolve_background(prefix, variant, style, tm,
                             is_pressed, is_checked, is_hovered,
-                            override_bg=None) -> QColor:
+                            override_bg=None, custom_bg=None) -> QColor:
         if override_bg is not None:
             return override_bg
+
+        if custom_bg is not None:
+            if is_pressed:
+                return custom_bg.darker(115)
+            if is_hovered:
+                return custom_bg.lighter(108)
+            return QColor(custom_bg)
 
         if style.background_color is not None:
             bg = QColor(style.background_color)

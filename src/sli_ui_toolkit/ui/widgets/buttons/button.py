@@ -102,6 +102,7 @@ class Button(QWidget):
         corner_radius: int | None = None,
         variant: str = "default",
         density: str = "normal",
+        background_color: QColor | None = None,
         config: ButtonConfig | None = None,
         parent: QWidget | None = None,
     ):
@@ -158,6 +159,7 @@ class Button(QWidget):
         self.setProperty("cornerRadiusPx", corner_radius)
         self._foreground_color: QColor | None = None
         self._background_color: QColor | None = None
+        self._custom_bg_color: QColor | None = background_color
         self._accent_color: QColor | None = None
         self._underline_color: QColor | None = None
         self._show_underline = show_underline
@@ -356,6 +358,13 @@ class Button(QWidget):
     def set_override_bg_color(self, color: QColor | None):
         self._override_bg_color = color
         self.update()
+
+    def set_background_color(self, color: QColor | None):
+        self._custom_bg_color = color
+        self.update()
+
+    def getBackgroundColor(self) -> QColor | None:
+        return self._custom_bg_color
 
     def set_show_strike_through(self, enabled: bool):
         self._show_strike_through = enabled
@@ -646,6 +655,7 @@ class Button(QWidget):
                     corner_radius=self._corner_radius_px,
                     content=self._build_content(),
                     override_bg_color=self._override_bg_color,
+                    custom_bg_color=self._custom_bg_color,
                     badge_text=str(self._badge) if self._badge is not None else None,
                     show_underline=self._show_underline,
                     underline_color=self._custom_color,
@@ -681,6 +691,7 @@ class Button(QWidget):
             icon_size=self._icon_size_px,
             show_strike_through=self._is_strike_through(),
             override_bg_color=self._override_bg_color,
+            custom_bg_color=self._custom_bg_color,
             is_footer=self._is_footer,
         )
         painter.end()

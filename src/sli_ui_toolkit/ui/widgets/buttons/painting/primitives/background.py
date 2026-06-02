@@ -29,6 +29,7 @@ def draw_background_and_border(
         ctx.variant,
         ctx.states,
         override_bg=ctx.override_bg_color,
+        custom_bg=ctx.custom_bg_color,
     )
 
     painter.setPen(Qt.PenStyle.NoPen)
