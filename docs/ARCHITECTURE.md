@@ -12,9 +12,16 @@ If you need something else:
 
 `sli-ui-toolkit` is a reusable PyQt6 UI layer with three main responsibilities:
 
+- preserve the SLI name as **Shared Lightweight Interface**;
+
 - provide custom-painted widgets and small reusable composites;
 - provide shared UI infrastructure such as theming, icon resolution, i18n, flyout management, and workers;
 - keep host-app specifics outside the toolkit and inject them through configuration hooks.
+
+The package was extracted from Improve-ImgSLI and Tkonverter, so it is not a
+from-scratch neutral framework. Treat it as a reusable slice of those apps that
+has been cleaned up for wider PyQt use: app behavior stays in host projects,
+while widgets, managers, and theme-aware primitives stay here.
 
 It is not a full application framework. App-specific icons, translations, business logic, and resource-folder conventions should stay in the host app.
 

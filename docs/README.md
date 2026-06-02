@@ -12,9 +12,11 @@ This folder is split by document role.
    Read this when changing internals or adding new subsystems.
 4. [DESIGN_LANGUAGE.md](DESIGN_LANGUAGE.md)
    Read this when implementing or restyling custom-painted widgets.
-5. [BUTTON_API.md](BUTTON_API.md)
+5. [ROADMAP.md](ROADMAP.md)
+   Read this when planning toolkit maturity work.
+6. [BUTTON_API.md](BUTTON_API.md)
    Use this when working with the composable `Button` widget.
-6. [BUTTON_ARCHITECTURE.md](BUTTON_ARCHITECTURE.md)
+7. [BUTTON_ARCHITECTURE.md](BUTTON_ARCHITECTURE.md)
    Read this when changing button internals.
 
 ## Document Roles
@@ -27,6 +29,8 @@ This folder is split by document role.
   Internal structure and subsystem boundaries. Not a full API manual.
 - `DESIGN_LANGUAGE.md`
   Visual and interaction conventions for custom controls.
+- `ROADMAP.md`
+  Planned quality, API stability, packaging, and documentation improvements.
 - `BUTTON_API.md`
   Button-specific public API reference.
 - `BUTTON_ARCHITECTURE.md`

@@ -1,6 +1,12 @@
 # SLI UI Toolkit
 
 `sli-ui-toolkit` is a reusable PyQt6 widget and UI-support library.
+SLI stands for **Shared Lightweight Interface**.
+
+It was extracted from two production apps, Improve-ImgSLI and Tkonverter.
+That history is still visible in some widget choices and naming, but the
+package is maintained as a general-purpose toolkit: host-specific behavior is
+kept outside the library and injected through configuration hooks.
 
 Use it when you want:
 
@@ -71,7 +77,7 @@ app = QApplication([])
 theme = ThemeManager.get_instance()
 theme.register_palettes(light_palette={...}, dark_palette={...})
 theme.register_qss_path(str(Path("resources/qss/app.qss")))
-theme.set_theme("dark", app)
+theme.set_theme("light", app)
 
 configure_icon_resolver(resolver=my_icon_lookup)
 

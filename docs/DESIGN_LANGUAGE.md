@@ -10,12 +10,12 @@ For other needs:
 
 ## Overview
 
-The toolkit implements a custom dark-first design language with the following principles:
+The toolkit implements a custom theme-aware design language with the following principles:
 
 - **Custom-painted controls** — all interactive widgets (checkbox, radio, slider, switch, combobox, spinbox) are painted entirely via `QPainter`, not styled via QSS.
 - **Smooth animated transitions** — state changes (hover, check, toggle) use `QPropertyAnimation` with `OutCubic` easing and short durations (100–200 ms).
 - **Accent-driven color** — a single accent color (from `ThemeManager`) propagates through all active/focus/selected states.
-- **Dark and light themes** — two palette sets registered at startup; widgets resolve colors from the active palette at paint time.
+- **Light and dark themes** — two palette sets registered at startup; widgets resolve colors from the active palette at paint time. Light mode is a first-class target, and dark mode stays reliable because the same token system drives both palettes.
 - **Compact geometry** — controls are sized for tool-dense UIs (20 px indicators, 22 px track heights, 44 px button defaults).
 
 ## Not Fluent, Not Material
@@ -32,7 +32,7 @@ The design was originally inspired by WinUI 3 / Fluent Design but has diverged s
 | Borders | Rounded 4 px default | 2–8 px radius depending on context |
 | Iconography | Segoe Fluent Icons | App-supplied SVG icons via resolver |
 
-The result is a pragmatic, compact, dark-first toolkit for image/video tool UIs — not a faithful Fluent implementation.
+The result is a pragmatic, compact toolkit for image/video and text-processing tool UIs — not a faithful Fluent implementation.
 
 ## Color System
 

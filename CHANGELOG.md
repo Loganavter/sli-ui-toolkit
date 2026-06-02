@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1
+
+- Document SLI as **Shared Lightweight Interface**.
+- Add agent guidance for release/version discipline and host-app boundaries.
+- Clarify that the toolkit was extracted from Improve-ImgSLI and Tkonverter but is maintained as reusable PyQt infrastructure.
+- Replace theme-bias design wording with first-class light and dark theme support.
+- Add a roadmap for making the library more mature as a standalone UI toolkit.
+
 ## 0.2.0
 
 - Move shared UI toolkit code out of application repositories.
