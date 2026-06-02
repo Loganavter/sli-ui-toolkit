@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Clean up architecture documentation: remove legacy viewport migration notes that are irrelevant to the UI toolkit library.
+
 ## 0.2.1
 
 - Document SLI as **Shared Lightweight Interface**.
