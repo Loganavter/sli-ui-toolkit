@@ -2,6 +2,7 @@
 
 from sli_ui_toolkit._version import __version__
 from sli_ui_toolkit.config import FlyoutTimingConfig, configure_toolkit
+from sli_ui_toolkit.palettes import FLUENT_LIGHT, FLUENT_DARK
 from sli_ui_toolkit.core.logging import (
     get_log_directory,
     setup_logging,
@@ -68,4 +69,6 @@ __all__ = [
     "setup_simple_logging",
     "tr",
     "translation_events",
+    "FLUENT_LIGHT",
+    "FLUENT_DARK",
 ]

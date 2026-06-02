@@ -35,6 +35,7 @@ class ButtonDrawContext:
 
     # Оверрайды
     override_bg_color: QColor | None = None
+    custom_bg_color: QColor | None = None
 
     # Декорации
     badge_text: str | None = None
