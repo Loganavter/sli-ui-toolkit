@@ -1,0 +1,139 @@
+"""Self-contained adapter so UnifiedFlyout can be used without an external
+store/controller/main_window — accepts plain item lists and two anchor widgets.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from types import SimpleNamespace
+
+
+@dataclass
+class UnifiedFlyoutItem:
+    display_name: str
+    rating: int = 0
+    path: str = ""
+
+
+class _Document:
+    def __init__(self) -> None:
+        self.image_list1: list[UnifiedFlyoutItem] = []
+        self.image_list2: list[UnifiedFlyoutItem] = []
+        self.current_index1: int = -1
+        self.current_index2: int = -1
+
+
+class SimpleUnifiedFlyoutStore:
+    """Minimal store with the same shape that UnifiedFlyout reads.
+
+    Replaces the improve-imgsli `store` object so the widget is usable
+    standalone.
+    """
+
+    def __init__(self) -> None:
+        self.document = _Document()
+
+    def set_lists(
+        self,
+        left: list[UnifiedFlyoutItem | str],
+        right: list[UnifiedFlyoutItem | str],
+        *,
+        current_left: int = -1,
+        current_right: int = -1,
+    ) -> None:
+        self.document.image_list1 = [_coerce(i) for i in left]
+        self.document.image_list2 = [_coerce(i) for i in right]
+        self.document.current_index1 = current_left
+        self.document.current_index2 = current_right
+
+
+class SimpleUnifiedFlyoutController:
+    """Receives selection / reorder callbacks from UnifiedFlyout panels."""
+
+    def __init__(self, store: SimpleUnifiedFlyoutStore) -> None:
+        self._store = store
+
+    def on_combobox_changed(self, list_num: int, index: int) -> None:
+        if list_num == 1:
+            self._store.document.current_index1 = index
+        elif list_num == 2:
+            self._store.document.current_index2 = index
+
+    def remove_specific_image_from_list(self, list_num: int, index: int) -> None:
+        target = (
+            self._store.document.image_list1
+            if list_num == 1
+            else self._store.document.image_list2
+        )
+        if 0 <= index < len(target):
+            target.pop(index)
+
+    def increment_rating(self, image_number: int, index: int) -> None:
+        item = self._item(image_number, index)
+        if item is not None:
+            item.rating = min(5, item.rating + 1)
+
+    def decrement_rating(self, image_number: int, index: int) -> None:
+        item = self._item(image_number, index)
+        if item is not None:
+            item.rating = max(0, item.rating - 1)
+
+    def reorder_item_in_list(
+        self, *, image_number: int, source_index: int, dest_index: int
+    ) -> None:
+        target = (
+            self._store.document.image_list1
+            if image_number == 1
+            else self._store.document.image_list2
+        )
+        if 0 <= source_index < len(target) and 0 <= dest_index <= len(target):
+            item = target.pop(source_index)
+            target.insert(dest_index, item)
+
+    def move_item_between_lists(
+        self,
+        *,
+        source_list_num: int,
+        source_index: int,
+        dest_list_num: int,
+        dest_index: int,
+    ) -> None:
+        src = (
+            self._store.document.image_list1
+            if source_list_num == 1
+            else self._store.document.image_list2
+        )
+        dst = (
+            self._store.document.image_list1
+            if dest_list_num == 1
+            else self._store.document.image_list2
+        )
+        if 0 <= source_index < len(src):
+            item = src.pop(source_index)
+            dst.insert(min(dest_index, len(dst)), item)
+
+    sessions = property(lambda self: self)
+
+    def _item(self, image_number: int, index: int) -> UnifiedFlyoutItem | None:
+        target = (
+            self._store.document.image_list1
+            if image_number == 1
+            else self._store.document.image_list2
+        )
+        return target[index] if 0 <= index < len(target) else None
+
+
+def make_main_window_proxy(host_window, anchor_left, anchor_right):
+    """Build the minimal `main_window.ui` surface UnifiedFlyout reads."""
+    ui = SimpleNamespace(combo_image1=anchor_left, combo_image2=anchor_right)
+    host_window.ui = ui  # attach so existing code paths find `self.main_window.ui.combo_imageN`
+    return host_window
+
+
+def _coerce(item) -> UnifiedFlyoutItem:
+    if isinstance(item, UnifiedFlyoutItem):
+        return item
+    if isinstance(item, str):
+        return UnifiedFlyoutItem(display_name=item)
+    if isinstance(item, dict):
+        return UnifiedFlyoutItem(**item)
+    return UnifiedFlyoutItem(display_name=str(item))

@@ -52,8 +52,12 @@ def create_rating_gesture(**kwargs):
 
 def get_dragdrop_service():
     if _dragdrop_service_getter is None:
-        return None
+        from sli_ui_toolkit.ui.services.dragdrop_service import ToolkitDragDropService
+
+        return ToolkitDragDropService.get_instance()
     try:
         return _dragdrop_service_getter()
     except Exception:
-        return None
+        from sli_ui_toolkit.ui.services.dragdrop_service import ToolkitDragDropService
+
+        return ToolkitDragDropService.get_instance()

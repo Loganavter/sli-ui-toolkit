@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QBrush, QColor, QGuiApplication, QPainter, QPen
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtGui import QAction, QBrush, QColor, QFontMetrics, QGuiApplication, QPainter, QPen
+from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
-from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.in_window_surface import (
     attach_in_window_widget,
     paint_shadowed_surface,
 )
+from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 
 class _MenuItem(QWidget):
     clicked = pyqtSignal()
@@ -26,7 +26,7 @@ class _MenuItem(QWidget):
         self.setFixedHeight(40)
         self.setMouseTracking(True)
         if is_current:
-            self._check_icon = resolve_icon("check").pixmap(20, 20)
+            self._check_icon = normalized_icon_pixmap("check", 20)
 
     def event(self, event):
         if event.type() == QEvent.Type.DynamicPropertyChange:
@@ -37,7 +37,7 @@ class _MenuItem(QWidget):
 
     def set_current(self, is_current: bool):
         self._is_current = is_current
-        self._check_icon = resolve_icon("check").pixmap(20, 20) if is_current else None
+        self._check_icon = normalized_icon_pixmap("check", 20) if is_current else None
         self.update()
 
     def enterEvent(self, event):
@@ -59,10 +59,10 @@ class _MenuItem(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         tm = ThemeManager.get_instance()
-        bg_color = tm.get_color("list_item.background.hover" if (self._is_current or self._hovered) else "list_item.background.normal")
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg_color))
-        painter.drawRoundedRect(self.rect().adjusted(2, 2, -2, -2), 4, 4)
+        if self._is_current or self._hovered:
+            painter.setBrush(QBrush(tm.get_color("list_item.background.hover")))
+            painter.drawRoundedRect(self.rect().adjusted(2, 2, -2, -2), 4, 4)
         text_color = self._foreground_color or tm.get_color("dialog.text")
         if self._check_icon:
             icon_rect = QRect(10, (self.height() - 20) // 2, 20, 20)
@@ -85,7 +85,10 @@ class DropdownMenu(QWidget):
     _move_easing = QEasingCurve.Type.OutQuad
 
     def __init__(self, parent=None):
+        if parent is None:
+            raise ValueError("DropdownMenu requires an in-window parent widget")
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Widget)
         self._owner_button = parent
         self._actions = []
         self._menu_items = []
@@ -97,7 +100,7 @@ class DropdownMenu(QWidget):
         self.main_layout.setContentsMargins(8, 8, 8, 8)
         self.container_widget = QWidget(self)
         self.container_widget.setObjectName("menuContainer")
-        self.container_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.container_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self.main_layout.addWidget(self.container_widget)
         self.container_layout = QVBoxLayout(self.container_widget)
         self.container_layout.setContentsMargins(4, 4, 4, 4)
@@ -107,16 +110,60 @@ class DropdownMenu(QWidget):
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content_layout.setSpacing(2)
         self.container_layout.addWidget(self.content_widget)
+        self._global_filter_installed = False
         self.hide()
+
+    def _install_outside_click_filter(self):
+        if self._global_filter_installed:
+            return
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+            self._global_filter_installed = True
+
+    def _remove_outside_click_filter(self):
+        if not self._global_filter_installed:
+            return
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+        self._global_filter_installed = False
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseButtonPress and self.isVisible():
+            try:
+                global_pos = event.globalPosition().toPoint()
+            except AttributeError:
+                global_pos = event.globalPos()
+            # Click is outside the menu and outside the owner button → close.
+            menu_top_left = self.mapToGlobal(QPoint(0, 0))
+            menu_rect = QRect(menu_top_left, self.size())
+            inside_menu = menu_rect.contains(global_pos)
+            inside_owner = False
+            if self._owner_button is not None:
+                try:
+                    owner_top_left = self._owner_button.mapToGlobal(QPoint(0, 0))
+                    inside_owner = QRect(owner_top_left, self._owner_button.size()).contains(global_pos)
+                except RuntimeError:
+                    pass
+            if not inside_menu and not inside_owner:
+                self.hide()
+        return False
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         paint_shadowed_surface(
             painter,
             self.container_widget.geometry(),
             shadow_radius=self.SHADOW_RADIUS,
             corner_radius=self.CONTENT_RADIUS,
         )
+        tm = ThemeManager.get_instance()
+        rect = self.container_widget.geometry()
+        painter.setBrush(QBrush(tm.get_color("flyout.background")))
+        painter.setPen(QPen(tm.get_color("flyout.border"), 1))
+        painter.drawRoundedRect(rect, self.CONTENT_RADIUS, self.CONTENT_RADIUS)
         painter.end()
 
     def _ensure_overlay_parent(self, anchor_widget: QWidget):
@@ -128,6 +175,16 @@ class DropdownMenu(QWidget):
             if was_visible:
                 self.show()
                 self.raise_()
+            return
+
+        if self.overlay_layer is None:
+            window = anchor_widget.window()
+            if window is not None and self.parentWidget() is not window:
+                was_visible = self.isVisible()
+                self.setParent(window)
+                if was_visible:
+                    self.show()
+                    self.raise_()
 
     def set_actions(self, actions: list[tuple[str, any]]):
         self._actions = actions
@@ -150,40 +207,64 @@ class DropdownMenu(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         self._menu_items.clear()
-        max_width = 180
+        anchor_width = max(0, int(anchor_widget.width()))
+        metrics = QFontMetrics(self.font())
+        check_icon_space = 28 if self._current_index >= 0 else 0
+        longest_text_width = max(
+            (metrics.horizontalAdvance(str(text)) for text, _data in self._actions),
+            default=0,
+        )
+        content_width = longest_text_width + check_icon_space + 24
+        max_width = max(40, anchor_width - 16, content_width)
         for i, (text, data) in enumerate(self._actions):
             item = _MenuItem(text, i == self._current_index, self.content_widget)
             item.clicked.connect(lambda checked=False, idx=i: self._on_item_clicked(idx))
             self._menu_items.append(item)
             self.content_layout.addWidget(item)
-            fm = item.fontMetrics()
-            max_width = max(max_width, fm.boundingRect(text).width() + 60)
         item_height = 40
         content_height = len(self._actions) * item_height + max(0, len(self._actions) - 1) * self.content_layout.spacing()
         container_height = content_height + 8
         self.container_widget.setFixedSize(max_width, container_height)
         self.setFixedSize(max_width + 16, container_height + 16)
         use_overlay_coords = self.overlay_layer is not None
-        anchor_rect = self.overlay_layer.anchor_rect(anchor_widget) if use_overlay_coords else QRect(anchor_widget.mapToGlobal(QPoint(0, 0)), anchor_widget.size())
+        if use_overlay_coords:
+            anchor_rect = self.overlay_layer.anchor_rect(anchor_widget)
+        else:
+            parent = self.parentWidget()
+            anchor_top_left = anchor_widget.mapTo(parent, QPoint(0, 0)) if parent is not None else anchor_widget.mapToGlobal(QPoint(0, 0))
+            anchor_rect = QRect(anchor_top_left, anchor_widget.size())
         final_pos = QPoint(anchor_rect.x() - 8, anchor_rect.bottom() - 4 + self.APPEAR_EXTRA_Y)
         start_pos = QPoint(final_pos.x(), final_pos.y() - self.DROP_OFFSET_PX)
         if use_overlay_coords:
             final_rect = self.overlay_layer.clamp_rect(QRect(final_pos, QSize(max_width + 16, container_height + 16)))
+            if final_rect.width() < max_width + 16:
+                max_width = max(40, final_rect.width() - 16)
+                self.container_widget.setFixedSize(max_width, container_height)
+                self.setFixedSize(max_width + 16, container_height + 16)
+                final_rect = QRect(final_rect.topLeft(), QSize(max_width + 16, container_height + 16))
             final_pos = final_rect.topLeft()
             start_pos = QPoint(final_pos.x(), final_pos.y() - self.DROP_OFFSET_PX)
         else:
-            try:
-                screen = QGuiApplication.screenAt(anchor_widget.mapToGlobal(QPoint(0, 0)))
-                if screen:
-                    avail = screen.availableGeometry()
-                    final_pos.setX(max(avail.left(), min(final_pos.x(), avail.right() - (max_width + 16))))
-                    final_pos.setY(max(avail.top(), min(final_pos.y(), avail.bottom() - (container_height + 16))))
-                    start_pos = QPoint(final_pos.x(), final_pos.y() - self.DROP_OFFSET_PX)
-            except Exception:
-                pass
+            parent = self.parentWidget()
+            if parent is not None:
+                bounds = parent.rect()
+                final_pos.setX(max(bounds.left(), min(final_pos.x(), bounds.right() - (max_width + 16))))
+                final_pos.setY(max(bounds.top(), min(final_pos.y(), bounds.bottom() - (container_height + 16))))
+                start_pos = QPoint(final_pos.x(), final_pos.y() - self.DROP_OFFSET_PX)
+            else:
+                try:
+                    screen = QGuiApplication.screenAt(anchor_widget.mapToGlobal(QPoint(0, 0)))
+                    if screen:
+                        avail = screen.availableGeometry()
+                        final_pos.setX(max(avail.left(), min(final_pos.x(), avail.right() - (max_width + 16))))
+                        final_pos.setY(max(avail.top(), min(final_pos.y(), avail.bottom() - (container_height + 16))))
+                        start_pos = QPoint(final_pos.x(), final_pos.y() - self.DROP_OFFSET_PX)
+                except Exception:
+                    pass
         self.move(start_pos)
         self.show()
         self.raise_()
+        self._install_outside_click_filter()
         anim_pos = QPropertyAnimation(self, b"pos", self)
         anim_pos.setDuration(self._move_duration_ms)
         anim_pos.setStartValue(start_pos)
@@ -201,7 +282,6 @@ class DropdownMenu(QWidget):
 
     def _on_item_clicked(self, index: int):
         if 0 <= index < len(self._actions):
-            self._current_index = index
             _, data = self._actions[index]
             action = QAction(self)
             action.setData(data)
@@ -211,6 +291,7 @@ class DropdownMenu(QWidget):
     def hideEvent(self, event):
         if self._anim:
             self._anim.stop()
+        self._remove_outside_click_filter()
         if self._owner_button is not None and hasattr(self._owner_button, "_menu_visible"):
             self._owner_button._menu_visible = False
         super().hideEvent(event)

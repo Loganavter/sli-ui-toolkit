@@ -129,7 +129,7 @@ Folder:
 Responsibilities:
 
 - reusable multi-widget assemblies;
-- flyouts, dialog shells, console widgets, help dialogs, path pickers, and similar “assembled” controls;
+- flyouts, dialog shells, console widgets, help dialogs, and similar “assembled” controls;
 - package-level reusable UX patterns.
 
 Use this layer when the unit is bigger than one primitive and has meaningful internal structure.
@@ -137,7 +137,6 @@ Use this layer when the unit is bigger than one primitive and has meaningful int
 Examples:
 
 - `SidebarDialogShell`
-- `DialogActionBar`
 - `MarkdownHelpDialog`
 - `ProcessConsoleWidget`
 

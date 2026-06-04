@@ -50,7 +50,8 @@ class _DropIndicator(QWidget):
         painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
 
 class _Panel(QWidget):
-    MAX_VISIBLE_ITEMS = 10
+    # improve-imgsli v9.0.0 caps the panel at ~7.5 rows of content before scrolling.
+    MAX_VISIBLE_ITEMS = 7
 
     def __init__(
         self,
@@ -105,7 +106,8 @@ class _Panel(QWidget):
         self.content_widget = QWidget()
 
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(0, 4, 0, 4)
+        # Match improve-imgsli v9.0.0 panel paddings: 4px on all sides, 2px gap.
+        self.content_layout.setContentsMargins(4, 4, 4, 4)
         self.content_layout.setSpacing(2)
         self.content_layout.addStretch(1)
 
@@ -121,16 +123,44 @@ class _Panel(QWidget):
         self.theme_manager.theme_changed.connect(self._apply_style)
 
     def sizeHint(self):
-
-        return QSize(200, self._container_height)
+        try:
+            width_hint = max(self.scroll_area.sizeHint().width(), 200)
+        except Exception:
+            width_hint = 200
+        return QSize(width_hint, self._container_height)
 
     def _apply_style(self):
-
         try:
             accent = self.theme_manager.get_color("accent")
         except Exception:
             accent = QColor("#00b7ff")
         self.drop_overlay.set_color(accent)
+
+        # Port from improve-imgsli v9.0.0: paint the panel surface ourselves so
+        # the widget renders correctly without a host-supplied QSS sheet.
+        try:
+            bg_color = self.theme_manager.get_color("flyout.background").name(
+                QColor.NameFormat.HexArgb
+            )
+            border_color = self.theme_manager.get_color("flyout.border").name(
+                QColor.NameFormat.HexArgb
+            )
+        except Exception:
+            return
+        self.setStyleSheet(
+            "#UnifiedFlyoutPanel {"
+            f"background-color: {bg_color};"
+            f"border: 1px solid {border_color};"
+            "border-radius: 8px;"
+            "}"
+        )
+        try:
+            self.scroll_area.setStyleSheet(
+                "background-color: transparent; border: none;"
+            )
+            self.content_widget.setStyleSheet("background: transparent;")
+        except Exception:
+            pass
 
     def clear_and_rebuild(
         self,
@@ -374,7 +404,7 @@ class _Panel(QWidget):
             self.content_layout.removeWidget(widget)
             self.content_layout.insertWidget(index, widget)
 
-    def recalculate_and_set_height(self):
+    def recalculate_and_set_height(self, max_height: int | None = None):
         import logging
 
         logger = logging.getLogger(__name__)
@@ -383,7 +413,7 @@ class _Panel(QWidget):
 
         if num_items <= 0:
             row_h = self.item_height if self.item_height > 0 else 36
-            final_height = row_h
+            final_height = self._constrained_height(row_h, max_height)
             self._container_height = final_height
             self.setMinimumHeight(0)
             self.setMaximumHeight(final_height)
@@ -395,18 +425,20 @@ class _Panel(QWidget):
         total_h = (num_items * row_h) + (max(0, num_items - 1) * spacing)
 
         if num_items <= 8:
-            final_h = total_h + 10
+            natural_h = total_h + 10
+            final_h = self._constrained_height(natural_h, max_height)
             self._container_height = final_h
+            constrained = final_h < natural_h
 
-            self.setMinimumHeight(final_h)
+            self.setMinimumHeight(0 if constrained else final_h)
             self.setMaximumHeight(final_h)
 
-            self.scroll_area.setMinimumHeight(final_h)
+            self.scroll_area.setMinimumHeight(0 if constrained else final_h)
             self.scroll_area.setMaximumHeight(final_h)
 
             self.scroll_area.setWidgetResizable(True)
-            self.content_widget.setMinimumHeight(final_h)
-            self.content_widget.setMaximumHeight(final_h)
+            self.content_widget.setMinimumHeight(0 if constrained else final_h)
+            self.content_widget.setMaximumHeight(16777215 if constrained else final_h)
 
             for i in range(num_items):
                 layout_item = self.content_layout.itemAt(i)
@@ -423,7 +455,8 @@ class _Panel(QWidget):
             max_h = (visible_items * row_h) + (max(0, visible_items - 1) * spacing)
             max_h += 10
             total_h += 8
-            final_h = min(total_h, max_h)
+            natural_h = min(total_h, max_h)
+            final_h = self._constrained_height(natural_h, max_height)
             self._container_height = final_h
             self.setMinimumHeight(0)
             self.setMaximumHeight(final_h)
@@ -454,6 +487,11 @@ class _Panel(QWidget):
             )
 
         return final_h
+
+    def _constrained_height(self, height: int, max_height: int | None) -> int:
+        if max_height is None:
+            return height
+        return max(1, min(height, int(max_height)))
 
     def find_drop_target(self, local_pos_y: int) -> tuple[int, int]:
         count = self.content_layout.count() - 1

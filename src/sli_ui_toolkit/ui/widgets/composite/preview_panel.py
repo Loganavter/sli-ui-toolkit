@@ -1,9 +1,10 @@
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QWheelEvent
-from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtGui import QColor, QWheelEvent
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic import CustomGroupBuilder, MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.theme import ThemeManager
 
 
 class NonPropagatingTextEdit(QTextEdit):
@@ -34,6 +35,7 @@ class PreviewPanel(QWidget):
         parent=None,
     ):
         super().__init__(parent)
+        self.theme_manager = ThemeManager.get_instance()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -43,6 +45,7 @@ class PreviewPanel(QWidget):
 
         self.text_view = NonPropagatingTextEdit()
         self.text_view.setObjectName("previewTextEdit")
+        self.text_view.setFrameShape(QFrame.Shape.NoFrame)
         self.text_view.setReadOnly(True)
         self.text_view.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.text_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
@@ -53,9 +56,9 @@ class PreviewPanel(QWidget):
 
         group_layout.addWidget(self.text_view, 1)
 
-        self.edit_button = Button(text=edit_text, variant="primary")
-        self.save_button = Button(text=save_text, variant="primary")
-        self.revert_button = Button(text=revert_text, variant="primary")
+        self.edit_button = Button(text=edit_text, variant="surface")
+        self.save_button = Button(text=save_text, variant="surface")
+        self.revert_button = Button(text=revert_text, variant="surface")
 
         self.actions_layout = QHBoxLayout()
         self.actions_layout.addWidget(self.edit_button)
@@ -64,6 +67,8 @@ class PreviewPanel(QWidget):
         group_layout.addLayout(self.actions_layout)
 
         self.set_actions_visible(show_actions)
+        self.theme_manager.theme_changed.connect(self._apply_styles)
+        self._apply_styles()
 
     def set_title(self, text: str) -> None:
         self.title.setText(text)
@@ -90,3 +95,21 @@ class PreviewPanel(QWidget):
         self.edit_button.setEnabled(not enabled)
         self.save_button.setEnabled(enabled)
         self.revert_button.setEnabled(enabled)
+
+    def _apply_styles(self) -> None:
+        text = self.theme_manager.get_color("dialog.text").name()
+        bg = self.theme_manager.get_color("dialog.input.background").name(QColor.NameFormat.HexArgb)
+        border = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
+        self.text_view.setStyleSheet(f"""
+            QTextEdit#previewTextEdit {{
+                background: {bg};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px;
+                color: {text};
+            }}
+            QTextEdit#previewTextEdit QAbstractScrollArea::viewport {{
+                background: transparent;
+                border-radius: 6px;
+            }}
+        """)

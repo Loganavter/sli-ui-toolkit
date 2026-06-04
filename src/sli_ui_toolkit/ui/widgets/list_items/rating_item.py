@@ -26,13 +26,14 @@ from PyQt6.QtWidgets import (
 from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.widgets import AutoRepeatButton
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
+from sli_ui_toolkit.widgets import Button
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 
 DEFAULT_MINUS_ICON = "remove"
 DEFAULT_PLUS_ICON = "add"
 
-class RatingListItem(QWidget):
+class RatingListItem(WheelScrollPolicyMixin, QWidget):
     itemSelected = pyqtSignal(int)
     itemRightClicked = pyqtSignal(int)
 
@@ -55,8 +56,10 @@ class RatingListItem(QWidget):
         item_font: QFont = None,
         item_type="image",
         position="middle",
+        wheel_requires_focus: bool = False,
     ):
         super().__init__(parent=parent)
+        self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
         self.index = index
         self.full_path = full_path
         self.image_number = image_number
@@ -116,8 +119,8 @@ class RatingListItem(QWidget):
             rating_font.setPixelSize(max(8, base_px - 3))
             self.rating_label.setFont(rating_font)
 
-            self.btn_minus = AutoRepeatButton(resolve_icon(DEFAULT_MINUS_ICON), parent=self)
-            self.btn_plus = AutoRepeatButton(resolve_icon(DEFAULT_PLUS_ICON), parent=self)
+            self.btn_minus = Button(resolve_icon(DEFAULT_MINUS_ICON), parent=self)
+            self.btn_plus = Button(resolve_icon(DEFAULT_PLUS_ICON), parent=self)
             self.btn_minus.setObjectName("minusButton")
             self.btn_plus.setObjectName("plusButton")
             for btn in [self.btn_minus, self.btn_plus]:
@@ -180,6 +183,8 @@ class RatingListItem(QWidget):
         return super().eventFilter(obj, event)
 
     def wheelEvent(self, event):
+        if not self.shouldHandleWheelEvent(event):
+            return
         if self.item_type != "image":
             return
 

@@ -356,5 +356,3 @@ class CheckBox(QCheckBox):
             )
 
         painter.end()
-
-FluentCheckBox = CheckBox

@@ -147,19 +147,15 @@ class TranslationManager:
     def load_language(self, lang_code: str) -> None:
         requested_lang = lang_code or "en"
 
-        if requested_lang == self._current_lang and self._translations:
+        if requested_lang == self._current_lang:
             return
 
         cached = self._cache.get(requested_lang)
-        if cached is not None:
-            self._translations = cached
-            self._current_lang = requested_lang
-            self._events.language_changed.emit(requested_lang)
-            return
+        if cached is None:
+            cached = self._build_language_pack(requested_lang)
+            self._cache[requested_lang] = cached
 
-        translations = self._build_language_pack(requested_lang)
-        self._cache[requested_lang] = translations
-        self._translations = translations
+        self._translations = cached
         self._current_lang = requested_lang
         self._events.language_changed.emit(requested_lang)
 

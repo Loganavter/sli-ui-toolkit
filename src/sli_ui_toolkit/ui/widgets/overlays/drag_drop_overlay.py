@@ -4,7 +4,10 @@ from PyQt6.QtWidgets import QWidget
 
 class DragDropOverlay(QWidget):
     def __init__(self, parent=None):
+        if parent is None:
+            raise ValueError("DragDropOverlay requires an in-window parent widget")
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Widget)
         self._horizontal = False
         self._texts = ("", "")
         self._target_rect = None

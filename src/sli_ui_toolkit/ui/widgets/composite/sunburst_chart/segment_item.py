@@ -8,6 +8,10 @@ from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem
 
 from sli_ui_toolkit.ui.widgets.composite.sunburst_chart.models import SunburstSegmentData
 
+def _contrast_text_color(color: QColor) -> QColor:
+    luminance = 0.2126 * color.red() + 0.7152 * color.green() + 0.0722 * color.blue()
+    return QColor("#111111") if luminance > 170 else QColor("#ffffff")
+
 class SegmentSignals(QObject):
     clicked = pyqtSignal(str, int)
     hover_enter = pyqtSignal(object, QPointF)
@@ -71,7 +75,7 @@ class SunburstSegmentItem(QGraphicsPathItem):
         font = QFont()
         font.setPointSize(int(self.data.font_size * 1.5))
         text_item.setFont(font)
-        text_item.setDefaultTextColor(QColor(255, 255, 255))
+        text_item.setDefaultTextColor(_contrast_text_color(self.base_color))
         br = text_item.boundingRect()
         text_item.setTransformOriginPoint(br.width() / 2, br.height() / 2)
 

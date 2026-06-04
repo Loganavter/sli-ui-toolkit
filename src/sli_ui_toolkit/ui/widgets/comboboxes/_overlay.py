@@ -24,7 +24,10 @@ class _DropdownOverlay(QWidget):
     GAP = 6
 
     def __init__(self, owner: "ComboBox", parent: QWidget):
+        if parent is None:
+            raise ValueError("_DropdownOverlay requires an in-window parent widget")
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Widget)
         self._owner = owner
         self._theme = owner._theme
         self._hovered_row = -1
@@ -79,7 +82,7 @@ class _DropdownOverlay(QWidget):
         self.raise_()
         self.update()
         logger.debug(
-            "[FluentComboBox.overlay.show] object=%s current=%d scroll_offset=%d visible=%d geom=(%d,%d,%d,%d)",
+            "[ComboBox.overlay.show] object=%s current=%d scroll_offset=%d visible=%d geom=(%d,%d,%d,%d)",
             self._owner.objectName() or "<unnamed>",
             self._owner.currentIndex(),
             self._owner._scroll_offset,
@@ -270,7 +273,7 @@ class _DropdownOverlay(QWidget):
                 clicked_row = item_index
                 break
         logger.debug(
-            "[FluentComboBox.overlay.click] object=%s local=(%d,%d) clicked_row=%d hovered_row=%d current=%d",
+            "[ComboBox.overlay.click] object=%s local=(%d,%d) clicked_row=%d hovered_row=%d current=%d",
             self._owner.objectName() or "<unnamed>",
             local_pos.x(),
             local_pos.y(),

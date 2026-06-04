@@ -12,7 +12,10 @@ class _TooltipBubble(QWidget):
     CONTENT_RADIUS = 5
 
     def __init__(self, parent: QWidget):
+        if parent is None:
+            raise ValueError("_TooltipBubble requires an in-window parent widget")
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Widget)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(

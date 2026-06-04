@@ -5,10 +5,19 @@ import time
 
 from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QHBoxLayout, QLabel, QWidget
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 
 logger = logging.getLogger(__name__)
@@ -92,6 +101,8 @@ class SimpleOptionsFlyout(BaseFlyout):
 
     MARGIN = 8
     APPEAR_EXTRA_Y = 6
+    MAX_VISIBLE_ITEMS = 12
+    WINDOW_MARGIN = 8
 
     def __init__(self, parent_widget=None):
         super().__init__(parent_widget)
@@ -100,18 +111,45 @@ class SimpleOptionsFlyout(BaseFlyout):
         self._current_index: int = -1
         self._item_height = 36
         self._item_font = QFont(QApplication.font(self))
+        self._max_visible_items = self.MAX_VISIBLE_ITEMS
         self._move_duration_ms = get_flyout_timings().flyout_animation_duration_ms
         self._move_easing = QEasingCurve.Type.OutQuad
         self._drop_offset_px = 80
         self._anim: QPropertyAnimation | None = None
+        self._anchor_widget: QWidget | None = None
 
         self._main_layout.setContentsMargins(
             self.MARGIN, self.MARGIN, self.MARGIN, self.MARGIN
         )
 
-        self.content_layout.setSpacing(2)
+        self.content_layout.setSpacing(0)
+        self.content_layout.setContentsMargins(4, 4, 4, 4)
+
+        self._scroll_area = QScrollArea(self.container)
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._scroll_area.setVerticalScrollBar(MinimalistScrollBar())
+        self._scroll_area.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
+        self._scroll_area.viewport().setAutoFillBackground(False)
+        self._scroll_area.viewport().setStyleSheet("background: transparent;")
+
+        self._rows_container = QWidget()
+        self._rows_container.setStyleSheet("background: transparent;")
+        self._rows_layout = QVBoxLayout(self._rows_container)
+        self._rows_layout.setContentsMargins(0, 0, 0, 0)
+        self._rows_layout.setSpacing(2)
+        self._rows_layout.addStretch()
+        self._scroll_area.setWidget(self._rows_container)
+        self.content_layout.addWidget(self._scroll_area)
 
         self.hide()
+
+    def set_max_visible_items(self, n: int) -> None:
+        self._max_visible_items = max(1, int(n))
 
     def set_row_height(self, h: int):
         self._item_height = max(28, int(h))
@@ -124,8 +162,9 @@ class SimpleOptionsFlyout(BaseFlyout):
         self._current_index = (
             current_index if 0 <= current_index < len(self._options) else -1
         )
-        while self.content_layout.count():
-            item = self.content_layout.takeAt(0)
+        # Clear existing rows (keep trailing stretch at end of layout).
+        while self._rows_layout.count() > 1:
+            item = self._rows_layout.takeAt(0)
             if w := item.widget():
                 w.deleteLater()
             del item
@@ -136,25 +175,41 @@ class SimpleOptionsFlyout(BaseFlyout):
                 i == self._current_index,
                 self._item_height,
                 self._item_font,
-                self.container,
+                self._rows_container,
             )
             row.clicked.connect(self._on_row_clicked)
-            self.content_layout.addWidget(row)
+            self._rows_layout.insertWidget(self._rows_layout.count() - 1, row)
 
         self._update_size()
 
-    def _update_size(self, match_width: int = 0, exact_match: bool = False):
+    def _update_size(
+        self,
+        match_width: int = 0,
+        exact_match: bool = False,
+        available_height: int | None = None,
+    ):
         num = len(self._options)
+        spacing = self._rows_layout.spacing()
+        outer_margins = self.content_layout.contentsMargins()
+        margins_v = outer_margins.top() + outer_margins.bottom()
 
-        h_content = (
-            50
-            if num == 0
-            else (
-                num * self._item_height
-                + max(0, num - 1) * self.content_layout.spacing()
-            )
-        )
-        container_h = h_content + 8
+        if num == 0:
+            visible = 1
+            content_h = 50
+        else:
+            visible = min(num, self._max_visible_items)
+            if available_height is not None:
+                # Subtract flyout outer margins + inner row container margins
+                budget = available_height - 2 * self.MARGIN - margins_v
+                if budget > 0:
+                    max_by_height = max(
+                        1,
+                        (budget + spacing) // (self._item_height + spacing),
+                    )
+                    visible = min(visible, int(max_by_height))
+            content_h = visible * self._item_height + max(0, visible - 1) * spacing
+
+        container_h = content_h + margins_v
 
         fm = QFontMetrics(self._item_font)
         max_text_width = 0
@@ -166,12 +221,8 @@ class SimpleOptionsFlyout(BaseFlyout):
         final_w = max_text_width + 50
 
         if exact_match and match_width > 0:
-            target_total_width = match_width
-            target_container_width = target_total_width - (self.MARGIN * 2) + 17
-            if final_w > target_container_width:
-                width = final_w
-            else:
-                width = target_container_width
+            target_container_width = max(1, match_width - (self.MARGIN * 2))
+            width = max(final_w, target_container_width)
         elif match_width > 0:
             target_container_width = match_width - (self.MARGIN * 2)
             min_container_width = max(180, target_container_width)
@@ -184,6 +235,12 @@ class SimpleOptionsFlyout(BaseFlyout):
         self.setFixedSize(total_width, container_h + self.MARGIN * 2)
 
     def show_below(self, anchor_widget: QWidget, exact_width_match: bool = True):
+        if self.isVisible() and self._anchor_widget is anchor_widget:
+            self._just_opened = False
+            self.hide()
+            return
+
+        self._anchor_widget = anchor_widget
         self._ensure_overlay_parent(anchor_widget)
         self.flyout_manager.request_show(self)
 
@@ -200,30 +257,86 @@ class SimpleOptionsFlyout(BaseFlyout):
         self._just_opened = True
         self._open_timestamp = time.monotonic()
 
-        self._update_size(match_width=anchor_width, exact_match=exact_width_match)
+        offset = self.APPEAR_EXTRA_Y - self.MARGIN
+        gap = self.WINDOW_MARGIN
 
-        total_width, total_height = self.width(), self.height()
         if self.overlay_layer is not None and not self.isWindow():
-            rect = self.overlay_layer.place_rect_relative_to_anchor(
+            parent_widget = self.parentWidget()
+            avail = parent_widget.rect() if parent_widget is not None else None
+            anchor_rect = (
+                self.overlay_layer.anchor_rect(anchor_widget)
+                if hasattr(self.overlay_layer, "anchor_rect")
+                else None
+            )
+            if avail is not None and anchor_rect is not None:
+                space_below = avail.bottom() - anchor_rect.bottom() - offset - gap
+                space_above = anchor_rect.top() - avail.top() - offset - gap
+                budget = max(space_below, space_above)
+                self._update_size(
+                    match_width=anchor_width,
+                    exact_match=exact_width_match,
+                    available_height=budget,
+                )
+            else:
+                self._update_size(match_width=anchor_width, exact_match=exact_width_match)
+
+            position = "bottom"
+            if avail is not None and anchor_rect is not None:
+                if (anchor_rect.bottom() + offset + self.height()) > avail.bottom() - gap \
+                        and (anchor_rect.top() - offset - self.height()) >= avail.top() + gap:
+                    position = "top"
+            rect = self._overlay_rect_relative_to_anchor(
                 anchor_widget,
                 self.size(),
-                position="bottom",
-                offset=self.APPEAR_EXTRA_Y - self.MARGIN,
+                position=position,
+                offset=offset,
             )
             final_x = rect.x()
             final_y = rect.y()
+            total_width, total_height = self.width(), self.height()
         else:
-            anchor_pos = anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
-            anchor_center_x = anchor_widget.mapToGlobal(anchor_widget.rect().center()).x()
+            parent_widget = self.parentWidget()
+            use_parent_coords = parent_widget is not None and not self.isWindow()
+            anchor_top_pos = (
+                anchor_widget.mapTo(parent_widget, anchor_widget.rect().topLeft())
+                if use_parent_coords
+                else anchor_widget.mapToGlobal(anchor_widget.rect().topLeft())
+            )
+            anchor_bottom_pos = (
+                anchor_widget.mapTo(parent_widget, anchor_widget.rect().bottomLeft())
+                if use_parent_coords
+                else anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
+            )
+            anchor_center_x = (
+                anchor_widget.mapTo(parent_widget, anchor_widget.rect().center()).x()
+                if use_parent_coords
+                else anchor_widget.mapToGlobal(anchor_widget.rect().center()).x()
+            )
 
-            final_y = anchor_pos.y() + self.APPEAR_EXTRA_Y - self.MARGIN
+            if use_parent_coords:
+                avail = parent_widget.rect()
+            else:
+                try:
+                    screen = anchor_widget.screen() or QGuiApplication.screenAt(anchor_bottom_pos)
+                    avail = screen.availableGeometry()
+                except Exception:
+                    avail = QGuiApplication.primaryScreen().availableGeometry()
+
+            space_below = avail.bottom() - anchor_bottom_pos.y() - offset - gap
+            space_above = anchor_top_pos.y() - avail.top() - offset - gap
+            budget = max(space_below, space_above)
+            self._update_size(
+                match_width=anchor_width,
+                exact_match=exact_width_match,
+                available_height=budget,
+            )
+            total_width, total_height = self.width(), self.height()
+
+            if space_below >= total_height or space_below >= space_above:
+                final_y = anchor_bottom_pos.y() + offset
+            else:
+                final_y = anchor_top_pos.y() - offset - total_height
             final_x = int(anchor_center_x - total_width / 2) + 2
-
-            try:
-                screen = anchor_widget.screen() or QGuiApplication.screenAt(anchor_pos)
-                avail = screen.availableGeometry()
-            except Exception:
-                avail = QGuiApplication.primaryScreen().availableGeometry()
 
             final_x = max(avail.left(), min(final_x, avail.right() - total_width))
             final_y = max(avail.top(), min(final_y, avail.bottom() - total_height))

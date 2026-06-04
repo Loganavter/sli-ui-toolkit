@@ -1,7 +1,8 @@
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import QPoint, QRect, QTimer, Qt
 from PyQt6.QtWidgets import QWidget
 
 from sli_ui_toolkit.config import get_dragdrop_service, get_flyout_timings, resolve_overlay_layer
+from sli_ui_toolkit.managers import FlyoutManager
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
     FlyoutMode,
@@ -33,6 +34,8 @@ class _UnifiedFlyoutBootstrapMixin(_UnifiedFlyoutSessionMixin):
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.timeout.connect(self._do_refresh_geometry)
+        self.flyout_manager = FlyoutManager.get_instance()
+        self.flyout_manager.register_flyout(self)
 
     def _initialize_widget(self):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -108,3 +111,40 @@ class _UnifiedFlyoutBootstrapMixin(_UnifiedFlyoutSessionMixin):
                 service.unregister_drop_target(self)
         except Exception:
             pass
+        try:
+            self.flyout_manager.unregister_flyout(self)
+        except Exception:
+            pass
+
+    def contains_global(self, global_pos) -> bool:
+        if not self.isVisible():
+            return False
+        try:
+            if self.overlay_layer is not None and hasattr(
+                self.overlay_layer, "contains_global"
+            ):
+                return self.overlay_layer.contains_global(self, global_pos)
+            return self.rect().contains(self.mapFromGlobal(global_pos))
+        except RuntimeError:
+            return False
+
+    def anchor_contains_global(self, global_pos) -> bool:
+        for anchor in self.anchor_widgets():
+            try:
+                top_left = anchor.mapToGlobal(QPoint(0, 0))
+                if QRect(top_left, anchor.size()).contains(global_pos):
+                    return True
+            except RuntimeError:
+                continue
+        return False
+
+    def anchor_widgets(self) -> tuple[QWidget, ...]:
+        try:
+            anchors = (
+                self.main_window.ui.combo_image1,
+                self.main_window.ui.combo_image2,
+            )
+        except Exception:
+            anchor = getattr(self, "_anchor_widget", None)
+            return (anchor,) if isinstance(anchor, QWidget) else ()
+        return tuple(anchor for anchor in anchors if isinstance(anchor, QWidget))

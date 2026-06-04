@@ -96,7 +96,7 @@ class IndexedToggleFlyout(BaseFlyout):
     ):
         def _do_show():
             self._anchor_button = anchor_btn
-            self.show_aligned(anchor_btn, "top")
+            self.show_aligned(anchor_btn, "top-center", "bottom-center")
 
         if hover_delay_ms > 0:
             QTimer.singleShot(hover_delay_ms, _do_show)

@@ -127,6 +127,8 @@ def draw_bottom_underline(
             )
 
         full_alpha = color.alpha()
+        if arc_radius <= 0:
+            continue
 
         if i == 0:
             # Левый кончик: дуга 180°→270°. Альфа линейно нарастает от 0 (кончик) до full (стык с линией).

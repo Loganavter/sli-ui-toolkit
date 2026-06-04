@@ -1,24 +1,46 @@
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFocusEvent, QIntValidator
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QFocusEvent, QIntValidator
+from PyQt6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
-class SpinBox(CustomLineEdit):
+
+class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
     valueChanged = pyqtSignal(int)
 
-    def __init__(self, parent=None, default_value: int = 0):
-        super().__init__(parent)
+    def __init__(
+        self,
+        parent=None,
+        default_value: int = 0,
+        *,
+        alignment=Qt.AlignmentFlag.AlignCenter,
+        wheel_requires_focus: bool = False,
+        underline_color: QColor | None = None,
+        underline_thickness: float | None = None,
+        focused_underline_color: QColor | None = None,
+        focused_underline_thickness: float | None = None,
+    ):
+        super().__init__(
+            parent,
+            alignment=alignment,
+            underline_color=underline_color,
+            underline_thickness=underline_thickness,
+            focused_underline_color=focused_underline_color,
+            focused_underline_thickness=focused_underline_thickness,
+        )
+        self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
         self._minimum = 0
         self._maximum = 100
         self._value = default_value
         self._default_value = default_value
 
         self.setValidator(QIntValidator(-999999, 999999, self))
-        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setText(str(default_value))
-        self.setMinimumWidth(70)
-        self.setFixedHeight(33)
+        self.setMinimumWidth(self.minimumSizeHint().width())
+        self.setFixedHeight(32)
 
         self.editingFinished.connect(self._on_editing_finished)
         self.theme_manager = ThemeManager.get_instance()
@@ -29,6 +51,8 @@ class SpinBox(CustomLineEdit):
         self._minimum = min_val
         self._maximum = max_val
         self.setValue(self._value)
+        self.setMinimumWidth(self.minimumSizeHint().width())
+        self.updateGeometry()
 
     def value(self) -> int:
         return self._value
@@ -42,6 +66,25 @@ class SpinBox(CustomLineEdit):
 
         if self.text() != str(clamped):
             self.setText(str(clamped))
+        self.updateGeometry()
+
+    def sizeHint(self) -> QSize:
+        return QSize(self._content_width(), 32)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(self._content_width(), 32)
+
+    def _content_width(self) -> int:
+        widest = max(
+            len(str(self._minimum)),
+            len(str(self._maximum)),
+            len(str(self._value)),
+            len(str(self._default_value)),
+            2,
+        )
+        text_width = self.fontMetrics().horizontalAdvance("8" * widest)
+        margins = self.H_PADDING * 2 + 14
+        return max(44, text_width + margins)
 
     def _on_editing_finished(self):
         text = self.text().strip()
@@ -53,8 +96,7 @@ class SpinBox(CustomLineEdit):
         self.setValue(val)
 
     def wheelEvent(self, event):
-        if not self.hasFocus():
-            event.ignore()
+        if not self.shouldHandleWheelEvent(event):
             return
 
         delta = event.angleDelta().y()
@@ -88,5 +130,3 @@ class SpinBox(CustomLineEdit):
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
-
-FluentSpinBox = SpinBox

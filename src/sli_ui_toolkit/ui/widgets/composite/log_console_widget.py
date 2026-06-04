@@ -6,7 +6,7 @@ from typing import Any
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QTextEdit, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
@@ -33,6 +33,7 @@ class LogConsoleWidget(QWidget):
 
         self.output = QTextEdit(self)
         self.output.setObjectName("LogConsoleOutput")
+        self.output.setFrameShape(QFrame.Shape.NoFrame)
         self.output.setReadOnly(True)
         self.output.setAcceptRichText(False)
         self.output.setUndoRedoEnabled(False)
@@ -171,15 +172,22 @@ class LogConsoleWidget(QWidget):
 
     def _apply_styles(self) -> None:
         info_color = self.theme_manager.get_color("dialog.text").name()
-        bg_color = self.theme_manager.get_color("dialog.background").name()
+        bg_color = self.theme_manager.get_color("dialog.input.background").name(QColor.NameFormat.HexArgb)
+        border_color = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
         error_color = "#D70000" if self.theme_manager.is_dark() else "#FF0000"
         status_color = "#9E9E9E"
 
         self.output.setStyleSheet(f"""
             QTextEdit#LogConsoleOutput {{
                 background: {bg_color};
-                border: none;
-                border-radius: 8px;
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 6px;
+                color: {info_color};
+            }}
+            QTextEdit#LogConsoleOutput QAbstractScrollArea::viewport {{
+                background: transparent;
+                border-radius: 6px;
             }}
         """)
 

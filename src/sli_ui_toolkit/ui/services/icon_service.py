@@ -21,21 +21,28 @@ class IconService:
             theme_manager = ThemeManager.get_instance()
             is_dark = theme_manager.is_dark()
 
-        if is_dark:
-            icon_path = self.icons_path / "dark" / icon_name
+        # Allow callers to pass either "name" or "name.svg".
+        if not os.path.splitext(icon_name)[1]:
+            icon_name_with_ext = icon_name + ".svg"
         else:
-            icon_path = self.icons_path / "light" / icon_name
+            icon_name_with_ext = icon_name
 
-        try:
-            icon_path_str = str(icon_path)
-            if not os.path.exists(icon_path_str):
-                icon_path = self.icons_path / icon_name
-                icon_path_str = str(icon_path)
-        except (AttributeError, RecursionError):
-            icon_path = self.icons_path / icon_name
-            icon_path_str = str(icon_path)
+        candidates = []
+        if is_dark:
+            candidates.append(self.icons_path / "dark" / icon_name_with_ext)
+        candidates.append(self.icons_path / "light" / icon_name_with_ext)
+        candidates.append(self.icons_path / icon_name_with_ext)
 
-        return QIcon(icon_path_str)
+        for path in candidates:
+            try:
+                if os.path.exists(str(path)):
+                    return QIcon(str(path))
+            except (AttributeError, RecursionError):
+                continue
+
+        # Last resort — return the (likely empty) QIcon constructed from light path.
+        fallback = self.icons_path / "light" / icon_name_with_ext
+        return QIcon(str(fallback))
 
     def get_enum_icon(
         self, icon_enum: Union[str, object], enum_class: Type[T]
@@ -50,6 +57,11 @@ class IconService:
 
 _services: Dict[str, IconService] = {}
 
+def _default_toolkit_root() -> str:
+    # sli_ui_toolkit/ui/services/icon_service.py → sli_ui_toolkit/
+    return str(Path(__file__).resolve().parents[2])
+
+
 def get_icon_service(
     project_name: str,
     *,
@@ -58,7 +70,7 @@ def get_icon_service(
 ) -> IconService:
     if project_name not in _services:
         if project_root is None:
-            project_root = str(Path.cwd())
+            project_root = _default_toolkit_root()
         _services[project_name] = IconService(project_root, icons_relative_path)
 
     return _services[project_name]

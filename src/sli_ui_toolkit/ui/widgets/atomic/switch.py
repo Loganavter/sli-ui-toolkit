@@ -257,5 +257,3 @@ class Switch(QWidget):
         self._hover_anim.setStartValue(self._hover)
         self._hover_anim.setEndValue(1.0 if on else 0.0)
         self._hover_anim.start()
-
-FluentSwitch = Switch

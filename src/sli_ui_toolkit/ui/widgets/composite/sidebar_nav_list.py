@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QFrame, QListWidget, QListWidgetItem
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 
 @dataclass(slots=True)
 class IconListItem:
@@ -26,6 +27,10 @@ class IconListWidget(QListWidget):
         self.setIconSize(icon_size or QSize(24, 24))
         self._row_height = int(row_height)
         self._items_data: list[IconListItem] = []
+        try:
+            ThemeManager.get_instance().theme_changed.connect(self.refresh_icons)
+        except Exception:
+            pass
 
     def enable_minimal_scrollbar(self) -> None:
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -56,9 +61,19 @@ class IconListWidget(QListWidget):
         if base_icon.isNull():
             return QIcon()
 
-        icon = QIcon(base_icon)
+        size = self.iconSize()
+        if not size.isValid():
+            size = QSize(24, 24)
+
+        normal_pixmap = normalized_icon_pixmap(base_icon, size)
+        if normal_pixmap.isNull():
+            return QIcon()
+
+        icon = QIcon()
+        icon.addPixmap(normal_pixmap, QIcon.Mode.Normal, QIcon.State.Off)
+        icon.addPixmap(normal_pixmap, QIcon.Mode.Active, QIcon.State.Off)
         selected_color = self._selected_icon_color()
-        selected_pixmap = self._tinted_pixmap(base_icon, selected_color)
+        selected_pixmap = self._tinted_pixmap(normal_pixmap, selected_color)
         if not selected_pixmap.isNull():
             icon.addPixmap(selected_pixmap, QIcon.Mode.Selected)
             icon.addPixmap(selected_pixmap, QIcon.Mode.Active)
@@ -71,13 +86,7 @@ class IconListWidget(QListWidget):
             color = QColor("white")
         return color
 
-    def _tinted_pixmap(self, icon: QIcon, color: QColor) -> QPixmap:
-        size = self.iconSize()
-        if not size.isValid():
-            size = QSize(24, 24)
-        base_pixmap = icon.pixmap(size, QIcon.Mode.Normal, QIcon.State.Off)
-        if base_pixmap.isNull():
-            base_pixmap = icon.pixmap(size)
+    def _tinted_pixmap(self, base_pixmap: QPixmap, color: QColor) -> QPixmap:
         if base_pixmap.isNull():
             return QPixmap()
 
@@ -94,6 +103,3 @@ class IconListWidget(QListWidget):
         painter.end()
         return tinted
 
-class SidebarNavList(IconListWidget):
-    def set_nav_items(self, items: Iterable[tuple[str, object | None]]) -> None:
-        self.set_items(items)

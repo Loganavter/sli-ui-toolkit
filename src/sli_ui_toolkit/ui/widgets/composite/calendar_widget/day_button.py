@@ -52,21 +52,18 @@ class CalendarDayButton(Button):
         self.update()
 
     def paintEvent(self, event):
-        # Определить только высокий приоритет (disabled/checked) через override
         if self._is_disabled_export and self._disabled_export_color:
             self._override_bg_color = self._disabled_export_color
         elif self._checked:
             self._override_bg_color = self._theme_manager.get_color("accent")
+        elif self._is_weekend and self._weekend_color:
+            self._override_bg_color = self._weekend_color
+        elif self._has_data and self._data_color:
+            self._override_bg_color = self._data_color
         else:
             self._override_bg_color = None
 
-        # Button рисует себя с hover эффектами
         super().paintEvent(event)
-
-        # Потом рисуем тинты поверх (не блокируя hover)
-        tint = self._compute_base_tint()
-        if tint:
-            self._paint_tint_overlay(tint)
 
     def _compute_base_tint(self) -> QColor | None:
         """Compute visual indicator tints (weekend, data, etc).

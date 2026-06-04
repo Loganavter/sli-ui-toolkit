@@ -74,18 +74,22 @@ class _UnifiedFlyoutRefreshMixin:
     def _switch_double_to_single(self, list_num: int):
         self.mode = FlyoutMode.SINGLE_RIGHT if list_num == 2 else FlyoutMode.SINGLE_LEFT
         self.source_list_num = list_num
+        def _safe_set(anchor, value: bool) -> None:
+            if anchor is not None and hasattr(anchor, "setFlyoutOpen"):
+                anchor.setFlyoutOpen(value)
+
         if list_num == 2:
             self.panel_left.hide()
             self.panel_right.show()
             if self.main_window:
-                self.main_window.ui.combo_image1.setFlyoutOpen(False)
-                self.main_window.ui.combo_image2.setFlyoutOpen(True)
+                _safe_set(self.main_window.ui.combo_image1, False)
+                _safe_set(self.main_window.ui.combo_image2, True)
         else:
             self.panel_right.hide()
             self.panel_left.show()
             if self.main_window:
-                self.main_window.ui.combo_image2.setFlyoutOpen(False)
-                self.main_window.ui.combo_image1.setFlyoutOpen(True)
+                _safe_set(self.main_window.ui.combo_image2, False)
+                _safe_set(self.main_window.ui.combo_image1, True)
 
     def _apply_refreshed_geometry(self):
         if self.mode == FlyoutMode.DOUBLE:
@@ -108,17 +112,10 @@ class _UnifiedFlyoutRefreshMixin:
         (self.panel_right if is_left else self.panel_left).hide()
         if hasattr(anchor, "setFlyoutOpen"):
             anchor.setFlyoutOpen(True)
-        panel_size = self._calc_panel_total_size(active_list_num)
-        content_rect = self._calculate_ideal_content_geometry(
-            anchor, panel_size, extra_y=self.SINGLE_APPEAR_EXTRA_Y
+        geometry, _start_pos, _end_pos = self._build_single_mode_geometry(
+            anchor,
+            active_list_num,
         )
-        self.setGeometry(
-            content_rect.adjusted(
-                -self.SHADOW_RADIUS,
-                -self.SHADOW_RADIUS,
-                self.SHADOW_RADIUS,
-                self.SHADOW_RADIUS,
-            )
-        )
+        self.setGeometry(geometry)
         self._apply_container_geometry()
         self._position_panels_for_single()

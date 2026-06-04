@@ -79,6 +79,12 @@ class _UnifiedFlyoutStyleMixin:
         closing_mode = self.mode
         if self._anim:
             self._anim.stop()
+        if hasattr(self, "_sync_anchor_open_state"):
+            self._sync_anchor_open_state(None)
+        if hasattr(self, "clear_drop_indicator"):
+            self.clear_drop_indicator()
+        if hasattr(self, "flyout_manager"):
+            self.flyout_manager.request_hide(self)
 
         self.last_close_timestamp = time.monotonic()
         self.last_close_mode = closing_mode
