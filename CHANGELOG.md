@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+### Fixed
+- Guard `DropdownMenu` outside-click filter cleanup so early Qt hide events cannot fail before the filter state is initialized.
+
 ## 0.2.4
 
 ### Removed
