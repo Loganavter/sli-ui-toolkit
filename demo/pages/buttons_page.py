@@ -1,89 +1,164 @@
-"""Buttons & Controls demo page."""
+"""Buttons gallery page — full Button feature showcase."""
 
-from PyQt6.QtWidgets import QButtonGroup
-from sli_ui_toolkit.widgets import Button, ButtonGroup
-from demo.pages.base_page import BasePageWidget
+from __future__ import annotations
+
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QHBoxLayout, QWidget
+
+from sli_ui_toolkit.ui.widgets.buttons.content import ButtonRow
+from sli_ui_toolkit.widgets import (
+    Button,
+    ButtonGroup,
+    InstancesCounterButton,
+)
+
+from demo.components import ButtonPlaygroundCard, GalleryPage
 
 
-class ButtonsPage(BasePageWidget):
-    """Showcase of Button widget variants and features."""
+MENU_LONG = [
+    ("Save", "save"),
+    ("Export PDF", "export"),
+    ("Очень длинный пункт меню", "long"),
+]
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
 
-        # Variants
-        variants_layout = self.add_section("Button Variants")
-        for variant in ["default", "accent", "delete", "primary", "surface", "ghost", "subtle"]:
-            btn = Button(text=variant.capitalize(), variant=variant)
-            variants_layout.addWidget(btn)
+def _row(*widgets) -> QWidget:
+    holder = QWidget()
+    layout = QHBoxLayout(holder)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(10)
+    for w in widgets:
+        layout.addWidget(w)
+    layout.addStretch()
+    return holder
 
-        # States
-        states_layout = self.add_section("Button States")
+
+class ButtonsPage(GalleryPage):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(
+            title="Buttons",
+            subtitle="Composable Button widget: варианты, режимы, бейджи, меню и кастомизация.",
+            source_file=__file__,
+            parent=parent,
+        )
+
+        self.add_card(
+            title="Interactive Playground",
+            widget=ButtonPlaygroundCard(),
+            description="Меняйте свойства live и наблюдайте за кнопкой.",
+            source_file=__file__,
+        )
+
+        self.add_section("Variants")
+        self.add_card(
+            "Default / Surface / Ghost",
+            _row(
+                Button(text="Default", variant="default", foreground_color=QColor("#7f7f7f")),
+                Button(text="Surface", variant="surface"),
+                Button(text="Ghost", variant="ghost"),
+            ),
+            description="Три variant-токена. subtle/primary удалены — используйте ghost/surface.",
+        )
+
+        self.add_section("Modes")
         toggle_btn = Button(text="Toggle Off", toggle=True)
-        toggle_btn.toggled.connect(lambda checked: toggle_btn.setText("Toggle On" if checked else "Toggle Off"))
-        states_layout.addWidget(toggle_btn)
+        toggle_btn.toggled.connect(
+            lambda v: toggle_btn.setText("Toggle On" if v else "Toggle Off")
+        )
+        self.add_card("Toggle", toggle_btn, "Бистабильная кнопка.")
 
-        disabled_btn = Button(text="Disabled Button", variant="surface")
-        disabled_btn.setEnabled(False)
-        states_layout.addWidget(disabled_btn)
+        scroll_btn = Button(icon="line_weight", scrollable=(0, 10), variant="default")
+        scroll_btn.setValue(3)
+        self.add_card(
+            "Scrollable (icon + auto value chip)",
+            scroll_btn,
+            "Прокрутите колесом мыши — значение отрисовывается под иконкой "
+            "автоматически (icon + value chip).",
+        )
 
-        # Text + Icon combinations
-        self.add_section("Text & Icon")
-        text_only = Button(text="Text Only", variant="surface")
-        icon_only = Button()  # Empty button
-        text_and_icon = Button(text="With Icon", variant="accent")
-        icon_layout = self.add_section("Icons")
-        icon_layout.addWidget(text_only)
-        icon_layout.addWidget(icon_only)
-        icon_layout.addWidget(text_and_icon)
+        scroll_toggle_btn = Button(
+            icon="line_weight", toggle=True, scrollable=(0, 10), variant="default"
+        )
+        scroll_toggle_btn.setValue(0)
+        self.add_card(
+            "Scrollable + Toggle (count=0 → 'off' popup)",
+            scroll_toggle_btn,
+            "При значении 0 popup сверху показывает иконку divider_hidden "
+            "(или текст 'off', если иконка не настроена).",
+        )
 
-        # Scrollable
-        scroll_layout = self.add_section("Scrollable (Mouse Wheel)")
-        scroll_btn = Button(text="Scroll: 0-100", scrollable=(0, 100), variant="surface")
-        scroll_btn.valueChanged.connect(lambda v: scroll_btn.setText(f"Scroll: {v}"))
-        scroll_layout.addWidget(scroll_btn)
+        lp_btn = Button(
+            text="Hold me…", long_press=True, long_press_ms=600,
+            background_color=QColor("#D93025"),
+        )
+        lp_btn.longPressed.connect(lambda: lp_btn.setText("Long-pressed!"))
+        self.add_card("Long Press", lp_btn, "Удерживайте кнопку 600 мс.")
 
-        # Long press
-        longpress_layout = self.add_section("Long Press")
-        longpress_btn = Button(text="Hold me!", variant="delete")
-        longpress_btn.longPressed.connect(lambda: print("Long press detected!"))
-        longpress_layout.addWidget(longpress_btn)
+        wide_menu = Button(text="Actions", menu=MENU_LONG, variant="surface")
+        self.add_card(
+            "Button menu",
+            wide_menu,
+            "Dropdown не уже кнопки и расширяется под самый длинный пункт.",
+        )
 
-        # Badge
-        badge_layout = self.add_section("Badge")
-        badge_btn = Button(text="Notification", badge="3", variant="accent")
-        badge_layout.addWidget(badge_btn)
+        self.add_section("Badges")
+        b2 = Button(text="Updates", variant="surface")
+        b2.setBadge(12)
+        b2.setBadgeStyle(filled=False, bordered=True)
+        self.add_card("Badge: bordered, transparent", b2)
 
-        # Menu
-        menu_layout = self.add_section("Menu Button")
-        menu_btn = Button(
-            text="Options",
-            menu=[
-                ("Option A", "a"),
-                ("Option B", "b"),
-                ("Option C", "c"),
+        b3 = Button(text="Custom fill", variant="surface")
+        b3.setBadge(99)
+        b3.setBadgeStyle(
+            filled=True, bordered=True,
+            background_color=QColor("#D93025"),
+            border_color=QColor("#8C1D18"),
+            text_color=QColor("#ffffff"),
+        )
+        self.add_card("Badge: custom fill + border + text", b3)
+
+        self.add_section("Layout & decoration")
+        footer_btn = Button(text="Footer", variant="surface")
+        footer_btn.set_footer_mode(True)
+        self.add_card(
+            "Footer mode",
+            footer_btn,
+            "Кнопка в режиме нижней панели.",
+        )
+
+        self.add_card(
+            "Custom background + alpha",
+            Button(text="Custom", variant="default",
+                   background_color=QColor(76, 175, 80, 160),
+                   foreground_color=QColor("#7f7f7f")),
+            "Произвольный фон через background_color, alpha сохраняется.",
+        )
+
+        group_btns = [Button(text=x) for x in ("Compact", "Cozy", "Spacious")]
+        bg = ButtonGroup(group_btns, label="View Mode")
+        self.add_card("ButtonGroup (radio-style)", bg)
+
+        rows_btn = Button(
+            rows=[
+                ButtonRow(text="Title", size=12, weight="bold"),
+                ButtonRow(text="subtitle", size=10),
             ],
-            variant="surface"
+            size=(160, 44),
+            variant="surface",
         )
-        menu_btn.menuTriggered.connect(lambda action: print(f"Selected: {action}"))
-        menu_layout.addWidget(menu_btn)
-
-        # ButtonGroup
-        group_layout = self.add_section("Button Group")
-        btn_a = Button(text="A")
-        btn_b = Button(text="B")
-        btn_c = Button(text="C")
-        button_group = ButtonGroup([btn_a, btn_b, btn_c], label="View Mode")
-        group_layout.addWidget(button_group)
-
-        # Underline
-        underline_layout = self.add_section("Underline")
-        underline_btn = Button(
-            text="Colored",
-            show_underline=True,
-            toggle=True,
-            variant="default"
+        self.add_card(
+            "Multi-row text via `rows=`",
+            rows_btn,
+            "ButtonRow позволяет задавать строки с разным размером/жирностью/выравниванием.",
         )
-        underline_layout.addWidget(underline_btn)
 
-        self._content_layout.addStretch()
+        counter = InstancesCounterButton()
+        counter.set_count(3)
+        counter.set_can_remove(True)
+        self.add_card(
+            "InstancesCounterButton",
+            counter,
+            "Композит +/− с переключением single↔split при count>1.",
+        )
+
+        self.add_stretch()
