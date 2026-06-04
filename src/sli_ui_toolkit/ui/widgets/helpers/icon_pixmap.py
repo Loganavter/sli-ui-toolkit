@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from collections import OrderedDict
+
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QIcon, QPixmap
 
 from sli_ui_toolkit.icons import resolve_icon
+
+_PIXMAP_CACHE_MAX = 512
+_pixmap_cache: OrderedDict[tuple[int, int, int], QPixmap] = OrderedDict()
 
 
 def normalized_icon_pixmap(icon_value, size: int | QSize) -> QPixmap:
@@ -14,6 +19,12 @@ def normalized_icon_pixmap(icon_value, size: int | QSize) -> QPixmap:
         target_w = target_h = max(1, int(size))
 
     icon = icon_value if isinstance(icon_value, QIcon) else resolve_icon(icon_value)
+    cache_key = (int(icon.cacheKey()), target_w, target_h)
+    cached = _pixmap_cache.get(cache_key)
+    if cached is not None:
+        _pixmap_cache.move_to_end(cache_key)
+        return cached
+
     scale = 4
     source_w = target_w * scale
     source_h = target_h * scale
@@ -23,20 +34,27 @@ def normalized_icon_pixmap(icon_value, size: int | QSize) -> QPixmap:
 
     bbox = _alpha_bbox(pixmap)
     if bbox is None:
-        return icon.pixmap(QSize(target_w, target_h))
+        return _cache_pixmap(cache_key, icon.pixmap(QSize(target_w, target_h)))
 
     left, top, right, bottom = bbox
     content_w = right - left + 1
     content_h = bottom - top + 1
     if content_w <= 0 or content_h <= 0:
-        return icon.pixmap(QSize(target_w, target_h))
+        return _cache_pixmap(cache_key, icon.pixmap(QSize(target_w, target_h)))
+
+    # Only normalize genuinely padded sources. Filled glyphs such as pause/play
+    # intentionally occupy about half of a 24px canvas; cropping and rescaling
+    # them makes strokes/bars look much heavier than the source icon.
+    content_ratio = max(content_w / source_w, content_h / source_h)
+    if content_ratio >= 0.5:
+        return _cache_pixmap(cache_key, icon.pixmap(QSize(target_w, target_h)))
 
     target_content_w = target_w - 2
     target_content_h = target_h - 2
     source_content_limit_w = target_content_w * scale
     source_content_limit_h = target_content_h * scale
     if content_w >= source_content_limit_w and content_h >= source_content_limit_h:
-        return icon.pixmap(QSize(target_w, target_h))
+        return _cache_pixmap(cache_key, icon.pixmap(QSize(target_w, target_h)))
 
     cropped = pixmap.copy(left, top, content_w, content_h)
     max_w = max(1, target_content_w)
@@ -60,7 +78,15 @@ def normalized_icon_pixmap(icon_value, size: int | QSize) -> QPixmap:
         painter.drawPixmap(x, y, scaled)
     finally:
         painter.end()
-    return result
+    return _cache_pixmap(cache_key, result)
+
+
+def _cache_pixmap(cache_key: tuple[int, int, int], pixmap: QPixmap) -> QPixmap:
+    _pixmap_cache[cache_key] = pixmap
+    _pixmap_cache.move_to_end(cache_key)
+    while len(_pixmap_cache) > _PIXMAP_CACHE_MAX:
+        _pixmap_cache.popitem(last=False)
+    return pixmap
 
 
 def _alpha_bbox(pixmap: QPixmap) -> tuple[int, int, int, int] | None:
