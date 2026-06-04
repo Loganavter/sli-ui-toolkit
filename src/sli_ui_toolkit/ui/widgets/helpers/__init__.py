@@ -9,9 +9,13 @@ from sli_ui_toolkit.ui.widgets.helpers.underline_painter import (
     UnderlineConfig,
     draw_bottom_underline,
 )
+from sli_ui_toolkit.ui.widgets.helpers.wheel_scroll_policy import (
+    WheelScrollPolicyMixin,
+)
 
 __all__ = [
     "UnderlineConfig",
+    "WheelScrollPolicyMixin",
     "apply_editable_text_behavior",
     "calculate_centered_overlay_geometry",
     "draw_bottom_underline",

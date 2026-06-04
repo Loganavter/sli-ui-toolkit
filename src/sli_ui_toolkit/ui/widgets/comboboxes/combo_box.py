@@ -15,11 +15,15 @@ from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     normalize_for_search,
     visible_indices_normalized,
 )
-from sli_ui_toolkit.ui.widgets.helpers import UnderlineConfig, draw_bottom_underline
+from sli_ui_toolkit.ui.widgets.helpers import (
+    UnderlineConfig,
+    WheelScrollPolicyMixin,
+    draw_bottom_underline,
+)
 
 logger = logging.getLogger(__name__)
 
-class ComboBox(QWidget):
+class ComboBox(WheelScrollPolicyMixin, QWidget):
     currentIndexChanged = pyqtSignal(int)
     currentTextChanged = pyqtSignal(str)
 
@@ -28,9 +32,25 @@ class ComboBox(QWidget):
     ITEM_VERTICAL_PADDING = 12
     TEXT_HORIZONTAL_PADDING = 12
 
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        wheel_requires_focus: bool = False,
+        underline_color: QColor | None = None,
+        underline_thickness: float | None = None,
+        focused_underline_color: QColor | None = None,
+        focused_underline_thickness: float | None = None,
+    ):
         super().__init__(parent)
+        self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
         self._theme = ThemeManager.get_instance()
+        self._underline_color = underline_color
+        self._underline_thickness = self._normalize_thickness(underline_thickness)
+        self._focused_underline_color = focused_underline_color
+        self._focused_underline_thickness = self._normalize_thickness(
+            focused_underline_thickness
+        )
         self._items: list[_ComboItem] = []
         self._current_index = -1
         self._hovered = False
@@ -52,6 +72,46 @@ class ComboBox(QWidget):
         self.setMouseTracking(True)
         self.setFixedHeight(self.BASE_HEIGHT)
         self._theme.theme_changed.connect(self.update)
+
+    def setUnderlineColor(self, color: QColor | None) -> None:
+        self._underline_color = color
+        self.setProperty("underlineColor", color)
+        self.update()
+
+    set_underline_color = setUnderlineColor
+
+    def underlineColor(self) -> QColor | None:
+        return self._underline_color
+
+    def setUnderlineThickness(self, thickness: float | None) -> None:
+        self._underline_thickness = self._normalize_thickness(thickness)
+        self.setProperty("underlineThicknessPx", self._underline_thickness)
+        self.update()
+
+    set_underline_thickness = setUnderlineThickness
+
+    def underlineThickness(self) -> float | None:
+        return self._underline_thickness
+
+    def setFocusedUnderlineColor(self, color: QColor | None) -> None:
+        self._focused_underline_color = color
+        self.setProperty("focusedUnderlineColor", color)
+        self.update()
+
+    def focusedUnderlineColor(self) -> QColor | None:
+        return self._focused_underline_color
+
+    def setFocusedUnderlineThickness(self, thickness: float | None) -> None:
+        self._focused_underline_thickness = self._normalize_thickness(thickness)
+        self.setProperty("focusedUnderlineThicknessPx", self._focused_underline_thickness)
+        self.update()
+
+    def focusedUnderlineThickness(self) -> float | None:
+        return self._focused_underline_thickness
+
+    @staticmethod
+    def _normalize_thickness(thickness: float | None) -> float | None:
+        return None if thickness is None else max(0.0, float(thickness))
 
     def _item_height(self) -> int:
         return max(28, QFontMetrics(self.font()).height() + self.ITEM_VERTICAL_PADDING)
@@ -324,36 +384,49 @@ class ComboBox(QWidget):
         rect = self._field_rect()
         rectf = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
 
-        if not self.isEnabled():
-            bg_color = tm.get_color("button.primary.background")
-            text_color = QColor(tm.get_color("dialog.text"))
-            text_color.setAlpha(140 if is_dark else 120)
-        elif self._pressed or self._expanded:
-            bg_color = tm.get_color("button.primary.background")
-            text_color = tm.get_color("button.primary.text")
+        bg_color = QColor(tm.get_color("dialog.input.background"))
+        if self._pressed or self._expanded:
+            bg_color = QColor(tm.get_color("flyout.background"))
         elif self._hovered:
-            bg_color = tm.get_color("button.primary.background.hover")
-            text_color = tm.get_color("button.primary.text")
-        else:
-            bg_color = tm.get_color("button.primary.background")
-            text_color = tm.get_color("button.primary.text")
+            bg_color = QColor(tm.get_color("list_item.background.hover"))
+
+        text_color = QColor(tm.get_color("dialog.text"))
+        if not self.isEnabled():
+            text_color.setAlpha(140 if is_dark else 120)
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(bg_color))
         painter.drawRoundedRect(rectf, self.RADIUS, self.RADIUS)
 
-        border_color = QColor(tm.get_color("button.primary.border"))
+        border_color = QColor(tm.get_color("input.border.thin"))
         pen_border = QPen(border_color)
         pen_border.setWidthF(1.0)
         painter.setPen(pen_border)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rectf, self.RADIUS, self.RADIUS)
 
+        has_focus_underline = self.hasFocus() or self._expanded
+        underline_color = (
+            self._focused_underline_color or tm.get_color("accent")
+            if has_focus_underline
+            else self._underline_color
+        )
+        underline_thickness = (
+            self._focused_underline_thickness or 1.5
+            if has_focus_underline
+            else self._underline_thickness or 1.0
+        )
         draw_bottom_underline(
             painter,
             rect,
             tm,
-            UnderlineConfig(alpha=40, thickness=1.0, vertical_offset=0.0, arc_radius=self.RADIUS),
+            UnderlineConfig(
+                color=underline_color,
+                alpha=120 if has_focus_underline else 40,
+                thickness=underline_thickness,
+                vertical_offset=0.0,
+                arc_radius=self.RADIUS,
+            ),
         )
 
         current_text = self.currentText()
@@ -396,7 +469,7 @@ class ComboBox(QWidget):
         self._pressed = False
         self._ensure_current_visible()
         logger.debug(
-            "[FluentComboBox.showDropdown] object=%s current=%d count=%d scroll_offset=%d",
+            "[ComboBox.showDropdown] object=%s current=%d count=%d scroll_offset=%d",
             self.objectName() or "<unnamed>",
             self.currentIndex(),
             self.count(),
@@ -513,6 +586,8 @@ class ComboBox(QWidget):
         super().keyPressEvent(event)
 
     def wheelEvent(self, event):
+        if not self.shouldHandleWheelEvent(event):
+            return
         if not self.isEnabled() or self.count() <= 1:
             event.ignore()
             return
@@ -530,7 +605,7 @@ class ComboBox(QWidget):
         super().focusOutEvent(event)
         next_widget = QApplication.focusWidget()
         logger.debug(
-            "[FluentComboBox.focusOut] object=%s next=%s expanded=%r overlay_visible=%r",
+            "[ComboBox.focusOut] object=%s next=%s expanded=%r overlay_visible=%r",
             self.objectName() or "<unnamed>",
             type(next_widget).__name__ if next_widget is not None else None,
             self._expanded,
@@ -584,5 +659,3 @@ class ComboBox(QWidget):
             if not inside_field and not inside_overlay:
                 self.hideDropdown()
         return super().eventFilter(watched, event)
-
-FluentComboBox = ComboBox

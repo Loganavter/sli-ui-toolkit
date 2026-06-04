@@ -50,10 +50,12 @@ class ButtonsPage(GalleryPage):
         )
 
         self.add_section("Variants")
+        default_variant_btn = Button(text="Default", variant="default")
+        default_variant_btn.setForegroundColor(QColor("#7f7f7f"))
         self.add_card(
             "Default / Surface / Ghost",
             _row(
-                Button(text="Default", variant="default", foreground_color=QColor("#7f7f7f")),
+                default_variant_btn,
                 Button(text="Surface", variant="surface"),
                 Button(text="Ghost", variant="ghost"),
             ),
@@ -126,11 +128,12 @@ class ButtonsPage(GalleryPage):
             "Кнопка в режиме нижней панели.",
         )
 
+        custom_bg_btn = Button(text="Custom", variant="default",
+                               background_color=QColor(76, 175, 80, 160))
+        custom_bg_btn.setForegroundColor(QColor("#7f7f7f"))
         self.add_card(
             "Custom background + alpha",
-            Button(text="Custom", variant="default",
-                   background_color=QColor(76, 175, 80, 160),
-                   foreground_color=QColor("#7f7f7f")),
+            custom_bg_btn,
             "Произвольный фон через background_color, alpha сохраняется.",
         )
 

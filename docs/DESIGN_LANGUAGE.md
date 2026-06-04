@@ -59,19 +59,26 @@ QSS files use `@token` placeholders resolved at theme-apply time:
 - `@dialog.border` — subtle borders
 - `@dialog.input.background` — input field fill
 - `@flyout.background` / `@flyout.border` — flyout surfaces
+- `@list_item.background.hover` — hovered/current rows inside flyouts and menus
 - `@input.border.thin` — hairline input borders
 
 ## Typography
 
-Three label density levels:
+Text uses the unified `Label` component. Prefer direct typography options for
+local UI needs and register variants only when a preset is shared across multiple
+surfaces.
 
-| Widget | Default size | Weight | Use case |
-|--------|-------------|--------|----------|
-| `GroupTitleLabel` | 13 px | Bold | Section headers |
-| `BodyLabel` | 12 px | Normal | Body text, descriptions |
-| `CaptionLabel` | 11 px | Normal | Status text, hints |
-| `CompactLabel` | 10 px | Normal | Dense data displays |
-| `AdaptiveLabel` | Auto-fit | Normal | Labels that resize to content |
+| Use case | Recommended `Label` options |
+|----------|-----------------------------|
+| Section headers | `pixel_size=13, bold=True` |
+| Body text | `pixel_size=12` |
+| Captions/status text | `pixel_size=11` |
+| Dense labels | `pixel_size=10, elide=True` |
+| Constrained labels | `elide=True, expanding=True` |
+
+Common options include `family`, `pixel_size`, `bold`, `italic`, `underline`,
+`strike_out`, `color`, `color_token`, `alignment`, `elide`, `minimum_width`,
+`expanding`, `word_wrap`, and `selectable`.
 
 ## Control Geometry
 
@@ -81,7 +88,8 @@ Three label density levels:
 | `RadioButton` | 20×20 px indicator, fully round |
 | `Switch` | 44×22 px track, 12 px knob |
 | `Slider` | 5 px track height, 7 px thumb radius |
-| `SpinBox` | Standard line edit with 2 px radius |
+| `SpinBox` | Compact 32 px input, width based on numeric range |
+| `TimeLineEdit` | Compact 32 px `HH:mm` input with two right-side 22 px step buttons |
 | `ComboBox` | 8 px radius, 24 px dropdown arrow area |
 | `Button` (icon) | 44×44 px default, 22×22 px icon |
 

@@ -22,14 +22,13 @@ from sli_ui_toolkit.utils.paths import resource_path
 from sli_ui_toolkit.workers.generic_worker import GenericWorker, WorkerSignals
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.widgets import (
-    AdaptiveLabel,
-    BodyLabel,
-    CaptionLabel,
-    ClickableLabel,
-    CompactLabel,
-    GroupTitleLabel,
+    Label,
+    LabelConfig,
+    LabelVariantSpec,
     application_tooltips_enabled,
+    get_label_variant,
     install_application_tooltips,
+    register_label_variant,
     set_application_tooltips_enabled,
 )
 from sli_ui_toolkit.ui.widgets.style_bridge import (
@@ -43,12 +42,11 @@ __all__ = [
     "GenericWorker",
     "WorkerSignals",
     "ThemeManager",
-    "AdaptiveLabel",
-    "BodyLabel",
-    "CaptionLabel",
-    "ClickableLabel",
-    "CompactLabel",
-    "GroupTitleLabel",
+    "Label",
+    "LabelConfig",
+    "LabelVariantSpec",
+    "get_label_variant",
+    "register_label_variant",
     "application_tooltips_enabled",
     "install_application_tooltips",
     "set_application_tooltips_enabled",

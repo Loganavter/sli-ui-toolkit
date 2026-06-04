@@ -1,6 +1,11 @@
 from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, QSize
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from sli_ui_toolkit.ui.in_window_surface import (
+    clamp_surface_rect,
+    surface_anchor_rect,
+    surface_available_rect,
+)
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode
 
 class _UnifiedFlyoutLayoutMixin:
@@ -15,6 +20,20 @@ class _UnifiedFlyoutLayoutMixin:
         simple_items=None,
         simple_current_index=-1,
     ):
+        requested_mode = (
+            FlyoutMode.SINGLE_SIMPLE
+            if list_type == "simple"
+            else (FlyoutMode.SINGLE_LEFT if list_num == 1 else FlyoutMode.SINGLE_RIGHT)
+        )
+        if self.isVisible() and self.mode == FlyoutMode.DOUBLE:
+            self.start_closing_animation()
+            return
+        if self.isVisible() and self.mode == requested_mode:
+            self.start_closing_animation()
+            return
+
+        self._anchor_widget = anchor_widget
+        self.flyout_manager.request_show(self)
         if self._anim:
             self._anim.stop()
 
@@ -29,6 +48,7 @@ class _UnifiedFlyoutLayoutMixin:
         active_list_num = self._populate_for_single_mode(
             list_num, simple_items, simple_current_index
         )
+        self._sync_anchor_open_state(list_num)
         ideal_geom, start_pos, end_pos = self._build_single_mode_geometry(
             anchor_widget, active_list_num
         )
@@ -39,6 +59,20 @@ class _UnifiedFlyoutLayoutMixin:
         self.show()
         self.raise_()
         self._start_show_animation(start_pos, end_pos)
+
+    def _sync_anchor_open_state(self, open_list_num: int | None) -> None:
+        try:
+            anchors = (
+                (1, self.main_window.ui.combo_image1),
+                (2, self.main_window.ui.combo_image2),
+            )
+        except Exception:
+            return
+        for list_num, anchor in anchors:
+            if hasattr(anchor, "setFlyoutOpen"):
+                anchor.setFlyoutOpen(
+                    open_list_num is not None and list_num == open_list_num
+                )
 
     def _set_single_mode(self, list_num: int):
         if self._is_simple_mode:
@@ -67,19 +101,138 @@ class _UnifiedFlyoutLayoutMixin:
     def _build_single_mode_geometry(
         self, anchor_widget: QWidget, active_list_num: int
     ) -> tuple[QRect, QPoint, QPoint]:
+        active_panel = self.panel_left if active_list_num == 1 else self.panel_right
         panel_size = self._calc_panel_total_size(active_list_num)
         content_rect = self._calculate_ideal_content_geometry(
             anchor_widget, panel_size, extra_y=self.SINGLE_APPEAR_EXTRA_Y
         )
-        ideal_geom = content_rect.adjusted(
+        content_rect = self._fit_single_panel_content_rect(
+            anchor_widget,
+            active_panel,
+            content_rect,
+        )
+        ideal_geom = self._outer_from_content_rect(content_rect)
+        final_geom = self._clamp_outer_rect(ideal_geom, allow_resize=False)
+        end_pos = final_geom.topLeft()
+        requested_start_pos = QPoint(end_pos.x(), end_pos.y() - self._drop_offset_px)
+        start_rect = self._clamp_outer_rect(
+            QRect(
+                requested_start_pos,
+                final_geom.size(),
+            )
+        )
+        start_pos = (
+            start_rect.topLeft()
+            if start_rect.topLeft() == requested_start_pos
+            else end_pos
+        )
+        return final_geom, start_pos, end_pos
+
+    def _fit_single_panel_content_rect(
+        self,
+        anchor_widget: QWidget,
+        panel,
+        preferred: QRect,
+    ) -> QRect:
+        y, height = self._resolve_content_y_and_height(
+            anchor_widget,
+            preferred.y(),
+            panel._container_height,
+            panel,
+        )
+        if height < panel._container_height:
+            panel.recalculate_and_set_height(max_height=height)
+            y, height = self._resolve_content_y_and_height(
+                anchor_widget,
+                preferred.y(),
+                panel._container_height,
+                panel,
+            )
+        return QRect(preferred.x(), y, preferred.width(), height)
+
+    def _minimum_scrollable_panel_height(self, panel) -> int:
+        row_h = self.item_height if self.item_height > 0 else getattr(panel, "item_height", 36)
+        if row_h <= 0:
+            row_h = 36
+        spacing = 0
+        try:
+            spacing = panel.content_layout.spacing()
+        except Exception:
+            pass
+        return max(1, (row_h * 2) + spacing + 10)
+
+    def _resolve_content_y_and_height(
+        self,
+        anchor_widget: QWidget,
+        preferred_y: int,
+        natural_height: int,
+        panel,
+    ) -> tuple[int, int]:
+        outer_available = surface_available_rect(self, anchor_widget, self.overlay_layer)
+        available = outer_available.adjusted(
+            self.SHADOW_RADIUS,
+            self.SHADOW_RADIUS,
+            -self.SHADOW_RADIUS,
+            -self.SHADOW_RADIUS,
+        )
+        if available.height() < 1 or available.width() < 1:
+            available = outer_available
+        anchor_rect = surface_anchor_rect(self, anchor_widget, self.overlay_layer)
+        natural_height = max(1, int(natural_height))
+        min_scroll_height = min(
+            natural_height,
+            self._minimum_scrollable_panel_height(panel),
+        )
+
+        below_y = preferred_y
+        below_space = available.bottom() - below_y + 1
+        if below_space >= min_scroll_height:
+            return below_y, min(natural_height, max(1, below_space))
+
+        above_space = anchor_rect.top() - self.SINGLE_APPEAR_EXTRA_Y - available.top()
+        if above_space >= min_scroll_height:
+            height = min(natural_height, max(1, above_space))
+            return anchor_rect.top() - self.SINGLE_APPEAR_EXTRA_Y - height, height
+
+        height = min(natural_height, max(1, available.height()))
+        y = preferred_y
+        if y + height - 1 > available.bottom():
+            y = available.bottom() - height + 1
+        if y < available.top():
+            y = available.top()
+        return y, height
+
+    def _outer_from_content_rect(self, content_rect: QRect) -> QRect:
+        return content_rect.adjusted(
             -self.SHADOW_RADIUS,
             -self.SHADOW_RADIUS,
             self.SHADOW_RADIUS,
             self.SHADOW_RADIUS,
         )
-        end_pos = ideal_geom.topLeft()
-        start_pos = QPoint(end_pos.x(), end_pos.y() - self._drop_offset_px)
-        return ideal_geom, start_pos, end_pos
+
+    def _content_height_from_outer(self, outer_rect: QRect) -> int:
+        return max(1, outer_rect.height() - self.SHADOW_RADIUS * 2)
+
+    def _clamp_outer_rect(self, outer_rect: QRect, *, allow_resize: bool = False) -> QRect:
+        available = surface_available_rect(
+            self,
+            self.main_window if isinstance(self.main_window, QWidget) else None,
+            self.overlay_layer,
+        )
+        if self.overlay_layer is not None and hasattr(self.overlay_layer, "clamp_rect"):
+            try:
+                clamped = self.overlay_layer.clamp_rect(outer_rect)
+                if allow_resize:
+                    available = surface_available_rect(self, None, self.overlay_layer)
+                    clamped = clamp_surface_rect(
+                        clamped,
+                        available,
+                        allow_resize=True,
+                    )
+                return clamped
+            except Exception:
+                pass
+        return clamp_surface_rect(outer_rect, available, allow_resize=allow_resize)
 
     def _start_show_animation(self, start_pos: QPoint, end_pos: QPoint):
         self._anim = QPropertyAnimation(self, b"pos", self)
@@ -104,6 +257,7 @@ class _UnifiedFlyoutLayoutMixin:
         self.mode = FlyoutMode.DOUBLE
         self.panel_left.show()
         self.panel_right.show()
+        self._sync_anchor_open_state(None)
         self._apply_style()
         self._update_geometry_in_double_mode_internal()
         self.raise_()
@@ -135,26 +289,29 @@ class _UnifiedFlyoutLayoutMixin:
             if list_num == 1
             else self.main_window.ui.combo_image2
         )
-        return QSize(max(related_button.width(), 200), panel._container_height)
+        try:
+            panel.adjustSize()
+            panel_w = panel.sizeHint().width()
+        except Exception:
+            panel_w = 0
+        # Mirror improve-imgsli v9.0.0: widen the panel to fit the longer of
+        # the panel content hint, the anchor button, or a 200px floor.
+        width = max(panel_w, related_button.width(), 200)
+        return QSize(width, panel._container_height)
 
     def _calculate_ideal_geometry(
         self, anchor_widget: QWidget, panel_size: QSize, content_only=False
     ) -> QRect:
-        button_pos_relative = anchor_widget.mapTo(self.main_window, QPoint(0, 0))
+        anchor_rect = surface_anchor_rect(self, anchor_widget, self.overlay_layer)
         content_rect = QRect(
-            button_pos_relative.x(),
-            button_pos_relative.y() + anchor_widget.height() - 4,
+            anchor_rect.x(),
+            anchor_rect.y() + anchor_rect.height() - 4,
             panel_size.width(),
             panel_size.height(),
         )
         if content_only:
             return content_rect
-        return content_rect.adjusted(
-            -self.SHADOW_RADIUS,
-            -self.SHADOW_RADIUS,
-            self.SHADOW_RADIUS,
-            self.SHADOW_RADIUS,
-        )
+        return self._outer_from_content_rect(content_rect)
 
     def _calculate_ideal_content_geometry(
         self, anchor_widget: QWidget, panel_size: QSize, extra_y: int = 0
@@ -187,8 +344,10 @@ class _UnifiedFlyoutLayoutMixin:
         items2 = [item.display_name for item in list2] if list2 else []
         text1 = items1[idx1] if 0 <= idx1 < len(items1) else ""
         text2 = items2[idx2] if 0 <= idx2 < len(items2) else ""
-        button1.updateState(len(list1), idx1, text=text1, items=items1)
-        button2.updateState(len(list2), idx2, text=text2, items=items2)
+        if hasattr(button1, "updateState"):
+            button1.updateState(len(list1), idx1, text=text1, items=items1)
+        if hasattr(button2, "updateState"):
+            button2.updateState(len(list2), idx2, text=text2, items=items2)
 
     def _compute_double_mode_geometry(self, button1, button2):
         left_size = self._calc_panel_total_size(1)
@@ -199,14 +358,44 @@ class _UnifiedFlyoutLayoutMixin:
         geom2_content = self._calculate_ideal_geometry(
             button2, right_size, content_only=True
         ).translated(0, self.DOUBLE_CONTENT_EXTRA_Y)
-        original_h1 = geom1_content.height()
-        original_h2 = geom2_content.height()
+        source_anchor = button1 if self.source_list_num == 1 else button2
+        source_panel = self.panel_left if self.source_list_num == 1 else self.panel_right
+        source_rect = geom1_content if self.source_list_num == 1 else geom2_content
+        _source_y, shared_height = self._resolve_content_y_and_height(
+            source_anchor,
+            source_rect.y(),
+            max(geom1_content.height(), geom2_content.height()),
+            source_panel,
+        )
+        if shared_height < max(
+            self.panel_left._container_height,
+            self.panel_right._container_height,
+        ):
+            self.panel_left.recalculate_and_set_height(max_height=shared_height)
+            self.panel_right.recalculate_and_set_height(max_height=shared_height)
+            left_size = self._calc_panel_total_size(1)
+            right_size = self._calc_panel_total_size(2)
+            geom1_content = self._calculate_ideal_geometry(
+                button1, left_size, content_only=True
+            ).translated(0, self.DOUBLE_CONTENT_EXTRA_Y)
+            geom2_content = self._calculate_ideal_geometry(
+                button2, right_size, content_only=True
+            ).translated(0, self.DOUBLE_CONTENT_EXTRA_Y)
+            source_panel = self.panel_left if self.source_list_num == 1 else self.panel_right
+            source_rect = geom1_content if self.source_list_num == 1 else geom2_content
+            _source_y, shared_height = self._resolve_content_y_and_height(
+                source_anchor,
+                source_rect.y(),
+                max(geom1_content.height(), geom2_content.height()),
+                source_panel,
+            )
+        geom1_content.setHeight(shared_height)
+        geom2_content.setHeight(shared_height)
+
         unified_content = geom1_content.united(geom2_content)
-        final_unified_geom = unified_content.adjusted(
-            -self.SHADOW_RADIUS,
-            -self.SHADOW_RADIUS,
-            self.SHADOW_RADIUS,
-            self.SHADOW_RADIUS,
+        final_unified_geom = self._clamp_outer_rect(
+            self._outer_from_content_rect(unified_content),
+            allow_resize=False,
         )
         clamped_content = final_unified_geom.adjusted(
             self.SHADOW_RADIUS,
@@ -214,32 +403,49 @@ class _UnifiedFlyoutLayoutMixin:
             -self.SHADOW_RADIUS,
             -self.SHADOW_RADIUS,
         )
-        delta_y = clamped_content.y() - unified_content.y()
-        unified_h = clamped_content.height()
+        delta = clamped_content.topLeft() - unified_content.topLeft()
+        max_panel_height = max(1, clamped_content.height())
+        if max_panel_height < max(
+            self.panel_left._container_height,
+            self.panel_right._container_height,
+        ):
+            self.panel_left.recalculate_and_set_height(max_height=max_panel_height)
+            self.panel_right.recalculate_and_set_height(max_height=max_panel_height)
+            geom1_content.setHeight(self.panel_left._container_height)
+            geom2_content.setHeight(self.panel_right._container_height)
+            unified_content = geom1_content.united(geom2_content)
+            final_unified_geom = self._clamp_outer_rect(
+                self._outer_from_content_rect(unified_content),
+                allow_resize=True,
+            )
+            clamped_content = final_unified_geom.adjusted(
+                self.SHADOW_RADIUS,
+                self.SHADOW_RADIUS,
+                -self.SHADOW_RADIUS,
+                -self.SHADOW_RADIUS,
+            )
+            delta = clamped_content.topLeft() - unified_content.topLeft()
         geom1_content = QRect(
-            geom1_content.x(),
-            geom1_content.y() + delta_y,
+            geom1_content.x() + delta.x(),
+            geom1_content.y() + delta.y(),
             geom1_content.width(),
-            original_h1,
+            min(geom1_content.height(), max_panel_height),
         )
         geom2_content = QRect(
-            geom2_content.x(),
-            geom2_content.y() + delta_y,
+            geom2_content.x() + delta.x(),
+            geom2_content.y() + delta.y(),
             geom2_content.width(),
-            original_h2,
-        )
-        unified_content = QRect(
-            clamped_content.x(), clamped_content.y(), clamped_content.width(), unified_h
+            min(geom2_content.height(), max_panel_height),
         )
         panel1_local = QRect(
-            geom1_content.x() - unified_content.x(),
-            geom1_content.y() - unified_content.y(),
+            geom1_content.x() - clamped_content.x(),
+            geom1_content.y() - clamped_content.y(),
             geom1_content.width(),
             geom1_content.height(),
         )
         panel2_local = QRect(
-            geom2_content.x() - unified_content.x(),
-            geom2_content.y() - unified_content.y(),
+            geom2_content.x() - clamped_content.x(),
+            geom2_content.y() - clamped_content.y(),
             geom2_content.width(),
             geom2_content.height(),
         )

@@ -9,7 +9,10 @@ class PasteDirectionOverlay(QWidget):
     cancelled = pyqtSignal()
 
     def __init__(self, parent, image_label_widget, is_horizontal=False):
+        if parent is None:
+            raise ValueError("PasteDirectionOverlay requires an in-window parent widget")
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Widget)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)

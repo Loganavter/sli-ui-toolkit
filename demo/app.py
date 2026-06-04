@@ -1,183 +1,89 @@
-"""Main application window for demo."""
+"""SLI UI Toolkit demo — gallery-style main window."""
 
+from __future__ import annotations
+
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTabWidget, QApplication,
-    QScrollArea
+    QApplication,
+    QHBoxLayout,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QColor
+
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.widgets import (
-    Button, BodyLabel, GroupTitleLabel, CustomLineEdit, ComboBox,
-    Switch, CheckBox, LoadingSpinner, CaptionLabel
-)
+from sli_ui_toolkit.widgets import Button, IconListWidget, Label
 
-
-class ButtonsPage(QWidget):
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        layout.addWidget(GroupTitleLabel(text="Variants"))
-        btn_layout = QHBoxLayout()
-        for variant in ["default", "accent", "delete", "primary", "surface"]:
-            btn = Button(text=variant.capitalize(), variant=variant)
-            btn_layout.addWidget(btn)
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
-
-        layout.addWidget(GroupTitleLabel(text="States"))
-        toggle = Button(text="Toggle", toggle=True, variant="default")
-        layout.addWidget(toggle)
-
-        layout.addWidget(GroupTitleLabel(text="Features"))
-        btn_with_badge = Button(text="Notification", badge="3", variant="accent")
-        layout.addWidget(btn_with_badge)
-
-        layout.addWidget(GroupTitleLabel(text="Custom Colors"))
-        custom_layout = QHBoxLayout()
-        btn_green = Button(text="Green", background_color=QColor("#4CAF50"))
-        btn_orange = Button(text="Orange", background_color=QColor("#FF9800"))
-        btn_purple = Button(text="Purple", background_color=QColor("#9C27B0"))
-        custom_layout.addWidget(btn_green)
-        custom_layout.addWidget(btn_orange)
-        custom_layout.addWidget(btn_purple)
-        custom_layout.addStretch()
-        layout.addLayout(custom_layout)
-
-        layout.addWidget(GroupTitleLabel(text="Custom Colors with Alpha"))
-        alpha_layout = QHBoxLayout()
-        color_alpha = QColor("#E91E63")
-        color_alpha.setAlpha(180)
-        btn_alpha = Button(text="Alpha 70%", background_color=color_alpha)
-        alpha_layout.addWidget(btn_alpha)
-        alpha_layout.addStretch()
-        layout.addLayout(alpha_layout)
-
-        layout.addStretch()
-
-
-class InputsPage(QWidget):
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        layout.addWidget(GroupTitleLabel(text="Text Input"))
-        le = CustomLineEdit()
-        le.setPlaceholderText("Type something...")
-        layout.addWidget(le)
-
-        layout.addWidget(GroupTitleLabel(text="ComboBox"))
-        combo = ComboBox()
-        combo.addItems(["Option 1", "Option 2", "Option 3"])
-        layout.addWidget(combo)
-
-        layout.addWidget(GroupTitleLabel(text="Toggle Controls"))
-        toggle_layout = QHBoxLayout()
-        sw = Switch()
-        toggle_layout.addWidget(BodyLabel(text="Switch:"))
-        toggle_layout.addWidget(sw)
-        toggle_layout.addStretch()
-        cb = CheckBox("Checkbox")
-        toggle_layout.addWidget(cb)
-        toggle_layout.addStretch()
-        layout.addLayout(toggle_layout)
-
-        layout.addStretch()
-
-
-class CompositesPage(QWidget):
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        layout.addWidget(GroupTitleLabel(text="Dialogs"))
-        info = CaptionLabel(text="Dialog widgets are available through sli_ui_toolkit.widgets")
-        layout.addWidget(info)
-
-        from sli_ui_toolkit.widgets import DialogActionBar
-        actionbar = DialogActionBar("OK", "Cancel")
-        layout.addWidget(actionbar)
-
-        layout.addStretch()
-
-
-class MiscPage(QWidget):
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        layout.addWidget(GroupTitleLabel(text="Labels"))
-        layout.addWidget(BodyLabel(text="Body Label - Main content"))
-        layout.addWidget(CaptionLabel(text="Caption Label - Secondary text"))
-
-        layout.addWidget(GroupTitleLabel(text="Loading Spinner"))
-        spinner = LoadingSpinner()
-        layout.addWidget(spinner)
-
-        layout.addStretch()
+from demo.pages import build_pages
 
 
 class MainWindow(QWidget):
-    """Demo application window with tabs."""
+    """Sidebar navigation + stacked page view."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("SLI UI Toolkit Demo")
-        self.resize(900, 700)
+        self.setWindowTitle("SLI UI Toolkit — Gallery")
+        self.resize(1100, 760)
 
         self._theme_manager = ThemeManager.get_instance()
         self._current_theme = self._theme_manager.get_current_theme()
 
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # Header
-        header_layout = QHBoxLayout()
-        header_layout.setContentsMargins(12, 8, 12, 8)
-        header_layout.setSpacing(12)
+        root.addWidget(self._build_header())
 
-        title = BodyLabel(text="SLI UI Toolkit Demo")
-        header_layout.addWidget(title)
-        header_layout.addStretch()
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
 
-        theme_btn = Button(text=self._get_theme_button_text(), variant="surface")
-        theme_btn.clicked.connect(self._toggle_theme)
-        self._theme_button = theme_btn
-        header_layout.addWidget(theme_btn)
+        self._nav = IconListWidget()
+        self._nav.setFixedWidth(220)
+        self._nav.enable_minimal_scrollbar()
 
-        header_widget = QWidget()
-        header_widget.setLayout(header_layout)
-        main_layout.addWidget(header_widget)
+        self._stack = QStackedWidget()
 
-        # Tabs
-        self._tabs = QTabWidget()
-        self._tabs.setTabPosition(QTabWidget.TabPosition.North)
+        pages = build_pages()
+        nav_items: list[tuple[str, object | None]] = []
+        for title, page in pages:
+            self._stack.addWidget(page)
+            nav_items.append((title, None))
+        self._nav.set_items(nav_items)
+        self._nav.currentRowChanged.connect(self._stack.setCurrentIndex)
+        if self._nav.count() > 0:
+            self._nav.setCurrentRow(0)
 
-        self._tabs.addTab(ButtonsPage(), "Buttons")
-        self._tabs.addTab(InputsPage(), "Inputs")
-        self._tabs.addTab(CompositesPage(), "Composites")
-        self._tabs.addTab(MiscPage(), "Misc")
+        body.addWidget(self._nav)
+        body.addWidget(self._stack, 1)
 
-        main_layout.addWidget(self._tabs)
+        body_wrap = QWidget()
+        body_wrap.setLayout(body)
+        root.addWidget(body_wrap, 1)
 
         self._theme_manager.theme_changed.connect(self._on_theme_changed)
 
-    def _get_theme_button_text(self) -> str:
-        return "🌙 Dark" if self._current_theme == "light" else "☀️ Light"
+    def _build_header(self) -> QWidget:
+        header = QWidget()
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(12)
 
-    def _toggle_theme(self):
+        layout.addWidget(Label("SLI UI Toolkit Gallery", pixel_size=15, bold=True))
+        layout.addStretch()
+
+        self._theme_button = Button(text=self._theme_label(), variant="surface")
+        self._theme_button.clicked.connect(self._toggle_theme)
+        layout.addWidget(self._theme_button)
+        return header
+
+    def _theme_label(self) -> str:
+        return "Switch to Dark" if self._current_theme == "light" else "Switch to Light"
+
+    def _toggle_theme(self) -> None:
         self._current_theme = "dark" if self._current_theme == "light" else "light"
         self._theme_manager.set_theme(self._current_theme, QApplication.instance())
 
-    def _on_theme_changed(self):
-        self._theme_button.setText(self._get_theme_button_text())
+    def _on_theme_changed(self) -> None:
+        self._theme_button.setText(self._theme_label())
         self.update()

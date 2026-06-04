@@ -90,7 +90,7 @@ Button(
 | `size` | `(int, int)` | `(36, 36)` | Fixed size (width, height) |
 | `icon_size` | `int` | `22` | Icon pixel size |
 | `corner_radius` | `int` | `None` | Corner radius (auto-calculated if None) |
-| `variant` | `str` | `"default"` | Color variant: "default", "accent", "delete", etc. |
+| `variant` | `str` | `"default"` | Color variant: "default", "primary", "surface", "ghost", "subtle". |
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
 | `config` | `ButtonConfig` | `None` | Use ButtonConfig dataclass instead of params |
 | `parent` | `QWidget` | `None` | Parent widget |
@@ -156,6 +156,13 @@ button.setRange(0, 20)           # Change min/max (if scrollable=(...))
 # Badge (number indicator)
 button.setBadge(5)               # Show "5" badge
 button.setBadge(None)            # Hide badge
+button.setBadgeStyle(filled=True)
+button.setBadgeStyle(
+    filled=True,
+    background_color=QColor("#D93025"),
+    border_color=QColor("#D93025"),
+    text_color=QColor("#ffffff"),
+)
 
 # Text content
 button.setText("New text")
@@ -172,18 +179,18 @@ button.setRows(rows, compact=False)  # compact=True centers block vertically
 button.setIcon('new_icon_name')
 
 # Colors
-button.set_color(QColor('red'))           # Override text/icon color
 button.set_override_bg_color(QColor('blue'))  # Override background
 
 # Underline
 button.setShowUnderline(True)
+button.setUnderlineColor(QColor('red'))
 button.setShowUnderline(False)
 
 # Strike-through (error indicator)
 button.set_show_strike_through(True)
 
 # Variant
-button.setVariant('accent')
+button.setVariant('primary')
 variant = button.getVariant()
 
 # Size & spacing
@@ -286,12 +293,11 @@ Predefined color schemes (use `setVariant()` or `variant=` param):
 
 ```python
 # Available variants
-"default"    # Standard appearance
-"accent"     # Highlighted/primary color
-"delete"     # Destructive action (red)
-"ghost"      # Minimal, outlined style
-"subtle"     # Muted, secondary style
-"primary"    # Bold, attention-getting
+"default"    # Toolbar/toggle appearance
+"primary"    # Accent-tinted action
+"surface"    # Neutral surface action
+"ghost"      # Transparent until hovered
+"subtle"     # Blends with the window background
 ```
 
 ## Density
@@ -376,15 +382,15 @@ btn.toggled.connect(lambda checked: print(f"Date selected: {checked}"))
 btn = Button(
     text='Custom',
     size=(100, 40),
-    variant='accent',
+    variant='primary',
 )
 
 # Override colors
-btn.set_color(QColor('white'))                    # Text color
 btn.set_override_bg_color(QColor('#0066cc'))      # Background
 
 # Add underline
 btn.setShowUnderline(True)
+btn.setUnderlineColor(QColor('white'))
 
 # Add error indicator
 btn.set_show_strike_through(True)

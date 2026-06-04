@@ -4,12 +4,18 @@ import html
 import os
 
 from PyQt6.QtCore import QProcess, Qt, pyqtSignal
-from PyQt6.QtGui import QFontDatabase
-from PyQt6.QtWidgets import QHBoxLayout, QLineEdit, QTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtGui import QColor, QFontDatabase
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QTextEdit, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+
+
+def _qt_enum_value(value) -> int:
+    return int(getattr(value, "value", value))
+
 
 class ProcessConsoleWidget(QWidget):
     outputReceived = pyqtSignal(str)
@@ -32,6 +38,7 @@ class ProcessConsoleWidget(QWidget):
 
         self.output = QTextEdit(self)
         self.output.setObjectName("ProcessConsoleOutput")
+        self.output.setFrameShape(QFrame.Shape.NoFrame)
         self.output.setReadOnly(True)
         self.output.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
@@ -52,7 +59,7 @@ class ProcessConsoleWidget(QWidget):
         input_layout.setContentsMargins(0, 0, 0, 0)
         input_layout.setSpacing(8)
 
-        self.input_edit = QLineEdit(self.input_row)
+        self.input_edit = CustomLineEdit(self.input_row)
         self.input_edit.setObjectName("ProcessConsoleInput")
         self.input_edit.setPlaceholderText("Enter command")
         self.input_edit.setFont(fixed_font)
@@ -121,6 +128,9 @@ class ProcessConsoleWidget(QWidget):
 
     def send_input(self, text: str, *, add_newline: bool = True, echo: bool = True) -> None:
         if not self.is_running():
+            if echo and text:
+                self._append_entry("command", f"> {text}")
+            self._append_entry("status", "No process running. Call start_process() or start_shell() first.")
             return
         payload = str(text)
         if echo and payload:
@@ -200,16 +210,32 @@ class ProcessConsoleWidget(QWidget):
             "status",
             f"Process finished with exit code {exit_code}",
         )
-        self.processFinished.emit(exit_code, int(exit_status))
+        self.processFinished.emit(exit_code, _qt_enum_value(exit_status))
 
     def _on_state_changed(self, state) -> None:
-        self.processStateChanged.emit(int(state))
+        self.processStateChanged.emit(_qt_enum_value(state))
 
     def _apply_styles(self) -> None:
         info_color = self.theme_manager.get_color("dialog.text").name()
+        bg_color = self.theme_manager.get_color("dialog.input.background").name(QColor.NameFormat.HexArgb)
+        border_color = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
         error_color = "#D70000" if self.theme_manager.is_dark() else "#FF0000"
         status_color = "#9E9E9E"
         command_color = self.theme_manager.get_color("accent").name()
+
+        self.output.setStyleSheet(f"""
+            QTextEdit#ProcessConsoleOutput {{
+                background: {bg_color};
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 6px;
+                color: {info_color};
+            }}
+            QTextEdit#ProcessConsoleOutput QAbstractScrollArea::viewport {{
+                background: transparent;
+                border-radius: 6px;
+            }}
+        """)
 
         stylesheet = f"""
         body {{ color: {info_color}; }}

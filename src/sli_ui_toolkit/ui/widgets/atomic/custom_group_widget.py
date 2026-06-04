@@ -98,6 +98,36 @@ class CustomGroupWidget(QWidget):
             )
 
 class CustomGroupBuilder:
+    """Convenience builder.
+
+    Two equivalent APIs:
+    - ``CustomGroupBuilder.create_styled_group(title)`` → ``(group, layout, title_widget)``
+      for callers that want raw access to the inner layout.
+    - ``builder = CustomGroupBuilder(); builder.add(w); builder.build(title=…)`` →
+      ``CustomGroupWidget`` with all queued widgets/layouts already inserted.
+    """
+
+    def __init__(self) -> None:
+        self._pending: list[tuple[str, object]] = []
+
+    def add(self, widget):
+        self._pending.append(("widget", widget))
+        return self
+
+    def add_layout(self, layout):
+        self._pending.append(("layout", layout))
+        return self
+
+    def build(self, title: str = "") -> CustomGroupWidget:
+        group = CustomGroupWidget(title)
+        for kind, item in self._pending:
+            if kind == "widget":
+                group.add_widget(item)
+            else:
+                group.add_layout(item)
+        self._pending.clear()
+        return group
+
     @staticmethod
     def create_styled_group(title_text: str):
         group_widget = CustomGroupWidget(title_text)

@@ -1,8 +1,8 @@
-"""ScrollCapability — wheel-based value manipulation with visual feedback."""
+"""ScrollCapability — wheel-based value manipulation with in-window feedback."""
 
 from PyQt6.QtCore import QPoint, QSize, QTimer
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QLabel, QWidget
+from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QLabel, QWidget
 from PyQt6.QtCore import Qt
 
 from sli_ui_toolkit.icons import get_named_icon, resolve_icon
@@ -10,13 +10,13 @@ from .base import ButtonCapability
 
 
 class ScrollCapability(ButtonCapability):
-    """Enables scroll wheel value adjustment with popup feedback.
+    """Enables scroll wheel value adjustment with in-window value feedback.
 
     Handles:
     - wheelEvent dispatch
     - scroll value increment/decrement with toggle mode (0 = "off")
-    - scroll end timeout (hides popup, clears scrolling state)
-    - value popup display
+    - scroll end timeout (hides value overlay, clears scrolling state)
+    - value overlay display
     """
 
     def __init__(self, min_value: int = 0, max_value: int = 10):
@@ -68,11 +68,18 @@ class ScrollCapability(ButtonCapability):
         # Toggle+scroll mode: toggle between value and 0
         if hasattr(self._button, '_has_toggle') and self._button._has_toggle:
             if self._button._checked:
+                # Scrolling DOWN while at 0/checked must stay at 0
+                # (only scrolling UP unchecks back to a positive value).
+                if delta < 0:
+                    self._show_scroll_popup(0)
+                    event.accept()
+                    return True
                 restored = self._button._saved_value if self._button._saved_value and self._button._saved_value > 0 else 1
                 self._button._saved_value = None
-                step = 1 if delta > 0 else -1
-                new_val = max(self._button._scroll_min if self._button._scroll_min > 0 else 1,
-                             min(self._button._scroll_max, restored + step))
+                new_val = max(
+                    self._button._scroll_min if self._button._scroll_min > 0 else 1,
+                    min(self._button._scroll_max, restored),
+                )
                 self._button._scroll_value = new_val
                 self._button._checked = False
                 self._button.valueChanged.emit(new_val)
@@ -118,8 +125,12 @@ class ScrollCapability(ButtonCapability):
 
         if val == 0:
             pixmap = resolve_icon(get_named_icon("divider_hidden")).pixmap(18, 18)
-            popup_text = ""
-            popup_size = QSize(32, 28)
+            if pixmap.isNull():
+                pixmap = None
+                popup_text = "off"
+            else:
+                popup_text = ""
+            popup_size = QSize(36, 28)
         else:
             pixmap = None
             popup_text = str(val)
@@ -140,6 +151,30 @@ class ScrollCapability(ButtonCapability):
             self._value_popup = QLabel(parent=self._button.window())
             self._value_popup.setObjectName("ValuePopupLabel")
             self._value_popup.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._value_popup.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            shadow = QGraphicsDropShadowEffect(self._value_popup)
+            shadow.setBlurRadius(10)
+            shadow.setOffset(0, 2)
+            self._value_popup.setGraphicsEffect(shadow)
+
+        tm = getattr(self._button, "theme_manager", None)
+        if tm is not None:
+            bg = tm.get_color("flyout.background")
+            border = tm.get_color("flyout.border")
+            text = tm.get_color("dialog.text")
+            shadow = self._value_popup.graphicsEffect()
+            if isinstance(shadow, QGraphicsDropShadowEffect):
+                shadow.setColor(tm.get_color("shadow.color"))
+            self._value_popup.setStyleSheet(
+                "QLabel#ValuePopupLabel {"
+                f"background-color: {bg.name(QColor.NameFormat.HexArgb)};"
+                f"border: 1px solid {border.name(QColor.NameFormat.HexArgb)};"
+                "border-radius: 6px;"
+                f"color: {text.name(QColor.NameFormat.HexArgb)};"
+                "font-weight: 700;"
+                "font-size: 10px;"
+                "}"
+            )
 
         if pixmap is not None:
             self._value_popup.setPixmap(pixmap)

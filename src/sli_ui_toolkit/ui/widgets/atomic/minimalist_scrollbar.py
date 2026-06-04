@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QRect, QRectF, Qt, QTimer
+from PyQt6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QRegion
 from PyQt6.QtWidgets import QScrollArea, QScrollBar
 
@@ -15,6 +15,7 @@ class MinimalistScrollBar(QScrollBar):
         self._idle_thickness = 4
         self._hover_thickness = 6
         self._drag_thickness = 10
+        self._minimum_handle_length = 32
         self._idle_color = QColor()
         self._hover_color = QColor()
         self._update_colors()
@@ -67,7 +68,10 @@ class MinimalistScrollBar(QScrollBar):
             groove_len = self.height() - padding * 2
             if groove_len <= 0:
                 return QRect()
-            handle_len = max((self.pageStep() / total_range) * groove_len, 20)
+            handle_len = max(
+                (self.pageStep() / total_range) * groove_len,
+                self._minimum_handle_length,
+            )
             track_len = groove_len - handle_len
             handle_pos_rel = (((self.value() - self.minimum()) / scroll_range * track_len) if scroll_range > 0 else 0)
             handle_y = handle_pos_rel + padding
@@ -76,7 +80,10 @@ class MinimalistScrollBar(QScrollBar):
         groove_len = self.width() - padding * 2
         if groove_len <= 0:
             return QRect()
-        handle_len = max((self.pageStep() / total_range) * groove_len, 20)
+        handle_len = max(
+            (self.pageStep() / total_range) * groove_len,
+            self._minimum_handle_length,
+        )
         track_len = groove_len - handle_len
         handle_pos_rel = (((self.value() - self.minimum()) / scroll_range * track_len) if scroll_range > 0 else 0)
         handle_x = handle_pos_rel + padding
@@ -163,6 +170,25 @@ class OverlayScrollArea(QScrollArea):
         self.custom_v_scrollbar.setVisible(False)
         self._sync_steps_from_native()
         self._apply_viewport_mask()
+        self.viewport().installEventFilter(self)
+
+    def setWidget(self, widget):
+        previous = self.widget()
+        if previous is not None:
+            previous.removeEventFilter(self)
+        super().setWidget(widget)
+        if widget is not None:
+            widget.installEventFilter(self)
+        self._queue_scrollbar_sync()
+
+    def eventFilter(self, watched, event):
+        if watched in (self.viewport(), self.widget()) and event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.Show,
+            QEvent.Type.LayoutRequest,
+        ):
+            self._queue_scrollbar_sync()
+        return super().eventFilter(watched, event)
 
     def set_reserve_scrollbar_space(self, reserve: bool):
         self._reserve_scrollbar_space = bool(reserve)
@@ -180,7 +206,10 @@ class OverlayScrollArea(QScrollArea):
         self._position_scrollbar()
         self._sync_steps_from_native()
         self._apply_viewport_mask()
-        self._update_timer.start(10)
+        self._queue_scrollbar_sync()
+
+    def _queue_scrollbar_sync(self):
+        self._update_timer.start(0)
 
     def _apply_viewport_mask(self):
         viewport = self.viewport()
@@ -214,7 +243,10 @@ class OverlayScrollArea(QScrollArea):
         if not self.custom_v_scrollbar.isVisible():
             return
         self.custom_v_scrollbar.setGeometry(
-            self.viewport().width() - self._scrollbar_width - self._scrollbar_gap,
+            self.viewport().x()
+            + self.viewport().width()
+            - self._scrollbar_width
+            - self._scrollbar_gap,
             self.viewport().y(),
             self._scrollbar_width,
             self.viewport().height(),
@@ -222,3 +254,4 @@ class OverlayScrollArea(QScrollArea):
 
     def _delayed_update_scrollbar(self):
         self._sync_steps_from_native()
+        self._position_scrollbar()

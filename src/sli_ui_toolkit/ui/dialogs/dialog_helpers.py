@@ -2,10 +2,10 @@ import os
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.composite import DialogActionBar
+from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.utils import resource_path
 
 class BaseDialog(QDialog):
@@ -50,14 +50,18 @@ def setup_dialog_scaffold(
     cancel_text: str = "Cancel",
     show_cancel_button: bool = True,
 ):
-    action_bar = DialogActionBar(
-        ok_text,
-        cancel_text,
-        primary_min_size=(100, 30),
-        secondary_min_size=(100, 30),
-    )
-    dialog.ok_button = action_bar.primary_button
-    dialog.cancel_button = action_bar.secondary_button
+    action_bar = QWidget(dialog)
+    action_layout = QHBoxLayout(action_bar)
+    action_layout.setContentsMargins(0, 0, 0, 0)
+    action_layout.setSpacing(8)
+    action_layout.addStretch()
+
+    dialog.ok_button = Button(text=ok_text, variant="surface", parent=action_bar)
+    dialog.ok_button.setProperty("class", "primary")
+    dialog.ok_button.setMinimumSize(100, 30)
+
+    dialog.cancel_button = Button(text=cancel_text, variant="surface", parent=action_bar)
+    dialog.cancel_button.setMinimumSize(100, 30)
 
     dialog.ok_button.clicked.connect(dialog.accept)
     dialog.cancel_button.clicked.connect(dialog.reject)
@@ -65,6 +69,8 @@ def setup_dialog_scaffold(
     if not show_cancel_button:
         dialog.cancel_button.hide()
 
+    action_layout.addWidget(dialog.ok_button)
+    action_layout.addWidget(dialog.cancel_button)
     main_layout.addWidget(action_bar)
 
 def setup_dialog_icon(dialog: QDialog, icon_path: str = None):

@@ -96,7 +96,7 @@ install_application_tooltips(app)
 window = QWidget()
 layout = QVBoxLayout(window)
 
-save_button = Button("save", text="Save", variant="accent")
+save_button = Button("save", text="Save", variant="primary")
 mode_combo = ComboBox()
 mode_combo.addItems(["Fast", "Balanced", "Quality"])
 
@@ -106,6 +106,15 @@ window.show()
 
 app.exec()
 ```
+
+Flyouts, button dropdown menus, and similar in-window surfaces use
+`overlay_resolver` when a host app provides an overlay layer. The resolved
+object should expose `host`, `attach(widget)`, `anchor_rect(anchor)`, and
+`clamp_rect(rect, margin=...)`. If no overlay layer is resolved, button dropdown
+menus fall back to the top-level window and position themselves in window
+coordinates. Menu surfaces are painted from `flyout.background` /
+`flyout.border`; individual rows only use `list_item.background.hover` for the
+hovered or current item.
 
 ## First Widgets To Reach For
 
@@ -119,8 +128,6 @@ app.exec()
   Settings/help style dialog shell.
 - `ScrollableDialogPage`
   Scrollable dialog page container.
-- `DialogActionBar`
-  Standard primary/secondary action row.
 - `MarkdownHelpDialog`
   Reusable markdown help/documentation dialog.
 

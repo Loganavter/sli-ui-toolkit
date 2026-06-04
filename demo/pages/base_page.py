@@ -1,7 +1,7 @@
 """Base page widget for demo pages."""
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
-from sli_ui_toolkit.widgets import GroupTitleLabel, OverlayScrollArea
+from sli_ui_toolkit.widgets import Label, OverlayScrollArea
 
 
 class BasePageWidget(QWidget):
@@ -27,7 +27,7 @@ class BasePageWidget(QWidget):
 
     def add_section(self, title: str) -> QVBoxLayout:
         """Add a named section with a title and return its layout for adding widgets."""
-        section_title = GroupTitleLabel(text=title)
+        section_title = Label(title, pixel_size=13, bold=True)
         self._content_layout.addWidget(section_title)
 
         section_layout = QVBoxLayout()

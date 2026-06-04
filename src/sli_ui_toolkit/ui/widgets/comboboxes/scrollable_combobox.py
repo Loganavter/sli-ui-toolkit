@@ -8,17 +8,18 @@ from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPo
 from PyQt6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import UnderlineConfig, draw_bottom_underline
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
 logger = logging.getLogger(__name__)
 
-class ScrollableComboBox(QWidget):
+class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
     currentIndexChanged = pyqtSignal(int)
     clicked = pyqtSignal()
     wheelScrolledToIndex = pyqtSignal(int)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, wheel_requires_focus: bool = False):
         super().__init__(parent)
+        self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
         self._current_index = -1
         self._count = 0
         self._text = ""
@@ -35,7 +36,7 @@ class ScrollableComboBox(QWidget):
         self._pending_index = -1
         self.setFixedHeight(33)
         self.setMinimumWidth(0)
-        self.setProperty("class", "primary")
+        self.setProperty("class", "default")
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_manager = ThemeManager.get_instance()
@@ -44,7 +45,7 @@ class ScrollableComboBox(QWidget):
 
     def _style_prefix(self) -> str:
         btn_class = str(self.property("class") or "")
-        return "button.primary" if "primary" in btn_class else "button.default"
+        return "button.primary" if "primary" in btn_class else "button.dialog.default"
 
     def setAutoWidthEnabled(self, enabled: bool):
         self._auto_width = bool(enabled)
@@ -130,35 +131,35 @@ class ScrollableComboBox(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         tm = self.theme_manager
         is_dark = tm.is_dark()
+        prefix = self._style_prefix()
+        text_color = (
+            tm.get_color("button.primary.text")
+            if prefix == "button.primary"
+            else tm.get_color("dialog.text")
+        )
         if not self.isEnabled():
-            bg_color = tm.get_color("button.primary.background")
-            text_color = QColor(tm.get_color("dialog.text"))
+            bg_color = tm.get_color(f"{prefix}.background")
+            text_color = QColor(text_color)
             text_color.setAlpha(140 if is_dark else 120)
         elif self._pressed:
-            bg_color = tm.get_color("button.primary.background.pressed")
-            text_color = tm.get_color("button.primary.text")
+            bg_color = tm.get_color(f"{prefix}.background.pressed")
         elif self._flyout_is_open:
-            bg_color = tm.get_color("button.primary.background")
-            text_color = tm.get_color("button.primary.text")
+            bg_color = tm.get_color(f"{prefix}.background")
         elif self._hovered:
-            bg_color = tm.get_color("button.primary.background.hover")
-            text_color = tm.get_color("button.primary.text")
+            bg_color = tm.get_color(f"{prefix}.background.hover")
         else:
-            bg_color = tm.get_color("button.primary.background")
-            text_color = tm.get_color("button.primary.text")
+            bg_color = tm.get_color(f"{prefix}.background")
         rect = self.rect()
         rectf = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(bg_color))
         painter.drawRoundedRect(rectf, 6, 6)
-        prefix = self._style_prefix()
         border_color = QColor(tm.get_color(f"{prefix}.border"))
         pen_border = QPen(border_color)
         pen_border.setWidthF(1.0)
         painter.setPen(pen_border)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rectf, 6, 6)
-        draw_bottom_underline(painter, rect, tm, UnderlineConfig(alpha=40, thickness=1.0, arc_radius=4.0))
         painter.setPen(QPen(text_color))
         font = self.getItemFont()
         painter.setFont(font)
@@ -212,6 +213,8 @@ class ScrollableComboBox(QWidget):
             super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
+        if not self.shouldHandleWheelEvent(event):
+            return
         if not self.isEnabled() or self.count() <= 1:
             event.ignore()
             return
@@ -247,4 +250,3 @@ class ScrollableComboBox(QWidget):
             if self._auto_width:
                 QTimer.singleShot(0, self._adjustWidthToContent)
         super().changeEvent(event)
-

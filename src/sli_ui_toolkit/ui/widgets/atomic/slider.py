@@ -5,14 +5,23 @@ from PyQt6.QtGui import QBrush, QColor, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import QSlider
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
-class Slider(QSlider):
+
+class Slider(WheelScrollPolicyMixin, QSlider):
     TRACK_HEIGHT = 5
     RADIUS = 8
     MARGIN_H = 10
 
-    def __init__(self, orientation: Qt.Orientation = Qt.Orientation.Horizontal, parent=None):
+    def __init__(
+        self,
+        orientation: Qt.Orientation = Qt.Orientation.Horizontal,
+        parent=None,
+        *,
+        wheel_requires_focus: bool = False,
+    ):
         super().__init__(orientation, parent)
+        self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._hovered = False
@@ -147,6 +156,9 @@ class Slider(QSlider):
         super().mouseReleaseEvent(e)
 
     def wheelEvent(self, e):
+        if not self.shouldHandleWheelEvent(e):
+            return
+
         delta = e.angleDelta().y()
         step = max(1, (self.maximum() - self.minimum()) // 100)
         if delta > 0:
@@ -208,5 +220,3 @@ class Slider(QSlider):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(accent))
         painter.drawEllipse(QPointF(float(center.x()), float(center.y())), inner_r, inner_r)
-
-FluentSlider = Slider

@@ -17,7 +17,7 @@ Small convenience surface for app bootstrap and commonly used primitives.
 
 Exports:
 
-- `AdaptiveLabel`, `BodyLabel`, `CaptionLabel`, `ClickableLabel`, `CompactLabel`, `GroupTitleLabel`
+- `Label`, `LabelConfig`, `LabelVariantSpec`, `register_label_variant`, `get_label_variant`
 - `GenericWorker`, `WorkerSignals`
 - `ThemeManager`
 - `TranslationManager`, `ToolkitTranslationEvents`
@@ -46,6 +46,8 @@ re-exports only.
 A single `Button` class replaces all legacy button widgets via composable parameters.
 
 ```python
+from PyQt6.QtGui import QColor
+
 from sli_ui_toolkit.widgets import Button, ButtonGroup
 
 # Icon-only toggle
@@ -60,11 +62,11 @@ btn = Button(icon=(AppIcon.VERTICAL, AppIcon.HORIZONTAL), toggle=True)
 # Text button in dialog
 btn = Button(text="Browse…", variant="surface")
 
-# Icon + text with accent style
-btn = Button(AppIcon.SAVE, text="Save", variant="accent")
+# Icon + text with primary style
+btn = Button(AppIcon.SAVE, text="Save", variant="primary")
 
 # Long press support
-btn = Button(AppIcon.DELETE, long_press=True, variant="delete")
+btn = Button(AppIcon.DELETE, long_press=True, background_color=QColor("#D93025"))
 
 # Dropdown menu
 btn = Button(AppIcon.MODE, menu=[("Option A", "a"), ("Option B", "b")])
@@ -84,8 +86,11 @@ btn = Button(AppIcon.MAGNIFIER, toggle=True, badge="3")
 | `long_press` | bool | Emit `longPressed` after hold delay |
 | `badge` | str/int | Small overlay badge text |
 | `show_underline` | bool | Bottom color underline |
+| `underline_color` | QColor/list/None | Explicit underline color or color segments |
+| `underline_thickness` | float/None | Explicit underline thickness in pixels |
 | `menu` | list | Dropdown menu items |
 | `variant` | str | Visual variant (see below) |
+| `wheel_requires_focus` | bool | Require focus before wheel-scroll handling when `scrollable` is enabled |
 | `size` | (w, h) | Fixed size |
 | `parent` | QWidget | Parent widget |
 
@@ -94,8 +99,6 @@ btn = Button(AppIcon.MAGNIFIER, toggle=True, badge="3")
 | Variant | Theme prefix | Border | Use case |
 |---------|-------------|--------|----------|
 | `"default"` | `button.toggle` | no | Toolbar toggles (default) |
-| `"accent"` | `button.default` | yes, blue | Accent actions (swap, settings, help) |
-| `"delete"` | `button.delete` | yes, red | Destructive actions |
 | `"primary"` | `button.primary` | yes | Text buttons in main UI |
 | `"surface"` | `button.dialog.default` | yes | Dialog buttons |
 | `"ghost"` | transparent | no | Invisible until hovered |
@@ -119,9 +122,11 @@ btn = Button(AppIcon.MAGNIFIER, toggle=True, badge="3")
 
 | Method | Description |
 |--------|-------------|
-| `set_color(QColor\|list\|None)` | Set underline color (e.g. from color picker) |
+| `setUnderlineColor(QColor\|list\|None)` | Set underline color |
+| `setUnderlineThickness(float\|None)` | Set underline thickness in pixels |
 | `set_value(int)` / `get_value()` | Scroll value access |
 | `setBadge(str)` | Update badge text |
+| `setBadgeStyle(filled=..., background_color=..., border_color=..., text_color=...)` | Configure badge outline/fill colors. Badges are outline-only by default. |
 | `set_footer_mode(bool)` | Flat top, rounded bottom (for footer buttons) |
 | `set_show_strike_through(bool)` | Red diagonal strikethrough |
 | `set_override_bg_color(QColor)` | Force background color |
@@ -147,29 +152,130 @@ group = ButtonGroup([btn1, btn2, btn3], label="View")
 
 ### Labels
 
+`Label` is the unified text component. Set the typography and behavior directly,
+or start from a registered variant when a shared preset is useful.
+
+```python
+from sli_ui_toolkit.widgets import Label, LabelConfig
+
+title = Label("Settings", variant="group-title")
+body = Label("Ready", pixel_size=12)
+caption = Label("Secondary status", pixel_size=11)
+custom = Label(
+    config=LabelConfig(
+        text="Pinned",
+        pixel_size=10,
+        bold=True,
+        color_token="accent",
+        elide=True,
+        minimum_width=80,
+    )
+)
+```
+
+**Common options:**
+
+| Option | Description |
+|--------|-------------|
+| `text` | Label text. |
+| `variant` | Optional registered preset name. |
+| `family` | Font family override. |
+| `pixel_size` | Font size in pixels. |
+| `bold` / `italic` / `underline` / `strike_out` | Font styling flags. |
+| `color` / `color_token` | Explicit `QColor` or `ThemeManager` token. |
+| `alignment` | Qt alignment flags. |
+| `elide` | Elide overflowing text with an ellipsis. |
+| `minimum_width` | Minimum width used by size hints. |
+| `expanding` | Use an expanding horizontal size policy. |
+| `word_wrap` | Enable wrapped multiline text. |
+| `selectable` | Enable mouse/keyboard text selection. |
+
+**Built-in presets:**
+
+| Variant | Size | Weight | Behavior |
+|---------|------|--------|----------|
+| `"body"` | 12 px | Normal | Standard body text |
+| `"caption"` | 11 px | Normal | Small secondary/status text |
+| `"compact"` | 10 px | Normal | Dense elided text |
+| `"group-title"` | 13 px | Bold | Section headers |
+| `"adaptive"` | 12 px | Normal | Expanding elided text |
+
 | Widget | Description |
 |--------|-------------|
-| `AdaptiveLabel` | Label that adapts font size to fit content. |
-| `BodyLabel` | Standard body-text label. |
-| `CaptionLabel` | Small caption/status label. |
-| `CompactLabel` | Compact label with reduced spacing. |
-| `GroupTitleLabel` | Bold section title label. |
-| `ClickableLabel` | Label that emits `clicked` signal. |
+| `Label` | Unified themed text label with direct typography and behavior options. |
+| `LabelConfig` | Declarative configuration object for `Label`. |
+| `LabelVariantSpec` | Typography/color variant registry entry. |
 | `DropZoneLabel` | Label with drag-and-drop zone visuals and file accept logic. |
 
 ### Inputs
 
 | Widget | Description |
 |--------|-------------|
-| `CustomLineEdit` | Themed line edit with focus normalization. |
+| `CustomLineEdit` | Themed line edit with rounded input paint, text padding, configurable text alignment, theme-updated text color, and focus normalization. |
 | `CheckBox` | Custom-painted checkbox. |
 | `RadioButton` | Custom-painted radio button. |
 | `Slider` | Custom-painted slider with accent track. |
-| `SpinBox` | Custom-painted spinbox. |
+| `SpinBox` | Custom-painted compact spinbox. |
 | `Switch` | Custom-painted toggle switch. |
 | `ComboBox` | Full custom-painted combo box with dropdown popup, type-to-search matching, and keyboard navigation. |
 | `ScrollableComboBox` | Combo box with mouse-wheel cycling. |
-| `TimeLineEdit` | Time input (HH:MM) widget with underline styling. |
+| `TimeLineEdit` | Compact toolkit-painted `HH:mm` input with validation/normalization, two right-side repeatable step buttons, and no native `QTimeEdit` chrome. |
+
+Text inputs accept Qt alignment flags or string alignment values:
+
+```python
+name = CustomLineEdit(alignment="left")
+time = TimeLineEdit(alignment="center", wheel_requires_focus=False)
+count = SpinBox(default_value=42, alignment="right", wheel_requires_focus=False)
+
+name.setTextAlignment("center")
+time.setStepButtonsVisible(False)
+```
+
+Toolkit-painted inputs expose the same underline configuration names as
+`Button`: `underline_color`, `underline_thickness`, `setUnderlineColor(...)`,
+and `setUnderlineThickness(...)`. `CustomLineEdit`, `SpinBox`, `TimeLineEdit`,
+and `ComboBox` support these options.
+
+```python
+name = CustomLineEdit(underline_color=QColor("#0078D4"), underline_thickness=1.5)
+combo = ComboBox(underline_thickness=1.0)
+
+name.setUnderlineColor(QColor("#0078D4"))
+combo.setUnderlineThickness(1.5)
+```
+
+`CustomLineEdit`, `SpinBox`, `TimeLineEdit`, and `ComboBox` also support
+separate focused underline styling. The base `underline_*` options apply when
+the field is not focused; focused options apply only while the field has focus.
+
+```python
+name = CustomLineEdit(
+    underline_color=QColor("#808080"),
+    underline_thickness=1.0,
+    focused_underline_color=QColor("#0078D4"),
+    focused_underline_thickness=1.5,
+)
+
+name.setFocusedUnderlineColor(QColor("#0078D4"))
+name.setFocusedUnderlineThickness(1.5)
+```
+
+Wheel-scrollable widgets use the shared `wheel_requires_focus` policy. It
+defaults to `False`, so wheel interaction works on hover without clicking first.
+When a widget handles wheel input, it takes focus so focused visuals activate
+consistently. Set it to `True` when a control should only react after focus. The
+same policy is available on `Button(scrollable=...)`, `ComboBox`,
+`ScrollableComboBox`, `InstancesCounterButton`, `Slider`, `SpinBox`, and
+`TimeLineEdit`.
+
+```python
+spin = SpinBox(wheel_requires_focus=True)
+slider = Slider(wheel_requires_focus=True)
+button = Button(icon="line_weight", scrollable=(0, 10), wheel_requires_focus=True)
+
+spin.setWheelRequiresFocus(False)
+```
 
 ### Scrolling
 
@@ -195,11 +301,18 @@ group = ButtonGroup([btn1, btn2, btn3], label="View")
 |--------|-------------|
 | `BaseFlyout` | Base class for anchored flyout widgets. |
 | `SimpleOptionsFlyout` | Flyout displaying a list of clickable text options. |
-| `ColorOptionsFlyout` / `IconActionFlyout` | Flyout with icon+label action rows and optional color pickers. |
+| `IconActionFlyout` / `IconAction` | Customizable horizontal flyout for icon action buttons. |
 | `FlyoutIconButton` | Icon button that auto-manages an attached flyout on hover/click. |
 | `IndexedToggleFlyout` | Flyout with numbered toggle slots (show/hide per instance). |
-| `FontSettingsFlyout` | Flyout for font family/size/weight settings. |
+| `FontSettingsFlyout` | Improve-ImgSLI-style text settings flyout: size, weight, opacity, foreground/background color swatches, text background switch, and placement radios. |
 | `UnifiedFlyout` | Full-featured dual-pane overlay list with drag-drop reordering, session management, animated open/close. Import: `sli_ui_toolkit.ui.widgets.composite.unified_flyout`. |
+
+`BaseFlyout.show_aligned(anchor_widget, anchor_point="bottom-center", flyout_point="top-center", ...)`
+aligns a named point on the anchor to a named point on the flyout. Point strings
+use vertical-horizontal tokens such as `"top-left"`, `"center-right"`, or
+`"bottom-center"`; the `"center"` half can be omitted for centered edge points,
+for example `"top"`. The legacy `position="top"` / `"bottom-left"` style is
+still accepted for compatibility.
 
 ### Dialogs & Navigation
 
@@ -207,8 +320,7 @@ group = ButtonGroup([btn1, btn2, btn3], label="View")
 |--------|-------------|
 | `SidebarDialogShell` | Sidebar + stacked pages dialog container. |
 | `ScrollableDialogPage` | Ready-made scrollable page for dialog content. |
-| `DialogActionBar` | Primary/secondary action button row. |
-| `SidebarNavList` / `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. |
+| `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. |
 | `MarkdownHelpDialog` / `MarkdownHelpSection` | Markdown-based help/documentation dialog with anchors, generated TOC, and internal `help://slug#anchor` navigation. |
 
 Markdown help section discovery helpers are intentionally not exported from
@@ -219,8 +331,6 @@ Markdown help section discovery helpers are intentionally not exported from
 
 | Widget | Description |
 |--------|-------------|
-| `DirectoryPickerRow` | Line edit + browse button for directory selection. |
-| `FavoritePathActions` | Paired favorite-path action buttons. |
 | `OutputPathSection` | Combined output-directory + filename form section. |
 
 ### Console & Logging
@@ -234,13 +344,13 @@ Markdown help section discovery helpers are intentionally not exported from
 
 | Widget | Description |
 |--------|-------------|
-| `ToastManager` / `ToastNotification` | Transient notification toasts. |
+| `ToastManager` / `ToastNotification` / `ToastAction` | In-window transient toasts. `show_toast(content, actions=...)` accepts strings, custom content widgets, `ToastAction` entries, action specs, or action widgets. |
 
 ### Data Visualization
 
 | Widget | Description |
 |--------|-------------|
-| `SunburstChartWidget` | Sunburst/donut chart (`QGraphicsView`-based). Feed `SunburstSegmentData` list. Signals: `segment_clicked`, `segment_hover_*`. |
+| `SunburstChartWidget` | Sunburst/donut chart (`QGraphicsView`-based). Feed `SunburstSegmentData` list. Signals: `segment_clicked`, `segment_hover_*`. Center text color follows `dialog.text` or `set_center_text_color(...)`. |
 | `SunburstSegmentData` | Dataclass: start_angle, span_angle (radians), inner/outer radius, color, segment_id. |
 | `SunburstSegmentItem` | Individual chart segment (`QGraphicsPathItem`). |
 | `CalendarWidget` | Three-level calendar (days/months/years) with `QStackedWidget`. Feed `CalendarViewModel` via `update_view()`. |
@@ -281,7 +391,7 @@ Markdown help section discovery helpers are intentionally not exported from
 |------|-------------|
 | `apply_editable_text_behavior(widget)` | Normalize QLineEdit focus/enter behavior. |
 | `calculate_centered_overlay_geometry(...)` | Compute centered overlay position relative to parent. |
-| `draw_bottom_underline(painter, ...)` | Draw a themed bottom underline on a widget. |
+| `draw_bottom_underline(painter, ...)` | Draw a themed bottom underline on a widget. Prefer widget-level underline APIs for `Button`, `CustomLineEdit`, and `ComboBox`. |
 | `draw_rounded_shadow(painter, ...)` | Draw a rounded drop shadow behind a rect. |
 | `UnderlineConfig` | Configuration dataclass for underline painting. |
 | `WidgetStyleTokens` | Resolved style token set for custom painters. |
@@ -354,6 +464,13 @@ Markdown help section discovery helpers are intentionally not exported from
 | `configure_icon_resolver(resolver=..., named_icons=...)` | `sli_ui_toolkit.icons` | Icon resolution strategy. |
 | `configure_i18n(i18n_root=...)` | `sli_ui_toolkit.i18n` | Path to JSON translation directory. |
 
+`overlay_resolver` is used by in-window surfaces such as button dropdown menus
+and flyouts. A host overlay object should provide `host`, `attach(widget)`,
+`anchor_rect(anchor)`, and `clamp_rect(rect, margin=...)`. Button dropdown menus
+fall back to the top-level window when no overlay layer is resolved. Their
+surface uses `flyout.background` / `flyout.border`; rows use
+`list_item.background.hover` only for hover/current feedback.
+
 ---
 
 ## Tooltip System
@@ -376,8 +493,8 @@ Safe first choices for new code:
 - `Button` with appropriate `variant` — covers icons, toggles, scrollable, long-press, menus, text
 - `ButtonGroup` for grouped toolbar sections
 - Labels, `CustomLineEdit`
-- `SidebarDialogShell` + `ScrollableDialogPage` + `DialogActionBar`
-- `DirectoryPickerRow` / `OutputPathSection`
+- `SidebarDialogShell` + `ScrollableDialogPage`
+- `OutputPathSection`
 - `LogConsoleWidget` / `ProcessConsoleWidget`
 - `ToastManager`
 - `SunburstChartWidget` / `CalendarWidget` / `TimelineWidget`

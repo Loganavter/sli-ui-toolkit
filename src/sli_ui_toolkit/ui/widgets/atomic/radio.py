@@ -232,5 +232,3 @@ class RadioButton(QRadioButton):
             )
 
         painter.end()
-
-FluentRadioButton = RadioButton

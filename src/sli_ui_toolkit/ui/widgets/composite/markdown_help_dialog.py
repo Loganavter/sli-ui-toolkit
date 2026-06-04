@@ -208,6 +208,20 @@ class MarkdownHelpDialog(QDialog):
         self._toc_title_text = str(title)
         self._apply_styles()
 
+    def set_sections_from_directory(
+        self,
+        directory,
+        language: str | None = None,
+    ) -> None:
+        from sli_ui_toolkit.ui.widgets.composite.help_sections import (
+            read_markdown_help_sections,
+            toc_title_for_language,
+        )
+
+        self.set_sections(read_markdown_help_sections(directory))
+        if language is not None:
+            self.set_toc_title(toc_title_for_language(language))
+
     def set_sections(
         self,
         sections: tuple[MarkdownHelpSection, ...] | list[MarkdownHelpSection],

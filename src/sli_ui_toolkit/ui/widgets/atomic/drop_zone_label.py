@@ -1,9 +1,11 @@
 import os
 
-from PyQt6.QtCore import QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QRectF, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
-from sli_ui_toolkit.ui.widgets.atomic.text_labels import AdaptiveLabel
+from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 
 def _file_path_from_url(url: QUrl) -> str:
     path = url.toLocalFile()
@@ -34,15 +36,56 @@ def _paths_from_urls_and_uri_list(mime, urls: list) -> list[str]:
             paths.append(path)
     return paths
 
-class DropZoneLabel(AdaptiveLabel):
+class DropZoneLabel(Label):
     file_dropped = pyqtSignal(str)
     drop_zone_drag_active = pyqtSignal(bool)
     drop_zone_hover_state_changed = pyqtSignal(bool)
 
     def __init__(self, text: str = "", parent: QWidget | None = None):
-        super().__init__(text, parent)
+        super().__init__(text, parent, variant="adaptive")
         self.setAcceptDrops(True)
-        self.setMouseTracking(True)
+        self.setMouseTracking(False)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setMinimumHeight(80)
+        self._drag_active = False
+        self._hovered = False
+        self._theme_manager = ThemeManager.get_instance()
+        try:
+            self._theme_manager.theme_changed.connect(self.update)
+        except Exception:
+            pass
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        accent = self._theme_manager.get_color("accent")
+        try:
+            border_normal = self._theme_manager.get_color("dialog.border")
+        except Exception:
+            border_normal = QColor("#aaaaaa")
+
+        if self._drag_active:
+            border_color = QColor(accent)
+            fill = QColor(accent)
+            fill.setAlpha(40)
+        else:
+            border_color = QColor(border_normal)
+            fill = QColor(0, 0, 0, 0)
+
+        rect = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
+        painter.setBrush(fill)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(rect, 10.0, 10.0)
+
+        pen = QPen(border_color, 2.0)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect, 10.0, 10.0)
+        painter.end()
+
+        super().paintEvent(event)
 
     def _accept_drag(self, event):
         if event.source() is not None:
@@ -56,6 +99,8 @@ class DropZoneLabel(AdaptiveLabel):
             return
         event.acceptProposedAction()
         event.accept()
+        self._drag_active = True
+        self.update()
         self.drop_zone_drag_active.emit(True)
 
     def dragMoveEvent(self, event):
@@ -66,10 +111,14 @@ class DropZoneLabel(AdaptiveLabel):
         event.accept()
 
     def dragLeaveEvent(self, event):
+        self._drag_active = False
+        self.update()
         self.drop_zone_drag_active.emit(False)
         event.accept()
 
     def dropEvent(self, event):
+        self._drag_active = False
+        self.update()
         self.drop_zone_drag_active.emit(False)
         if not self._accept_drag(event):
             event.ignore()
@@ -92,9 +141,7 @@ class DropZoneLabel(AdaptiveLabel):
         event.accept()
 
     def enterEvent(self, event):
-        self.drop_zone_hover_state_changed.emit(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.drop_zone_hover_state_changed.emit(False)
         super().leaveEvent(event)

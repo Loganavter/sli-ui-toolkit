@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
 
 from sli_ui_toolkit.config import create_rating_gesture
 from sli_ui_toolkit.icons import resolve_icon
+from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.model import (
@@ -170,8 +171,8 @@ class RatingDelegate(QStyledItemDelegate):
                 icon_size,
             )
 
-            painter.drawPixmap(icon_rect_minus, icon_minus.pixmap(icon_size, icon_size))
-            painter.drawPixmap(icon_rect_plus, icon_plus.pixmap(icon_size, icon_size))
+            painter.drawPixmap(icon_rect_minus, normalized_icon_pixmap(icon_minus, icon_size))
+            painter.drawPixmap(icon_rect_plus, normalized_icon_pixmap(icon_plus, icon_size))
         else:
 
             name_width = r.width() - (self.margin * 2)

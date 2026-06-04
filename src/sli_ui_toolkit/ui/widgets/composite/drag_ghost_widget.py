@@ -1,14 +1,19 @@
 from PyQt6.QtCore import QPoint, QRectF, Qt
 from PyQt6.QtGui import QPainter, QPainterPath, QPixmap
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QGraphicsOpacityEffect, QWidget
 
 class DragGhostWidget(QWidget):
     def __init__(self, parent=None):
+        if parent is None:
+            raise ValueError("DragGhostWidget requires an in-window parent widget")
         super().__init__(parent)
+        self.setWindowFlags(Qt.WindowType.Widget)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._pixmap = QPixmap()
+        self._opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self._opacity_effect)
 
         self.setOpacity(1.0)
 
@@ -18,7 +23,7 @@ class DragGhostWidget(QWidget):
         self.update()
 
     def setOpacity(self, opacity):
-        self.setWindowOpacity(opacity)
+        self._opacity_effect.setOpacity(max(0.0, min(1.0, float(opacity))))
 
     def move(self, pos):
         if isinstance(pos, QPoint) and self.parentWidget() is not None:

@@ -264,9 +264,9 @@ class CalendarWidget(QWidget):
 
         header = QHBoxLayout()
         nav_h = self._nav_button_size()
-        self.prev_button = Button(text="‹", size=(nav_h, nav_h), corner_radius=4, variant="primary")
-        self.title_button = Button(text="", size=(0, nav_h), corner_radius=4, variant="primary")
-        self.next_button = Button(text="›", size=(nav_h, nav_h), corner_radius=4, variant="primary")
+        self.prev_button = Button(text="‹", size=(nav_h, nav_h), corner_radius=4, variant="surface")
+        self.title_button = Button(text="", size=(0, nav_h), corner_radius=4, variant="surface")
+        self.next_button = Button(text="›", size=(nav_h, nav_h), corner_radius=4, variant="surface")
 
         self.title_button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -358,7 +358,7 @@ class CalendarWidget(QWidget):
         min_w = max(50, self._font_unit() * 4)
         min_h = max(40, int(self._font_unit() * 2.5))
         for i in range(12):
-            btn = Button(size=(0, 0), corner_radius=6, variant="primary", parent=widget)
+            btn = Button(size=(0, 0), corner_radius=6, variant="surface", parent=widget)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             btn.setMinimumSize(min_w, min_h)
             btn.clicked.connect(lambda _=False, m=i + 1: self.month_selected.emit(self._current_year, m))
@@ -416,6 +416,9 @@ class CalendarWidget(QWidget):
             btn.set_disabled_export(day.is_disabled, QColor(self._disabled_bg))
             btn.set_data(bool(has_messages), QColor(self._data_bg))
             self._set_button_availability(btn, day.is_available)
+            btn.blockSignals(True)
+            btn.setChecked(day.is_selected, emit=False)
+            btn.blockSignals(False)
 
             num = str(day.date.day())
             if day.is_selected and not day.is_disabled:
@@ -456,10 +459,7 @@ class CalendarWidget(QWidget):
                 ]
 
             btn.setRows(rows, compact=True)
-
-            btn.blockSignals(True)
-            btn.setChecked(day.is_selected, emit=False)
-            btn.blockSignals(False)
+            btn.update()
 
     def _update_month_view(self, vm: CalendarViewModel) -> None:
         sub_color_obj = QColor(self._muted_text)
@@ -503,7 +503,7 @@ class CalendarWidget(QWidget):
         min_h = max(40, int(self._font_unit() * 2.5))
         row, col = 0, 0
         for yi in vm.years:
-            btn = Button(size=(0, 0), corner_radius=6, variant="primary", parent=self._year_view)
+            btn = Button(size=(0, 0), corner_radius=6, variant="surface", parent=self._year_view)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             btn.setMinimumSize(min_w, min_h)
             btn.clicked.connect(lambda _=False, y=yi.year: self.year_selected.emit(y))

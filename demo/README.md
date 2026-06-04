@@ -6,9 +6,10 @@ A showcase of all main widget families in the `sli-ui-toolkit` PyQt6 library, wi
 
 The demo displays:
 
-- **Buttons**: All 7 variants (default, accent, delete, primary, surface, ghost, subtle), states, and features
+- **Buttons**: Live editor for one `Button`: text, variant, mode, size, radius, badge, badge fill, state, underline, footer mode, and custom color
 - **Inputs**: ComboBox, LineEdit, SpinBox, Slider, Switch, CheckBox, RadioButton, and variants
-- **Composites**: Dialogs (DialogActionBar, ScrollableDialogPage, SidebarDialogShell)
+- **Composites**: CustomGroupWidget and reusable form blocks
+- **Dialogs**: MarkdownHelpDialog and SidebarDialogShell with scrollable pages
 - **Misc**: Labels, LoadingSpinner, ToastNotification, Tooltips
 
 ## Running
@@ -27,7 +28,7 @@ python -m demo.main
 
 - **Theme Toggle**: Button in header switches between light and dark themes
 - **Responsive**: Widgets are scrollable on smaller screens
-- **Self-Documenting**: Each widget family is organized in its own page with minimal examples
+- **Self-Documenting**: Widget families are organized in tabs with focused live examples
 
 ## Structure
 
@@ -38,7 +39,7 @@ demo/
 ├── config.py            # Light and dark palettes
 └── pages/
     ├── base_page.py     # BasePageWidget for reusable page construction
-    ├── buttons_page.py  # Button showcase
+    ├── buttons_page.py  # Standalone page module, not used by the current entry point
     ├── inputs_page.py   # Input widgets showcase
     ├── composites_page.py # Dialogs showcase
     └── misc_page.py     # Labels, spinners, toasts, tooltips

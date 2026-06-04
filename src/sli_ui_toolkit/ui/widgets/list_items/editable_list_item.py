@@ -3,7 +3,7 @@ from typing import Any
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QWidget
 
-from sli_ui_toolkit.ui.widgets.atomic import CustomLineEdit, FluentCheckBox
+from sli_ui_toolkit.ui.widgets.atomic import CheckBox, CustomLineEdit
 from sli_ui_toolkit.ui.widgets.buttons import Button
 
 
@@ -17,7 +17,7 @@ class EditableListItem(QWidget):
         enabled: bool = True,
         placeholder: str = "",
         checkbox_tooltip: str = "",
-        delete_icon: Any = None,
+        delete_icon: Any = "delete",
         delete_tooltip: str = "",
         parent: QWidget | None = None,
     ):
@@ -32,8 +32,9 @@ class EditableListItem(QWidget):
             self.input_field.setPlaceholderText(placeholder)
         layout.addWidget(self.input_field, 1)
 
-        self.checkbox = FluentCheckBox("")
+        self.checkbox = CheckBox("")
         self.checkbox.setChecked(enabled)
+        self.checkbox.setMinimumSize(28, 28)
         if checkbox_tooltip:
             self.checkbox.setToolTip(checkbox_tooltip)
         layout.addWidget(self.checkbox)
@@ -42,7 +43,7 @@ class EditableListItem(QWidget):
             icon=delete_icon,
             size=(28, 28),
             icon_size=16,
-            variant="primary",
+            variant="surface",
             parent=self,
         )
         if delete_tooltip:
