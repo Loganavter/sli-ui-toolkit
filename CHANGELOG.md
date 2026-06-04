@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6
+
+### Fixed
+- Avoid over-normalizing already well-sized filled SVG glyphs, which made icons such as pause/play appear too heavy.
+- Cache resolved icons and normalized icon pixmaps to avoid repeated SVG rasterization and alpha scanning during frequent repaints such as drag ghost movement.
+
 ## 0.2.5
 
 ### Fixed
