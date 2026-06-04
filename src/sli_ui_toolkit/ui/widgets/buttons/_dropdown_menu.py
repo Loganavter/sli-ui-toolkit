@@ -122,7 +122,7 @@ class DropdownMenu(QWidget):
             self._global_filter_installed = True
 
     def _remove_outside_click_filter(self):
-        if not self._global_filter_installed:
+        if not getattr(self, "_global_filter_installed", False):
             return
         app = QApplication.instance()
         if app is not None:
