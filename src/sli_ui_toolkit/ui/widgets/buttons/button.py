@@ -404,6 +404,17 @@ class Button(WheelScrollPolicyMixin, QWidget):
         if scroll_cap is not None:
             scroll_cap._popup_controller = controller
 
+    def configure_value_popup(self, *, formatter=None, padding=None) -> None:
+        """Customize the scroll-wheel value popup.
+
+        ``formatter(value) -> ValuePopupContent`` overrides text/pixmap/size/
+        font/extra style per value. ``padding=(h, v)`` tweaks default autosize
+        margins. No-op if the button has no scroll capability.
+        """
+        cap = self.get_capability(ScrollCapability)
+        if cap is not None:
+            cap.configure_popup(formatter=formatter, padding=padding)
+
     def setIcon(self, icon):
         if isinstance(icon, (tuple, list)) and len(icon) >= 2:
             self._icon_unchecked, self._icon_checked = icon[0], icon[1]

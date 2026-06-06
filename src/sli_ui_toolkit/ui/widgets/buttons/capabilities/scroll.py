@@ -1,12 +1,31 @@
 """ScrollCapability — wheel-based value manipulation with in-window feedback."""
 
+from dataclasses import dataclass
+from typing import Callable
+
 from PyQt6.QtCore import QPoint, QSize, QTimer
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPixmap
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QLabel, QWidget
 from PyQt6.QtCore import Qt
 
 from sli_ui_toolkit.icons import get_named_icon, resolve_icon
 from .base import ButtonCapability
+
+
+@dataclass
+class ValuePopupContent:
+    """Describes how the in-window value popup should look for a given value.
+
+    All fields are optional. When ``size`` is None, the popup auto-sizes from
+    ``font`` metrics and ``text``/``pixmap``. When ``font`` is None, a default
+    bold font derived from the button is used. ``style`` is extra QSS appended
+    to the default popup stylesheet (use to override colors, radius, etc.).
+    """
+    text: str = ""
+    pixmap: QPixmap | None = None
+    size: QSize | None = None
+    font: QFont | None = None
+    style: str | None = None
 
 
 class ScrollCapability(ButtonCapability):
@@ -26,6 +45,8 @@ class ScrollCapability(ButtonCapability):
         self._scroll_end_timer: QTimer | None = None
         self._value_popup: QLabel | None = None
         self._popup_controller = None
+        self._popup_formatter: Callable[[int], ValuePopupContent] | None = None
+        self._popup_padding: tuple[int, int] = (12, 6)
 
     def attach(self, button: QWidget) -> None:
         self._button = button
@@ -119,29 +140,78 @@ class ScrollCapability(ButtonCapability):
         self._hide_scroll_popup()
         self._button.update()
 
+    def configure_popup(
+        self,
+        *,
+        formatter: Callable[[int], ValuePopupContent] | None = None,
+        padding: tuple[int, int] | None = None,
+    ) -> None:
+        """Customize the value popup.
+
+        ``formatter`` receives the current value and returns a ValuePopupContent
+        describing text/pixmap/size/font/extra style. Returning ``size=None``
+        triggers auto-sizing from font metrics plus ``padding``.
+        """
+        if formatter is not None:
+            self._popup_formatter = formatter
+        if padding is not None:
+            self._popup_padding = (int(padding[0]), int(padding[1]))
+
+    def _default_popup_font(self) -> QFont:
+        font = QFont(self._button.font()) if self._button is not None else QFont()
+        font.setBold(True)
+        if font.pointSize() > 0:
+            font.setPointSize(max(font.pointSize(), 10))
+        elif font.pixelSize() > 0:
+            font.setPixelSize(max(font.pixelSize(), 13))
+        else:
+            font.setPointSize(11)
+        return font
+
+    def _default_popup_content(self, val: int) -> ValuePopupContent:
+        if val == 0:
+            pixmap = resolve_icon(get_named_icon("divider_hidden")).pixmap(18, 18)
+            if pixmap.isNull():
+                return ValuePopupContent(text="off")
+            return ValuePopupContent(pixmap=pixmap)
+        return ValuePopupContent(text=str(val))
+
+    def _resolve_popup_content(self, val: int) -> ValuePopupContent:
+        formatter = self._popup_formatter or self._default_popup_content
+        content = formatter(val)
+        if not isinstance(content, ValuePopupContent):
+            raise TypeError(
+                "scroll popup formatter must return ValuePopupContent, "
+                f"got {type(content).__name__}"
+            )
+        return content
+
+    def _autosize(self, content: ValuePopupContent, font: QFont) -> QSize:
+        pad_w, pad_h = self._popup_padding
+        if content.pixmap is not None and not content.pixmap.isNull():
+            pm = content.pixmap
+            return QSize(pm.width() + pad_w * 2, pm.height() + pad_h * 2)
+        fm = QFontMetrics(font)
+        w = fm.horizontalAdvance(content.text or " ")
+        h = fm.height()
+        return QSize(max(w + pad_w * 2, h + pad_h * 2), h + pad_h * 2)
+
     def _show_scroll_popup(self, val: int):
         if self._button is None or not self._button.isVisible():
             return
 
-        if val == 0:
-            pixmap = resolve_icon(get_named_icon("divider_hidden")).pixmap(18, 18)
-            if pixmap.isNull():
-                pixmap = None
-                popup_text = "off"
-            else:
-                popup_text = ""
-            popup_size = QSize(36, 28)
-        else:
-            pixmap = None
-            popup_text = str(val)
-            popup_size = QSize(32 if val >= 10 else 26, 28)
+        content = self._resolve_popup_content(val)
+        font = content.font or self._default_popup_font()
+        size = content.size or self._autosize(content, font)
+        if isinstance(size, tuple):
+            size = QSize(int(size[0]), int(size[1]))
 
         popup_id = f"button:{id(self._button)}"
         if self._popup_controller is not None:
             self._popup_controller.show_popup(
                 popup_id, self._button,
-                text=popup_text, pixmap=pixmap,
-                size=popup_size, position="top",
+                text=content.text, pixmap=content.pixmap,
+                size=size, position="top",
                 offset=6,
                 timeout_ms=self._scroll_end_timer.interval() if self._scroll_end_timer else 800,
             )
@@ -157,6 +227,8 @@ class ScrollCapability(ButtonCapability):
             shadow.setOffset(0, 2)
             self._value_popup.setGraphicsEffect(shadow)
 
+        self._value_popup.setFont(font)
+
         tm = getattr(self._button, "theme_manager", None)
         if tm is not None:
             bg = tm.get_color("flyout.background")
@@ -165,24 +237,25 @@ class ScrollCapability(ButtonCapability):
             shadow = self._value_popup.graphicsEffect()
             if isinstance(shadow, QGraphicsDropShadowEffect):
                 shadow.setColor(tm.get_color("shadow.color"))
-            self._value_popup.setStyleSheet(
+            style = (
                 "QLabel#ValuePopupLabel {"
                 f"background-color: {bg.name(QColor.NameFormat.HexArgb)};"
                 f"border: 1px solid {border.name(QColor.NameFormat.HexArgb)};"
                 "border-radius: 6px;"
                 f"color: {text.name(QColor.NameFormat.HexArgb)};"
-                "font-weight: 700;"
-                "font-size: 10px;"
                 "}"
             )
+            if content.style:
+                style += content.style
+            self._value_popup.setStyleSheet(style)
 
-        if pixmap is not None:
-            self._value_popup.setPixmap(pixmap)
+        if content.pixmap is not None and not content.pixmap.isNull():
+            self._value_popup.setPixmap(content.pixmap)
             self._value_popup.setText("")
         else:
             self._value_popup.setPixmap(QPixmap())
-            self._value_popup.setText(popup_text)
-        self._value_popup.setFixedSize(popup_size)
+            self._value_popup.setText(content.text)
+        self._value_popup.setFixedSize(size)
 
         window = self._button.window()
         pos = self._button.mapToGlobal(QPoint(0, 0))
