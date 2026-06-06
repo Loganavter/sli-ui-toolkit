@@ -1,4 +1,4 @@
-"""ColorSwatch — circular Button that opens a themed QColorDialog on click."""
+"""ColorSwatch — round Button that opens a themed QColorDialog on click."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ class ColorSwatch(Button):
         tm = ThemeManager.get_instance()
         super().__init__(
             size=(size, size),
-            circular=True,
+            corner_radius=max(0, size // 2),
             background_color=initial,
             border_color=QColor(tm.get_color("dialog.border")),
             parent=parent,
@@ -71,6 +71,7 @@ class ColorSwatch(Button):
 
         def on_finished(_result: int) -> None:
             self._dialog = None
+            self.clearFocus()
 
         dialog.colorSelected.connect(on_selected)
         dialog.finished.connect(on_finished)

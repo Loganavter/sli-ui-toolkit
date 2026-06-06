@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 from sli_ui_toolkit.widgets import Button
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 
@@ -72,6 +72,9 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
         self.is_current = is_current
         self.item_type = item_type
         self.position = position
+        self._hovered = False
+        self.setMouseTracking(True)
+        register_hover_widget(self)
 
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update_styles)
@@ -216,9 +219,7 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
         if self._is_being_dragged:
             painter.setOpacity(0.35)
 
-        under_mouse = self.underMouse()
-
-        if self.is_current or under_mouse:
+        if self.is_current or self._hovered:
             bg_color = tm.get_color("list_item.background.hover")
         else:
             bg_color = tm.get_color("list_item.background.normal")
@@ -269,16 +270,28 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
             painter.setOpacity(1.0)
 
     def enterEvent(self, event):
+        self.setHoverActive(True)
         if self.full_path:
             self.tooltip_timer.start()
         self.update()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
+        self.setHoverActive(False)
         self.tooltip_timer.stop()
         PathTooltip.get_instance().hide_tooltip()
         self.update()
         super().leaveEvent(event)
+
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self.rect().contains(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if self._hovered != active:
+            self._hovered = active
+            self.update()
 
     def mousePressEvent(self, event: QMouseEvent):
         self.tooltip_timer.stop()

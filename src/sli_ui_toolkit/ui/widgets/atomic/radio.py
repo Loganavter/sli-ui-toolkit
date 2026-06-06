@@ -5,6 +5,7 @@ from PyQt6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QP
 from PyQt6.QtWidgets import QRadioButton, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 class RadioButton(QRadioButton):
     INDICATOR_SIZE = 20
@@ -26,6 +27,7 @@ class RadioButton(QRadioButton):
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         self._hover_progress = 0.0
+        self._hover_active = False
 
         self._hover_anim = QPropertyAnimation(self, b"hoverProgress", self)
         self._hover_anim.setDuration(120)
@@ -36,6 +38,7 @@ class RadioButton(QRadioButton):
             self.theme_manager.theme_changed.connect(self.update)
         except Exception:
             pass
+        register_hover_widget(self)
 
     def get_hover_progress(self) -> float:
         return self._hover_progress
@@ -67,22 +70,29 @@ class RadioButton(QRadioButton):
 
     def event(self, e):
         if e.type() in (QEvent.Type.HoverEnter, QEvent.Type.HoverMove):
-            r = QRectF(self.rect())
-            ind = self._indicator_rect(r)
-            fm = self.fontMetrics()
-            tx = self._text_rect_content(r, ind, fm)
-            p = e.position()
-            hovered = ind.contains(p) or tx.contains(p)
-            if hovered and self._hover_progress < 1.0:
-                self._animate_hover(True)
-            elif (not hovered) and self._hover_progress > 0.0:
-                self._animate_hover(False)
+            self.setHoverActive(self.hoverHitTest(e.position()))
             return True
         if e.type() == QEvent.Type.HoverLeave:
-            if self._hover_progress > 0.0:
-                self._animate_hover(False)
+            self.setHoverActive(False)
             return True
         return super().event(e)
+
+    def hoverHitTest(self, pos) -> bool:
+        r = QRectF(self.rect())
+        ind = self._indicator_rect(r)
+        fm = self.fontMetrics()
+        tx = self._text_rect_content(r, ind, fm)
+        return ind.contains(pos) or tx.contains(pos)
+
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if self._hover_active == active:
+            return
+        self._hover_active = active
+        if active:
+            self._animate_hover(True)
+        else:
+            self._animate_hover(False)
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:

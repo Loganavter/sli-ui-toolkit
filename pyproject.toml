@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sli-ui-toolkit"
-version = "0.2.6"
+version = "0.2.7"
 description = "Reusable PyQt UI toolkit primitives for SLI desktop tools."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,12 @@ authors = [
     { name = "Loganavter" },
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-qt>=4.2",
+]
+
 [project.urls]
 Repository = "https://github.com/Loganavter/sli-ui-toolkit"
 Issues = "https://github.com/Loganavter/sli-ui-toolkit/issues"
@@ -26,3 +32,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "sli_ui_toolkit" = ["resources/assets/icons/*.svg", "resources/assets/icons/light/*.svg", "resources/assets/icons/dark/*.svg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

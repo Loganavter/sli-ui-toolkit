@@ -19,6 +19,7 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     UnderlineConfig,
     WheelScrollPolicyMixin,
     draw_bottom_underline,
+    register_hover_widget,
 )
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         self.setMouseTracking(True)
         self.setFixedHeight(self.BASE_HEIGHT)
         self._theme.theme_changed.connect(self.update)
+        register_hover_widget(self)
 
     def setUnderlineColor(self, color: QColor | None) -> None:
         self._underline_color = color
@@ -497,14 +499,22 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
             window.removeEventFilter(self)
 
     def enterEvent(self, event):
-        self._hovered = True
-        self.update()
+        self.setHoverActive(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self._hovered = False
-        self.update()
+        self.setHoverActive(False)
         super().leaveEvent(event)
+
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self.rect().contains(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if self._hovered != active:
+            self._hovered = active
+            self.update()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

@@ -71,7 +71,7 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     draw_bottom_underline,
     draw_rounded_shadow,
 )
-from sli_ui_toolkit.ui.widgets.style_bridge import (
+from sli_ui_toolkit.style import (
     WidgetStyleTokens,
     read_widget_style,
     update_widget_style,

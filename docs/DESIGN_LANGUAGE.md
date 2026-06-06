@@ -82,16 +82,75 @@ Common options include `family`, `pixel_size`, `bold`, `italic`, `underline`,
 
 ## Control Geometry
 
-| Control | Key dimensions |
-|---------|---------------|
-| `CheckBox` | 20×20 px indicator, 4 px radius |
-| `RadioButton` | 20×20 px indicator, fully round |
-| `Switch` | 44×22 px track, 12 px knob |
-| `Slider` | 5 px track height, 7 px thumb radius |
-| `SpinBox` | Compact 32 px input, width based on numeric range |
-| `TimeLineEdit` | Compact 32 px `HH:mm` input with two right-side 22 px step buttons |
-| `ComboBox` | 8 px radius, 24 px dropdown arrow area |
-| `Button` (icon) | 44×44 px default, 22×22 px icon |
+All controls share one **compact density mode**. There is no separate
+"comfortable" / "touch" mode — the toolkit targets tool-dense desktop UIs.
+Defaults below assume a 96-DPI logical baseline; Qt's `devicePixelRatio` keeps
+them sharp on hi-DPI screens without per-widget tuning.
+
+| Control | Key dimensions | Source constant |
+|---------|---------------|-----------------|
+| `CheckBox` | 20×20 px indicator, 4 px radius | `CheckBox.INDICATOR_SIZE` / `INDICATOR_RADIUS` |
+| `RadioButton` | 20×20 px indicator, fully round | inherited from `CheckBox` |
+| `Switch` | 44×22 px track, 12 px knob, 2 px knob margin | `Switch.TRACK_WIDTH` / `TRACK_HEIGHT` / `KNOB_DIAMETER` / `KNOB_MARGIN` |
+| `Slider` | 5 px track height, 8 px thumb radius | `Slider.TRACK_HEIGHT` / `RADIUS` |
+| `SpinBox` | Fixed 32 px height, width based on numeric range | `setFixedHeight(32)` |
+| `TimeLineEdit` | Fixed 32 px `HH:mm` input + two right-side 22 px step buttons | `CustomLineEdit.setFixedHeight(32)` |
+| `CustomLineEdit` | Fixed 32 px height | `setFixedHeight(32)` |
+| `ComboBox` | 33 px fixed height, 8 px corner radius, 24 px arrow area | `ComboBox.BASE_HEIGHT` |
+| `ScrollableComboBox` | 33 px fixed height | `setFixedHeight(33)` |
+| `Button` (icon) | 44×44 px default, 22×22 px icon | `Button` constructor `size=` / `icon_size=` |
+| `Button` (icon, dropdown menu trigger) | 36×36 px when used as a flyout anchor | `button.py:435` / `button.py:454` |
+| `InstancesCounterButton` | 36×36 px capsule, 6 px corner radius | `_OUTER_SIZE` / `_CORNER_RADIUS` |
+| `LoadingSpinner` | 40×40 px | `setFixedSize(40, 40)` |
+| `Dropdown menu row` | 40 px row height inside flyout container | `_dropdown_menu.py:26` |
+| `TimelineWidget` | 25 px ruler, 72 px thumbnail strip, 180 px left gutter (140–320 px clamp), 18 px playhead handle | constants on `TimelineWidget` |
+
+### Density Assumptions
+
+- **Single density.** No `density="comfortable"` / `density="touch"` switch
+  exists. Hosts that need looser spacing should wrap controls in their own
+  layouts (extra `QSpacerItem`, larger margins on parent containers).
+- **Minimum hit target.** 22 px is the smallest interactive size used in the
+  toolkit (slider thumb radius doubled, switch track height, small step
+  buttons). Buttons default to 44 px, which is comfortably above standard
+  pointer-target guidelines and accommodates touch on mixed-input devices.
+- **Vertical rhythm.** Form rows that mix inputs assume a shared 32–36 px row
+  height: `CustomLineEdit` and `SpinBox` are 32 px, `ComboBox` is 33 px,
+  flat `Button` and `InstancesCounterButton` are 36 px. Mixing these inside a
+  single row keeps baselines visually aligned within ±2 px.
+- **Icon sizing.** Default icon-only `Button` uses a 22×22 px icon inside a
+  44×44 px container (≈50 % padding). When changing button size with
+  `size=(w, h)`, also pass `icon_size=` to keep the ratio consistent.
+
+### Extension Points
+
+When defaults do not fit, the toolkit offers these escape hatches before you
+should reach for a fork:
+
+- **`Button` constructor.** `size=(w, h)`, `icon_size=`, `corner_radius=`,
+  `show_underline=` and `variant=` cover most resizing/restyling needs
+  without subclassing. See `BUTTON_API.md`.
+- **`Label` options.** `pixel_size`, `family`, `expanding`, `elide`, and
+  `minimum_width` let hosts tune typography per call site; register a
+  `LabelVariantSpec` if the same combo recurs across surfaces.
+- **`WidgetStyleTokens`.** For custom-painted host widgets, set tokens via
+  `update_widget_style()` (Qt dynamic properties) and read them in
+  `paintEvent` via `read_widget_style()`. The toolkit re-polishes the widget
+  for you. See `sli_ui_toolkit.style`.
+- **Palette overrides.** Pass a custom dict to
+  `ThemeManager.register_palettes(...)` with the same keys as
+  `FLUENT_LIGHT` / `FLUENT_DARK`. Required tokens must be present; optional
+  ones fall back to the bundled defaults; app-specific tokens use a
+  host-namespaced prefix (see the *Token Tiers* section).
+- **Class-level geometry constants.** Slider `TRACK_HEIGHT`, Switch
+  `TRACK_WIDTH`, ComboBox `BASE_HEIGHT`, etc. are class attributes — a
+  short-lived subclass can override them without touching the painter.
+  Treat this as a soft API: the names may change in a major release; pin a
+  version if you rely on them.
+
+Anything not on this list is internal. Reaching into `sli_ui_toolkit.ui...`
+to monkey-patch private painters or layout helpers is allowed but not
+supported across versions.
 
 ## Animation Timing
 
@@ -103,6 +162,26 @@ All transitions use `QEasingCurve.Type.OutCubic`:
 | Check/toggle | 150–160 ms |
 | Flyout open/close | 150 ms |
 | Slider thumb press | 100 ms |
+
+## Contrast Targets
+
+Default palette token pairs aim for WCAG 2.1 AA:
+
+- **4.5:1** for body/label text on its surface (`WindowText`/`Window`,
+  `Text`/`Base`, `dialog.text`/`dialog.background`,
+  `HighlightedText`/`Highlight`, etc.).
+- **3.0:1** for large text, UI components, and focus indicators
+  (`accent` versus `Window`/`Base`).
+
+`accent` and `Highlight` intentionally diverge in dark mode: `accent` stays at
+`#0096FF` for crisp focus rings against the dark surface, while `Highlight`
+drops to `#0078D4` so that white selection text retains AA-grade contrast on
+the larger filled selection background. Override one without the other only if
+you've re-verified both targets.
+
+Hosts that swap palettes should keep these targets — the
+`tests/test_contrast.py` parametrized suite enforces them for the shipped
+defaults and is a copy-paste-ready harness for app palettes.
 
 ## Interaction Patterns
 
@@ -119,6 +198,87 @@ Flyouts are in-window widgets (not native popups):
 - Painted with rounded shadow (`draw_rounded_shadow`).
 - Auto-hide on mouse leave with configurable delay.
 - Only one flyout active at a time (`FlyoutManager`).
+
+## Token Tiers
+
+Palette tokens fall into three tiers. The split lets host applications know which
+tokens they must set, which they can override, and which they can invent.
+
+### Required
+
+These tokens drive Qt's `QPalette` plus the toolkit accent. Every widget reads
+at least one of them at paint time, so a host must provide all of them — either
+by registering `FLUENT_LIGHT` / `FLUENT_DARK` from `palettes.py`, or by passing
+its own dict with the same keys to `ThemeManager.register_palettes(...)`.
+
+| Token | Light default | Dark default | Read by |
+|-------|---------------|--------------|---------|
+| `Window` | `#ffffff` | `#252525` | dialogs, surfaces, default backgrounds |
+| `WindowText` | `#1f1f1f` | `#e8e8e8` | default text on `Window` |
+| `Base` | `#ffffff` | `#252525` | input field backgrounds |
+| `Text` | `#1f1f1f` | `#dfdfdf` | input text, label fallback |
+| `Button` | `#f0f0f0` | `#3a3a3a` | `Button(variant="surface")`, fallbacks |
+| `ButtonText` | `#000000` | `#e8e8e8` | button label fallback |
+| `Highlight` | `#0078D4` | `#0078D4` | selection backgrounds (must keep AA 4.5:1 with `HighlightedText`) |
+| `HighlightedText` | `#ffffff` | `#ffffff` | selected text |
+| `accent` | `#0078D4` | `#0096FF` | every active/focus/checked state |
+
+### Optional
+
+These tokens have meaningful defaults in `FLUENT_LIGHT` / `FLUENT_DARK`. Hosts
+can override any of them, individually or by passing a fully custom palette.
+If a host omits one, the toolkit falls back to the default from `palettes.py`.
+
+Grouped by widget family (full keys in `src/sli_ui_toolkit/palettes.py`):
+
+- **Buttons** — `button.default.*`, `button.primary.*`, `button.dialog.default.*`,
+  `button.toggle.background.*` (normal/hover/pressed/checked/checked.hover).
+- **Inputs** — `input.border.thin`.
+- **Flyouts & overlays** — `flyout.background`, `flyout.border`, `shadow.color`,
+  `separator.color`.
+- **List items** — `list_item.background.normal`, `list_item.background.hover`,
+  `list_item.text.normal`, `list_item.text.rating`.
+- **Dialogs** — `dialog.background`, `dialog.text`, `dialog.border`,
+  `dialog.input.background`, `dialog.button.background`, `dialog.button.hover`,
+  `dialog.button.ok.background`.
+- **Labels** — `label.image.background`.
+- **Help dialog** — `help.separator`, `help.code.background`, `help.nav.background`,
+  `help.nav.border`, `help.nav.hover`, `help.nav.selected`, `help.nav.selected.text`.
+- **Toasts** — `toast.background`, `toast.text`, `toast.border`.
+- **Slider** — `slider.track.background`, `slider.track.unfilled`,
+  `slider.thumb.outer`.
+- **Switch** — `switch.track.off.border`, `switch.knob.off`, `switch.knob.on`,
+  `switch.knob.border`, `switch.text`.
+- **Tooltip** — `tooltip.background`, `tooltip.text`, `tooltip.border`.
+- **Color dialog** — `color_dialog.background`, `color_dialog.text`,
+  `color_dialog.input.background`, `color_dialog.input.border`.
+- **Misc Qt roles** — `AlternateBase`, `ToolTipBase`, `ToolTipText`, `BrightText`.
+
+### App-specific extensions
+
+The toolkit does not know about these tokens — they are defined by the host
+application for its own composite widgets and read through `WidgetStyleTokens`
+(`sli_ui_toolkit.style.WidgetStyleTokens`, `update_widget_style`,
+`read_widget_style`; also re-exported from `sli_ui_toolkit` for convenience).
+
+Typical use:
+
+```python
+from sli_ui_toolkit.style import WidgetStyleTokens, update_widget_style
+
+update_widget_style(my_widget, WidgetStyleTokens(
+    background_color=palette["my_app.canvas.fill"],
+    border_color=palette["my_app.canvas.outline"],
+))
+```
+
+Rules for extension tokens:
+
+- Pick a host-specific prefix (e.g. `my_app.*`) so they cannot collide with
+  toolkit tokens.
+- Resolve them in host code, not inside the toolkit.
+- If a token becomes useful across multiple hosts, promote it into the toolkit
+  palette and move it to the Optional tier with a documented default.
 
 ## Extension Guidance
 

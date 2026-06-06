@@ -3,6 +3,7 @@ from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.i18n import tr
+from sli_ui_toolkit.theme import ThemeManager
 
 class PasteDirectionOverlay(QWidget):
     direction_selected = pyqtSignal(str)
@@ -151,17 +152,26 @@ class PasteDirectionOverlay(QWidget):
                 )
             )
 
+        tm = ThemeManager.get_instance()
+        surface = QColor(tm.get_color("flyout.background"))
+        text_normal = QColor(tm.get_color("WindowText"))
+        border_idle = QColor(tm.get_color("flyout.border"))
+        accent = QColor(tm.get_color("accent"))
+        separator = QColor(tm.get_color("separator.color"))
+
         for rect, direction, text in buttons:
             is_hovered = self.hovered_button == direction
             if is_hovered:
-                bg_color = QColor(255, 255, 255, 230)
-                text_color = QColor(0, 0, 0)
-                border_color = QColor(100, 150, 255)
+                bg_color = QColor(surface)
+                bg_color.setAlpha(230)
+                text_color = QColor(text_normal)
+                border_color = QColor(accent)
                 border_width = 3
             else:
-                bg_color = QColor(255, 255, 255, 200)
-                text_color = QColor(50, 50, 50)
-                border_color = QColor(200, 200, 200)
+                bg_color = QColor(surface)
+                bg_color.setAlpha(200)
+                text_color = QColor(text_normal)
+                border_color = QColor(border_idle)
                 border_width = 2
 
             painter.setPen(QPen(border_color, border_width))
@@ -177,16 +187,13 @@ class PasteDirectionOverlay(QWidget):
 
         if self.btn_cancel_rect:
             is_cancel_hovered = self.hovered_button == "cancel"
-            cancel_bg = (
-                QColor(220, 220, 220, 200)
-                if is_cancel_hovered
-                else QColor(180, 180, 180, 150)
-            )
-            painter.setPen(QPen(QColor(100, 100, 100), 2))
+            cancel_bg = QColor(separator)
+            cancel_bg.setAlpha(200 if is_cancel_hovered else 150)
+            painter.setPen(QPen(text_normal, 2))
             painter.setBrush(cancel_bg)
             painter.drawEllipse(self.btn_cancel_rect)
 
-            painter.setPen(QPen(QColor(80, 80, 80), 2))
+            painter.setPen(QPen(text_normal, 2))
             center = self.btn_cancel_rect.center()
             offset = 15
             painter.drawLine(

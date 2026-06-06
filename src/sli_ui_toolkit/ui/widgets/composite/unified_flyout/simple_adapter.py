@@ -25,8 +25,8 @@ class _Document:
 class SimpleUnifiedFlyoutStore:
     """Minimal store with the same shape that UnifiedFlyout reads.
 
-    Replaces the improve-imgsli `store` object so the widget is usable
-    standalone.
+    Lets hosts use the widget standalone without supplying their own document
+    object.
     """
 
     def __init__(self) -> None:

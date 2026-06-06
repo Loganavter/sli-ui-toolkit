@@ -2,6 +2,9 @@ from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
+from sli_ui_toolkit.theme import ThemeManager
+
+
 class DragDropOverlay(QWidget):
     def __init__(self, parent=None):
         if parent is None:
@@ -102,8 +105,14 @@ class DragDropOverlay(QWidget):
                 ),
             ]
 
-        fill = QColor(0, 100, 200, 153)
-        border = QColor(255, 255, 255, 179)
+        tm = ThemeManager.get_instance()
+        accent = QColor(tm.get_color("accent"))
+        fill = QColor(accent)
+        fill.setAlpha(153)
+        border = QColor(tm.get_color("HighlightedText"))
+        border.setAlpha(179)
+        text_color = QColor(tm.get_color("HighlightedText"))
+
         pen = QPen(border, 1.25)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         painter.setPen(pen)
@@ -113,7 +122,7 @@ class DragDropOverlay(QWidget):
             path = QPainterPath()
             path.addRoundedRect(rect, 10.0, 10.0)
             painter.drawPath(path)
-            painter.setPen(Qt.GlobalColor.white)
+            painter.setPen(text_color)
             painter.drawText(
                 rect.adjusted(15.0, 15.0, -15.0, -15.0),
                 Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,

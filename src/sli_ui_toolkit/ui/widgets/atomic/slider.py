@@ -5,7 +5,7 @@ from PyQt6.QtGui import QBrush, QColor, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import QSlider
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 
 
 class Slider(WheelScrollPolicyMixin, QSlider):
@@ -37,6 +37,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
             self.setMaximum(100)
 
         self.valueChanged.connect(self._update_hover_from_cursor)
+        register_hover_widget(self)
 
     def get_inner_scale(self) -> float:
         return self._inner_scale_current
@@ -97,6 +98,17 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         hit_r = self.RADIUS + 4
         return (dx * dx + dy * dy) <= (hit_r * hit_r)
 
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self._is_point_in_thumb(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if active != self._hovered:
+            self._hovered = active
+            self._animate_inner_to_target()
+            self.update()
+
     def _update_hover_from_cursor(self):
         pos = self.mapFromGlobal(QCursor.pos())
         new_hovered = self._is_point_in_thumb(pos)
@@ -107,17 +119,10 @@ class Slider(WheelScrollPolicyMixin, QSlider):
 
     def event(self, e):
         if e.type() in (QEvent.Type.HoverEnter, QEvent.Type.HoverMove):
-            new_hovered = self._is_point_in_thumb(e.position().toPoint())
-            if new_hovered != self._hovered:
-                self._hovered = new_hovered
-                self._animate_inner_to_target()
-                self.update()
+            self.setHoverActive(self.hoverHitTest(e.position()))
             return True
         if e.type() == QEvent.Type.HoverLeave:
-            if self._hovered:
-                self._hovered = False
-                self._animate_inner_to_target()
-                self.update()
+            self.setHoverActive(False)
             return True
         return super().event(e)
 

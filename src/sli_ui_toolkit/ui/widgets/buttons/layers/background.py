@@ -62,9 +62,9 @@ class BackgroundLayer(Layer):
         if ctx.override_bg_color is not None:
             return ctx.override_bg_color, None
 
-        # 2. Custom bg — выводим полный палет из произвольного цвета.
+        # 2. Custom bg — выводим полный палет из произвольного цвета под variant.
         if ctx.custom_bg_color is not None:
-            pal = derive_custom_palette(ctx.custom_bg_color)
+            pal = derive_custom_palette(ctx.custom_bg_color, ctx.variant.name)
             states = ctx.states
             if ButtonState.DISABLED in states:
                 return pal.disabled, None

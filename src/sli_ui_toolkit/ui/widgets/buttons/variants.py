@@ -114,18 +114,26 @@ class CustomPalette:
     normal: QColor
     hover: QColor
     pressed: QColor
-    border: QColor
+    border: QColor | None
     disabled: QColor
 
 
-def derive_custom_palette(base: QColor) -> CustomPalette:
-    """Из произвольного цвета вывести полный палет состояний.
+def _derive_tint(base: QColor) -> CustomPalette:
+    """Tint-стиль без рамки. Custom background для "default" — это раскраска
+    самой плашки; собственная рамка только зашумляла бы форму."""
+    return CustomPalette(
+        normal=_with_scaled_alpha(base, 0.18),
+        hover=_with_scaled_alpha(base, 0.30),
+        pressed=_with_scaled_alpha(base, 0.30),
+        border=None,
+        disabled=_with_scaled_alpha(base, 0.08),
+    )
 
-    Variant-кнопки toolkit'а используют цветные tint-слои, а не непрозрачную
-    заливку. Custom background должен вести себя так же: hue сохраняется, но
-    alpha приглушается до диапазона theme-токенов button'ов. Если caller передал
-    собственную alpha, она становится верхней границей tint'а.
-    """
+
+def _derive_tint_bordered(base: QColor) -> CustomPalette:
+    """То же tint-заполнение, что у "default", но с цветной рамкой. Surface —
+    это вариант "плашка-карточка": рамка отделяет её от окружения, особенно
+    когда заливка совсем светлая (низкая alpha поверх Window)."""
     return CustomPalette(
         normal=_with_scaled_alpha(base, 0.18),
         hover=_with_scaled_alpha(base, 0.30),
@@ -133,3 +141,38 @@ def derive_custom_palette(base: QColor) -> CustomPalette:
         border=_with_scaled_alpha(base, 0.40),
         disabled=_with_scaled_alpha(base, 0.08),
     )
+
+
+def _derive_ghost(base: QColor) -> CustomPalette:
+    """Ghost-стиль: невидимый normal, лёгкий tint на hover/pressed, без border."""
+    transparent = QColor(base)
+    transparent.setAlpha(0)
+    return CustomPalette(
+        normal=transparent,
+        hover=_with_scaled_alpha(base, 0.20),
+        pressed=_with_scaled_alpha(base, 0.30),
+        border=None,
+        disabled=transparent,
+    )
+
+
+_CUSTOM_DERIVERS: dict[str, Callable[[QColor], CustomPalette]] = {
+    "surface": _derive_tint_bordered,
+    "ghost": _derive_ghost,
+}
+
+
+def derive_custom_palette(base: QColor, variant_name: str | None = None) -> CustomPalette:
+    """Из произвольного цвета вывести палет состояний под конкретный variant.
+
+    - ``default`` (и любой неизвестный) → tint-заливка без рамки.
+    - ``surface`` → та же tint-заливка + tint-рамка для отделения карточки.
+    - ``ghost`` → прозрачный normal, tint на hover/pressed.
+
+    Fill у default и surface сознательно одинаковый, отличается только
+    наличие собственной рамки. Если рамка нужна для default — передайте
+    ``border_color=`` в конструктор Button: она идёт через
+    ``override_border_color`` и применяется поверх.
+    """
+    deriver = _CUSTOM_DERIVERS.get((variant_name or "default").lower(), _derive_tint)
+    return deriver(base)

@@ -14,7 +14,7 @@ Usage:
 
 from PyQt6.QtGui import QColor
 
-# Based on Improve-ImgSLI design system
+# Default Fluent-inspired palettes shipped with the toolkit.
 FLUENT_LIGHT = {
     "Window": QColor("#ffffff"),
     "WindowText": QColor("#1f1f1f"),
@@ -105,7 +105,7 @@ FLUENT_DARK = {
     "Button": QColor("#3a3a3a"),
     "ButtonText": QColor("#e8e8e8"),
     "BrightText": QColor("#ff0000"),
-    "Highlight": QColor("#0096FF"),
+    "Highlight": QColor("#0078D4"),
     "HighlightedText": QColor("#ffffff"),
     "accent": QColor("#0096FF"),
     "button.default.background": QColor("#1E0096FF"),
@@ -146,7 +146,7 @@ FLUENT_DARK = {
     "help.nav.background": QColor("#313131"),
     "help.nav.border": QColor("#444"),
     "help.nav.hover": QColor("#484848"),
-    "help.nav.selected": QColor("#0096FF"),
+    "help.nav.selected": QColor("#0078D4"),
     "help.nav.selected.text": QColor("#ffffff"),
     "toast.background": QColor("#F0323232"),
     "toast.text": QColor("#ffffff"),

@@ -12,7 +12,7 @@ from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPen, QWheelEvent
 from PyQt6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 
 
@@ -46,6 +46,7 @@ class InstancesCounterButton(WheelScrollPolicyMixin, QWidget):
 
         self._theme_manager = ThemeManager.get_instance()
         self._theme_manager.theme_changed.connect(self.update)
+        register_hover_widget(self)
 
     # ---------- public API ----------
 
@@ -148,6 +149,19 @@ class InstancesCounterButton(WheelScrollPolicyMixin, QWidget):
             self._hover_top = self._top_rect().contains(pos)
             self._hover_bottom = not self._hover_top
         self.update()
+
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self.rect().contains(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        if active:
+            return
+        if self._hover_top or self._hover_bottom or self._hover_whole:
+            self._hover_top = False
+            self._hover_bottom = False
+            self._hover_whole = False
+            self.update()
 
     # ---------- paint ----------
 

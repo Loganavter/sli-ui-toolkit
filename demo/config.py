@@ -1,4 +1,4 @@
-"""Theme palettes for demo application - from Improve-ImgSLI."""
+"""Theme palettes for the sli-ui-toolkit demo application."""
 
 from PyQt6.QtGui import QColor
 

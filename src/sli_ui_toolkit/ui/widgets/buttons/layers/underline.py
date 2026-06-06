@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 from PyQt6.QtGui import QColor
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -10,6 +12,24 @@ from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 
 from ..context import DrawContext
 from ._base import Layer
+
+
+_MAX_UNDERLINE_THICKNESS = 3.0
+
+
+def _clamp_underline_thickness(thickness: float) -> float:
+    normalized = max(0.0, float(thickness))
+    if normalized > _MAX_UNDERLINE_THICKNESS:
+        warnings.warn(
+            (
+                "Button underline thickness is capped at "
+                f"{_MAX_UNDERLINE_THICKNESS:.1f}px; got {normalized:.1f}px."
+            ),
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return _MAX_UNDERLINE_THICKNESS
+    return normalized
 
 
 class UnderlineLayer(Layer):
@@ -44,12 +64,15 @@ class UnderlineLayer(Layer):
         scale = max(1.0, widget.rect().height() / 32.0)
         normalized_radius = radius / scale if scale > 0 else radius
 
+        thickness = (
+            ctx.underline_thickness
+            if ctx.underline_thickness is not None
+            else (2.0 if ctx.scroll_value is not None else 1.0)
+        )
+        thickness = _clamp_underline_thickness(thickness)
+
         cfg = UnderlineConfig(
-            thickness=(
-                ctx.underline_thickness
-                if ctx.underline_thickness is not None
-                else (2.0 if ctx.scroll_value is not None else 1.0)
-            ),
+            thickness=thickness,
             vertical_offset=0.0,
             arc_radius=normalized_radius,
             alpha=alpha,

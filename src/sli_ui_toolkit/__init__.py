@@ -31,7 +31,7 @@ from sli_ui_toolkit.widgets import (
     register_label_variant,
     set_application_tooltips_enabled,
 )
-from sli_ui_toolkit.ui.widgets.style_bridge import (
+from sli_ui_toolkit.style import (
     WidgetStyleTokens,
     read_widget_style,
     update_widget_style,

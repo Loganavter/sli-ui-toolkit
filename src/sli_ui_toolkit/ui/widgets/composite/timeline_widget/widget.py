@@ -417,6 +417,47 @@ class TimelineWidget(QWidget):
                 super().wheelEvent(event)
             self.viewportChanged.emit()
 
+    def keyPressEvent(self, event):
+        key = event.key()
+        mods = event.modifiers()
+
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.deletePressed.emit()
+            event.accept()
+            return
+
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            if self._total_frames <= 0:
+                event.ignore()
+                return
+            step = 10 if mods & Qt.KeyboardModifier.ShiftModifier else 1
+            direction = -1 if key == Qt.Key.Key_Left else 1
+            target = self._current_index + direction * step
+            self.set_current_frame(target)
+            self.headMoved.emit(self._current_index)
+            event.accept()
+            return
+
+        if key == Qt.Key.Key_Home:
+            if self._total_frames <= 0:
+                event.ignore()
+                return
+            self.set_current_frame(0)
+            self.headMoved.emit(self._current_index)
+            event.accept()
+            return
+
+        if key == Qt.Key.Key_End:
+            if self._total_frames <= 0:
+                event.ignore()
+                return
+            self.set_current_frame(self._total_frames - 1)
+            self.headMoved.emit(self._current_index)
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)

@@ -1,6 +1,11 @@
 from sli_ui_toolkit.ui.widgets.helpers.editable_text import (
     apply_editable_text_behavior,
 )
+from sli_ui_toolkit.ui.widgets.helpers.hover_coordinator import (
+    hover_coordinator,
+    register_hover_widget,
+    unregister_hover_widget,
+)
 from sli_ui_toolkit.ui.widgets.helpers.overlay_geometry import (
     calculate_centered_overlay_geometry,
 )
@@ -20,4 +25,7 @@ __all__ = [
     "calculate_centered_overlay_geometry",
     "draw_bottom_underline",
     "draw_rounded_shadow",
+    "hover_coordinator",
+    "register_hover_widget",
+    "unregister_hover_widget",
 ]
