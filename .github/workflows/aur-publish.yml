@@ -1,0 +1,77 @@
+name: Publish to AUR
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (without v prefix)"
+        required: true
+
+jobs:
+  aur:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="${{ github.event.inputs.version }}"
+          fi
+          if [ -z "$v" ]; then
+            echo "No version resolved" >&2
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for sdist on PyPI
+        id: pypi
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          for i in $(seq 1 60); do
+            if curl -fsS "https://pypi.org/pypi/sli-ui-toolkit/$v/json" -o /tmp/pypi.json; then
+              url=$(python3 -c "import json,sys; d=json.load(open('/tmp/pypi.json')); print(next((u['url'] for u in d['urls'] if u['packagetype']=='sdist'), ''))")
+              if [ -n "$url" ]; then
+                echo "sdist_url=$url" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            echo "sdist for $v not on PyPI yet, retrying ($i/60)"
+            sleep 10
+          done
+          echo "Timed out waiting for sdist of $v on PyPI" >&2
+          exit 1
+
+      - name: Compute sha256 and patch PKGBUILD
+        id: pkg
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          url="${{ steps.pypi.outputs.sdist_url }}"
+          curl -fSL "$url" -o /tmp/src.tar.gz
+          sum=$(sha256sum /tmp/src.tar.gz | awk '{print $1}')
+
+          out="$(mktemp -d)/PKGBUILD"
+          cp build/AUR-template/PKGBUILD "$out"
+          sed -i "s/^pkgver=.*/pkgver=$v/" "$out"
+          sed -i "s/^pkgrel=.*/pkgrel=1/" "$out"
+          sed -i "s/^sha256sums=.*/sha256sums=('$sum')/" "$out"
+
+          echo "pkgbuild_path=$out" >> "$GITHUB_OUTPUT"
+          echo "--- generated PKGBUILD ---"
+          cat "$out"
+
+      - name: Publish to AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
+        with:
+          pkgname: python-sli-ui-toolkit
+          pkgbuild: ${{ steps.pkg.outputs.pkgbuild_path }}
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "Update to ${{ steps.ver.outputs.version }}"
+          ssh_keyscan_types: rsa,ecdsa,ed25519
