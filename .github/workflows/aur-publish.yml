@@ -55,7 +55,8 @@ jobs:
           curl -fSL "$url" -o /tmp/src.tar.gz
           sum=$(sha256sum /tmp/src.tar.gz | awk '{print $1}')
 
-          out="$(mktemp -d)/PKGBUILD"
+          mkdir -p .aur-out
+          out=".aur-out/PKGBUILD"
           cp build/AUR-template/PKGBUILD "$out"
           sed -i "s/^pkgver=.*/pkgver=$v/" "$out"
           sed -i "s/^pkgrel=.*/pkgrel=1/" "$out"
