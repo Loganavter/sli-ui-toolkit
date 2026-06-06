@@ -18,6 +18,8 @@ This folder is split by document role.
    Use this when working with the composable `Button` widget.
 7. [BUTTON_ARCHITECTURE.md](BUTTON_ARCHITECTURE.md)
    Read this when changing button internals.
+8. [FLYOUT_SYSTEM.md](FLYOUT_SYSTEM.md)
+   Read this when using or extending flyouts (BaseFlyout, prebuilt composites, FlyoutManager, scroll-button value popup).
 
 ## Document Roles
 
@@ -35,6 +37,8 @@ This folder is split by document role.
   Button-specific public API reference.
 - `BUTTON_ARCHITECTURE.md`
   Button subsystem internals and layering.
+- `FLYOUT_SYSTEM.md`
+  Flyout subsystem: BaseFlyout, the FlyoutManager singleton, the prebuilt composites, and the scrollable-button value popup.
 
 ## Rules
 
