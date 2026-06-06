@@ -46,7 +46,7 @@ class ScrollCapability(ButtonCapability):
         self._value_popup: QLabel | None = None
         self._popup_controller = None
         self._popup_formatter: Callable[[int], ValuePopupContent] | None = None
-        self._popup_padding: tuple[int, int] = (12, 6)
+        self._popup_padding: tuple[int, int] = (8, 3)
 
     def attach(self, button: QWidget) -> None:
         self._button = button
@@ -161,11 +161,11 @@ class ScrollCapability(ButtonCapability):
         font = QFont(self._button.font()) if self._button is not None else QFont()
         font.setBold(True)
         if font.pointSize() > 0:
-            font.setPointSize(max(font.pointSize(), 10))
+            font.setPointSize(max(font.pointSize() + 1, 12))
         elif font.pixelSize() > 0:
-            font.setPixelSize(max(font.pixelSize(), 13))
+            font.setPixelSize(max(font.pixelSize() + 1, 15))
         else:
-            font.setPointSize(11)
+            font.setPointSize(12)
         return font
 
     def _default_popup_content(self, val: int) -> ValuePopupContent:
@@ -194,7 +194,7 @@ class ScrollCapability(ButtonCapability):
         fm = QFontMetrics(font)
         w = fm.horizontalAdvance(content.text or " ")
         h = fm.height()
-        return QSize(max(w + pad_w * 2, h + pad_h * 2), h + pad_h * 2)
+        return QSize(w + pad_w * 2, h + pad_h * 2)
 
     def _show_scroll_popup(self, val: int):
         if self._button is None or not self._button.isVisible():

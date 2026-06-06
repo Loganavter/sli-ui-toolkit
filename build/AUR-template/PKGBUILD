@@ -3,7 +3,7 @@
 pkgname=python-sli-ui-toolkit
 _pyname=sli-ui-toolkit
 _distname=sli_ui_toolkit
-pkgver=0.2.9
+pkgver=0.2.10
 pkgrel=1
 pkgdesc="Reusable PyQt UI toolkit primitives for SLI desktop tools"
 arch=('any')
