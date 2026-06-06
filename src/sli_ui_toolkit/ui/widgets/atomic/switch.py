@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, pyqtProperty, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QCursor, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.i18n import get_current_language, tr, translation_events
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 class Switch(QWidget):
     checkedChanged = pyqtSignal(bool)
@@ -25,10 +26,12 @@ class Switch(QWidget):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._theme = ThemeManager.get_instance()
         self._checked: bool = False
         self._hover: float = 0.0
+        self._hover_active: bool = False
         self._progress: float = 0.0
 
         self._show_text: bool = True
@@ -46,6 +49,7 @@ class Switch(QWidget):
         self._hover_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         self._theme.theme_changed.connect(self.update)
+        register_hover_widget(self)
 
     def get_progress(self) -> float:
         return self._progress
@@ -76,6 +80,7 @@ class Switch(QWidget):
         self._animate_to_state(checked)
 
         if checked and self._hover > 0.01:
+            self._hover_active = False
             self._animate_hover(False)
 
         self.checkedChanged.emit(checked)
@@ -156,15 +161,44 @@ class Switch(QWidget):
         else:
             super().mouseReleaseEvent(e)
 
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.setChecked(not self._checked)
+            e.accept()
+            return
+        super().keyPressEvent(e)
+
+    def focusInEvent(self, e):
+        self.update()
+        super().focusInEvent(e)
+
+    def focusOutEvent(self, e):
+        self.update()
+        super().focusOutEvent(e)
+
     def enterEvent(self, e):
-        if not self._checked:
-            self._animate_hover(True)
+        self.setHoverActive(True)
         super().enterEvent(e)
 
     def leaveEvent(self, e):
-        if not self._checked:
-            self._animate_hover(False)
+        self.setHoverActive(False)
         super().leaveEvent(e)
+
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self.rect().contains(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        if self._checked:
+            self._hover_active = False
+            if self._hover > 0.01:
+                self._animate_hover(False)
+            return
+        active = bool(active)
+        if self._hover_active == active:
+            return
+        self._hover_active = active
+        self._animate_hover(active)
 
     def paintEvent(self, _):
         painter = QPainter(self)
@@ -222,6 +256,14 @@ class Switch(QWidget):
         painter.setPen(QPen(knob_border, 1))
         painter.drawEllipse(knob_rect)
 
+        if self.hasFocus():
+            focus_pen = QPen(accent)
+            focus_pen.setWidthF(1.5)
+            painter.setPen(focus_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            focus_rect = track_rect.adjusted(-2.0, -2.0, 2.0, 2.0)
+            painter.drawRoundedRect(focus_rect, radius + 2.0, radius + 2.0)
+
         if self._show_text and text_w > 0:
             text_color = self._theme.get_color("switch.text")
             painter.setPen(QPen(text_color))
@@ -249,8 +291,8 @@ class Switch(QWidget):
         self._anim.setEndValue(target)
         self._anim.start()
 
-        if not checked and self.underMouse():
-            self._animate_hover(True)
+        if not checked and self.hoverHitTest(self.mapFromGlobal(QCursor.pos())):
+            self.setHoverActive(True)
 
     def _animate_hover(self, on: bool):
         self._hover_anim.stop()

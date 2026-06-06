@@ -38,8 +38,15 @@ class _UnifiedFlyoutBootstrapMixin(_UnifiedFlyoutSessionMixin):
         self.flyout_manager.register_flyout(self)
 
     def _initialize_widget(self):
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _attach_overlay_layer(self):
         self.overlay_layer = resolve_overlay_layer(self.main_window)

@@ -8,7 +8,7 @@ from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPo
 from PyQt6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 
 logger = logging.getLogger(__name__)
 
@@ -37,11 +37,12 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
         self.setFixedHeight(33)
         self.setMinimumWidth(0)
         self.setProperty("class", "default")
-        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update)
         self.setMouseTracking(True)
+        register_hover_widget(self)
 
     def _style_prefix(self) -> str:
         btn_class = str(self.property("class") or "")
@@ -183,14 +184,22 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
         return self.height() - 2
 
     def enterEvent(self, event):
-        self._hovered = True
-        self.update()
+        self.setHoverActive(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self._hovered = False
-        self.update()
+        self.setHoverActive(False)
         super().leaveEvent(event)
+
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self.rect().contains(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if self._hovered != active:
+            self._hovered = active
+            self.update()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

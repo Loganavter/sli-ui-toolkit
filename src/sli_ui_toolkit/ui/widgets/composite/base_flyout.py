@@ -80,6 +80,15 @@ class BaseFlyout(QWidget):
 
         self._show_animation: QPropertyAnimation | None = None
 
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def _apply_base_style(self):
         self.container.style().unpolish(self.container)
         self.container.style().polish(self.container)
@@ -165,7 +174,7 @@ class BaseFlyout(QWidget):
         size: int = 28,
         alpha: bool = True,
     ) -> ColorSwatch:
-        """Build a circular color-picker swatch (Button)."""
+        """Build a round color-picker swatch."""
         return ColorSwatch(color=color, size=size, alpha=alpha, parent=self)
 
     def _ensure_overlay_parent(self, anchor_widget: QWidget):

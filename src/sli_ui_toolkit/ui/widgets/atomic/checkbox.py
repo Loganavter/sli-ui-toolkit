@@ -12,9 +12,10 @@ from PyQt6.QtCore import (
     pyqtProperty,
 )
 from PyQt6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QCheckBox, QSizePolicy, QWidget
+from PyQt6.QtWidgets import QCheckBox, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 class CheckBox(QCheckBox):
     INDICATOR_SIZE = 20
@@ -47,6 +48,7 @@ class CheckBox(QCheckBox):
         self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
 
         self._hover_progress = 0.0
+        self._hover_active = False
         self._checked_progress = 1.0 if self.isChecked() else 0.0
 
         self._hover_anim = QPropertyAnimation(self, b"hoverProgress", self)
@@ -58,7 +60,7 @@ class CheckBox(QCheckBox):
         self._checked_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         self.stateChanged.connect(self._on_state_changed)
-        self._group_parent = None
+        register_hover_widget(self)
 
     def get_hover_progress(self) -> float:
         return self._hover_progress
@@ -104,47 +106,31 @@ class CheckBox(QCheckBox):
 
     def event(self, e):
         if e.type() in (QEvent.Type.HoverEnter, QEvent.Type.HoverMove):
-            r = QRectF(self.rect())
-            ind = self._indicator_rect(r)
-            fm = self.fontMetrics()
-            tx = self._text_rect_content(r, ind, fm)
-            p = e.position()
-            hovered = ind.contains(p) or tx.contains(p)
-
-            if hovered and self._hover_progress < 1.0:
-                self._animate_hover(True)
-            elif (not hovered) and self._hover_progress > 0.0:
-                self._animate_hover(False)
+            self.setHoverActive(self.hoverHitTest(e.position()))
             return True
 
         elif e.type() == QEvent.Type.Leave and self._hover_progress > 0:
-            self._animate_hover(False)
+            self.setHoverActive(False)
             return True
 
         return super().event(e)
 
-    def showEvent(self, e):
-        super().showEvent(e)
+    def hoverHitTest(self, pos) -> bool:
+        r = QRectF(self.rect())
+        ind = self._indicator_rect(r)
+        fm = self.fontMetrics()
+        tx = self._text_rect_content(r, ind, fm)
+        return ind.contains(pos) or tx.contains(pos)
 
-        if not self._group_parent:
-            self._group_parent = self._find_group_parent()
-            if self._group_parent:
-                self._group_parent.installEventFilter(self)
-
-    def eventFilter(self, watched_object, event):
-        if watched_object == self._group_parent and event.type() == QEvent.Type.Leave:
-            if self._hover_progress > 0:
-                self._animate_hover(False)
-
-        return super().eventFilter(watched_object, event)
-
-    def _find_group_parent(self) -> QWidget | None:
-        parent = self.parent()
-        while parent:
-            if parent.__class__.__name__ == "CustomGroupWidget":
-                return parent
-            parent = parent.parent()
-        return None
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if self._hover_active == active:
+            return
+        self._hover_active = active
+        if active:
+            self._animate_hover(True)
+        else:
+            self._animate_hover(False)
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:

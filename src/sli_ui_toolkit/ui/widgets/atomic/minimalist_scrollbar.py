@@ -5,6 +5,7 @@ from PyQt6.QtGui import QColor, QPainter, QPainterPath, QRegion
 from PyQt6.QtWidgets import QScrollArea, QScrollBar
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 class MinimalistScrollBar(QScrollBar):
     def __init__(self, orientation=Qt.Orientation.Vertical, parent=None):
@@ -16,11 +17,13 @@ class MinimalistScrollBar(QScrollBar):
         self._hover_thickness = 6
         self._drag_thickness = 10
         self._minimum_handle_length = 32
+        self._hovered = False
         self._idle_color = QColor()
         self._hover_color = QColor()
         self._update_colors()
         self.theme_manager.theme_changed.connect(self._update_colors)
         self.setMouseTracking(True)
+        register_hover_widget(self)
 
     def _update_colors(self):
         if self.theme_manager.is_dark():
@@ -41,7 +44,7 @@ class MinimalistScrollBar(QScrollBar):
             return
         if self._is_dragging:
             current_color = self.theme_manager.get_color("accent")
-        elif self.underMouse():
+        elif self._hovered:
             current_color = self._hover_color
         else:
             current_color = self._idle_color
@@ -55,7 +58,7 @@ class MinimalistScrollBar(QScrollBar):
             return QRect()
         if self._is_dragging:
             current_thickness = self._drag_thickness
-        elif self.underMouse():
+        elif self._hovered:
             current_thickness = self._hover_thickness
         else:
             current_thickness = self._idle_thickness
@@ -140,12 +143,22 @@ class MinimalistScrollBar(QScrollBar):
             event.accept()
 
     def enterEvent(self, event):
-        self.update()
+        self.setHoverActive(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.update()
+        self.setHoverActive(False)
         super().leaveEvent(event)
+
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self.rect().contains(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if self._hovered != active:
+            self._hovered = active
+            self.update()
 
 class OverlayScrollArea(QScrollArea):
     def __init__(self, parent=None):

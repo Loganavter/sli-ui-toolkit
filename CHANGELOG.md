@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+## 0.2.7
+
+### Added
+- `tests/` suite (pytest + pytest-qt, offscreen Qt): public API import surface, version sync with `pyproject.toml`, theme switching, i18n, icon resolver, widget smoke tests, and keyboard regression tests.
+- GitHub Actions CI (`.github/workflows/ci.yml`) — Python 3.10/3.11/3.12 matrix, runs `pytest`, `python -m build`, and `python -m twine check`.
+- `docs/KEYBOARD.md` — keyboard navigation and focus audit covering 22 widgets, with per-widget status table and a verification walkthrough.
+- `docs/DESIGN_LANGUAGE.md` now has a **Token Tiers** section classifying palette tokens as Required / Optional / App-specific extensions, with light/dark defaults and consumer notes.
+- `[project.optional-dependencies] dev = ["pytest", "pytest-qt"]` and `[tool.pytest.ini_options]` in `pyproject.toml`.
+
+### Changed
+- `Button` is now keyboard-activatable: `StrongFocus` policy, Space/Enter/Return triggers the full `pressed → released → clicked → shortClicked` sequence (including menu/toggle/scrollable behavior), and a focus ring is painted around the button when focused.
+- `Button` variant `"primary"` is deprecated and normalized to `"surface"` with a warning.
+- Button underline thickness is capped at 3 px with a warning when callers request a larger value; the demo playground now uses the same 3 px limit.
+- The demo button playground now clamps corner-radius controls to half of the current button width/height instead of using a fixed radius ceiling.
+- Custom-painted hover controls now share a hover coordinator that reconciles registered widgets from global pointer/container events and clears stale hover states on leave, hide, disable, and app deactivation. `RadioButton`, `CheckBox`, `Button`, `Switch`, `Slider`, `ComboBox`, `ScrollableComboBox`, `InstancesCounterButton`, `MinimalistScrollBar`, dropdown rows, simple option rows, and rating list items use the shared lifecycle.
+- `Switch` is now keyboard-activatable: `StrongFocus` policy, Space/Enter/Return toggles, focus outline painted around the track.
+- `BaseFlyout` (and its `SimpleOptionsFlyout` / `IconActionFlyout` / `IndexedToggleFlyout` subclasses) closes on `Escape` and accepts focus (`StrongFocus`).
+- `UnifiedFlyout` accepts focus (`StrongFocus`) and closes on `Escape`.
+- `ScrollableComboBox` is now Tab-reachable (`ClickFocus` → `StrongFocus`).
+- `CalendarDayButton` becomes keyboard-activatable automatically via the `Button` fix.
+
+### Removed
+- `Button(circular=...)`, `ButtonConfig.circular`, `setCircular(...)`, `set_circular(...)`, and `isCircular()` were removed. Use `corner_radius=` or `setCornerRadiusPx(...)` for round button geometry.
+- Visual references to "improve-imgsli v9" from source comments and public docs (`palettes.py`, `unified_flyout/{panel,layout,simple_adapter}.py`, `docs/API_CATALOG.md`, `demo/config.py`). Provenance retained only in `docs/ROADMAP.md` and `docs/ARCHITECTURE.md`.
+
 ## 0.2.6
 
 ### Fixed

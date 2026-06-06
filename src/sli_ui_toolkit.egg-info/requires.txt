@@ -1,2 +1,6 @@
 PyQt6>=6.6
 markdown>=3.4
+
+[dev]
+pytest>=7
+pytest-qt>=4.2

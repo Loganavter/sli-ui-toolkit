@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+import warnings
 
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QRectF, QSize, Qt, pyqtSignal
@@ -17,7 +18,7 @@ from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QWheelEvent
 from PyQt6.QtWidgets import QLabel, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
+from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
 
 from .capabilities import (
@@ -40,6 +41,26 @@ from .state import ButtonState, StateSet
 from .variants import get_variant
 
 
+_MAX_UNDERLINE_THICKNESS = 3.0
+
+
+def _normalize_underline_thickness(thickness: float | None) -> float | None:
+    if thickness is None:
+        return None
+    normalized = max(0.0, float(thickness))
+    if normalized > _MAX_UNDERLINE_THICKNESS:
+        warnings.warn(
+            (
+                "Button underline thickness is capped at "
+                f"{_MAX_UNDERLINE_THICKNESS:.1f}px; got {normalized:.1f}px."
+            ),
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return _MAX_UNDERLINE_THICKNESS
+    return normalized
+
+
 @dataclass
 class ButtonConfig:
     """Декларативная конфигурация — альтернатива kwargs."""
@@ -58,7 +79,6 @@ class ButtonConfig:
     size: tuple[int, int] = (36, 36)
     icon_size: int = 22
     corner_radius: int | None = None
-    circular: bool = False
     border_color: QColor | None = None
     variant: str = "default"
     density: str = "normal"
@@ -117,7 +137,6 @@ class Button(WheelScrollPolicyMixin, QWidget):
         size: tuple[int, int] = (36, 36),
         icon_size: int = 22,
         corner_radius: int | None = None,
-        circular: bool = False,
         border_color: QColor | None = None,
         variant: str = "default",
         density: str = "normal",
@@ -145,14 +164,12 @@ class Button(WheelScrollPolicyMixin, QWidget):
             size = config.size
             icon_size = config.icon_size
             corner_radius = config.corner_radius
-            circular = config.circular
             border_color = config.border_color
             variant = config.variant
             density = config.density
             wheel_requires_focus = config.wheel_requires_focus
 
         if variant == "primary":
-            import warnings
             warnings.warn(
                 "Button variant 'primary' is deprecated; use 'surface' instead.",
                 DeprecationWarning,
@@ -179,11 +196,7 @@ class Button(WheelScrollPolicyMixin, QWidget):
         self._variant = variant
         self._density = density
         self._icon_size_px = icon_size
-        self._circular = bool(circular)
-        if self._circular:
-            w, h = size
-            corner_radius = max(0, min(w, h) // 2) if (w > 0 and h > 0) else 0
-        elif corner_radius is None:
+        if corner_radius is None:
             corner_radius = 2 if self._has_text else 6
         self._corner_radius_px = corner_radius
         self._border_color_override: QColor | None = border_color
@@ -198,7 +211,7 @@ class Button(WheelScrollPolicyMixin, QWidget):
         self._custom_bg_color: QColor | None = background_color
         self._accent_color: QColor | None = None
         self._show_underline = show_underline
-        self._underline_thickness = underline_thickness
+        self._underline_thickness = _normalize_underline_thickness(underline_thickness)
         self._show_strike_through = False
         self._is_footer = False
         self._underline_config_color: QColor | list | None = underline_color
@@ -209,8 +222,8 @@ class Button(WheelScrollPolicyMixin, QWidget):
 
         if underline_color is not None:
             self.setProperty("underlineColor", underline_color)
-        if underline_thickness is not None:
-            self.setProperty("underlineThicknessPx", float(underline_thickness))
+        if self._underline_thickness is not None:
+            self.setProperty("underlineThicknessPx", self._underline_thickness)
 
         if self._has_scroll:
             self._scroll_min, self._scroll_max = scrollable
@@ -230,6 +243,8 @@ class Button(WheelScrollPolicyMixin, QWidget):
             self.setFixedWidth(w)
 
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        register_hover_widget(self)
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update)
 
@@ -353,7 +368,7 @@ class Button(WheelScrollPolicyMixin, QWidget):
     set_underline_color = setUnderlineColor
 
     def setUnderlineThickness(self, thickness: float | None):
-        self._underline_thickness = None if thickness is None else max(0.0, float(thickness))
+        self._underline_thickness = _normalize_underline_thickness(thickness)
         self.setProperty("underlineThicknessPx", self._underline_thickness)
         self.update()
 
@@ -378,29 +393,6 @@ class Button(WheelScrollPolicyMixin, QWidget):
 
     def borderColor(self) -> QColor | None:
         return self._border_color_override
-
-    def setCircular(self, circular: bool) -> None:
-        circular = bool(circular)
-        if self._circular == circular:
-            return
-        self._circular = circular
-        if circular:
-            self._apply_circular_radius()
-        self.update()
-
-    set_circular = setCircular
-
-    def isCircular(self) -> bool:
-        return self._circular
-
-    def _apply_circular_radius(self) -> None:
-        w, h = self.width(), self.height()
-        if w <= 0 or h <= 0:
-            return
-        radius = min(w, h) // 2
-        if radius != self._corner_radius_px:
-            self._corner_radius_px = radius
-            self.setProperty("cornerRadiusPx", radius)
 
     def set_show_strike_through(self, enabled: bool):
         self._show_strike_through = enabled
@@ -585,18 +577,30 @@ class Button(WheelScrollPolicyMixin, QWidget):
 
     def enterEvent(self, event):
         if not self._flyout_open:
-            self._hovered = True
+            self.setHoverActive(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         if not self._flyout_open:
-            self._hovered = False
+            self.setHoverActive(False)
             self._pressed = False
             if self._has_scroll:
                 scroll_cap = self.get_capability(ScrollCapability)
                 if scroll_cap:
                     scroll_cap._hide_scroll_popup()
         super().leaveEvent(event)
+
+    def hoverHitTest(self, pos) -> bool:
+        return self.rect().contains(pos.toPoint() if hasattr(pos, "toPoint") else pos)
+
+    def setHoverActive(self, active: bool) -> None:
+        if self._flyout_open:
+            return
+        active = bool(active)
+        if self._hovered != active:
+            self._hovered = active
+        if not active and self._pressed:
+            self._pressed = False
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -650,6 +654,42 @@ class Button(WheelScrollPolicyMixin, QWidget):
                     return
 
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if not event.isAutoRepeat():
+                self._activate_via_keyboard()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def focusInEvent(self, event):
+        self.update()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        self.update()
+        super().focusOutEvent(event)
+
+    def _activate_via_keyboard(self):
+        self.pressed.emit()
+        if sip.isdeleted(self):
+            return
+        self.released.emit()
+        if sip.isdeleted(self):
+            return
+        if self._has_menu:
+            menu_cap = self.get_capability(MenuCapability)
+            if menu_cap:
+                menu_cap.show_menu()
+        elif self._has_toggle and self._has_scroll:
+            self._do_toggle_scroll_click()
+        elif self._has_toggle:
+            self.setChecked(not self._checked)
+        self.clicked.emit()
+        if sip.isdeleted(self):
+            return
+        self.shortClicked.emit()
 
     def wheelEvent(self, event: QWheelEvent):
         scroll_cap = self.get_capability(ScrollCapability)
@@ -714,11 +754,6 @@ class Button(WheelScrollPolicyMixin, QWidget):
         finally:
             painter.end()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self._circular:
-            self._apply_circular_radius()
-
     # -------- private --------
 
     def _handle_property_change(self, name: str):
@@ -747,7 +782,7 @@ class Button(WheelScrollPolicyMixin, QWidget):
             self._show_underline = bool(self.property("showUnderline"))
         elif name == "underlineThicknessPx":
             value = self.property("underlineThicknessPx")
-            self._underline_thickness = None if value is None else max(0.0, float(value))
+            self._underline_thickness = _normalize_underline_thickness(value)
         else:
             return
         update_widget_style(self, update_geometry=needs_geometry)

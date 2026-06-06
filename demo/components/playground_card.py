@@ -6,7 +6,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QButtonGroup,
-    QColorDialog,
     QGridLayout,
     QHBoxLayout,
     QVBoxLayout,
@@ -16,6 +15,7 @@ from PyQt6.QtWidgets import (
 from sli_ui_toolkit.widgets import (
     Button,
     CheckBox,
+    ColorSwatch,
     CustomGroupWidget,
     Label,
     RadioButton,
@@ -56,6 +56,7 @@ class ButtonPlaygroundCard(CustomGroupWidget):
         self._picked_color.setAlpha(255)
         self._underline_color = QColor("#808080")
         self._underline_color.setAlpha(255)
+        self._control_labels: dict[str, Label] = {}
 
         preview_holder = QWidget()
         preview_holder.setMinimumHeight(80)
@@ -75,27 +76,27 @@ class ButtonPlaygroundCard(CustomGroupWidget):
             ["normal", "toggle", "scrollable", "long press", "menu"], "normal"
         )
 
-        self.width_spin = self._spin(72, 360, 132)
-        self.height_spin = self._spin(28, 120, 40)
+        self.width_spin = self._spin(1, 200, 132)
+        self.height_spin = self._spin(1, 200, 40)
         self.radius_spin = self._spin(0, 24, 4)
         self.icon_size_spin = self._spin(8, 48, 22)
         self.badge_spin = self._spin(0, 999, 0)
-        self.underline_thickness_spin = self._spin(1, 6, 1)
+        self.underline_thickness_spin = self._spin(1, 3, 1)
         self.enabled_check = self._check(True)
         self.checked_check = self._check(False)
         self.underline_check = self._check(False)
         self.footer_check = self._check(False)
         self.custom_color_check = self._check(False)
 
-        self.color_pick_btn = Button(text="Pick color", variant="surface", size=(110, 32))
-        self.color_pick_btn.clicked.connect(self._pick_color)
-        self._color_swatch = Button(text="", variant="default", size=(28, 22))
-        self._refresh_swatch()
+        self._color_swatch = ColorSwatch(color=self._picked_color, size=28, alpha=True)
+        self._color_swatch.colorChanged.connect(self._on_color_swatch_changed)
 
-        self.underline_color_pick_btn = Button(text="Underline color", variant="surface", size=(140, 32))
-        self.underline_color_pick_btn.clicked.connect(self._pick_underline_color)
-        self._underline_color_swatch = Button(text="", variant="default", size=(28, 22))
-        self._refresh_underline_swatch()
+        self._underline_color_swatch = ColorSwatch(
+            color=self._underline_color, size=28, alpha=True
+        )
+        self._underline_color_swatch.colorChanged.connect(
+            self._on_underline_swatch_changed
+        )
 
         self.alpha_slider = Slider(Qt.Orientation.Horizontal)
         self.alpha_slider.setRange(0, 255)
@@ -104,11 +105,11 @@ class ButtonPlaygroundCard(CustomGroupWidget):
         color_row_host = QWidget()
         color_row = QHBoxLayout(color_row_host)
         color_row.setContentsMargins(0, 0, 0, 0)
-        color_row.setSpacing(8)
-        color_row.addWidget(self.color_pick_btn)
+        color_row.setSpacing(10)
+        color_row.addWidget(Label("Fill", pixel_size=11))
         color_row.addWidget(self._color_swatch)
-        color_row.addSpacing(12)
-        color_row.addWidget(self.underline_color_pick_btn)
+        color_row.addSpacing(16)
+        color_row.addWidget(Label("Underline", pixel_size=11))
         color_row.addWidget(self._underline_color_swatch)
         color_row.addStretch()
 
@@ -148,6 +149,7 @@ class ButtonPlaygroundCard(CustomGroupWidget):
         row = self._add_row(grid, row, "Alpha", self.alpha_slider)
         self.add_widget(grid_host)
 
+        self._sync_radius_limit()
         self._connect()
         self._rebuild()
 
@@ -172,7 +174,9 @@ class ButtonPlaygroundCard(CustomGroupWidget):
             if isinstance(widget, CheckBox):
                 widget.setText(label)
             else:
-                layout.addWidget(Label(label, pixel_size=10))
+                label_widget = Label(label, pixel_size=10)
+                self._control_labels[label] = label_widget
+                layout.addWidget(label_widget)
             layout.addWidget(widget)
             layout.addSpacing(4)
         layout.addStretch()
@@ -198,42 +202,41 @@ class ButtonPlaygroundCard(CustomGroupWidget):
     def _mode(self) -> str:
         return self._selected(self._mode_radios)
 
+    def _max_radius(self) -> int:
+        return max(0, min(self.width_spin.value(), self.height_spin.value()) // 2)
+
+    def _sync_radius_limit(self) -> None:
+        self.radius_spin.setRange(0, self._max_radius())
+
+    def _corner_radius(self) -> int:
+        self._sync_radius_limit()
+        return self.radius_spin.value()
+
     def _refresh_swatch(self) -> None:
-        self._color_swatch.set_background_color(QColor(self._picked_color))
+        self._color_swatch.set_color(QColor(self._picked_color))
 
     def _refresh_underline_swatch(self) -> None:
-        self._underline_color_swatch.set_background_color(QColor(self._underline_color))
+        self._underline_color_swatch.set_color(QColor(self._underline_color))
 
-    def _pick_color(self) -> None:
-        chosen = QColorDialog.getColor(
-            self._picked_color, self, "Pick button color",
-            QColorDialog.ColorDialogOption.ShowAlphaChannel,
-        )
-        if chosen.isValid():
-            self._picked_color = chosen
-            self.alpha_slider.setValue(chosen.alpha())
-            self._refresh_swatch()
-            if not self.custom_color_check.isChecked():
-                self.custom_color_check.setChecked(True)
-            self._apply()
+    def _on_color_swatch_changed(self, color: QColor) -> None:
+        self._picked_color = QColor(color)
+        self.alpha_slider.setValue(color.alpha())
+        if not self.custom_color_check.isChecked():
+            self.custom_color_check.setChecked(True)
+        self._apply()
 
-    def _pick_underline_color(self) -> None:
-        chosen = QColorDialog.getColor(
-            self._underline_color, self, "Pick underline color",
-            QColorDialog.ColorDialogOption.ShowAlphaChannel,
-        )
-        if chosen.isValid():
-            self._underline_color = chosen
-            self._refresh_underline_swatch()
-            if not self.underline_check.isChecked():
-                self.underline_check.setChecked(True)
-            self._apply()
+    def _on_underline_swatch_changed(self, color: QColor) -> None:
+        self._underline_color = QColor(color)
+        if not self.underline_check.isChecked():
+            self.underline_check.setChecked(True)
+        self._apply()
 
     def _connect(self) -> None:
         self._variant_group.buttonToggled.connect(lambda *_: self._rebuild())
         self._mode_group.buttonToggled.connect(lambda *_: self._rebuild())
-        for spin in (self.width_spin, self.height_spin, self.radius_spin,
-                     self.icon_size_spin, self.badge_spin,
+        for spin in (self.width_spin, self.height_spin):
+            spin.valueChanged.connect(self._on_size_changed)
+        for spin in (self.radius_spin, self.icon_size_spin, self.badge_spin,
                      self.underline_thickness_spin):
             spin.valueChanged.connect(self._apply)
         for chk in (self.enabled_check, self.checked_check, self.underline_check,
@@ -244,6 +247,10 @@ class ButtonPlaygroundCard(CustomGroupWidget):
     def _on_alpha(self, val: int) -> None:
         self._picked_color.setAlpha(int(val))
         self._refresh_swatch()
+        self._apply()
+
+    def _on_size_changed(self, *args) -> None:
+        self._sync_radius_limit()
         self._apply()
 
     def _bg_color(self) -> QColor | None:
@@ -268,7 +275,7 @@ class ButtonPlaygroundCard(CustomGroupWidget):
             "text": self._text(),
             "variant": self._variant(),
             "size": (self.width_spin.value(), self.height_spin.value()),
-            "corner_radius": self.radius_spin.value(),
+            "corner_radius": self._corner_radius(),
             "icon_size": self.icon_size_spin.value(),
             "show_underline": self.underline_check.isChecked(),
             "background_color": self._bg_color(),
@@ -296,7 +303,7 @@ class ButtonPlaygroundCard(CustomGroupWidget):
             return
         self._button.setVariant(self._variant())
         self._button.setFixedSize(self.width_spin.value(), self.height_spin.value())
-        self._button.setCornerRadiusPx(self.radius_spin.value())
+        self._button.setCornerRadiusPx(self._corner_radius())
         self._button.setIconSizePx(self.icon_size_spin.value())
         badge = self.badge_spin.value()
         self._button.setBadge(badge if badge > 0 else None)
@@ -310,11 +317,17 @@ class ButtonPlaygroundCard(CustomGroupWidget):
         self._button.set_footer_mode(self.footer_check.isChecked())
         self._button.set_background_color(self._bg_color())
 
+        line_visible = self.underline_check.isChecked()
+        self.underline_thickness_spin.setVisible(line_visible)
+        line_label = self._control_labels.get("Line")
+        if line_label is not None:
+            line_label.setVisible(line_visible)
+
         if self._mode() == "toggle":
             self._button.setChecked(self.checked_check.isChecked(), emit=False)
-            self.checked_check.setEnabled(True)
+            self.checked_check.setVisible(True)
         else:
-            self.checked_check.setEnabled(False)
+            self.checked_check.setVisible(False)
 
         self._button.updateGeometry()
         self._button.update()

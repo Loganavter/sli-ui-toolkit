@@ -294,8 +294,8 @@ class _UnifiedFlyoutLayoutMixin:
             panel_w = panel.sizeHint().width()
         except Exception:
             panel_w = 0
-        # Mirror improve-imgsli v9.0.0: widen the panel to fit the longer of
-        # the panel content hint, the anchor button, or a 200px floor.
+        # Widen the panel to fit the longer of the panel content hint, the
+        # anchor button, or a 200 px floor.
         width = max(panel_w, related_button.width(), 200)
         return QSize(width, panel._container_height)
 

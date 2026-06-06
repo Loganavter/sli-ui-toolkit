@@ -32,6 +32,12 @@ Exports:
 
 Main public widget catalog — everything below.
 
+### `from sli_ui_toolkit.style import ...`
+
+Canonical home for `WidgetStyleTokens`, `read_widget_style`,
+`update_widget_style`, and `icon_size_qsize`. Also re-exported from
+`sli_ui_toolkit` and `sli_ui_toolkit.widgets`.
+
 Implementation-specific imports are also available for toolkit internals, for
 example `sli_ui_toolkit.ui.widgets.comboboxes.ComboBox`. Older
 `sli_ui_toolkit.ui.widgets.atomic.combobox*` modules are compatibility
@@ -304,7 +310,7 @@ spin.setWheelRequiresFocus(False)
 | `IconActionFlyout` / `IconAction` | Customizable horizontal flyout for icon action buttons. |
 | `FlyoutIconButton` | Icon button that auto-manages an attached flyout on hover/click. |
 | `IndexedToggleFlyout` | Flyout with numbered toggle slots (show/hide per instance). |
-| `FontSettingsFlyout` | Improve-ImgSLI-style text settings flyout: size, weight, opacity, foreground/background color swatches, text background switch, and placement radios. |
+| `FontSettingsFlyout` | Text settings flyout: size, weight, opacity, foreground/background color swatches, text background switch, and placement radios. |
 | `UnifiedFlyout` | Full-featured dual-pane overlay list with drag-drop reordering, session management, animated open/close. Import: `sli_ui_toolkit.ui.widgets.composite.unified_flyout`. |
 
 `BaseFlyout.show_aligned(anchor_widget, anchor_point="bottom-center", flyout_point="top-center", ...)`
@@ -394,9 +400,18 @@ Markdown help section discovery helpers are intentionally not exported from
 | `draw_bottom_underline(painter, ...)` | Draw a themed bottom underline on a widget. Prefer widget-level underline APIs for `Button`, `CustomLineEdit`, and `ComboBox`. |
 | `draw_rounded_shadow(painter, ...)` | Draw a rounded drop shadow behind a rect. |
 | `UnderlineConfig` | Configuration dataclass for underline painting. |
+
+## Style Tokens (from `sli_ui_toolkit.style`)
+
+Also re-exported from `sli_ui_toolkit` and `sli_ui_toolkit.widgets` for
+convenience. `sli_ui_toolkit.style` is the canonical public path.
+
+| Name | Description |
+|------|-------------|
 | `WidgetStyleTokens` | Resolved style token set for custom painters. |
 | `read_widget_style(widget)` | Read Qt dynamic properties into `WidgetStyleTokens`. |
-| `update_widget_style(widget, tokens)` | Write `WidgetStyleTokens` back to Qt properties. |
+| `update_widget_style(widget, *, update_geometry=False)` | Re-polish a widget after dynamic-property changes and repaint. |
+| `icon_size_qsize(px, fallback=22)` | Build a `QSize(px, px)` from a token value with a fallback. |
 
 ---
 

@@ -50,7 +50,7 @@ class _DropIndicator(QWidget):
         painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
 
 class _Panel(QWidget):
-    # improve-imgsli v9.0.0 caps the panel at ~7.5 rows of content before scrolling.
+    # Panel scrolls after ~7.5 rows of content (compact-density default).
     MAX_VISIBLE_ITEMS = 7
 
     def __init__(
@@ -106,7 +106,7 @@ class _Panel(QWidget):
         self.content_widget = QWidget()
 
         self.content_layout = QVBoxLayout(self.content_widget)
-        # Match improve-imgsli v9.0.0 panel paddings: 4px on all sides, 2px gap.
+        # Compact panel padding: 4 px on all sides with a 2 px row gap.
         self.content_layout.setContentsMargins(4, 4, 4, 4)
         self.content_layout.setSpacing(2)
         self.content_layout.addStretch(1)
@@ -136,8 +136,8 @@ class _Panel(QWidget):
             accent = QColor("#00b7ff")
         self.drop_overlay.set_color(accent)
 
-        # Port from improve-imgsli v9.0.0: paint the panel surface ourselves so
-        # the widget renders correctly without a host-supplied QSS sheet.
+        # Paint the panel surface ourselves so the widget renders correctly
+        # without a host-supplied QSS sheet.
         try:
             bg_color = self.theme_manager.get_color("flyout.background").name(
                 QColor.NameFormat.HexArgb

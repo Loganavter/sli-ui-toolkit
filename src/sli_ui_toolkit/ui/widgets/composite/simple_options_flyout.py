@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 
@@ -42,6 +43,7 @@ class _SimpleRow(QWidget):
         self.theme_manager = ThemeManager.get_instance()
         self.setFixedHeight(item_height)
         self.setMouseTracking(True)
+        register_hover_widget(self)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 0, 10, 0)
         self.label = QLabel(text)
@@ -60,14 +62,22 @@ class _SimpleRow(QWidget):
         self.label.setProperty("class", "option-label")
 
     def enterEvent(self, e):
-        self._hovered = True
-        self.update()
+        self.setHoverActive(True)
         super().enterEvent(e)
 
     def leaveEvent(self, e):
-        self._hovered = False
-        self.update()
+        self.setHoverActive(False)
         super().leaveEvent(e)
+
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self.rect().contains(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if self._hovered != active:
+            self._hovered = active
+            self.update()
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(e.pos()):

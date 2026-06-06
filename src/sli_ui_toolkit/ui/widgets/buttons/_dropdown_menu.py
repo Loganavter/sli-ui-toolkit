@@ -11,6 +11,7 @@ from sli_ui_toolkit.ui.in_window_surface import (
     attach_in_window_widget,
     paint_shadowed_surface,
 )
+from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 
 class _MenuItem(QWidget):
@@ -25,6 +26,7 @@ class _MenuItem(QWidget):
         self._foreground_color = None
         self.setFixedHeight(40)
         self.setMouseTracking(True)
+        register_hover_widget(self)
         if is_current:
             self._check_icon = normalized_icon_pixmap("check", 20)
 
@@ -41,14 +43,22 @@ class _MenuItem(QWidget):
         self.update()
 
     def enterEvent(self, event):
-        self._hovered = True
-        self.update()
+        self.setHoverActive(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self._hovered = False
-        self.update()
+        self.setHoverActive(False)
         super().leaveEvent(event)
+
+    def hoverHitTest(self, pos) -> bool:
+        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
+        return self.rect().contains(point)
+
+    def setHoverActive(self, active: bool) -> None:
+        active = bool(active)
+        if self._hovered != active:
+            self._hovered = active
+            self.update()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
