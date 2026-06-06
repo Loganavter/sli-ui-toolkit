@@ -96,6 +96,12 @@ class HoverCoordinator(QObject):
 
         local = widget.mapFromGlobal(global_pos)
         active = QRect(QPoint(0, 0), widget.size()).contains(local)
+        if active:
+            top_widget = QApplication.widgetAt(global_pos)
+            if top_widget is None or (
+                top_widget is not widget and not widget.isAncestorOf(top_widget)
+            ):
+                active = False
         if active and hasattr(widget, "hoverHitTest"):
             active = bool(widget.hoverHitTest(QPointF(local)))  # type: ignore[attr-defined]
         self._set_hover(widget, active)
