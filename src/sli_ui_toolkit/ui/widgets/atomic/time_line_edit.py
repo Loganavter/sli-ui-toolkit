@@ -6,7 +6,7 @@ from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.context import DrawContext
-from sli_ui_toolkit.ui.widgets.buttons.layers import ContentLayer
+from sli_ui_toolkit.ui.widgets.buttons.layers import ContentLayer, RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.theme import ThemeManager
@@ -214,7 +214,7 @@ class TimeLineEdit(WheelScrollPolicyMixin, CustomLineEdit):
             variant="ghost",
             size=(self.STEP_BUTTON_WIDTH, self.height() or 32),
             corner_radius=0,
-            layers=[_StepButtonOverlayLayer(), ContentLayer()],
+            layers=[_StepButtonOverlayLayer(), RippleLayer(), ContentLayer()],
             parent=self,
         )
         button.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)

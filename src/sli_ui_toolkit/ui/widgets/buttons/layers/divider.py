@@ -15,12 +15,20 @@ class DividerLayer(Layer):
     scope = "widget"
 
     def applies(self, ctx: DrawContext) -> bool:
+        controller = getattr(ctx.widget, "_controller", None)
+        if controller is not None:
+            return controller.divider is not None
         return getattr(ctx.widget, "_divider", None) is not None
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
-        divider = getattr(ctx.widget, "_divider", None)
-        split = getattr(ctx.widget, "_split", None)
-        rects = list(getattr(ctx.widget, "_region_rects", {}).values())
+        controller = getattr(ctx.widget, "_controller", None)
+        divider = controller.divider if controller is not None else getattr(ctx.widget, "_divider", None)
+        split = controller.split if controller is not None else getattr(ctx.widget, "_split", None)
+        rects = (
+            list(controller.rects.values())
+            if controller is not None
+            else list(getattr(ctx.widget, "_region_rects", {}).values())
+        )
         if divider is None or split is None or len(rects) < 2:
             return
         color = tm.try_get_color(divider.color_token)

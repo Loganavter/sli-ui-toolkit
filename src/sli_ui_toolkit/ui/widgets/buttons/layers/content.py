@@ -13,4 +13,11 @@ class ContentLayer(Layer):
         return ctx.effective_content is not None
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
+        if ctx.region_path is None:
+            ctx.effective_content.draw(ctx, tm)
+            return
+        p = ctx.painter
+        p.save()
+        p.setClipPath(ctx.effective_path)
         ctx.effective_content.draw(ctx, tm)
+        p.restore()

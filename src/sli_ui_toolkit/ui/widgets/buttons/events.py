@@ -11,7 +11,7 @@ _pressed, _is_scrolling, _has_*, _ripple, _defer_click, и на capabilities
 from __future__ import annotations
 
 from PyQt6 import sip
-from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QMouseEvent, QWheelEvent
 
 from .capabilities import LongPressCapability, MenuCapability, ScrollCapability
@@ -47,9 +47,9 @@ class _ButtonEvents:
             return
         active = bool(active)
         if not active:
-            for states in self._region_states.values():
-                states.discard(ButtonState.HOVERED)
-                states.discard(ButtonState.PRESSED)
+            for region in self._regions:
+                self._controller.set_state(region.id, ButtonState.HOVERED, False)
+                self._controller.set_state(region.id, ButtonState.PRESSED, False)
             self._hovered_region = None
             self._pressed_region = None
             self.update()
@@ -113,7 +113,7 @@ class _ButtonEvents:
                 elif region_id == "_main" and self._has_toggle and self._has_scroll:
                     self._do_toggle_scroll_click()
                 elif has_toggle:
-                    checked = ButtonState.CHECKED not in self._region_states[region_id]
+                    checked = ButtonState.CHECKED not in self._controller.states(region_id)
                     self._set_region_state(region_id, ButtonState.CHECKED, checked)
                     self.regionToggled.emit(region_id, checked)
                     if region_id == "_main":
@@ -121,6 +121,7 @@ class _ButtonEvents:
                 if self._defer_click and region_id == "_main":
                     QTimer.singleShot(0, self._emit_click_signals)
                 else:
+                    self._dispatch_region_behavior(region_id, "click")
                     self.regionClicked.emit(region_id)
                     if region_id == "_main":
                         self._emit_click_signals()
@@ -207,17 +208,18 @@ class _ButtonEvents:
         super().setEnabled(enabled)
         if enabled:
             region_enabled = {region.id: region.enabled for region in self._regions}
-            for region_id, states in self._region_states.items():
+            for region_id in self._controller.runtime:
                 if region_enabled.get(region_id, True):
-                    states.discard(ButtonState.DISABLED)
+                    self._controller.set_state(region_id, ButtonState.DISABLED, False)
                 else:
-                    states.add(ButtonState.DISABLED)
+                    self._controller.set_state(region_id, ButtonState.DISABLED, True)
         else:
-            for states in self._region_states.values():
-                states.add(ButtonState.DISABLED)
+            for region_id in self._controller.runtime:
+                self._controller.set_state(region_id, ButtonState.DISABLED, True)
             scroll_cap = self.get_capability(ScrollCapability)
             if scroll_cap:
                 scroll_cap._hide_scroll_popup()
+        self._sync_region_aliases()
         self.update()
 
     # -------- region helpers --------
@@ -231,20 +233,7 @@ class _ButtonEvents:
         return None
 
     def _region_at(self, pos) -> str | None:
-        raw_point = pos.toPoint() if hasattr(pos, "toPoint") else pos
-        point = QPointF(raw_point)
-        if not QRectF(self.rect()).contains(point):
-            return None
-        if not self._region_rects:
-            self._recompute_region_rects()
-        for region in reversed(self._regions):
-            rect = self._region_rects.get(region.id)
-            if rect is None or not rect.contains(point):
-                continue
-            if ButtonState.DISABLED in self._region_states.get(region.id, set()):
-                return None
-            return region.id
-        return None
+        return self._controller.region_at(pos)
 
     def _set_region_state(
         self,
@@ -254,11 +243,8 @@ class _ButtonEvents:
     ) -> None:
         if region_id is None:
             return
-        states = self._region_states.setdefault(region_id, set())
-        if active:
-            states.add(state)
-        else:
-            states.discard(state)
+        self._controller.set_state(region_id, state, active)
+        self._sync_region_aliases()
         self.update()
 
     def _update_hover_region(self, pos) -> None:

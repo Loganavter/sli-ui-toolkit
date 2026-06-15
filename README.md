@@ -1,140 +1,152 @@
 # SLI UI Toolkit
 
-`sli-ui-toolkit` is a reusable PyQt6 widget and UI-support library.
-SLI stands for **Shared Lightweight Interface**.
+Reusable PyQt6 widgets and UI infrastructure for compact desktop tools.
 
-It was extracted from two production apps, Improve-ImgSLI and Tkonverter.
-That history is still visible in some widget choices and naming, but the
-package is maintained as a general-purpose toolkit: host-specific behavior is
-kept outside the library and injected through configuration hooks.
+SLI stands for **Shared Lightweight Interface**. The toolkit was extracted from
+Improve-ImgSLI and Tkonverter, but host-specific icons, translations, resources,
+and business logic stay outside the library.
 
-Use it when you want:
+## What Is Included
 
-- custom-painted compact controls;
-- a unified button system;
-- theme-aware widgets and flyouts;
-- app-injected icons, translations, and overlay behavior.
+- custom-painted compact controls: buttons, inputs, switches, sliders, labels;
+- a unified `Button` system with icons, text, toggle, scroll, menu, long-press,
+  ripple, and multi-region split layouts;
+- reusable composite widgets: flyouts, dialog shells, markdown help, timelines,
+  toasts, lists, charts;
+- theme-aware painting through `ThemeManager` tokens;
+- app-injected hooks for icons, i18n, overlay placement, and timing.
 
-## Start Here
+## Install
 
-This file is the integration entry point, not the full reference.
+For development from this repository:
 
-- Full public API: [docs/API_CATALOG.md](docs/API_CATALOG.md)
-- Internal structure: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Visual conventions: [docs/DESIGN_LANGUAGE.md](docs/DESIGN_LANGUAGE.md)
-- Docs index: [docs/README.md](docs/README.md)
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -e ".[dev]"
+```
 
-## Import Layers
+For use as a dependency:
 
-Use these import layers on purpose:
+```bash
+python -m pip install sli-ui-toolkit
+```
 
-- `sli_ui_toolkit`
-  Small top-level bootstrap surface.
-- `sli_ui_toolkit.widgets`
-  Main public widget catalog.
-- `sli_ui_toolkit.i18n`
-  Translation manager and helpers.
-- `sli_ui_toolkit.icons`
-  Icon resolver configuration.
-- `sli_ui_toolkit.theme`
-  Theme manager.
-- `sli_ui_toolkit.managers`
-  Flyout and timer helpers.
-- `sli_ui_toolkit.services`
-  Utility services such as prewarm helpers.
+## Run The Demo
 
-If you are building app UI, most of the time you want `sli_ui_toolkit.widgets`.
+From the repository root:
 
-## Configuration Hooks
+```bash
+python -m demo
+```
 
-App-specific behavior is injected at startup:
+The demo opens a PyQt window with widget pages for buttons, inputs, lists,
+dialogs, flyouts, charts, feedback, and miscellaneous primitives.
 
-- `configure_icon_resolver(...)`
-- `configure_toolkit(...)`
-- `configure_i18n(...)`
+If you run on a headless machine, set Qt's platform first:
 
-These hooks keep the toolkit reusable while letting the host app supply:
+```bash
+QT_QPA_PLATFORM=offscreen python -m demo
+```
 
-- icon lookup;
-- translation roots;
-- overlay-layer resolution;
-- timing constants.
+## Run Tests
 
-## Quick Start
+```bash
+pytest tests/
+```
+
+The test suite uses `pytest-qt` and defaults to offscreen Qt through
+`tests/conftest.py`.
+
+## Basic Use
+
+Most application code should import from `sli_ui_toolkit.widgets`.
 
 ```python
-from pathlib import Path
+from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout
-
-from sli_ui_toolkit import FlyoutTimingConfig, configure_i18n, configure_toolkit
-from sli_ui_toolkit.icons import configure_icon_resolver
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.widgets import Button, ComboBox, install_application_tooltips
+from sli_ui_toolkit.widgets import Button, ComboBox
 
 app = QApplication([])
 
 theme = ThemeManager.get_instance()
-theme.register_palettes(light_palette={...}, dark_palette={...})
-theme.register_qss_path(str(Path("resources/qss/app.qss")))
 theme.set_theme("light", app)
-
-configure_icon_resolver(resolver=my_icon_lookup)
-
-configure_toolkit(
-    timings=FlyoutTimingConfig(
-        transient_auto_hide_delay_ms=300,
-        flyout_animation_duration_ms=150,
-        text_settings_flyout_animation_duration_ms=150,
-    ),
-    overlay_resolver=lambda widget: getattr(widget.window(), "overlay_layer", None),
-)
-
-configure_i18n(i18n_root=Path("resources/i18n"))
-install_application_tooltips(app)
 
 window = QWidget()
 layout = QVBoxLayout(window)
 
-save_button = Button("save", text="Save", variant="primary")
-mode_combo = ComboBox()
-mode_combo.addItems(["Fast", "Balanced", "Quality"])
+save = Button("save", text="Save", variant="surface")
+mode = ComboBox()
+mode.addItems(["Fast", "Balanced", "Quality"])
 
-layout.addWidget(save_button)
-layout.addWidget(mode_combo)
+layout.addWidget(save)
+layout.addWidget(mode)
 window.show()
 
 app.exec()
 ```
 
-Flyouts, button dropdown menus, and similar in-window surfaces use
-`overlay_resolver` when a host app provides an overlay layer. The resolved
-object should expose `host`, `attach(widget)`, `anchor_rect(anchor)`, and
-`clamp_rect(rect, margin=...)`. If no overlay layer is resolved, button dropdown
-menus fall back to the top-level window and position themselves in window
-coordinates. Menu surfaces are painted from `flyout.background` /
-`flyout.border`; individual rows only use `list_item.background.hover` for the
-hovered or current item.
+## App Configuration Hooks
 
-## First Widgets To Reach For
+Hosts can inject app-specific behavior at startup:
 
-- `Button`
-  Unified icon/text/toggle/menu/scrollable button system.
-- `ComboBox`
-  Custom-painted combo box with popup, search, and keyboard navigation.
-- `CustomLineEdit`
-  Themed editable text field.
-- `SidebarDialogShell`
-  Settings/help style dialog shell.
-- `ScrollableDialogPage`
-  Scrollable dialog page container.
-- `MarkdownHelpDialog`
-  Reusable markdown help/documentation dialog.
+- `configure_icon_resolver(...)`
+  Supplies icon lookup for app icon enums, names, or resources.
+- `configure_toolkit(...)`
+  Supplies overlay placement and timing defaults for flyouts and popups.
+- `configure_i18n(...)`
+  Supplies translation roots and language handling.
 
-Usage details live in [docs/API_CATALOG.md](docs/API_CATALOG.md).
+Minimal apps can use bundled toolkit icons and skip these hooks. Larger host
+apps should configure them once during startup.
 
-## Notes
+## Public Import Layers
 
-- `ComboBox` is a custom widget, not a full `QComboBox` drop-in replacement.
-- The toolkit is designed around custom-painted controls, not QSS-skinned stock widgets.
-- App-specific icons and translations should stay outside the toolkit and be injected through configuration.
+- `sli_ui_toolkit`
+  Bootstrap/configuration helpers and common primitives.
+- `sli_ui_toolkit.widgets`
+  Main public widget catalog. Prefer this for application UI.
+- `sli_ui_toolkit.theme`
+  `ThemeManager`.
+- `sli_ui_toolkit.icons`
+  Icon resolver configuration.
+- `sli_ui_toolkit.i18n`
+  Translation manager and helpers.
+- `sli_ui_toolkit.managers`
+  Flyout and timer helpers.
+- `sli_ui_toolkit.services`
+  Utility services such as prewarm helpers.
+
+Everything under `sli_ui_toolkit.ui...` is implementation detail first. Use it
+inside toolkit internals, or only when no public export exists yet.
+
+## Documentation
+
+- [User docs](docs/user/README.md)
+- [Full public API](docs/user/API_CATALOG.md)
+- [Button API](docs/user/BUTTON_API.md)
+- [Design language](docs/user/DESIGN_LANGUAGE.md)
+- [Keyboard behavior](docs/user/KEYBOARD.md)
+- [Developer docs](docs/dev/README.md)
+- [Architecture](docs/dev/ARCHITECTURE.md)
+- [Docs index](docs/README.md)
+
+## Development Notes
+
+- Keep host-app behavior outside the toolkit. Pass behavior through callbacks,
+  signals, configuration hooks, or plain data objects.
+- Resolve colors and sizes through `ThemeManager`, widget properties, or
+  documented tokens.
+- Update docs when changing public widget behavior or public API.
+- Run `pytest tests/` before publishing or tagging a release.
+
+## Caveats
+
+- `ComboBox` is custom-painted; it is not a full `QComboBox` drop-in
+  replacement.
+- The toolkit is designed around custom-painted controls, not QSS-skinned stock
+  widgets.
+- Light and dark themes are both first-class. Avoid hard-coded colors in custom
+  widgets; use theme tokens.

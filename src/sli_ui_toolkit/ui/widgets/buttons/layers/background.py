@@ -54,16 +54,18 @@ class BackgroundLayer(Layer):
         p.setBrush(bg)
 
         if is_subregion:
-            # Clip per-region fill to the outer rounded capsule so corners
-            # remain smooth, then fill exactly the region rect.
+            # Clip per-region fill to the outer rounded capsule and the
+            # region's own path so non-rectangular regions stay honest.
             outer = QPainterPath()
             if path is not None:
                 outer = path
             else:
                 outer.addRoundedRect(widget_rect, radius, radius)
+            region_path = ctx.effective_path
             p.save()
             p.setClipPath(outer)
-            p.drawRect(region_rect)
+            p.setClipPath(region_path, Qt.ClipOperation.IntersectClip)
+            p.drawPath(region_path)
             p.restore()
         elif path is not None:
             p.drawPath(path)

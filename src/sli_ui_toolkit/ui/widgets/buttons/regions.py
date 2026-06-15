@@ -6,12 +6,13 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
 from PyQt6.QtCore import QLineF, QRectF
-from PyQt6.QtGui import QColor, QCursor
+from PyQt6.QtGui import QColor, QCursor, QPainterPath
 
 from .content import ButtonRow
 
 
 RectFn = Callable[[QRectF], QRectF]
+PathFn = Callable[[QRectF], QPainterPath]
 
 
 @dataclass
@@ -39,6 +40,8 @@ class ButtonRegion:
     enabled: bool = True
     cursor: QCursor | None = None
     rect_fn: RectFn | None = None
+    path_fn: PathFn | None = None
+    z_index: int = 0
 
 
 class SplitLayout(Protocol):
@@ -51,7 +54,7 @@ class SplitLayout(Protocol):
 
 class SingleRegionSplit:
     def compute(self, rect: QRectF, regions: list[ButtonRegion]) -> list[QRectF]:
-        return [QRectF(rect)] if regions else []
+        return [QRectF(rect) for _region in regions]
 
     def dividers(self, rects: list[QRectF]) -> list[QLineF]:
         return []

@@ -100,7 +100,7 @@ class DialogsPage(GalleryPage):
         advanced = ScrollableDialogPage()
         advanced_layout = advanced.content_layout
         advanced_layout.addWidget(Label("Advanced", pixel_size=14, bold=True))
-        mode_combo = ComboBox(underline_color=QColor("#808080"))
+        mode_combo = ComboBox()
         mode_combo.addItems(("Balanced", "Quality", "Performance"))
         advanced_layout.addWidget(mode_combo)
         advanced_layout.addWidget(CheckBox("Write verbose logs"))

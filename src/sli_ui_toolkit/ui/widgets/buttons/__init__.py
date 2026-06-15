@@ -9,6 +9,19 @@ from sli_ui_toolkit.ui.widgets.buttons.regions import (
     SingleRegionSplit,
     VerticalSplit,
 )
+from sli_ui_toolkit.ui.widgets.buttons.specs import (
+    BehaviorSpec,
+    ButtonSpec,
+    ClickBehavior,
+    ContentSpec,
+    LongPressBehavior,
+    MenuBehavior,
+    RegionSpec,
+    RegionStyle,
+    ScrollBehavior,
+    ShapeSpec,
+    ToggleBehavior,
+)
 
 __all__ = [
     "Button",
@@ -22,4 +35,15 @@ __all__ = [
     "HorizontalSplit",
     "SingleRegionSplit",
     "VerticalSplit",
+    "BehaviorSpec",
+    "ButtonSpec",
+    "ClickBehavior",
+    "ContentSpec",
+    "LongPressBehavior",
+    "MenuBehavior",
+    "RegionSpec",
+    "RegionStyle",
+    "ScrollBehavior",
+    "ShapeSpec",
+    "ToggleBehavior",
 ]

@@ -139,9 +139,11 @@ class ScrollCapability(ButtonCapability):
 
     def _handle_region_wheel_event(self, event) -> bool:
         region_id = self._region_id
-        ranges = getattr(self._button, "_region_scroll_ranges", {})
-        values = getattr(self._button, "_region_scroll_values", {})
-        if region_id not in ranges:
+        controller = getattr(self._button, "_controller", None)
+        if controller is None:
+            return False
+        scroll_range = controller.scroll_range(region_id)
+        if scroll_range is None:
             return False
 
         delta = event.angleDelta().y()
@@ -150,17 +152,22 @@ class ScrollCapability(ButtonCapability):
 
         from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 
-        states = getattr(self._button, "_region_states", {}).setdefault(region_id, set())
-        states.add(ButtonState.SCROLLING)
+        controller.set_state(region_id, ButtonState.SCROLLING, True)
+        self._button._sync_region_aliases()
         if self._scroll_end_timer:
             self._scroll_end_timer.start()
 
-        min_v, max_v = ranges[region_id]
-        old_value = values.get(region_id, min_v)
+        min_v, max_v = scroll_range
+        old_value = controller.scroll_value(region_id)
+        if old_value is None:
+            old_value = min_v
         step = 1 if delta > 0 else -1
         new_value = max(min_v, min(max_v, old_value + step))
         if new_value != old_value:
-            values[region_id] = new_value
+            controller.set_scroll_value(region_id, new_value)
+            self._button._sync_region_aliases()
+            if hasattr(self._button, "_dispatch_region_behavior"):
+                self._button._dispatch_region_behavior(region_id, "scroll", new_value)
             if hasattr(self._button, "regionValueChanged"):
                 self._button.regionValueChanged.emit(region_id, new_value)
             self._button.update()
@@ -174,9 +181,10 @@ class ScrollCapability(ButtonCapability):
         if self._region_id not in (None, "_main"):
             from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 
-            states = getattr(self._button, "_region_states", {}).get(self._region_id)
-            if states is not None:
-                states.discard(ButtonState.SCROLLING)
+            controller = getattr(self._button, "_controller", None)
+            if controller is not None:
+                controller.set_state(self._region_id, ButtonState.SCROLLING, False)
+                self._button._sync_region_aliases()
         else:
             self._button._is_scrolling = False
         self._hide_scroll_popup()

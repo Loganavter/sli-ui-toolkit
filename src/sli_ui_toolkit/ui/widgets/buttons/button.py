@@ -39,12 +39,14 @@ from .content import (
     RowsContent,
     TextContent,
 )
+from .controller import ButtonController
 from .context import DrawContext
 from .events import _ButtonEvents
 from .layers._base import Layer
 from .layers.ripple import RippleEffect
 from .painter import Painter
 from .regions import ButtonRegion, Divider, SingleRegionSplit, SplitLayout
+from .specs import ButtonSpec, ShapeSpec
 from .state import ButtonState
 from .style_api import _ButtonStyleApi, _normalize_underline_thickness
 from .variants import get_variant
@@ -110,6 +112,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
     regionValueChanged = pyqtSignal(str, int)
     regionLongPressed = pyqtSignal(str)
     regionMenuTriggered = pyqtSignal(str, object)
+    actionTriggered = pyqtSignal(str, object)
 
     triggered = menuTriggered  # backwards-compat alias
 
@@ -146,6 +149,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         regions: list[ButtonRegion] | None = None,
         split: SplitLayout | None = None,
         divider: Divider | None = None,
+        spec: ButtonSpec | None = None,
         config: ButtonConfig | None = None,
         layers: list[Layer] | None = None,
         parent: QWidget | None = None,
@@ -174,6 +178,34 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
             wheel_requires_focus = config.wheel_requires_focus
             defer_click = config.defer_click
 
+        if spec is not None:
+            regions = spec.to_regions()
+            split = spec.split
+            divider = spec.divider
+            size = spec.shape.size
+            icon_size = spec.shape.icon_size
+            corner_radius = spec.shape.corner_radius
+            variant = spec.variant
+            density = spec.density
+            wheel_requires_focus = spec.wheel_requires_focus
+            defer_click = spec.defer_click
+            if regions and regions[0].id == "_main":
+                main = regions[0]
+                icon = main.icon
+                text = main.text
+                rows = main.rows
+                toggle = main.toggle
+                scrollable = main.scrollable
+                long_press = main.long_press
+                long_press_ms = main.long_press_ms
+                menu = main.menu
+                badge = main.badge
+                show_underline = bool(main.show_underline)
+                underline_color = main.underline_color
+                underline_thickness = main.underline_thickness
+                background_color = main.custom_bg_color
+                border_color = main.override_border_color
+
         if variant == "primary":
             warnings.warn(
                 "Button variant 'primary' is deprecated; use 'surface' instead.",
@@ -189,6 +221,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         self._split: SplitLayout = split or SingleRegionSplit()
         self._divider: Divider | None = divider
         self._region_rects: dict[str, QRectF] = {}
+        self._region_paths = {}
         self._region_ripple: dict[str, RippleEffect] = {}
         self._region_scroll_ranges: dict[str, tuple[int, int]] = {}
         self._region_scroll_values: dict[str, int] = {}
@@ -272,6 +305,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
 
         self._capabilities: list[ButtonCapability] = []
         self._capability_map: dict[tuple[type, str], ButtonCapability] = {}
+        self._controller = ButtonController(self)
 
         if long_press:
             self.attach_capability(LongPressCapability(delay_ms=long_press_ms))
@@ -306,7 +340,20 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                     override_border_color=border_color,
                 )
             ]
-        self.set_regions(regions, split=split, divider=divider)
+        if spec is not None:
+            self.set_spec(spec)
+        else:
+            self.set_regions(regions, split=split, divider=divider)
+
+    @classmethod
+    def from_spec(
+        cls,
+        spec: ButtonSpec,
+        *,
+        parent: QWidget | None = None,
+        layers: list[Layer] | None = None,
+    ) -> "Button":
+        return cls(spec=spec, parent=parent, layers=layers)
 
     # -------- public API: capabilities --------
 
@@ -359,32 +406,93 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                 raise ValueError(f"duplicate or empty button region id: {region.id!r}")
             seen.add(region.id)
             normalized.append(region)
-        self._regions = normalized
-        if split is not None:
-            self._split = split
-        elif len(normalized) == 1:
-            self._split = SingleRegionSplit()
-        if divider is not None or len(normalized) == 1:
-            self._divider = divider
-        for region in normalized:
-            states = self._region_states.setdefault(region.id, set())
-            if region.id == "_main":
-                self._states = states
-            if region.enabled:
-                states.discard(ButtonState.DISABLED)
-            else:
-                states.add(ButtonState.DISABLED)
-            self._region_ripple.setdefault(region.id, RippleEffect(self))
-            if region.scrollable is not None:
-                min_v, max_v = region.scrollable
-                self._region_scroll_ranges[region.id] = (int(min_v), int(max_v))
-                self._region_scroll_values.setdefault(
-                    region.id,
-                    max(int(min_v), min(int(max_v), max(int(min_v), 1))),
-                )
-            else:
-                self._region_scroll_ranges.pop(region.id, None)
-                self._region_scroll_values.pop(region.id, None)
+        effective_split = split if split is not None else (
+            SingleRegionSplit() if len(normalized) == 1 else self._split
+        )
+        effective_divider = divider if (divider is not None or len(normalized) == 1) else self._divider
+        self._controller.set_regions(
+            normalized,
+            split=effective_split,
+            divider=effective_divider,
+            shape=ShapeSpec(
+                corner_radius=self._corner_radius_px,
+                size=(self.width(), self.height()),
+                icon_size=self._icon_size_px,
+            ),
+            variant=self._variant,
+            density=self._density,
+            defer_click=self._defer_click,
+            wheel_requires_focus=getattr(self, "_wheel_requires_focus", False),
+        )
+        self._sync_region_aliases()
+        self._attach_region_capabilities(normalized)
+        self._recompute_region_rects()
+        self.update()
+
+    def set_spec(self, spec: ButtonSpec) -> None:
+        self._apply_spec_widget_properties(spec)
+        self._controller.set_spec(spec)
+        self._sync_region_aliases()
+        self._attach_region_capabilities(self._regions)
+        self._recompute_region_rects()
+        self.update()
+
+    def regions(self) -> list[ButtonRegion]:
+        return list(self._regions)
+
+    def spec(self) -> ButtonSpec:
+        return self._controller.spec
+
+    def _sync_region_aliases(self) -> None:
+        self._regions = self._controller.regions
+        self._split = self._controller.split
+        self._divider = self._controller.divider
+        self._region_rects = self._controller.rects
+        self._region_paths = self._controller.paths
+        self._region_states = {
+            region_id: runtime.states
+            for region_id, runtime in self._controller.runtime.items()
+        }
+        self._region_ripple = {
+            region_id: runtime.ripple
+            for region_id, runtime in self._controller.runtime.items()
+            if runtime.ripple is not None
+        }
+        self._region_scroll_ranges = {
+            region_id: runtime.scroll_range
+            for region_id, runtime in self._controller.runtime.items()
+            if runtime.scroll_range is not None
+        }
+        self._region_scroll_values = {
+            region_id: runtime.scroll_value
+            for region_id, runtime in self._controller.runtime.items()
+            if runtime.scroll_value is not None
+        }
+        self._states = self._region_states.setdefault("_main", self._states)
+        self._ripple = self._region_ripple.get("_main", self._ripple)
+
+    def _apply_spec_widget_properties(self, spec: ButtonSpec) -> None:
+        self._variant = spec.variant
+        self._density = spec.density
+        self._defer_click = bool(spec.defer_click)
+        self.set_wheel_requires_focus(spec.wheel_requires_focus)
+        self.setProperty("variant", self._variant)
+        self.setProperty("density", self._density)
+        self._icon_size_px = int(spec.shape.icon_size)
+        self.setProperty("iconSizePx", self._icon_size_px)
+        if spec.shape.corner_radius is not None:
+            self._corner_radius_px = int(spec.shape.corner_radius)
+            self.setProperty("cornerRadiusPx", self._corner_radius_px)
+        w, h = spec.shape.size
+        if w > 0 and h > 0:
+            self.setFixedSize(int(w), int(h))
+        elif h > 0:
+            self.setFixedHeight(int(h))
+        elif w > 0:
+            self.setFixedWidth(int(w))
+
+    def _attach_region_capabilities(self, regions: list[ButtonRegion]) -> None:
+        for region in regions:
             if region.long_press and self.get_capability(LongPressCapability, region.id) is None:
                 self.attach_capability(
                     LongPressCapability(delay_ms=region.long_press_ms),
@@ -397,17 +505,6 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                     MenuCapability(menu_items=region.menu),
                     region_id=region.id,
                 )
-        for region_id in list(self._region_states):
-            if region_id not in seen:
-                del self._region_states[region_id]
-                self._region_ripple.pop(region_id, None)
-                self._region_scroll_ranges.pop(region_id, None)
-                self._region_scroll_values.pop(region_id, None)
-        self._recompute_region_rects()
-        self.update()
-
-    def regions(self) -> list[ButtonRegion]:
-        return list(self._regions)
 
     # -------- public API: state/value --------
 
@@ -506,16 +603,22 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         )
 
     def iter_regions(self, ctx: DrawContext):
-        if not self._region_rects:
-            self._recompute_region_rects()
-        for region in self._regions:
-            rect = self._region_rects.get(region.id)
+        if not self._controller.rects:
+            self._controller.recompute_rects()
+            self._sync_region_aliases()
+        ordered_regions = sorted(
+            enumerate(self._controller.regions),
+            key=lambda item: (item[1].z_index, item[0]),
+        )
+        for _index, region in ordered_regions:
+            rect = self._controller.rects.get(region.id)
             if rect is None:
                 continue
-            states = frozenset(self._region_states.get(region.id, set()))
+            states = frozenset(self._controller.states(region.id))
             yield ctx.scoped_to(
                 region_id=region.id,
                 rect=rect,
+                path=self._controller.paths.get(region.id),
                 states=states,
                 content=self._build_region_content(region),
                 variant=get_variant(region.variant or self._variant),
@@ -529,18 +632,31 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
             )
 
     def region_states(self, region_id: str) -> frozenset[ButtonState]:
-        return frozenset(self._region_states.get(region_id, set()))
+        return frozenset(self._controller.states(region_id))
 
     def region_ripple(self, region_id: str) -> RippleEffect | None:
-        return self._region_ripple.get(region_id)
+        return self._controller.ripple(region_id)
+
+    def _dispatch_region_behavior(
+        self,
+        region_id: str | None,
+        kind: str,
+        data: Any = None,
+    ) -> None:
+        if region_id is None:
+            return
+        for behavior in self._controller.behaviors(region_id, kind):
+            if behavior.action is None:
+                continue
+            payload = data if data is not None else behavior.data
+            if behavior.callback is not None:
+                behavior.callback(behavior.action, payload)
+            self.actionTriggered.emit(behavior.action, payload)
 
     def _recompute_region_rects(self) -> None:
-        rect = QRectF(self.rect())
-        rects = self._split.compute(rect, self._regions)
-        self._region_rects = {
-            region.id: QRectF(region.rect_fn(rect) if region.rect_fn else region_rect)
-            for region, region_rect in zip(self._regions, rects)
-        }
+        self._controller.recompute_rects()
+        self._region_rects = self._controller.rects
+        self._region_paths = self._controller.paths
 
     def resizeEvent(self, event):
         self._recompute_region_rects()
