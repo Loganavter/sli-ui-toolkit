@@ -10,7 +10,7 @@ from ._base import Layer
 
 class ContentLayer(Layer):
     def applies(self, ctx: DrawContext) -> bool:
-        return ctx.content is not None
+        return ctx.effective_content is not None
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
-        ctx.content.draw(ctx, tm)
+        ctx.effective_content.draw(ctx, tm)

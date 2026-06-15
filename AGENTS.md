@@ -31,6 +31,10 @@ Read these files before changing code:
   - [pyproject.toml](pyproject.toml)
   - [src/sli_ui_toolkit/_version.py](src/sli_ui_toolkit/_version.py)
   - [CHANGELOG.md](CHANGELOG.md)
+- Before bumping or releasing, compare local tags, the current package version,
+  and [CHANGELOG.md](CHANGELOG.md). Do not leave missing release sections for
+  already-tagged versions; add concise catch-up entries if older releases were
+  tagged without changelog sections.
 - Do not add Improve-ImgSLI-specific or Tkonverter-specific logic to the toolkit.
 - Do not add fallback imports from host applications.
 - Do not bias the design toward the dark theme. Light and dark themes are both first-class and must resolve through `ThemeManager` tokens.

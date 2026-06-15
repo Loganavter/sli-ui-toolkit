@@ -100,7 +100,7 @@ them sharp on hi-DPI screens without per-widget tuning.
 | `ScrollableComboBox` | 33 px fixed height | `setFixedHeight(33)` |
 | `Button` (icon) | 44×44 px default, 22×22 px icon | `Button` constructor `size=` / `icon_size=` |
 | `Button` (icon, dropdown menu trigger) | 36×36 px when used as a flyout anchor | `button.py:435` / `button.py:454` |
-| `InstancesCounterButton` | 36×36 px capsule, 6 px corner radius | `_OUTER_SIZE` / `_CORNER_RADIUS` |
+| `InstancesCounterButton` | 36×36 px capsule, 6 px corner radius | Thin `Button` regions subclass with `_OUTER_SIZE` / `_CORNER_RADIUS` |
 | `LoadingSpinner` | 40×40 px | `setFixedSize(40, 40)` |
 | `Dropdown menu row` | 40 px row height inside flyout container | `_dropdown_menu.py:26` |
 | `TimelineWidget` | 25 px ruler, 72 px thumbnail strip, 180 px left gutter (140–320 px clamp), 18 px playhead handle | constants on `TimelineWidget` |

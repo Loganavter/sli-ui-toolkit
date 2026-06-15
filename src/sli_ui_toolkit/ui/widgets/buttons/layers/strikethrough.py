@@ -11,6 +11,8 @@ from ._base import Layer
 
 
 class StrikethroughLayer(Layer):
+    scope = "widget"
+
     def applies(self, ctx: DrawContext) -> bool:
         return ctx.show_strike_through
 

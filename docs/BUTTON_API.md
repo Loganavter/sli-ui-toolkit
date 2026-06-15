@@ -49,6 +49,26 @@ rows = [
 btn = Button(rows=rows, toggle=True, size=(60, 50))
 ```
 
+### Button Regions
+
+Use `regions=` when one visual button capsule needs multiple independently
+clickable areas. Existing one-region buttons keep the same API and signals.
+
+```python
+from sli_ui_toolkit.widgets import Button, ButtonRegion, Divider, VerticalSplit
+
+btn = Button(
+    regions=[
+        ButtonRegion(id="top", icon="add"),
+        ButtonRegion(id="bottom", icon="remove", enabled=can_remove),
+    ],
+    split=VerticalSplit(),
+    divider=Divider(),
+    size=(36, 36),
+)
+btn.regionClicked.connect(handle_region)
+```
+
 ## Constructor Parameters
 
 ```python
@@ -68,6 +88,10 @@ Button(
     corner_radius: int | None = None,
     variant: str = "default",
     density: str = "normal",
+    defer_click: bool = False,
+    regions: list[ButtonRegion] | None = None,
+    split: SplitLayout | None = None,
+    divider: Divider | None = None,
     config: ButtonConfig | None = None,
     parent: QWidget | None = None,
 )
@@ -92,6 +116,10 @@ Button(
 | `corner_radius` | `int` | `None` | Corner radius (auto-calculated if None) |
 | `variant` | `str` | `"default"` | Color variant: "default", "primary", "surface", "ghost", "subtle". |
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
+| `defer_click` | `bool` | `False` | Emit `clicked`/`shortClicked` on the next event-loop tick (see [Press animations & blocking handlers](#press-animations--blocking-handlers)) |
+| `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the legacy parameters. |
+| `split` | `SplitLayout` | `None` | Geometry strategy for regions: `HorizontalSplit`, `VerticalSplit`, `GridSplit`, or `CustomSplit`. |
+| `divider` | `Divider` | `None` | Optional whole-widget divider between regions. |
 | `config` | `ButtonConfig` | `None` | Use ButtonConfig dataclass instead of params |
 | `parent` | `QWidget` | `None` | Parent widget |
 
@@ -129,6 +157,14 @@ button.menuTriggered.connect(on_menu_item)
 
 # Emitted immediately after clicked (useful for rapid click detection)
 button.shortClicked.connect(on_short_click)
+
+# Multi-region signals
+button.regionClicked.connect(lambda region_id: ...)
+button.regionPressed.connect(lambda region_id: ...)
+button.regionReleased.connect(lambda region_id: ...)
+button.regionToggled.connect(lambda region_id, checked: ...)
+button.regionLongPressed.connect(lambda region_id: ...)
+button.regionMenuTriggered.connect(lambda region_id, data: ...)
 ```
 
 ## Properties & Methods
@@ -210,7 +246,7 @@ button.set_footer_mode(True)
 
 ```python
 from sli_ui_toolkit.ui.widgets.buttons.capabilities import (
-    ScrollCapability, LongPressCapability, MenuCapability, TintCapability
+    ScrollCapability, LongPressCapability, MenuCapability
 )
 
 # Attach a capability
@@ -224,6 +260,9 @@ if scroll_cap:
 
 # Detach capability
 button.detach_capability(ScrollCapability)
+
+# Attach a capability to a specific region
+button.attach_capability(MenuCapability([("Open", "open")]), region_id="menu")
 ```
 
 ### Menu Management
@@ -456,6 +495,77 @@ day_btn.set_data(True, QColor(0, 200, 0))        # Has data, green
 | Long press not triggering | Increase `long_press_ms` (default 600) |
 | Colors not applying | Use `set_override_bg_color()` or variant |
 | Underline not visible | Call `setShowUnderline(True)` |
+
+## Press animations & blocking handlers
+
+Buttons play a Material-style ripple animation from the press point. The ripple
+is driven by a `QTimer` that ticks every ~16 ms on the **main GUI thread**, same
+as every other Qt animation. Duration ~280 ms, alpha ~12 % (light) / ~16 %
+(dark) — aligned with the Material Design 3 motion tokens.
+
+### Why animations may freeze
+
+If a `clicked` handler does heavy synchronous work (e.g. re-applies the QSS
+theme to all widgets, scans the filesystem, rebuilds a large model), the GUI
+event loop is blocked until the handler returns. While it is blocked:
+
+- the ripple `QTimer` cannot fire — the wave appears to stutter or freeze on
+  whatever frame the press caught;
+- hover transitions, scroll popups, and any other animation stalls too.
+
+This is a **Qt-wide constraint**, not a bug in the ripple layer.
+
+### `defer_click=True`
+
+Pass `defer_click=True` to schedule the `clicked` / `shortClicked` signals on
+the **next event-loop tick** via `QTimer.singleShot(0, …)`. The press visually
+completes (ripple, depress, release event) before the handler starts.
+
+```python
+btn = Button(
+    text="Switch theme",
+    variant="surface",
+    defer_click=True,   # let the ripple frame land before the heavy slot
+)
+btn.clicked.connect(theme_manager.toggle)   # slow: re-applies QSS everywhere
+```
+
+What this **does**: gives the ripple at least one frame to render before the
+blocking work starts, so the press feels acknowledged.
+
+What this **does not** do: it does not make the handler asynchronous. The
+animation will still stall mid-flight once the slow slot starts running.
+
+### Ripple color: overlay vs state-transition gradient
+
+By default the ripple is a semi-transparent black (light theme) or white (dark
+theme) overlay — a standard M3 "state layer".
+
+For toggle buttons it auto-upgrades to a **state-layer transition**: during
+the ripple the button is repainted with the previous state's background, and
+a circle of the next state's background grows from the click point outward.
+When the animation ends, the BackgroundLayer continues painting the new state
+seamlessly. Non-toggle buttons keep the overlay behaviour unless overridden.
+
+Explicit override for any button:
+
+```python
+btn = Button(text="Apply", variant="surface")
+btn.setRippleColors(QColor("#e0e0e0"), QColor("#0078d4"))
+# … later
+btn.clearRippleColors()   # back to default (overlay or auto-toggle gradient)
+```
+
+Both colors must be non-None to enable the gradient mode; passing a None for
+either falls back to the default. Alpha is interpolated along with RGB.
+
+### Better: move the work off the GUI thread
+
+For truly responsive feedback, run the heavy logic in a `QThread`, a
+`QtConcurrent`-style worker, or chunk it with `QCoreApplication.processEvents()`
+between steps. Operations that are inherently GUI-thread-bound (re-applying
+QSS, mutating widget trees) cannot be moved off-thread and will always stall
+animations; `defer_click=True` is the best mitigation available there.
 
 ## See Also
 

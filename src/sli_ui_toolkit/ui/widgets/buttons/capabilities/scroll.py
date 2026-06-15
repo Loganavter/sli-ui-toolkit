@@ -39,6 +39,7 @@ class ScrollCapability(ButtonCapability):
     """
 
     def __init__(self, min_value: int = 0, max_value: int = 10):
+        super().__init__()
         self.min_value = min_value
         self.max_value = max_value
         self._button = None
@@ -48,7 +49,8 @@ class ScrollCapability(ButtonCapability):
         self._popup_formatter: Callable[[int], ValuePopupContent] | None = None
         self._popup_padding: tuple[int, int] = (8, 3)
 
-    def attach(self, button: QWidget) -> None:
+    def attach(self, button: QWidget, region_id: str | None = None) -> None:
+        super().attach(button, region_id=region_id)
         self._button = button
         self._scroll_end_timer = QTimer(button)
         self._scroll_end_timer.setSingleShot(True)
@@ -75,6 +77,8 @@ class ScrollCapability(ButtonCapability):
         """Handle wheel event. Return True if consumed, False to pass through."""
         if not self.is_enabled():
             return False
+        if self._region_id not in (None, "_main"):
+            return self._handle_region_wheel_event(event)
         if not hasattr(self._button, '_has_scroll') or not self._button._has_scroll:
             return False
 
@@ -133,10 +137,48 @@ class ScrollCapability(ButtonCapability):
         event.accept()
         return True
 
+    def _handle_region_wheel_event(self, event) -> bool:
+        region_id = self._region_id
+        ranges = getattr(self._button, "_region_scroll_ranges", {})
+        values = getattr(self._button, "_region_scroll_values", {})
+        if region_id not in ranges:
+            return False
+
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return False
+
+        from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+
+        states = getattr(self._button, "_region_states", {}).setdefault(region_id, set())
+        states.add(ButtonState.SCROLLING)
+        if self._scroll_end_timer:
+            self._scroll_end_timer.start()
+
+        min_v, max_v = ranges[region_id]
+        old_value = values.get(region_id, min_v)
+        step = 1 if delta > 0 else -1
+        new_value = max(min_v, min(max_v, old_value + step))
+        if new_value != old_value:
+            values[region_id] = new_value
+            if hasattr(self._button, "regionValueChanged"):
+                self._button.regionValueChanged.emit(region_id, new_value)
+            self._button.update()
+        self._show_scroll_popup(new_value)
+        event.accept()
+        return True
+
     def _on_scroll_ended(self):
         if self._button is None:
             return
-        self._button._is_scrolling = False
+        if self._region_id not in (None, "_main"):
+            from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+
+            states = getattr(self._button, "_region_states", {}).get(self._region_id)
+            if states is not None:
+                states.discard(ButtonState.SCROLLING)
+        else:
+            self._button._is_scrolling = False
         self._hide_scroll_popup()
         self._button.update()
 
