@@ -2,6 +2,55 @@
 
 ## Unreleased
 
+## 0.2.11
+
+### Added
+- Material Design 3 style press animation (`RippleEffect` and `RippleLayer`) for `Button` with configurable durations, quadratic ease-out curves, and theme-adaptive peak opacity levels (12% on light themes, 16% on dark themes).
+- Support for state-transition color gradients in button ripples (used automatically for toggle buttons to smoothly morph old state backgrounds into new state backgrounds, or manually configured via `setRippleColors`).
+- `defer_click` parameter in `Button` to queue click signal emissions (`clicked`/`shortClicked`) on the next event-loop tick, mitigating animation freezes when triggering heavy synchronous GUI-thread tasks (such as theme switching).
+- Multi-region `Button` support via `ButtonRegion`, `HorizontalSplit`, `VerticalSplit`, `GridSplit`, `CustomSplit`, `Divider`, `regions=`/`split=`/`divider=`, `set_regions(...)`, and region-scoped signals/capabilities/ripples.
+- New `"sidebar_nav"` button variant registered in `sidebar_nav_list.py` — resolves backgrounds from `list_item.background.normal/.hover` and `accent` tokens for the checked state.
+- `IconListWidget.add_item(text, icon=None, data=None)` helper, returning a proxy with `QListWidgetItem`-style API (`text`/`setText`/`setIcon`/`setSizeHint`/`data`/`setData`).
+
+### Changed
+- `InstancesCounterButton` is now a thin `Button` regions subclass, so its add/remove halves share the standard button painter, hover states, dividers, theme resolution, and ripple feedback.
+- Refactored the core `Button` implementation (`button.py`) by isolating visual style properties/methods into a dedicated mixin `_ButtonStyleApi` (`style_api.py`) and input event handlers into `_ButtonEvents` (`events.py`), shrinking the facade code and unifying geometry calculations for text formats.
+- `IconListWidget` is no longer a `QListWidget`. It is now a `QWidget` wrapping a vertical stack of toolkit `Button`s inside a `QScrollArea`, so sidebar navigation reuses the unified Button visuals (ripple, theming, hover/press). Public surface preserved: `set_items`, `clear`, `count`, `item`, `currentRow`, `setCurrentRow`, `setIconSize`/`iconSize`, `refresh_icons`, `enable_minimal_scrollbar`, signals `currentRowChanged(int)` and `currentItemChanged(item, prev)`. Rows are rendered by a custom `_NavRowContent` (left-aligned icon + text) on a `_NavRowButton` (`toggle=False`, `NoFocus`) — selection is driven entirely by `IconListWidget`, ripple stays in overlay mode (a shade darker than hover) instead of auto-gradient between unchecked/checked backgrounds.
+- `MarkdownHelpDialog` populates its sidebar via `add_item(section.title)` instead of constructing `QListWidgetItem(text, parent)` directly.
+- `TimeLineEdit` step buttons (`▲`/`▼`) now include `RippleLayer` in their custom layer pipeline, so they share the standard ripple feedback with the rest of the toolkit buttons.
+- Accelerated `ComboBox` dropdown presentation by shifting show/hide actions from mouse release to mouse press, removing the activation delay.
+- Refined `ComboBox` text layout: switched from asymmetric right-padded rects to symmetric horizontal padding, and decoupled list item hover styling from text positioning bounds to align baselines between the field and the dropdown overlay.
+- Unified font rendering in `ComboBox` list overlays by resolving metrics directly from the parent ComboBox font.
+
+### Fixed
+- Resolved a bug in `HoverCoordinator` where widgets in non-active child windows incorrectly evaluated hover events under Wayland due to global coordinate translation limits; events are now reconciled selectively against the source window.
+
+### Removed
+- Removed default bottom focus underline painting and associated configuration methods from `ComboBox` to simplify visual styling.
+- Removed custom focus outline drawing from `Switch` to avoid clipping artifacts along track boundaries.
+
+## 0.2.10
+
+### Changed
+- Tightened the default sizing for button scroll-value popups.
+
+## 0.2.9
+
+### Added
+- Button scroll-value popups can be customized with formatter, pixmap/text, size, font, style, and padding options.
+- Python 3.10 test compatibility via `tomli` fallback for TOML parsing.
+
+### Changed
+- AUR release publishing workflow and PKGBUILD handling were aligned with the existing package flow.
+
+## 0.2.8
+
+### Added
+- PyPI publish workflow.
+
+### Fixed
+- Hover reconciliation respects window occlusion when evaluating registered hover widgets.
+
 ## 0.2.7
 
 ### Added

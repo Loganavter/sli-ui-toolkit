@@ -159,9 +159,9 @@ class ButtonsPage(GalleryPage):
         counter.set_count(3)
         counter.set_can_remove(True)
         self.add_card(
-            "InstancesCounterButton",
+            "Button regions: add/remove split",
             counter,
-            "Композит +/− с переключением single↔split при count>1.",
+            "Одна Button-капсула с двумя region-зонами, divider и общим painter/ripple.",
         )
 
         self.add_stretch()

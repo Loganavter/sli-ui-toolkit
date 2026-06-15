@@ -9,11 +9,13 @@ class MenuCapability(ButtonCapability):
     """Manages button dropdown menu lifecycle."""
 
     def __init__(self, menu_items: list[tuple[str, any]] | None = None):
+        super().__init__()
         self.menu_items = menu_items or []
         self._button = None
         self._menu_widget = None
 
-    def attach(self, button: QWidget) -> None:
+    def attach(self, button: QWidget, region_id: str | None = None) -> None:
+        super().attach(button, region_id=region_id)
         self._button = button
         self._init_menu()
 
@@ -54,4 +56,8 @@ class MenuCapability(ButtonCapability):
 
     def _on_menu_item(self, action):
         if self._button and hasattr(self._button, "menuTriggered"):
-            self._button.menuTriggered.emit(action.data())
+            data = action.data()
+            if hasattr(self._button, "regionMenuTriggered") and self._region_id is not None:
+                self._button.regionMenuTriggered.emit(self._region_id, data)
+            if self._region_id in (None, "_main"):
+                self._button.menuTriggered.emit(data)

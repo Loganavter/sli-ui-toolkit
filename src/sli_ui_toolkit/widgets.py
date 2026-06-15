@@ -22,7 +22,18 @@ from sli_ui_toolkit.ui.widgets.atomic import (
     get_label_variant,
     register_label_variant,
 )
-from sli_ui_toolkit.ui.widgets.buttons import Button, ButtonConfig, ButtonGroup
+from sli_ui_toolkit.ui.widgets.buttons import (
+    Button,
+    ButtonConfig,
+    ButtonGroup,
+    ButtonRegion,
+    CustomSplit,
+    Divider,
+    GridSplit,
+    HorizontalSplit,
+    SingleRegionSplit,
+    VerticalSplit,
+)
 from sli_ui_toolkit.ui.widgets.composite import (
     BaseFlyout,
     DragGhostWidget,
@@ -81,6 +92,13 @@ __all__ = [
     "Button",
     "ButtonConfig",
     "ButtonGroup",
+    "ButtonRegion",
+    "CustomSplit",
+    "Divider",
+    "GridSplit",
+    "HorizontalSplit",
+    "SingleRegionSplit",
+    "VerticalSplit",
     "ButtonPainter",
     "BaseFlyout",
     "CustomGroupBuilder",

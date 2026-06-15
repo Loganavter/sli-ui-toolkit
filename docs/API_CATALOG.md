@@ -54,7 +54,7 @@ A single `Button` class replaces all legacy button widgets via composable parame
 ```python
 from PyQt6.QtGui import QColor
 
-from sli_ui_toolkit.widgets import Button, ButtonGroup
+from sli_ui_toolkit.widgets import Button, ButtonGroup, ButtonRegion, Divider, VerticalSplit
 
 # Icon-only toggle
 btn = Button(AppIcon.MAGNIFIER, toggle=True)
@@ -79,6 +79,17 @@ btn = Button(AppIcon.MODE, menu=[("Option A", "a"), ("Option B", "b")])
 
 # Badge overlay
 btn = Button(AppIcon.MAGNIFIER, toggle=True, badge="3")
+
+# Split button with two independently clickable regions
+btn = Button(
+    regions=[
+        ButtonRegion(id="add", icon="add"),
+        ButtonRegion(id="remove", icon="remove", enabled=can_remove),
+    ],
+    split=VerticalSplit(),
+    divider=Divider(),
+)
+btn.regionClicked.connect(lambda region_id: ...)
 ```
 
 **Constructor parameters:**
@@ -97,6 +108,9 @@ btn = Button(AppIcon.MAGNIFIER, toggle=True, badge="3")
 | `menu` | list | Dropdown menu items |
 | `variant` | str | Visual variant (see below) |
 | `wheel_requires_focus` | bool | Require focus before wheel-scroll handling when `scrollable` is enabled |
+| `regions` | list[ButtonRegion] | Optional multi-region content/behavior model |
+| `split` | SplitLayout | Region geometry (`HorizontalSplit`, `VerticalSplit`, `GridSplit`, `CustomSplit`) |
+| `divider` | Divider/None | Optional whole-widget divider rendering between split regions |
 | `size` | (w, h) | Fixed size |
 | `parent` | QWidget | Parent widget |
 
@@ -123,6 +137,12 @@ btn = Button(AppIcon.MAGNIFIER, toggle=True, badge="3")
 | `middleClicked` | Middle mouse button |
 | `menuTriggered(object)` | Menu item selected (emits item data) |
 | `triggered` | Alias for `menuTriggered` |
+| `regionClicked(str)` | Region click by id |
+| `regionPressed(str)` / `regionReleased(str)` | Region press/release by id |
+| `regionToggled(str, bool)` | Region toggle state changed |
+| `regionValueChanged(str, int)` | Region scroll value changed |
+| `regionLongPressed(str)` | Region long press detected |
+| `regionMenuTriggered(str, object)` | Region menu item selected |
 
 **Runtime methods:**
 
@@ -138,6 +158,7 @@ btn = Button(AppIcon.MAGNIFIER, toggle=True, badge="3")
 | `set_override_bg_color(QColor)` | Force background color |
 | `set_actions(list)` | Update menu items |
 | `show_menu()` | Programmatically open menu |
+| `set_regions(list[ButtonRegion], split=..., divider=...)` | Replace region geometry/content at runtime |
 | `setFlyoutOpen(bool)` | Visual state for attached flyout |
 
 **Underline scaling:** underline thickness and arc radius scale proportionally with widget height (baseline: 32 px). This ensures visibility on high-DPI / large UI modes.
@@ -154,7 +175,7 @@ group = ButtonGroup([btn1, btn2, btn3], label="View")
 
 | Widget | Description |
 |--------|-------------|
-| `InstancesCounterButton` | Segmented add/remove counter button. |
+| `InstancesCounterButton` | Segmented add/remove counter button implemented as a thin `Button` regions subclass. |
 
 ### Labels
 

@@ -14,6 +14,8 @@ from ._base import Layer
 
 
 class BadgeLayer(Layer):
+    scope = "widget"
+
     def applies(self, ctx: DrawContext) -> bool:
         return ctx.badge_text is not None
 

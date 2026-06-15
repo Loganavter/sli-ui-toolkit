@@ -12,10 +12,13 @@ class ButtonCapability(ABC):
     events to them via handle_* methods.
     """
 
+    def __init__(self) -> None:
+        self._region_id: str | None = None
+
     @abstractmethod
-    def attach(self, button: QWidget) -> None:
+    def attach(self, button: QWidget, region_id: str | None = None) -> None:
         """Called when capability is attached to a button. Set up timers, signals, etc."""
-        pass
+        self._region_id = region_id or "_main"
 
     @abstractmethod
     def detach(self, button: QWidget) -> None:

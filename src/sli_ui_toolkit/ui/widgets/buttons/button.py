@@ -1,9 +1,16 @@
 """Universal composable Button widget.
 
-Replaces a host of legacy specialised buttons (Icon/Toggle/Scrollable/LongPress/...).
-Behaviour is configured via constructor kwargs or ButtonConfig. Rendering is delegated
-to a single Painter pipeline (see painter.py). Interactive behaviours (scroll, long
-press, menu) live as composable Capabilities (see capabilities/).
+Заменяет набор узкоспециализированных кнопок (Icon/Toggle/Scrollable/LongPress/...).
+Конфигурируется kwargs'ами или `ButtonConfig`. Архитектура декомпозирована:
+
+- `style_api._ButtonStyleApi` — публичные set/get визуальных атрибутов и
+  обработка динамических Qt-properties.
+- `events._ButtonEvents` — обработчики mouse/key/wheel/focus + click flow.
+- `capabilities/` — composable behaviour (Scroll/LongPress/Menu).
+- `painter.Painter` + `layers/` — рендер pipeline.
+
+Сам класс Button содержит только: signals, state-properties, __init__,
+capability API, state/value API и paint plumbing.
 """
 
 from __future__ import annotations
@@ -12,14 +19,12 @@ from dataclasses import dataclass
 from typing import Any
 import warnings
 
-from PyQt6 import sip
-from PyQt6.QtCore import QEvent, QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QWheelEvent
-from PyQt6.QtWidgets import QLabel, QSizePolicy, QWidget
+from PyQt6.QtCore import QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
-from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
 
 from .capabilities import (
     ButtonCapability,
@@ -35,30 +40,14 @@ from .content import (
     TextContent,
 )
 from .context import DrawContext
-from .painter import Painter
+from .events import _ButtonEvents
 from .layers._base import Layer
-from .state import ButtonState, StateSet
+from .layers.ripple import RippleEffect
+from .painter import Painter
+from .regions import ButtonRegion, Divider, SingleRegionSplit, SplitLayout
+from .state import ButtonState
+from .style_api import _ButtonStyleApi, _normalize_underline_thickness
 from .variants import get_variant
-
-
-_MAX_UNDERLINE_THICKNESS = 3.0
-
-
-def _normalize_underline_thickness(thickness: float | None) -> float | None:
-    if thickness is None:
-        return None
-    normalized = max(0.0, float(thickness))
-    if normalized > _MAX_UNDERLINE_THICKNESS:
-        warnings.warn(
-            (
-                "Button underline thickness is capped at "
-                f"{_MAX_UNDERLINE_THICKNESS:.1f}px; got {normalized:.1f}px."
-            ),
-            RuntimeWarning,
-            stacklevel=3,
-        )
-        return _MAX_UNDERLINE_THICKNESS
-    return normalized
 
 
 @dataclass
@@ -83,25 +72,27 @@ class ButtonConfig:
     variant: str = "default"
     density: str = "normal"
     wheel_requires_focus: bool = False
+    defer_click: bool = False
 
 
 def _state_property(state: ButtonState):
     """Property-обёртка: bool геттер/сеттер, мутирующий StateSet и вызывающий update()."""
 
     def getter(self) -> bool:
-        return state in self._states
+        return state in self._region_states.get("_main", self._states)
 
     def setter(self, value: bool) -> None:
-        if bool(value):
-            self._states.add(state)
+        states = self._region_states.get("_main", self._states)
+        if value:
+            states.add(state)
         else:
-            self._states.discard(state)
+            states.discard(state)
         self.update()
 
     return property(getter, setter)
 
 
-class Button(WheelScrollPolicyMixin, QWidget):
+class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
     clicked = pyqtSignal()
     pressed = pyqtSignal()
     released = pyqtSignal()
@@ -112,8 +103,17 @@ class Button(WheelScrollPolicyMixin, QWidget):
     middleClicked = pyqtSignal()
     menuTriggered = pyqtSignal(object)
     shortClicked = pyqtSignal()
+    regionClicked = pyqtSignal(str)
+    regionPressed = pyqtSignal(str)
+    regionReleased = pyqtSignal(str)
+    regionToggled = pyqtSignal(str, bool)
+    regionValueChanged = pyqtSignal(str, int)
+    regionLongPressed = pyqtSignal(str)
+    regionMenuTriggered = pyqtSignal(str, object)
 
-    # Аккуратные имена-алиасы, на которые опираются подклассы (CalendarDayButton) и capabilities.
+    triggered = menuTriggered  # backwards-compat alias
+
+    # Имена-алиасы для подклассов (CalendarDayButton) и capabilities.
     _hovered = _state_property(ButtonState.HOVERED)
     _pressed = _state_property(ButtonState.PRESSED)
     _checked = _state_property(ButtonState.CHECKED)
@@ -142,6 +142,10 @@ class Button(WheelScrollPolicyMixin, QWidget):
         density: str = "normal",
         wheel_requires_focus: bool = False,
         background_color: QColor | None = None,
+        defer_click: bool = False,
+        regions: list[ButtonRegion] | None = None,
+        split: SplitLayout | None = None,
+        divider: Divider | None = None,
         config: ButtonConfig | None = None,
         layers: list[Layer] | None = None,
         parent: QWidget | None = None,
@@ -168,6 +172,7 @@ class Button(WheelScrollPolicyMixin, QWidget):
             variant = config.variant
             density = config.density
             wheel_requires_focus = config.wheel_requires_focus
+            defer_click = config.defer_click
 
         if variant == "primary":
             warnings.warn(
@@ -179,6 +184,16 @@ class Button(WheelScrollPolicyMixin, QWidget):
 
         self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
         self._states: set[ButtonState] = set()
+        self._region_states: dict[str, set[ButtonState]] = {"_main": self._states}
+        self._regions: list[ButtonRegion] = []
+        self._split: SplitLayout = split or SingleRegionSplit()
+        self._divider: Divider | None = divider
+        self._region_rects: dict[str, QRectF] = {}
+        self._region_ripple: dict[str, RippleEffect] = {}
+        self._region_scroll_ranges: dict[str, tuple[int, int]] = {}
+        self._region_scroll_values: dict[str, int] = {}
+        self._hovered_region: str | None = None
+        self._pressed_region: str | None = None
 
         if isinstance(icon, (tuple, list)) and len(icon) >= 2:
             self._icon_unchecked, self._icon_checked = icon[0], icon[1]
@@ -249,9 +264,14 @@ class Button(WheelScrollPolicyMixin, QWidget):
         self.theme_manager.theme_changed.connect(self.update)
 
         self._painter = Painter(self.theme_manager, layers=layers)
+        self._ripple = RippleEffect(self)
+        self._region_ripple["_main"] = self._ripple
+        self._ripple_color_from = None
+        self._ripple_color_to = None
+        self._defer_click = bool(defer_click)
 
         self._capabilities: list[ButtonCapability] = []
-        self._capability_map: dict[type, ButtonCapability] = {}
+        self._capability_map: dict[tuple[type, str], ButtonCapability] = {}
 
         if long_press:
             self.attach_capability(LongPressCapability(delay_ms=long_press_ms))
@@ -260,28 +280,134 @@ class Button(WheelScrollPolicyMixin, QWidget):
         if self._has_menu:
             self.attach_capability(MenuCapability(menu_items=menu))
 
-        self._value_popup: QLabel | None = None
+        self._value_popup = None
         self._popup_controller = None
         self._menu_items = menu
 
+        if regions is None:
+            regions = [
+                ButtonRegion(
+                    id="_main",
+                    icon=icon,
+                    text=text,
+                    rows=rows,
+                    toggle=toggle,
+                    long_press=long_press,
+                    long_press_ms=long_press_ms,
+                    scrollable=scrollable,
+                    menu=menu,
+                    badge=badge,
+                    variant=variant,
+                    custom_bg_color=background_color,
+                    show_underline=show_underline,
+                    underline_color=underline_color,
+                    underline_thickness=self._underline_thickness,
+                    icon_size_px=icon_size,
+                    override_border_color=border_color,
+                )
+            ]
+        self.set_regions(regions, split=split, divider=divider)
+
     # -------- public API: capabilities --------
 
-    def attach_capability(self, capability: ButtonCapability) -> None:
-        if type(capability) in self._capability_map:
-            self.detach_capability(type(capability))
-        capability.attach(self)
+    def attach_capability(
+        self,
+        capability: ButtonCapability,
+        region_id: str | None = None,
+    ) -> None:
+        key = (type(capability), region_id or "_main")
+        if key in self._capability_map:
+            self.detach_capability(type(capability), region_id=region_id)
+        capability.attach(self, region_id=region_id or "_main")
         self._capabilities.append(capability)
-        self._capability_map[type(capability)] = capability
+        self._capability_map[key] = capability
 
-    def detach_capability(self, capability_type: type[ButtonCapability]) -> None:
-        cap = self._capability_map.get(capability_type)
+    def detach_capability(
+        self,
+        capability_type: type[ButtonCapability],
+        region_id: str | None = None,
+    ) -> None:
+        key = (capability_type, region_id or "_main")
+        cap = self._capability_map.get(key)
         if cap:
             cap.detach(self)
             self._capabilities.remove(cap)
-            del self._capability_map[capability_type]
+            del self._capability_map[key]
 
-    def get_capability(self, capability_type: type[ButtonCapability]) -> ButtonCapability | None:
-        return self._capability_map.get(capability_type)
+    def get_capability(
+        self,
+        capability_type: type[ButtonCapability],
+        region_id: str | None = None,
+    ) -> ButtonCapability | None:
+        return self._capability_map.get((capability_type, region_id or "_main"))
+
+    # -------- public API: regions --------
+
+    def set_regions(
+        self,
+        regions: list[ButtonRegion],
+        *,
+        split: SplitLayout | None = None,
+        divider: Divider | None = None,
+    ) -> None:
+        if not regions:
+            regions = [ButtonRegion(id="_main")]
+        seen: set[str] = set()
+        normalized: list[ButtonRegion] = []
+        for region in regions:
+            if not region.id or region.id in seen:
+                raise ValueError(f"duplicate or empty button region id: {region.id!r}")
+            seen.add(region.id)
+            normalized.append(region)
+        self._regions = normalized
+        if split is not None:
+            self._split = split
+        elif len(normalized) == 1:
+            self._split = SingleRegionSplit()
+        if divider is not None or len(normalized) == 1:
+            self._divider = divider
+        for region in normalized:
+            states = self._region_states.setdefault(region.id, set())
+            if region.id == "_main":
+                self._states = states
+            if region.enabled:
+                states.discard(ButtonState.DISABLED)
+            else:
+                states.add(ButtonState.DISABLED)
+            self._region_ripple.setdefault(region.id, RippleEffect(self))
+            if region.scrollable is not None:
+                min_v, max_v = region.scrollable
+                self._region_scroll_ranges[region.id] = (int(min_v), int(max_v))
+                self._region_scroll_values.setdefault(
+                    region.id,
+                    max(int(min_v), min(int(max_v), max(int(min_v), 1))),
+                )
+            else:
+                self._region_scroll_ranges.pop(region.id, None)
+                self._region_scroll_values.pop(region.id, None)
+            if region.long_press and self.get_capability(LongPressCapability, region.id) is None:
+                self.attach_capability(
+                    LongPressCapability(delay_ms=region.long_press_ms),
+                    region_id=region.id,
+                )
+            if region.scrollable and self.get_capability(ScrollCapability, region.id) is None:
+                self.attach_capability(ScrollCapability(), region_id=region.id)
+            if region.menu and self.get_capability(MenuCapability, region.id) is None:
+                self.attach_capability(
+                    MenuCapability(menu_items=region.menu),
+                    region_id=region.id,
+                )
+        for region_id in list(self._region_states):
+            if region_id not in seen:
+                del self._region_states[region_id]
+                self._region_ripple.pop(region_id, None)
+                self._region_scroll_ranges.pop(region_id, None)
+                self._region_scroll_values.pop(region_id, None)
+        self._recompute_region_rects()
+        self.update()
+
+    def regions(self) -> list[ButtonRegion]:
+        return list(self._regions)
 
     # -------- public API: state/value --------
 
@@ -295,6 +421,7 @@ class Button(WheelScrollPolicyMixin, QWidget):
             self._checked = checked
             if emit:
                 self.toggled.emit(checked)
+                self.regionToggled.emit("_main", checked)
 
     def isChecked(self) -> bool:
         return self._checked
@@ -324,403 +451,6 @@ class Button(WheelScrollPolicyMixin, QWidget):
     def set_saved_value(self, value: int | None):
         self._saved_value = value
 
-    # -------- public API: content/decoration --------
-
-    def setBadge(self, num: int | None):
-        self._badge = num
-        self.update()
-
-    set_display_number = setBadge
-
-    def setBadgeStyle(
-        self,
-        *,
-        filled: bool | None = None,
-        bordered: bool | None = None,
-        background_color: QColor | None = None,
-        border_color: QColor | None = None,
-        text_color: QColor | None = None,
-    ):
-        if filled is not None:
-            self.setProperty("badgeFilled", bool(filled))
-        if bordered is not None:
-            self.setProperty("badgeBordered", bool(bordered))
-        if background_color is not None:
-            self.setProperty("badgeBackgroundColor", background_color)
-        if border_color is not None:
-            self.setProperty("badgeBorderColor", border_color)
-        if text_color is not None:
-            self.setProperty("badgeTextColor", text_color)
-        self.update()
-
-    set_badge_style = setBadgeStyle
-
-    def setUnderlineColor(self, color: QColor | list | None):
-        self._underline_config_color = color
-        if isinstance(color, QColor):
-            self.setProperty("underlineColor", color)
-        elif isinstance(color, list):
-            self.setProperty("underlineColor", color)
-        elif color is None:
-            self.setProperty("underlineColor", None)
-        self.update()
-
-    set_underline_color = setUnderlineColor
-
-    def setUnderlineThickness(self, thickness: float | None):
-        self._underline_thickness = _normalize_underline_thickness(thickness)
-        self.setProperty("underlineThicknessPx", self._underline_thickness)
-        self.update()
-
-    set_underline_thickness = setUnderlineThickness
-
-    def set_override_bg_color(self, color: QColor | None):
-        self._override_bg_color = color
-        self.update()
-
-    def set_background_color(self, color: QColor | None):
-        self._custom_bg_color = color
-        self.update()
-
-    def getBackgroundColor(self) -> QColor | None:
-        return self._custom_bg_color
-
-    def setBorderColor(self, color: QColor | None) -> None:
-        self._border_color_override = color
-        self.update()
-
-    set_border_color = setBorderColor
-
-    def borderColor(self) -> QColor | None:
-        return self._border_color_override
-
-    def set_show_strike_through(self, enabled: bool):
-        self._show_strike_through = enabled
-        self.update()
-
-    def set_popup_controller(self, controller):
-        self._popup_controller = controller
-        scroll_cap = self.get_capability(ScrollCapability)
-        if scroll_cap is not None:
-            scroll_cap._popup_controller = controller
-
-    def configure_value_popup(self, *, formatter=None, padding=None) -> None:
-        """Customize the scroll-wheel value popup.
-
-        ``formatter(value) -> ValuePopupContent`` overrides text/pixmap/size/
-        font/extra style per value. ``padding=(h, v)`` tweaks default autosize
-        margins. No-op if the button has no scroll capability.
-        """
-        cap = self.get_capability(ScrollCapability)
-        if cap is not None:
-            cap.configure_popup(formatter=formatter, padding=padding)
-
-    def setIcon(self, icon):
-        if isinstance(icon, (tuple, list)) and len(icon) >= 2:
-            self._icon_unchecked, self._icon_checked = icon[0], icon[1]
-        else:
-            self._icon_unchecked = self._icon_checked = icon
-        self.update()
-
-    def setText(self, text: str):
-        self._text = text
-        had_text = self._has_text
-        self._has_text = bool(text)
-        if self._has_text and not had_text:
-            self.setMinimumWidth(0)
-            self.setMaximumWidth(16777215)
-            self.setMinimumHeight(max(32, self.minimumHeight()))
-            self.setMaximumHeight(16777215)
-            self._corner_radius_px = 2
-            self.setProperty("cornerRadiusPx", 2)
-        elif not self._has_text and had_text:
-            self.setFixedSize(36, 36)
-            self._corner_radius_px = 6
-            self.setProperty("cornerRadiusPx", 6)
-        self.updateGeometry()
-        self.update()
-
-    def setRows(self, rows: list[ButtonRow] | None, compact: bool = False):
-        self._rows = rows or []
-        self._rows_compact = compact
-        had_text = self._has_text
-        self._has_text = bool(rows)
-        if self._has_text and not had_text:
-            self.setMinimumWidth(0)
-            self.setMaximumWidth(16777215)
-            self.setMinimumHeight(max(32, self.minimumHeight()))
-            self.setMaximumHeight(16777215)
-            self._corner_radius_px = 2
-            self.setProperty("cornerRadiusPx", 2)
-        elif not self._has_text and had_text:
-            self.setFixedSize(36, 36)
-            self._corner_radius_px = 6
-            self.setProperty("cornerRadiusPx", 6)
-        self.updateGeometry()
-        self.update()
-
-    # -------- public API: menu --------
-
-    def set_menu_items(self, items: list[tuple[str, Any]]):
-        self._menu_items = items
-        had_menu = self._has_menu
-        self._has_menu = bool(items)
-        cap = self.get_capability(MenuCapability)
-        if self._has_menu and cap is None:
-            self.attach_capability(MenuCapability(menu_items=items))
-        elif cap is not None:
-            cap.set_menu_items(items)
-        if not self._has_menu and had_menu and cap is not None:
-            self.detach_capability(MenuCapability)
-
-    set_actions = set_menu_items
-    triggered = menuTriggered
-
-    def set_current_by_data(self, data: Any):
-        cap = self.get_capability(MenuCapability)
-        if cap is not None and getattr(cap, "_menu_widget", None) is not None:
-            cap._menu_widget.set_current_by_data(data)
-
-    def show_menu(self):
-        cap = self.get_capability(MenuCapability)
-        if cap is not None:
-            cap.show_menu()
-
-    # -------- public API: misc / style --------
-
-    def setFlyoutOpen(self, is_open: bool):
-        self._flyout_open = is_open
-        if not is_open:
-            from PyQt6.QtGui import QCursor
-            self._hovered = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
-        self.update()
-
-    def setIconSize(self, size: QSize):
-        self._icon_size_px = max(1, size.width())
-        self.update()
-
-    def set_footer_mode(self, is_footer: bool):
-        self._is_footer = is_footer
-        self.update()
-
-    def set_bottom_extension(self, factor: float):
-        """Compat: no-op (handled inside paint if needed)."""
-        pass
-
-    def sizeHint(self):
-        if self._has_text:
-            fm = self.fontMetrics()
-            text_w = fm.horizontalAdvance(self._text) if self._text else 0
-            icon_w = self._icon_size_px + 6 if self._icon_unchecked else 0
-            w = text_w + icon_w + 24
-            h = max(32, fm.height() + 16)
-            return QSize(w, h)
-        return QSize(36, 36)
-
-    def minimumSizeHint(self):
-        return self.sizeHint()
-
-    def getVariant(self) -> str:
-        return self._variant
-
-    def setVariant(self, variant: str):
-        self._variant = str(variant or "default")
-        self.setProperty("variant", self._variant)
-        update_widget_style(self)
-
-    def getDensity(self) -> str:
-        return self._density
-
-    def setDensity(self, density: str):
-        self._density = str(density or "normal")
-        self.setProperty("density", self._density)
-        update_widget_style(self, update_geometry=True)
-
-    def getIconSizePx(self) -> int:
-        return int(self._icon_size_px)
-
-    def setIconSizePx(self, size_px: int):
-        size_px = max(1, int(size_px))
-        if self._icon_size_px != size_px:
-            self._icon_size_px = size_px
-            self.setProperty("iconSizePx", size_px)
-            update_widget_style(self, update_geometry=True)
-
-    def getCornerRadiusPx(self) -> int:
-        return int(self._corner_radius_px)
-
-    def setCornerRadiusPx(self, radius_px: int):
-        radius_px = max(0, int(radius_px))
-        if self._corner_radius_px != radius_px:
-            self._corner_radius_px = radius_px
-            self.setProperty("cornerRadiusPx", self._corner_radius_px)
-            update_widget_style(self)
-
-    def getForegroundColor(self):
-        return self._foreground_color
-
-    def setForegroundColor(self, color):
-        self._foreground_color = color
-        self.setProperty("foregroundColor", color)
-        update_widget_style(self)
-
-    def getAccentColor(self):
-        return self._accent_color
-
-    def setAccentColor(self, color):
-        self._accent_color = color
-        self.setProperty("accentColor", color)
-        update_widget_style(self)
-
-    def setShowUnderline(self, show: bool):
-        if self._show_underline != show:
-            self._show_underline = show
-            self.setProperty("showUnderline", show)
-            self.update()
-
-    # -------- events --------
-
-    def event(self, event):
-        if event.type() == QEvent.Type.DynamicPropertyChange:
-            name = event.propertyName().data().decode("utf-8", errors="ignore")
-            self._handle_property_change(name)
-        return super().event(event)
-
-    def enterEvent(self, event):
-        if not self._flyout_open:
-            self.setHoverActive(True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        if not self._flyout_open:
-            self.setHoverActive(False)
-            self._pressed = False
-            if self._has_scroll:
-                scroll_cap = self.get_capability(ScrollCapability)
-                if scroll_cap:
-                    scroll_cap._hide_scroll_popup()
-        super().leaveEvent(event)
-
-    def hoverHitTest(self, pos) -> bool:
-        return self.rect().contains(pos.toPoint() if hasattr(pos, "toPoint") else pos)
-
-    def setHoverActive(self, active: bool) -> None:
-        if self._flyout_open:
-            return
-        active = bool(active)
-        if self._hovered != active:
-            self._hovered = active
-        if not active and self._pressed:
-            self._pressed = False
-
-    def mousePressEvent(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._pressed = True
-            if self._has_scroll:
-                self._is_scrolling = False
-                scroll_cap = self.get_capability(ScrollCapability)
-                if scroll_cap:
-                    scroll_cap._hide_scroll_popup()
-            lp_cap = self.get_capability(LongPressCapability)
-            if lp_cap:
-                lp_cap.on_press_start()
-            self.pressed.emit()
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton:
-            lp_cap = self.get_capability(LongPressCapability)
-            if lp_cap:
-                lp_cap.on_press_end()
-            self._pressed = False
-            self.released.emit()
-
-            lp_triggered = lp_cap.was_long_pressed() if lp_cap else False
-            if self.rect().contains(event.pos()) and not lp_triggered:
-                if self._has_menu:
-                    menu_cap = self.get_capability(MenuCapability)
-                    if menu_cap:
-                        menu_cap.show_menu()
-                elif self._has_toggle and self._has_scroll:
-                    self._do_toggle_scroll_click()
-                elif self._has_toggle:
-                    self.setChecked(not self._checked)
-                self.clicked.emit()
-                if sip.isdeleted(self):
-                    return
-                self.shortClicked.emit()
-                if sip.isdeleted(self):
-                    return
-
-        elif event.button() == Qt.MouseButton.RightButton:
-            if self.rect().contains(event.pos()):
-                self.rightClicked.emit()
-                if sip.isdeleted(self):
-                    return
-
-        elif event.button() == Qt.MouseButton.MiddleButton:
-            if self.rect().contains(event.pos()):
-                self.middleClicked.emit()
-                if sip.isdeleted(self):
-                    return
-
-        super().mouseReleaseEvent(event)
-
-    def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            if not event.isAutoRepeat():
-                self._activate_via_keyboard()
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
-    def focusInEvent(self, event):
-        self.update()
-        super().focusInEvent(event)
-
-    def focusOutEvent(self, event):
-        self.update()
-        super().focusOutEvent(event)
-
-    def _activate_via_keyboard(self):
-        self.pressed.emit()
-        if sip.isdeleted(self):
-            return
-        self.released.emit()
-        if sip.isdeleted(self):
-            return
-        if self._has_menu:
-            menu_cap = self.get_capability(MenuCapability)
-            if menu_cap:
-                menu_cap.show_menu()
-        elif self._has_toggle and self._has_scroll:
-            self._do_toggle_scroll_click()
-        elif self._has_toggle:
-            self.setChecked(not self._checked)
-        self.clicked.emit()
-        if sip.isdeleted(self):
-            return
-        self.shortClicked.emit()
-
-    def wheelEvent(self, event: QWheelEvent):
-        scroll_cap = self.get_capability(ScrollCapability)
-        if scroll_cap and not self.shouldHandleWheelEvent(event):
-            return
-        if scroll_cap and scroll_cap.handle_wheel_event(event):
-            return
-        return super().wheelEvent(event)
-
-    def setEnabled(self, enabled: bool):
-        super().setEnabled(enabled)
-        if enabled:
-            self._states.discard(ButtonState.DISABLED)
-        else:
-            self._states.add(ButtonState.DISABLED)
-            scroll_cap = self.get_capability(ScrollCapability)
-            if scroll_cap:
-                scroll_cap._hide_scroll_popup()
-        self.update()
-
     # -------- paint --------
 
     def _build_content(self):
@@ -733,6 +463,23 @@ class Button(WheelScrollPolicyMixin, QWidget):
         if self._icon_unchecked or self._icon_checked:
             return IconContent(icon_unchecked=self._icon_unchecked,
                                icon_checked=self._icon_checked)
+        return None
+
+    def _build_region_content(self, region: ButtonRegion):
+        rows = region.rows or []
+        if rows:
+            return RowsContent(rows=rows, compact=self._rows_compact)
+        icon = region.icon
+        if isinstance(icon, (tuple, list)) and len(icon) >= 2:
+            icon_unchecked, icon_checked = icon[0], icon[1]
+        else:
+            icon_unchecked = icon_checked = icon
+        if region.text and icon_unchecked:
+            return IconTextContent(icon=icon_unchecked, text=region.text)
+        if region.text:
+            return TextContent(text=region.text)
+        if icon_unchecked or icon_checked:
+            return IconContent(icon_unchecked=icon_unchecked, icon_checked=icon_checked)
         return None
 
     def _make_context(self, qpainter: QPainter) -> DrawContext:
@@ -758,6 +505,47 @@ class Button(WheelScrollPolicyMixin, QWidget):
             scroll_value_always_visible=self._has_scroll and not self._has_toggle,
         )
 
+    def iter_regions(self, ctx: DrawContext):
+        if not self._region_rects:
+            self._recompute_region_rects()
+        for region in self._regions:
+            rect = self._region_rects.get(region.id)
+            if rect is None:
+                continue
+            states = frozenset(self._region_states.get(region.id, set()))
+            yield ctx.scoped_to(
+                region_id=region.id,
+                rect=rect,
+                states=states,
+                content=self._build_region_content(region),
+                variant=get_variant(region.variant or self._variant),
+                override_bg_color=region.override_bg_color,
+                custom_bg_color=region.custom_bg_color,
+                override_border_color=region.override_border_color,
+                show_underline=region.show_underline,
+                underline_color=region.underline_color,
+                underline_thickness=region.underline_thickness,
+                icon_size_px=region.icon_size_px,
+            )
+
+    def region_states(self, region_id: str) -> frozenset[ButtonState]:
+        return frozenset(self._region_states.get(region_id, set()))
+
+    def region_ripple(self, region_id: str) -> RippleEffect | None:
+        return self._region_ripple.get(region_id)
+
+    def _recompute_region_rects(self) -> None:
+        rect = QRectF(self.rect())
+        rects = self._split.compute(rect, self._regions)
+        self._region_rects = {
+            region.id: QRectF(region.rect_fn(rect) if region.rect_fn else region_rect)
+            for region, region_rect in zip(self._regions, rects)
+        }
+
+    def resizeEvent(self, event):
+        self._recompute_region_rects()
+        super().resizeEvent(event)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         try:
@@ -765,41 +553,7 @@ class Button(WheelScrollPolicyMixin, QWidget):
         finally:
             painter.end()
 
-    # -------- private --------
-
-    def _handle_property_change(self, name: str):
-        needs_geometry = False
-        if name == "variant":
-            self._variant = str(self.property("variant") or self._variant)
-        elif name == "density":
-            self._density = str(self.property("density") or self._density)
-            needs_geometry = True
-        elif name == "iconSizePx":
-            self._icon_size_px = max(1, int(self.property("iconSizePx") or self._icon_size_px))
-            needs_geometry = True
-        elif name == "cornerRadiusPx":
-            raw_radius = self.property("cornerRadiusPx")
-            if raw_radius is not None:
-                self._corner_radius_px = max(0, int(raw_radius))
-        elif name in {"foregroundColor", "textColor"}:
-            self._foreground_color = self.property(name) or self._foreground_color
-        elif name == "backgroundColor":
-            self._background_color = self.property("backgroundColor") or self._background_color
-        elif name == "accentColor":
-            self._accent_color = self.property("accentColor") or self._accent_color
-        elif name == "underlineColor":
-            self._underline_config_color = self.property("underlineColor")
-        elif name == "showUnderline":
-            self._show_underline = bool(self.property("showUnderline"))
-        elif name == "underlineThicknessPx":
-            value = self.property("underlineThicknessPx")
-            self._underline_thickness = _normalize_underline_thickness(value)
-        else:
-            return
-        update_widget_style(self, update_geometry=needs_geometry)
-
-    def _is_strike_through(self) -> bool:
-        return self._show_strike_through and self._checked
+    # -------- private behaviour helpers --------
 
     def _do_toggle_scroll_click(self):
         if not self._checked:

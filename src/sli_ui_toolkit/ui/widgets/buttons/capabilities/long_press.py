@@ -13,12 +13,14 @@ class LongPressCapability(ButtonCapability):
     """
 
     def __init__(self, delay_ms: int = 600):
+        super().__init__()
         self.delay_ms = delay_ms
         self._button = None
         self._lp_timer: QTimer | None = None
         self._lp_triggered = False
 
-    def attach(self, button: QWidget) -> None:
+    def attach(self, button: QWidget, region_id: str | None = None) -> None:
+        super().attach(button, region_id=region_id)
         self._button = button
         self._lp_timer = QTimer(button)
         self._lp_timer.setSingleShot(True)
@@ -55,7 +57,13 @@ class LongPressCapability(ButtonCapability):
     def _on_long_press(self):
         if self._button is None:
             return
+        pressed_region = getattr(self._button, "_pressed_region", None)
         if hasattr(self._button, '_pressed') and self._button._pressed:
+            if self._region_id is not None and pressed_region not in (None, self._region_id):
+                return
             self._lp_triggered = True
+            if hasattr(self._button, "regionLongPressed") and self._region_id is not None:
+                self._button.regionLongPressed.emit(self._region_id)
             if hasattr(self._button, 'longPressed'):
-                self._button.longPressed.emit()
+                if self._region_id in (None, "_main"):
+                    self._button.longPressed.emit()

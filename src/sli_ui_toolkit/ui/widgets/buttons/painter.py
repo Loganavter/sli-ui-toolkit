@@ -18,8 +18,10 @@ from .layers import (
     BackgroundLayer,
     ContentLayer,
     BadgeLayer,
+    RippleLayer,
     UnderlineLayer,
     StrikethroughLayer,
+    DividerLayer,
 )
 from .layers._base import Layer
 
@@ -27,9 +29,11 @@ from .layers._base import Layer
 def default_layers() -> list[Layer]:
     return [
         BackgroundLayer(),
+        RippleLayer(),
         ContentLayer(),
         BadgeLayer(),
         UnderlineLayer(),
+        DividerLayer(),
         StrikethroughLayer(),
     ]
 
@@ -44,7 +48,23 @@ class Painter:
         return self._layers
 
     def paint(self, ctx: DrawContext) -> None:
+        iter_regions = getattr(ctx.widget, "iter_regions", None)
+        if iter_regions is None:
+            for layer in self._layers:
+                if layer.applies(ctx):
+                    layer.draw(ctx, self._tm)
+            return
+
+        for scoped_ctx in iter_regions(ctx):
+            for layer in self._layers:
+                if getattr(layer, "scope", "region") != "region":
+                    continue
+                if layer.applies(scoped_ctx):
+                    layer.draw(scoped_ctx, self._tm)
+
         for layer in self._layers:
+            if getattr(layer, "scope", "region") != "widget":
+                continue
             if layer.applies(ctx):
                 layer.draw(ctx, self._tm)
 
