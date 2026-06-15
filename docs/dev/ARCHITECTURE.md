@@ -4,9 +4,9 @@ This document explains how the toolkit is laid out, which imports are public, an
 
 If you need something else:
 
-- integration overview: [../README.md](../README.md)
-- public reference: [API_CATALOG.md](API_CATALOG.md)
-- visual conventions: [DESIGN_LANGUAGE.md](DESIGN_LANGUAGE.md)
+- integration overview: [../../README.md](../../README.md)
+- public reference: [../user/API_CATALOG.md](../user/API_CATALOG.md)
+- visual conventions: [../user/DESIGN_LANGUAGE.md](../user/DESIGN_LANGUAGE.md)
 
 ## What This Package Is
 
@@ -183,12 +183,18 @@ The unified button system.
 Typical internal split:
 
 - public re-export;
-- main widget implementation;
-- painter;
+- main widget facade (`Button`);
+- declarative specs (`ButtonSpec`, `RegionSpec`, content/style/behavior specs);
+- controller/runtime state (`ButtonController`);
+- painter/layers;
 - menu/dropdown helpers;
 - group container.
 
 Use this folder as the model for any control family that grows beyond one file.
+
+`Button` should stay a compatibility-friendly QWidget facade. New behavior
+should be added by extending specs, controller routing, layouts, or renderer
+layers rather than growing ad-hoc state directly on the widget.
 
 ### `ui/widgets/comboboxes/`
 

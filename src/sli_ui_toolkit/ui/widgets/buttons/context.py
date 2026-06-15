@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from PyQt6.QtCore import QRectF
-from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtGui import QColor, QPainter, QPainterPath
 from PyQt6.QtWidgets import QWidget
 
 from .state import StateSet
@@ -45,6 +45,7 @@ class DrawContext:
     # consumers transparent.
     region_id: str | None = None
     region_rect: QRectF | None = None
+    region_path: QPainterPath | None = None
     region_states: StateSet | None = None
     region_content: Any = None
     region_variant: VariantSpec | None = None
@@ -61,6 +62,7 @@ class DrawContext:
         *,
         region_id: str,
         rect: QRectF,
+        path: QPainterPath | None = None,
         states: StateSet,
         content: Any = None,
         variant: VariantSpec | None = None,
@@ -76,6 +78,7 @@ class DrawContext:
             self,
             region_id=region_id,
             region_rect=rect,
+            region_path=path,
             region_states=states,
             region_content=content,
             region_variant=variant,
@@ -95,6 +98,14 @@ class DrawContext:
     @property
     def effective_rect(self) -> QRectF:
         return self.region_rect if self.region_rect is not None else self.rect
+
+    @property
+    def effective_path(self) -> QPainterPath:
+        if self.region_path is not None:
+            return QPainterPath(self.region_path)
+        path = QPainterPath()
+        path.addRect(self.effective_rect)
+        return path
 
     @property
     def effective_states(self) -> StateSet:

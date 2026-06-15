@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### 0.2.12
+- Declarative `ButtonSpec` / `RegionSpec` control model with content, style, shape, and behavior specs plus `Button.from_spec(...)` / `set_spec(...)` for complex button controls.
+- `Button.actionTriggered(action_id, data)` and behavior-level `action` / `data` / `callback` dispatch for declarative button controls.
+- Arbitrary path-shaped button regions via `path_fn` and `z_index`; hit-testing, background, content, and ripple clipping now respect region `QPainterPath`s.
+
+### Changed
+- Split documentation into `docs/user/` for library consumers and `docs/dev/` for toolkit maintainers, with root-level compatibility redirects for old doc paths.
+- Button region runtime state and geometry now flow through `ButtonController`, keeping compatibility aliases on `Button` while moving toward a spec/controller/renderer architecture.
+- `InstancesCounterButton` now builds its add/remove layout as a `ButtonSpec` factory rather than assembling raw regions directly.
+- `SingleRegionSplit` now gives each region the full widget rect, enabling overlay-style custom path regions without a separate split layout.
+
 ## 0.2.11
 
 ### Added

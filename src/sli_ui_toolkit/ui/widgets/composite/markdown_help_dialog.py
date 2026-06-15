@@ -9,7 +9,6 @@ from PyQt6.QtGui import QDesktopServices, QFontMetrics
 from PyQt6.QtWidgets import (
     QDialog,
     QFrame,
-    QListWidgetItem,
     QScrollArea,
     QSizePolicy,
     QTextBrowser,
@@ -238,7 +237,7 @@ class MarkdownHelpDialog(QDialog):
         self._pages.clear()
 
         for section in self._sections:
-            nav_item = QListWidgetItem(section.title, self.nav_widget)
+            nav_item = self.nav_widget.add_item(section.title)
             nav_item.setSizeHint(QSize(200, 35))
             content_page = MarkdownHelpPageBrowser()
             content_page.anchorClicked.connect(self._on_anchor_clicked)

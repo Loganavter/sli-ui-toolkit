@@ -4,9 +4,9 @@ This document describes visual and interaction rules for custom-painted widgets.
 
 For other needs:
 
-- integration overview: [../README.md](../README.md)
+- integration overview: [../../README.md](../../README.md)
 - public widget reference: [API_CATALOG.md](API_CATALOG.md)
-- internal layering: [ARCHITECTURE.md](ARCHITECTURE.md)
+- internal layering: [../dev/ARCHITECTURE.md](../dev/ARCHITECTURE.md)
 
 ## Overview
 

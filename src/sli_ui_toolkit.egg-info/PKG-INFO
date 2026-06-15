@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: sli-ui-toolkit
-Version: 0.2.7
+Version: 0.2.12
 Summary: Reusable PyQt UI toolkit primitives for SLI desktop tools.
 Author: Loganavter
 License: MIT
@@ -13,6 +13,7 @@ Requires-Dist: markdown>=3.4
 Provides-Extra: dev
 Requires-Dist: pytest>=7; extra == "dev"
 Requires-Dist: pytest-qt>=4.2; extra == "dev"
+Requires-Dist: tomli>=2.0; python_version < "3.11" and extra == "dev"
 
 # SLI UI Toolkit
 

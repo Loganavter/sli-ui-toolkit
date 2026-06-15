@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QWidget
 
 from sli_ui_toolkit.widgets import ComboBox, ScrollableComboBox, SimpleOptionsFlyout
 
 from demo.components import GalleryPage
-
-_UNDERLINE_GRAY = QColor("#808080")
-_FOCUSED_UNDERLINE_ACCENT = QColor("#0078D4")
 
 
 class ComboBoxesPage(GalleryPage):
@@ -22,10 +18,7 @@ class ComboBoxesPage(GalleryPage):
             parent=parent,
         )
 
-        c1 = ComboBox(
-            underline_color=_UNDERLINE_GRAY,
-            focused_underline_color=_FOCUSED_UNDERLINE_ACCENT,
-        )
+        c1 = ComboBox()
         c1.addItems(["Alpha", "Beta", "Gamma", "Delta"])
         self.add_card("ComboBox", c1)
 

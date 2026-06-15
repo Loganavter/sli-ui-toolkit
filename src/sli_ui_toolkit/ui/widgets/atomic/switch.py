@@ -256,14 +256,6 @@ class Switch(QWidget):
         painter.setPen(QPen(knob_border, 1))
         painter.drawEllipse(knob_rect)
 
-        if self.hasFocus():
-            focus_pen = QPen(accent)
-            focus_pen.setWidthF(1.5)
-            painter.setPen(focus_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            focus_rect = track_rect.adjusted(-2.0, -2.0, 2.0, 2.0)
-            painter.drawRoundedRect(focus_rect, radius + 2.0, radius + 2.0)
-
         if self._show_text and text_w > 0:
             text_color = self._theme.get_color("switch.text")
             painter.setPen(QPen(text_color))

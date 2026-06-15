@@ -53,9 +53,16 @@ class HoverCoordinator(QObject):
         if widget is not None:
             self._widgets.discard(widget)
 
-    def reconcile(self, global_pos: QPoint | None = None) -> None:
+    def reconcile(
+        self,
+        global_pos: QPoint | None = None,
+        source_window: QWidget | None = None,
+    ) -> None:
         pos = global_pos or QCursor.pos()
         for widget in list(self._widgets):
+            if source_window is not None and widget.window() is not source_window:
+                self._set_hover(widget, False)
+                continue
             self._reconcile_widget(widget, pos)
 
     def clear_all(self) -> None:
@@ -70,7 +77,13 @@ class HoverCoordinator(QObject):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         event_type = event.type()
         if event_type in _HOVER_EVENT_TYPES:
-            self.reconcile(self._global_pos_from_event(event))
+            source_window = (
+                watched.window() if isinstance(watched, QWidget) else None
+            )
+            self.reconcile(
+                self._global_pos_from_event(event),
+                source_window=source_window,
+            )
         elif event_type in _CLEAR_EVENT_TYPES:
             if isinstance(watched, QWidget):
                 self.clear_descendants(watched)

@@ -155,6 +155,7 @@ class _DropdownOverlay(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setFont(self._owner.font())
 
         content = QRectF(self._content_rect())
         draw_rounded_shadow(painter, content, steps=self.SHADOW, radius=self.RADIUS)
@@ -178,26 +179,27 @@ class _DropdownOverlay(QWidget):
                 break
             item_index = visible_indices[source_pos]
             item = self._owner._items[item_index]
-            item_rect = QRectF(
-                self._item_rect(visible_idx).translated(self._content_rect().topLeft()).adjusted(1, 1, -1, -1)
+            full_item_rect = QRectF(
+                self._item_rect(visible_idx).translated(self._content_rect().topLeft())
             )
+            hover_rect = full_item_rect.adjusted(0, 1, 0, -1)
             if item_index == self._hovered_row:
                 item_path = QPainterPath()
-                item_path.addRoundedRect(item_rect, 6, 6)
+                item_path.addRoundedRect(hover_rect, 6, 6)
                 painter.fillPath(item_path, hover_bg)
             painter.setPen(QPen(text))
             painter.drawText(
-                item_rect.adjusted(
+                full_item_rect.adjusted(
                     self._owner.TEXT_HORIZONTAL_PADDING,
                     0,
                     -self._owner.TEXT_HORIZONTAL_PADDING,
                     0,
                 ),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                QFontMetrics(self.font()).elidedText(
+                QFontMetrics(self._owner.font()).elidedText(
                     item.text,
                     Qt.TextElideMode.ElideRight,
-                    max(0, int(item_rect.width()) - self._owner.TEXT_HORIZONTAL_PADDING * 2),
+                    max(0, int(full_item_rect.width()) - self._owner.TEXT_HORIZONTAL_PADDING * 2),
                 ),
             )
 

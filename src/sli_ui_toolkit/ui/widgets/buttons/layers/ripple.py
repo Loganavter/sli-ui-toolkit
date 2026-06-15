@@ -148,7 +148,7 @@ class RippleLayer(Layer):
         )
         p.setClipPath(clip)
         if ctx.region_rect is not None:
-            p.setClipRect(ctx.region_rect, Qt.ClipOperation.IntersectClip)
+            p.setClipPath(ctx.effective_path, Qt.ClipOperation.IntersectClip)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
 
@@ -182,6 +182,10 @@ class RippleLayer(Layer):
 
 def _ripple_for(ctx: DrawContext) -> RippleEffect | None:
     if ctx.region_id is not None:
+        controller = getattr(ctx.widget, "_controller", None)
+        ripple = controller.ripple(ctx.region_id) if controller is not None else None
+        if ripple is not None:
+            return ripple
         ripples = getattr(ctx.widget, "_region_ripple", {})
         ripple = ripples.get(ctx.region_id)
         if ripple is not None:

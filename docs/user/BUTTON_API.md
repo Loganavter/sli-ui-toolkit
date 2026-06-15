@@ -69,6 +69,82 @@ btn = Button(
 btn.regionClicked.connect(handle_region)
 ```
 
+Regions may also use arbitrary `QPainterPath` hit areas. `rect_fn` supplies the
+region's content/bounding rect, `path_fn` supplies the true clickable/painted
+shape, and `z_index` controls overlapping hit priority.
+
+```python
+from PyQt6.QtGui import QPainterPath
+
+def diamond_path(rect):
+    path = QPainterPath()
+    c = rect.center()
+    r = min(rect.width(), rect.height()) * 0.25
+    path.moveTo(c.x(), c.y() - r)
+    path.lineTo(c.x() + r, c.y())
+    path.lineTo(c.x(), c.y() + r)
+    path.lineTo(c.x() - r, c.y())
+    path.closeSubpath()
+    return path
+
+btn = Button(
+    regions=[
+        ButtonRegion(id="base", icon="remove", rect_fn=lambda r: r, z_index=0),
+        ButtonRegion(
+            id="center",
+            icon="add",
+            rect_fn=lambda r: r,
+            path_fn=diamond_path,
+            z_index=10,
+        ),
+    ],
+    size=(40, 40),
+)
+```
+
+Background, content, ripple, and hit-testing are clipped to the path. Dividers
+are still layout-line based; custom path-shaped separators should be rendered
+as a dedicated layer.
+
+For new complex controls, prefer the declarative spec API. It keeps content,
+style, behavior, layout, and runtime state separate internally:
+
+```python
+from sli_ui_toolkit.widgets import (
+    Button,
+    ButtonSpec,
+    ClickBehavior,
+    ContentSpec,
+    Divider,
+    RegionSpec,
+    ScrollBehavior,
+    ShapeSpec,
+    VerticalSplit,
+)
+
+btn = Button.from_spec(
+    ButtonSpec(
+        regions=(
+            RegionSpec(id="add", content=ContentSpec(icon="add")),
+            RegionSpec(
+                id="amount",
+                content=ContentSpec(icon="settings"),
+                behaviors=(
+                    ClickBehavior(action="amount.reset"),
+                    ScrollBehavior(action="amount.change", min_value=0, max_value=10),
+                ),
+            ),
+        ),
+        split=VerticalSplit(),
+        divider=Divider(),
+        shape=ShapeSpec(size=(36, 36), corner_radius=6, icon_size=18),
+    )
+)
+btn.regionClicked.connect(handle_region)
+btn.regionValueChanged.connect(handle_region_value)
+btn.actionTriggered.connect(handle_action)
+```
+
 ## Constructor Parameters
 
 ```python
@@ -92,6 +168,7 @@ Button(
     regions: list[ButtonRegion] | None = None,
     split: SplitLayout | None = None,
     divider: Divider | None = None,
+    spec: ButtonSpec | None = None,
     config: ButtonConfig | None = None,
     parent: QWidget | None = None,
 )
@@ -120,6 +197,7 @@ Button(
 | `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the legacy parameters. |
 | `split` | `SplitLayout` | `None` | Geometry strategy for regions: `HorizontalSplit`, `VerticalSplit`, `GridSplit`, or `CustomSplit`. |
 | `divider` | `Divider` | `None` | Optional whole-widget divider between regions. |
+| `spec` | `ButtonSpec` | `None` | Declarative control description. Prefer `Button.from_spec(spec)` for new complex controls. |
 | `config` | `ButtonConfig` | `None` | Use ButtonConfig dataclass instead of params |
 | `parent` | `QWidget` | `None` | Parent widget |
 
@@ -165,6 +243,7 @@ button.regionReleased.connect(lambda region_id: ...)
 button.regionToggled.connect(lambda region_id, checked: ...)
 button.regionLongPressed.connect(lambda region_id: ...)
 button.regionMenuTriggered.connect(lambda region_id, data: ...)
+button.actionTriggered.connect(lambda action_id, data: ...)
 ```
 
 ## Properties & Methods
@@ -264,6 +343,15 @@ button.detach_capability(ScrollCapability)
 # Attach a capability to a specific region
 button.attach_capability(MenuCapability([("Open", "open")]), region_id="menu")
 ```
+
+New controls should usually describe behavior with `ButtonSpec` instead of
+attaching capabilities manually. Direct capability attachment remains supported
+for compatibility and specialized toolkit internals.
+
+`BehaviorSpec` subclasses (`ClickBehavior`, `ToggleBehavior`, `ScrollBehavior`,
+`LongPressBehavior`, `MenuBehavior`) may carry `action=`, `data=`, and
+`callback=`. When a behavior is triggered, `Button` emits
+`actionTriggered(action_id, data)` and calls the callback if one was supplied.
 
 ### Menu Management
 
@@ -569,4 +657,4 @@ animations; `defer_click=True` is the best mitigation available there.
 
 ## See Also
 
-- [Button Architecture](BUTTON_ARCHITECTURE.md) - Technical design details
+- [Architecture](../dev/ARCHITECTURE.md) - Toolkit and button subsystem boundaries

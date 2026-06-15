@@ -6,8 +6,16 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QWheelEvent
 from PyQt6.QtWidgets import QWidget
 
-from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.buttons.regions import ButtonRegion, Divider, VerticalSplit
+from sli_ui_toolkit.ui.widgets.buttons import (
+    Button,
+    ButtonSpec,
+    ContentSpec,
+    Divider,
+    RegionSpec,
+    RegionStyle,
+    ShapeSpec,
+    VerticalSplit,
+)
 
 
 class InstancesCounterButton(Button):
@@ -34,13 +42,7 @@ class InstancesCounterButton(Button):
             margin=2.0,
         )
         super().__init__(
-            regions=self._region_specs(),
-            split=VerticalSplit(),
-            divider=None,
-            variant="default",
-            size=(self._OUTER_SIZE, self._OUTER_SIZE),
-            corner_radius=self._CORNER_RADIUS,
-            icon_size=20,
+            spec=self._button_spec(),
             wheel_requires_focus=wheel_requires_focus,
             parent=parent,
         )
@@ -87,31 +89,44 @@ class InstancesCounterButton(Button):
     # ---------- internals ----------
 
     def _sync_regions(self) -> None:
-        self.set_regions(
-            self._region_specs(),
+        self.set_spec(self._button_spec())
+
+    def _button_spec(self) -> ButtonSpec:
+        if self._count <= 1:
+            regions = (
+                RegionSpec(
+                    id="whole",
+                    content=ContentSpec(icon="add_circle"),
+                    style=RegionStyle(icon_size_px=20),
+                    enabled=True,
+                ),
+            )
+        else:
+            regions = (
+                RegionSpec(
+                    id="top",
+                    content=ContentSpec(icon="add"),
+                    style=RegionStyle(icon_size_px=14),
+                    enabled=True,
+                ),
+                RegionSpec(
+                    id="bottom",
+                    content=ContentSpec(icon="remove"),
+                    style=RegionStyle(icon_size_px=14),
+                    enabled=self._can_remove,
+                ),
+            )
+        return ButtonSpec(
+            regions=regions,
             split=VerticalSplit(),
             divider=self._counter_divider if self._count > 1 else None,
-        )
-
-    def _region_specs(self) -> list[ButtonRegion]:
-        if self._count <= 1:
-            return [
-                ButtonRegion(
-                    id="whole",
-                    icon="add_circle",
-                    icon_size_px=20,
-                    enabled=True,
-                )
-            ]
-        return [
-            ButtonRegion(id="top", icon="add", icon_size_px=14, enabled=True),
-            ButtonRegion(
-                id="bottom",
-                icon="remove",
-                icon_size_px=14,
-                enabled=self._can_remove,
+            shape=ShapeSpec(
+                size=(self._OUTER_SIZE, self._OUTER_SIZE),
+                corner_radius=self._CORNER_RADIUS,
+                icon_size=20,
             ),
-        ]
+            variant="default",
+        )
 
     def _on_region_clicked(self, region_id: str) -> None:
         if region_id in {"whole", "top"}:

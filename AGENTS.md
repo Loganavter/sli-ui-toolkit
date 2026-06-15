@@ -17,9 +17,9 @@ The goal is still to keep it reusable for any PyQt application:
 Read these files before changing code:
 
 1. [README.md](README.md)
-2. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-3. [docs/API_CATALOG.md](docs/API_CATALOG.md)
-4. [docs/DESIGN_LANGUAGE.md](docs/DESIGN_LANGUAGE.md)
+2. [docs/dev/ARCHITECTURE.md](docs/dev/ARCHITECTURE.md)
+3. [docs/user/API_CATALOG.md](docs/user/API_CATALOG.md)
+4. [docs/user/DESIGN_LANGUAGE.md](docs/user/DESIGN_LANGUAGE.md)
 5. [CHANGELOG.md](CHANGELOG.md)
 
 ## Hard Rules

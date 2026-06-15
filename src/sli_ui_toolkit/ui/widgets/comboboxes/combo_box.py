@@ -16,9 +16,7 @@ from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     visible_indices_normalized,
 )
 from sli_ui_toolkit.ui.widgets.helpers import (
-    UnderlineConfig,
     WheelScrollPolicyMixin,
-    draw_bottom_underline,
     register_hover_widget,
 )
 
@@ -38,20 +36,10 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         parent=None,
         *,
         wheel_requires_focus: bool = False,
-        underline_color: QColor | None = None,
-        underline_thickness: float | None = None,
-        focused_underline_color: QColor | None = None,
-        focused_underline_thickness: float | None = None,
     ):
         super().__init__(parent)
         self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
         self._theme = ThemeManager.get_instance()
-        self._underline_color = underline_color
-        self._underline_thickness = self._normalize_thickness(underline_thickness)
-        self._focused_underline_color = focused_underline_color
-        self._focused_underline_thickness = self._normalize_thickness(
-            focused_underline_thickness
-        )
         self._items: list[_ComboItem] = []
         self._current_index = -1
         self._hovered = False
@@ -74,46 +62,6 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         self.setFixedHeight(self.BASE_HEIGHT)
         self._theme.theme_changed.connect(self.update)
         register_hover_widget(self)
-
-    def setUnderlineColor(self, color: QColor | None) -> None:
-        self._underline_color = color
-        self.setProperty("underlineColor", color)
-        self.update()
-
-    set_underline_color = setUnderlineColor
-
-    def underlineColor(self) -> QColor | None:
-        return self._underline_color
-
-    def setUnderlineThickness(self, thickness: float | None) -> None:
-        self._underline_thickness = self._normalize_thickness(thickness)
-        self.setProperty("underlineThicknessPx", self._underline_thickness)
-        self.update()
-
-    set_underline_thickness = setUnderlineThickness
-
-    def underlineThickness(self) -> float | None:
-        return self._underline_thickness
-
-    def setFocusedUnderlineColor(self, color: QColor | None) -> None:
-        self._focused_underline_color = color
-        self.setProperty("focusedUnderlineColor", color)
-        self.update()
-
-    def focusedUnderlineColor(self) -> QColor | None:
-        return self._focused_underline_color
-
-    def setFocusedUnderlineThickness(self, thickness: float | None) -> None:
-        self._focused_underline_thickness = self._normalize_thickness(thickness)
-        self.setProperty("focusedUnderlineThicknessPx", self._focused_underline_thickness)
-        self.update()
-
-    def focusedUnderlineThickness(self) -> float | None:
-        return self._focused_underline_thickness
-
-    @staticmethod
-    def _normalize_thickness(thickness: float | None) -> float | None:
-        return None if thickness is None else max(0.0, float(thickness))
 
     def _item_height(self) -> int:
         return max(28, QFontMetrics(self.font()).height() + self.ITEM_VERTICAL_PADDING)
@@ -407,34 +355,17 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rectf, self.RADIUS, self.RADIUS)
 
-        has_focus_underline = self.hasFocus() or self._expanded
-        underline_color = (
-            self._focused_underline_color or tm.get_color("accent")
-            if has_focus_underline
-            else self._underline_color
-        )
-        underline_thickness = (
-            self._focused_underline_thickness or 1.5
-            if has_focus_underline
-            else self._underline_thickness or 1.0
-        )
-        draw_bottom_underline(
-            painter,
-            rect,
-            tm,
-            UnderlineConfig(
-                color=underline_color,
-                alpha=120 if has_focus_underline else 40,
-                thickness=underline_thickness,
-                vertical_offset=0.0,
-                arc_radius=self.RADIUS,
-            ),
-        )
-
         current_text = self.currentText()
         if current_text:
             fm = QFontMetrics(self.font())
-            text_rect = rect.adjusted(12, 0, -28, 0)
+            inner_h = self._item_height()
+            inner_top = (rect.height() - inner_h) // 2
+            text_rect = QRect(
+                self.TEXT_HORIZONTAL_PADDING,
+                inner_top,
+                rect.width() - 2 * self.TEXT_HORIZONTAL_PADDING,
+                inner_h,
+            )
             painter.setPen(QPen(text_color))
             display_text = current_text
             if self._search_text and self._expanded:
@@ -520,6 +451,11 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             self._pressed = True
             self.setFocus()
+            if self._field_rect().contains(event.position().toPoint()):
+                if self._expanded:
+                    self.hideDropdown()
+                else:
+                    self.showDropdown()
             self.update()
             event.accept()
             return
@@ -529,15 +465,7 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mouseReleaseEvent(event)
             return
-        was_pressed = self._pressed
         self._pressed = False
-        if was_pressed and self._field_rect().contains(event.position().toPoint()):
-            if self._expanded:
-                self.hideDropdown()
-            else:
-                self.showDropdown()
-            event.accept()
-            return
         self.update()
         super().mouseReleaseEvent(event)
 

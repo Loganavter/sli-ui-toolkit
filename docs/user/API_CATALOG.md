@@ -4,8 +4,8 @@ All public names are importable from `sli_ui_toolkit.widgets` unless noted other
 
 This document is the public reference.
 
-If you are onboarding instead of looking up a symbol, start with [../README.md](../README.md).
-If you are changing internals, also read [ARCHITECTURE.md](ARCHITECTURE.md).
+If you are onboarding instead of looking up a symbol, start with [../../README.md](../../README.md).
+If you are changing internals, also read [../dev/ARCHITECTURE.md](../dev/ARCHITECTURE.md).
 
 ---
 
@@ -54,7 +54,18 @@ A single `Button` class replaces all legacy button widgets via composable parame
 ```python
 from PyQt6.QtGui import QColor
 
-from sli_ui_toolkit.widgets import Button, ButtonGroup, ButtonRegion, Divider, VerticalSplit
+from sli_ui_toolkit.widgets import (
+    Button,
+    ButtonGroup,
+    ButtonRegion,
+    ButtonSpec,
+    ClickBehavior,
+    ContentSpec,
+    Divider,
+    RegionSpec,
+    ShapeSpec,
+    VerticalSplit,
+)
 
 # Icon-only toggle
 btn = Button(AppIcon.MAGNIFIER, toggle=True)
@@ -90,6 +101,31 @@ btn = Button(
     divider=Divider(),
 )
 btn.regionClicked.connect(lambda region_id: ...)
+
+# Arbitrary path-shaped regions are supported through path_fn/z_index
+btn = Button(
+    regions=[
+        ButtonRegion(id="base", rect_fn=lambda r: r, z_index=0),
+        ButtonRegion(id="center", rect_fn=lambda r: r, path_fn=diamond_path, z_index=10),
+    ],
+)
+
+# Declarative spec API for new complex controls
+btn = Button.from_spec(
+    ButtonSpec(
+        regions=(
+            RegionSpec(
+                id="add",
+                content=ContentSpec(icon="add"),
+                behaviors=(ClickBehavior(action="counter.add"),),
+            ),
+            RegionSpec(id="remove", content=ContentSpec(icon="remove")),
+        ),
+        split=VerticalSplit(),
+        divider=Divider(),
+        shape=ShapeSpec(size=(36, 36), corner_radius=6),
+    )
+)
 ```
 
 **Constructor parameters:**
@@ -111,6 +147,7 @@ btn.regionClicked.connect(lambda region_id: ...)
 | `regions` | list[ButtonRegion] | Optional multi-region content/behavior model |
 | `split` | SplitLayout | Region geometry (`HorizontalSplit`, `VerticalSplit`, `GridSplit`, `CustomSplit`) |
 | `divider` | Divider/None | Optional whole-widget divider rendering between split regions |
+| `spec` | ButtonSpec | Declarative control description used by `Button.from_spec(...)` |
 | `size` | (w, h) | Fixed size |
 | `parent` | QWidget | Parent widget |
 
@@ -143,6 +180,7 @@ btn.regionClicked.connect(lambda region_id: ...)
 | `regionValueChanged(str, int)` | Region scroll value changed |
 | `regionLongPressed(str)` | Region long press detected |
 | `regionMenuTriggered(str, object)` | Region menu item selected |
+| `actionTriggered(str, object)` | Declarative behavior action id and payload |
 
 **Runtime methods:**
 
@@ -159,6 +197,7 @@ btn.regionClicked.connect(lambda region_id: ...)
 | `set_actions(list)` | Update menu items |
 | `show_menu()` | Programmatically open menu |
 | `set_regions(list[ButtonRegion], split=..., divider=...)` | Replace region geometry/content at runtime |
+| `set_spec(ButtonSpec)` | Replace the full declarative control description at runtime |
 | `setFlyoutOpen(bool)` | Visual state for attached flyout |
 
 **Underline scaling:** underline thickness and arc radius scale proportionally with widget height (baseline: 32 px). This ensures visibility on high-DPI / large UI modes.
