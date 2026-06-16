@@ -159,42 +159,13 @@ class _ButtonStyleApi:
     def _resolve_ripple_colors(self) -> tuple[QColor | None, QColor | None]:
         """Цвет волны на момент трига нажатия.
 
-        Приоритет:
-        1. Явные `_ripple_color_from`/`_ripple_color_to` (через setRippleColors).
-        2. Auto: для toggle-кнопок — переход из bg текущего состояния
-           в bg будущего (checked ↔ unchecked).
-        3. None/None — overlay-дефолт.
+        Возвращает явно заданные `_ripple_color_from`/`_ripple_color_to`
+        (через `setRippleColors`) либо `None, None` — дефолтный overlay-ripple.
         """
         from_color = getattr(self, "_ripple_color_from", None)
         to_color = getattr(self, "_ripple_color_to", None)
         if from_color is not None and to_color is not None:
             return from_color, to_color
-
-        if getattr(self, "_has_toggle", False):
-            from .state import ButtonState
-            from .variants import get_variant, resolve_background
-
-            tm = getattr(self, "theme_manager", None)
-            if tm is None:
-                return None, None
-            variant = get_variant(self._variant)
-            # Без PRESSED — иначе default_resolve_bg вернёт одинаковый
-            # pressed.background для обеих сторон перехода (PRESSED имеет
-            # приоритет над CHECKED/HOVERED).
-            base = frozenset(self._states) - {ButtonState.PRESSED}
-            if self._checked:
-                from_states = base
-                to_states = base - {ButtonState.CHECKED}
-            else:
-                from_states = base
-                to_states = base | {ButtonState.CHECKED}
-            try:
-                bg_from = resolve_background(variant, from_states, tm)
-                bg_to = resolve_background(variant, to_states, tm)
-            except Exception:
-                return None, None
-            return bg_from, bg_to
-
         return None, None
 
     # -------- scroll popup --------

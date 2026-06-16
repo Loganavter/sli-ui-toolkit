@@ -75,9 +75,6 @@ class CalendarDayButton(Button):
             self.set_override_bg_color(None)
             self.set_background_color(None)
 
-    def _resolve_ripple_colors(self) -> tuple[QColor | None, QColor | None]:
-        return None, None
-
     def _on_click(self):
         if self.date:
             self.date_clicked.emit(self.date)
