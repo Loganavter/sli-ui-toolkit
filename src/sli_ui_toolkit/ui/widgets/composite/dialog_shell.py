@@ -1,5 +1,13 @@
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QScrollArea, QStackedWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QScrollArea,
+    QSizePolicy,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import IconListWidget
@@ -49,8 +57,11 @@ class SidebarDialogShell(QWidget):
         self.main_layout.setSpacing(0)
 
         self.sidebar = IconListWidget()
-        self.sidebar.setMinimumWidth(120)
-        self.sidebar.setMaximumWidth(sidebar_width)
+        self.sidebar.setMinimumWidth(int(sidebar_width))
+        self.sidebar.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Expanding,
+        )
 
         self.content_area = QWidget()
         self.content_layout = QVBoxLayout(self.content_area)

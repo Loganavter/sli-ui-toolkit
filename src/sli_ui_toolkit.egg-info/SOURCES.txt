@@ -204,6 +204,8 @@ tests/test_button_underline.py
 tests/test_calendar_day_button.py
 tests/test_contrast.py
 tests/test_deprecated_imports.py
+tests/test_dialog_geometry_limits.py
+tests/test_dialog_shell.py
 tests/test_hover_coordinator.py
 tests/test_i18n.py
 tests/test_icon_list_widget.py

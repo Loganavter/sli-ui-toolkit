@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.14
+
+### Fixed
+- Fixed dialog/navigation geometry so `SidebarDialogShell`, `MarkdownHelpDialog`, generic dialog scaffolds, and `IconListWidget` no longer impose unnecessary fixed or maximum widths; long navigation row labels elide inside the available row width and keep full labels in tooltips.
+
 ## 0.2.13
 
 ### Fixed
