@@ -9,7 +9,7 @@ from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.utils import resource_path
 
 class BaseDialog(QDialog):
-    def __init__(self, parent=None, title="", min_width=350, min_height=0):
+    def __init__(self, parent=None, title="", min_width=0, min_height=0):
         super().__init__(parent)
         self.setObjectName(f"{self.__class__.__name__}")
         self.theme_manager = ThemeManager.get_instance()
@@ -58,10 +58,8 @@ def setup_dialog_scaffold(
 
     dialog.ok_button = Button(text=ok_text, variant="surface", parent=action_bar)
     dialog.ok_button.setProperty("class", "primary")
-    dialog.ok_button.setMinimumSize(100, 30)
 
     dialog.cancel_button = Button(text=cancel_text, variant="surface", parent=action_bar)
-    dialog.cancel_button.setMinimumSize(100, 30)
 
     dialog.ok_button.clicked.connect(dialog.accept)
     dialog.cancel_button.clicked.connect(dialog.reject)
@@ -83,7 +81,7 @@ def setup_dialog_icon(dialog: QDialog, icon_path: str = None):
     if icon_path and os.path.exists(icon_path):
         dialog.setWindowIcon(QIcon(icon_path))
 
-def auto_size_dialog(dialog: QDialog, min_width: int = 300, min_height: int = 200):
+def auto_size_dialog(dialog: QDialog, min_width: int = 0, min_height: int = 0):
     def _recalculate_sizes():
         dialog.adjustSize()
 
@@ -92,7 +90,7 @@ def auto_size_dialog(dialog: QDialog, min_width: int = 300, min_height: int = 20
         final_width = max(min_width, content_size.width() + 50)
         final_height = max(min_height, content_size.height() + 30)
 
-        dialog.setMinimumSize(final_width, final_height)
+        dialog.resize(final_width, final_height)
 
         _update_group_sizes(dialog)
 
@@ -112,4 +110,5 @@ def _update_group_sizes(dialog: QDialog):
                         min_width = max(min_width, title_width)
                         break
 
-                parent_group.setMinimumWidth(min_width)
+                parent_group.resize(max(parent_group.width(), min_width), parent_group.height())
+                parent_group.updateGeometry()

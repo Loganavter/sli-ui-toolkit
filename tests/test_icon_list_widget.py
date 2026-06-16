@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from PyQt6.QtGui import QImage, QPainter
+from PyQt6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.widgets import IconListItem, IconListWidget
+from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import _NavRowContent
 
@@ -133,3 +137,51 @@ def test_icon_list_widget_set_selected_icon_mode_refreshes_icons(qapp):
     assert row.selected_icon == "calendar"
     assert row.selected_pixmap is not None
     assert row.selected_pixmap.cacheKey() != row.normal_pixmap.cacheKey()
+
+
+def test_icon_list_widget_rows_expand_without_text_minimum(qapp):
+    long_text = "Very long navigation entry that should not stretch the sidebar"
+    widget = IconListWidget()
+    item = widget.add_item(long_text, icon="settings")
+    row = widget._rows[0]
+
+    assert row.button.minimumWidth() == 0
+    assert row.button.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert row.button.toolTip() == long_text
+
+    updated_text = "Updated long navigation entry that still needs a tooltip"
+    item.setText(updated_text)
+
+    assert row.button.toolTip() == updated_text
+
+
+def test_nav_row_content_elides_text_to_available_width(qapp):
+    long_text = "Navigation entry with text that cannot fit"
+    widget = IconListWidget()
+    widget.add_item(long_text)
+    button = widget._rows[0].button
+    button.setFixedSize(96, 44)
+    content = _NavRowContent(None, None, long_text)
+
+    class FakePainter:
+        def __init__(self, source):
+            self.source = source
+            self.drawn_text = None
+
+        def fontMetrics(self):
+            return self.source.fontMetrics()
+
+        def setPen(self, _pen):
+            pass
+
+        def drawText(self, _rect, _flags, text):
+            self.drawn_text = text
+
+    painter = FakePainter(button)
+    ctx = SimpleNamespace(widget=button, painter=painter, icon_size_px=24)
+
+    content.draw(ctx, ThemeManager.get_instance())
+
+    assert painter.drawn_text is not None
+    assert painter.drawn_text != long_text
+    assert "…" in painter.drawn_text

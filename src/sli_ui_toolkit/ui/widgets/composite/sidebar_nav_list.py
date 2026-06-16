@@ -31,6 +31,7 @@ from PyQt6.QtGui import QColor, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -111,10 +112,21 @@ class _NavRowContent(Content):
 
         if self.text:
             p.setPen(_text_color(ctx, tm))
-            p.drawText(
-                QRect(x, 0, widget.width() - x - _LEFT_PADDING, widget.height()),
-                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            text_rect = QRect(
+                x,
+                0,
+                max(0, widget.width() - x - _LEFT_PADDING),
+                widget.height(),
+            )
+            text = p.fontMetrics().elidedText(
                 self.text,
+                Qt.TextElideMode.ElideRight,
+                text_rect.width(),
+            )
+            p.drawText(
+                text_rect,
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                text,
             )
 
 
@@ -214,6 +226,7 @@ class _ListItem:
             return
         spec.text = text
         spec.button.setText(text)
+        spec.button.setToolTip(text)
 
     def setIcon(self, icon: object) -> None:
         spec = self._spec
@@ -419,6 +432,9 @@ class IconListWidget(QWidget):
             corner_radius=6,
             icon_size=self._icon_size.height() if isinstance(self._icon_size, QSize) else 24,
         )
+        button.setMinimumWidth(0)
+        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        button.setToolTip(spec.text)
         row = _RowSpec(
             text=spec.text,
             icon=icon,

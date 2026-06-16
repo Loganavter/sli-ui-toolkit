@@ -171,7 +171,6 @@ class MarkdownHelpDialog(QDialog):
         )
         self.setSizeGripEnabled(True)
         self.resize(800, 600)
-        self.setMinimumSize(300, 200)
 
         self._setup_ui()
         self.set_sections(sections)
@@ -238,7 +237,7 @@ class MarkdownHelpDialog(QDialog):
 
         for section in self._sections:
             nav_item = self.nav_widget.add_item(section.title)
-            nav_item.setSizeHint(QSize(200, 35))
+            nav_item.setSizeHint(QSize(0, 35))
             content_page = MarkdownHelpPageBrowser()
             content_page.anchorClicked.connect(self._on_anchor_clicked)
             self._pages.append(content_page)
@@ -255,7 +254,7 @@ class MarkdownHelpDialog(QDialog):
         for i in range(self.nav_widget.count()):
             item = self.nav_widget.item(i)
             max_text_width = max(max_text_width, metrics.horizontalAdvance(item.text()))
-        self.nav_widget.setFixedWidth(max(180, max_text_width + 32))
+        self.nav_widget.setMinimumWidth(max_text_width + 32)
 
     def _normalize_markdown_lists(self, md_text: str) -> str:
         lines = md_text.splitlines()
@@ -365,7 +364,7 @@ class MarkdownHelpDialog(QDialog):
         if page is None:
             return
         viewport_width = max(1, self.scroll_area.viewport().width())
-        page.setFixedWidth(viewport_width)
+        page.resize(viewport_width, page.height())
         margin = page.document().documentMargin() * 2
         page.document().setTextWidth(max(1.0, float(viewport_width - margin)))
         page.updateGeometry()
@@ -523,4 +522,3 @@ class MarkdownHelpDialog(QDialog):
 
         for page, section in zip(self._pages, self._sections):
             page.setHtml(wrapper + self._render_section_html(section))
-
