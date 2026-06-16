@@ -12,6 +12,7 @@ setProperty, setFixedSize…).
 from __future__ import annotations
 
 from typing import Any
+import warnings
 
 from PyQt6.QtCore import QEvent, QSize
 from PyQt6.QtGui import QColor, QCursor
@@ -318,6 +319,13 @@ class _ButtonStyleApi:
 
     def setVariant(self, variant: str):
         self._variant = str(variant or "default")
+        if self._variant == "primary":
+            warnings.warn(
+                "Button variant 'primary' is deprecated; use 'surface' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._variant = "surface"
         self.setProperty("variant", self._variant)
         update_widget_style(self)
 

@@ -93,11 +93,44 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     draw_bottom_underline,
     draw_rounded_shadow,
 )
+from sli_ui_toolkit.ui.widgets.overlays import (
+    DragDropOverlay,
+    OverlayItem,
+    OverlaySlot,
+    TopLevelInWindowOverlay,
+)
 from sli_ui_toolkit.style import (
     WidgetStyleTokens,
     read_widget_style,
     update_widget_style,
 )
+
+import warnings
+
+_LEGACY_BUTTON_EXPORTS = {
+    "IconButton",
+    "SimpleIconButton",
+    "ToggleIconButton",
+    "ScrollableIconButton",
+    "ToggleScrollableIconButton",
+    "LongPressIconButton",
+    "NumberedToggleIconButton",
+    "UnifiedIconButton",
+    "AutoRepeatButton",
+    "CustomButton",
+    "ToolButton",
+    "ToolButtonWithMenu",
+    "MagnifierInstancesButton",
+}
+
+_LEGACY_BUTTON_GROUP_EXPORTS = {
+    "ButtonGroupContainer",
+}
+
+_LEGACY_BUTTON_SENTINEL_EXPORTS = {
+    "ButtonType",
+    "ButtonMode",
+}
 
 __all__ = [
     "Button",
@@ -185,7 +218,39 @@ __all__ = [
     "calculate_centered_overlay_geometry",
     "draw_bottom_underline",
     "draw_rounded_shadow",
+    "DragDropOverlay",
+    "OverlayItem",
+    "OverlaySlot",
+    "TopLevelInWindowOverlay",
     "WidgetStyleTokens",
     "read_widget_style",
     "update_widget_style",
 ]
+
+
+def __getattr__(name: str):
+    if name in _LEGACY_BUTTON_EXPORTS:
+        warnings.warn(
+            f"{name} is deprecated and will be removed in 0.3.0. "
+            "Use Button from sli_ui_toolkit.widgets instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return Button
+    if name in _LEGACY_BUTTON_GROUP_EXPORTS:
+        warnings.warn(
+            f"{name} is deprecated and will be removed in 0.3.0. "
+            "Use ButtonGroup from sli_ui_toolkit.widgets instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ButtonGroup
+    if name in _LEGACY_BUTTON_SENTINEL_EXPORTS:
+        warnings.warn(
+            f"{name} is deprecated and will be removed in 0.3.0. "
+            "Use Button keyword arguments or ButtonSpec instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return Button
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

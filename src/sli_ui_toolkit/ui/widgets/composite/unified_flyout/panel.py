@@ -182,68 +182,76 @@ class _Panel(QWidget):
         scrollbar = self.scroll_area.verticalScrollBar()
         previous_scroll_value = scrollbar.value() if preserve_scroll else 0
 
-        while self.content_layout.count() > 1:
-            item = self.content_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        # Batch mutations: disable updates + layout activation on content_widget
+        # so each insertWidget() doesn't trigger a full relayout+repaint pass.
+        # Without this, building N rows is O(N²) layout work and dominates the
+        # perceived "panel freeze" on open.
+        self.content_widget.setUpdatesEnabled(False)
+        try:
+            while self.content_layout.count() > 1:
+                item = self.content_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
 
-        if current_index == -1:
-            current_app_index = self._get_current_index(self.image_number)
-        else:
-            current_app_index = current_index
+            if current_index == -1:
+                current_app_index = self._get_current_index(self.image_number)
+            else:
+                current_app_index = current_index
 
-        if not image_list:
+            if not image_list:
+                self.recalculate_and_set_height()
+                return
+
+            total = len(image_list)
+            for i, img_item in enumerate(image_list):
+                is_current = i == current_app_index
+
+                text = (
+                    img_item.display_name
+                    if hasattr(img_item, "display_name")
+                    else str(img_item)
+                )
+                rating = img_item.rating if hasattr(img_item, "rating") else 0
+                full_path = img_item.path if hasattr(img_item, "path") else ""
+
+                position = "middle"
+                if total == 1:
+                    position = "only"
+                elif i == 0:
+                    position = "first"
+                elif i == total - 1:
+                    position = "last"
+
+                item_widget = RatingListItem(
+                    index=i,
+                    text=text,
+                    rating=rating,
+                    full_path=full_path,
+                    image_number=owner_proxy.image_number,
+                    get_rating=self._get_rating,
+                    increment_rating=self._increment_rating,
+                    decrement_rating=self._decrement_rating,
+                    create_rating_gesture=self._create_rating_gesture,
+                    on_update_drop_indicator=self._on_update_drop_indicator,
+                    on_clear_drop_indicator=self._on_clear_drop_indicator,
+                    parent=self.content_widget,
+                    is_current=is_current,
+                    item_height=self.item_height,
+                    item_font=self.item_font,
+                    item_type=list_type,
+                    position=position,
+                )
+
+                item_widget.itemSelected.connect(self._on_item_clicked)
+                item_widget.itemRightClicked.connect(self._on_context_menu)
+
+                self.content_layout.insertWidget(
+                    self.content_layout.count() - 1, item_widget
+                )
+
             self.recalculate_and_set_height()
-            return
-
-        total = len(image_list)
-        for i, img_item in enumerate(image_list):
-            is_current = i == current_app_index
-
-            text = (
-                img_item.display_name
-                if hasattr(img_item, "display_name")
-                else str(img_item)
-            )
-            rating = img_item.rating if hasattr(img_item, "rating") else 0
-            full_path = img_item.path if hasattr(img_item, "path") else ""
-
-            position = "middle"
-            if total == 1:
-                position = "only"
-            elif i == 0:
-                position = "first"
-            elif i == total - 1:
-                position = "last"
-
-            item_widget = RatingListItem(
-                index=i,
-                text=text,
-                rating=rating,
-                full_path=full_path,
-                image_number=owner_proxy.image_number,
-                get_rating=self._get_rating,
-                increment_rating=self._increment_rating,
-                decrement_rating=self._decrement_rating,
-                create_rating_gesture=self._create_rating_gesture,
-                on_update_drop_indicator=self._on_update_drop_indicator,
-                on_clear_drop_indicator=self._on_clear_drop_indicator,
-                parent=self.content_widget,
-                is_current=is_current,
-                item_height=self.item_height,
-                item_font=self.item_font,
-                item_type=list_type,
-                position=position,
-            )
-
-            item_widget.itemSelected.connect(self._on_item_clicked)
-            item_widget.itemRightClicked.connect(self._on_context_menu)
-
-            self.content_layout.insertWidget(
-                self.content_layout.count() - 1, item_widget
-            )
-
-        self.recalculate_and_set_height()
+        finally:
+            self.content_widget.setUpdatesEnabled(True)
 
         if preserve_scroll:
             QTimer.singleShot(

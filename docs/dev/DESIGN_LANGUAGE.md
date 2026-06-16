@@ -5,8 +5,8 @@ This document describes visual and interaction rules for custom-painted widgets.
 For other needs:
 
 - integration overview: [../../README.md](../../README.md)
-- public widget reference: [API_CATALOG.md](API_CATALOG.md)
-- internal layering: [../dev/ARCHITECTURE.md](../dev/ARCHITECTURE.md)
+- public widget reference: [../user/API_CATALOG.md](../user/API_CATALOG.md)
+- internal layering: [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## Overview
 
@@ -129,7 +129,7 @@ should reach for a fork:
 
 - **`Button` constructor.** `size=(w, h)`, `icon_size=`, `corner_radius=`,
   `show_underline=` and `variant=` cover most resizing/restyling needs
-  without subclassing. See `BUTTON_API.md`.
+  without subclassing. See [BUTTON_API.md](../user/BUTTON_API.md).
 - **`Label` options.** `pixel_size`, `family`, `expanding`, `elide`, and
   `minimum_width` let hosts tune typography per call site; register a
   `LabelVariantSpec` if the same combo recurs across surfaces.

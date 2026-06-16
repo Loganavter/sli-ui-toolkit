@@ -8,6 +8,8 @@ Default-pipeline задан в DEFAULT_LAYERS; Button может передат�
 
 from __future__ import annotations
 
+import warnings
+
 from PyQt6.QtCore import QRectF
 from PyQt6.QtGui import QPainter
 
@@ -100,6 +102,12 @@ class ButtonPainter:
         custom_bg_color=None,
         is_footer: bool = False,
     ) -> None:
+        warnings.warn(
+            "ButtonPainter.paint(...) is deprecated and will be removed in "
+            "0.3.0. Use Button with layers=... or the Painter pipeline instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         from .content import TextContent, RowsContent, IconContent, IconTextContent
         from .state import ButtonState
         from .variants import get_variant

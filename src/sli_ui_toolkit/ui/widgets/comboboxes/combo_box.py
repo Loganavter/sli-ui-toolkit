@@ -8,6 +8,10 @@ from PyQt6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.comboboxes._models import _ComboItem
 from sli_ui_toolkit.ui.widgets.comboboxes._overlay import _DropdownOverlay
 from sli_ui_toolkit.ui.widgets.comboboxes._search import (
@@ -15,14 +19,67 @@ from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     normalize_for_search,
     visible_indices_normalized,
 )
-from sli_ui_toolkit.ui.widgets.helpers import (
-    WheelScrollPolicyMixin,
-    register_hover_widget,
-)
 
 logger = logging.getLogger(__name__)
 
-class ComboBox(WheelScrollPolicyMixin, QWidget):
+
+class _ComboFieldBgLayer(Layer):
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        states = ctx.effective_states
+        p = ctx.painter
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rectf = QRectF(ctx.rect).adjusted(0.5, 0.5, -0.5, -0.5)
+        if ButtonState.PRESSED in states or widget._expanded:
+            bg_color = QColor(tm.get_color("flyout.background"))
+        elif ButtonState.HOVERED in states:
+            bg_color = QColor(tm.get_color("list_item.background.hover"))
+        else:
+            bg_color = QColor(tm.get_color("dialog.input.background"))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(bg_color))
+        p.drawRoundedRect(rectf, widget.RADIUS, widget.RADIUS)
+        pen_border = QPen(QColor(tm.get_color("input.border.thin")))
+        pen_border.setWidthF(1.0)
+        p.setPen(pen_border)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(rectf, widget.RADIUS, widget.RADIUS)
+
+
+class _ComboFieldContentLayer(Layer):
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        current_text = widget.currentText()
+        if not current_text:
+            return
+        is_disabled = ButtonState.DISABLED in ctx.effective_states
+        text_color = QColor(tm.get_color("dialog.text"))
+        if is_disabled:
+            text_color.setAlpha(140 if tm.is_dark() else 120)
+        rect = ctx.rect.toRect()
+        fm = QFontMetrics(widget.font())
+        inner_h = widget._item_height()
+        inner_top = (rect.height() - inner_h) // 2
+        text_rect = QRect(
+            widget.TEXT_HORIZONTAL_PADDING,
+            inner_top,
+            rect.width() - 2 * widget.TEXT_HORIZONTAL_PADDING,
+            inner_h,
+        )
+        display_text = current_text
+        if widget._search_text and widget._expanded:
+            display_text = f"{widget._search_text} -> {current_text}"
+        p = ctx.painter
+        p.setFont(widget.font())
+        p.setPen(QPen(text_color))
+        p.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            fm.elidedText(display_text, Qt.TextElideMode.ElideRight, text_rect.width()),
+        )
+
+
+class ComboBox(Button):
     currentIndexChanged = pyqtSignal(int)
     currentTextChanged = pyqtSignal(str)
 
@@ -37,13 +94,21 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         *,
         wheel_requires_focus: bool = False,
     ):
-        super().__init__(parent)
-        self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
+        super().__init__(
+            text="",
+            size=(0, self.BASE_HEIGHT),
+            corner_radius=self.RADIUS,
+            wheel_requires_focus=wheel_requires_focus,
+            layers=[
+                _ComboFieldBgLayer(),
+                RippleLayer(),
+                _ComboFieldContentLayer(),
+            ],
+            parent=parent,
+        )
         self._theme = ThemeManager.get_instance()
         self._items: list[_ComboItem] = []
         self._current_index = -1
-        self._hovered = False
-        self._pressed = False
         self._expanded = False
         self._max_visible_items = 12
         self._minimum_contents_length = 0
@@ -56,12 +121,7 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         self._visible_positions_cache: dict[int, int] = {}
         self._visible_cache_dirty = True
 
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setMouseTracking(True)
-        self.setFixedHeight(self.BASE_HEIGHT)
-        self._theme.theme_changed.connect(self.update)
-        register_hover_widget(self)
+        self.clicked.connect(self._on_field_clicked)
 
     def _item_height(self) -> int:
         return max(28, QFontMetrics(self.font()).height() + self.ITEM_VERTICAL_PADDING)
@@ -328,60 +388,6 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
     def _field_rect(self) -> QRect:
         return QRect(0, 0, self.width(), self.BASE_HEIGHT)
 
-    def _draw_field(self, painter: QPainter):
-        tm = self._theme
-        is_dark = tm.is_dark()
-        rect = self._field_rect()
-        rectf = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
-
-        bg_color = QColor(tm.get_color("dialog.input.background"))
-        if self._pressed or self._expanded:
-            bg_color = QColor(tm.get_color("flyout.background"))
-        elif self._hovered:
-            bg_color = QColor(tm.get_color("list_item.background.hover"))
-
-        text_color = QColor(tm.get_color("dialog.text"))
-        if not self.isEnabled():
-            text_color.setAlpha(140 if is_dark else 120)
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg_color))
-        painter.drawRoundedRect(rectf, self.RADIUS, self.RADIUS)
-
-        border_color = QColor(tm.get_color("input.border.thin"))
-        pen_border = QPen(border_color)
-        pen_border.setWidthF(1.0)
-        painter.setPen(pen_border)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(rectf, self.RADIUS, self.RADIUS)
-
-        current_text = self.currentText()
-        if current_text:
-            fm = QFontMetrics(self.font())
-            inner_h = self._item_height()
-            inner_top = (rect.height() - inner_h) // 2
-            text_rect = QRect(
-                self.TEXT_HORIZONTAL_PADDING,
-                inner_top,
-                rect.width() - 2 * self.TEXT_HORIZONTAL_PADDING,
-                inner_h,
-            )
-            painter.setPen(QPen(text_color))
-            display_text = current_text
-            if self._search_text and self._expanded:
-                display_text = f"{self._search_text} -> {current_text}"
-            painter.drawText(
-                text_rect,
-                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                fm.elidedText(display_text, Qt.TextElideMode.ElideRight, text_rect.width()),
-            )
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self._draw_field(painter)
-        painter.end()
-
     def _ensure_overlay(self):
         window = self.window()
         if window is None:
@@ -429,45 +435,11 @@ class ComboBox(WheelScrollPolicyMixin, QWidget):
         if window is not None:
             window.removeEventFilter(self)
 
-    def enterEvent(self, event):
-        self.setHoverActive(True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.setHoverActive(False)
-        super().leaveEvent(event)
-
-    def hoverHitTest(self, pos) -> bool:
-        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
-        return self.rect().contains(point)
-
-    def setHoverActive(self, active: bool) -> None:
-        active = bool(active)
-        if self._hovered != active:
-            self._hovered = active
-            self.update()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._pressed = True
-            self.setFocus()
-            if self._field_rect().contains(event.position().toPoint()):
-                if self._expanded:
-                    self.hideDropdown()
-                else:
-                    self.showDropdown()
-            self.update()
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() != Qt.MouseButton.LeftButton:
-            super().mouseReleaseEvent(event)
-            return
-        self._pressed = False
-        self.update()
-        super().mouseReleaseEvent(event)
+    def _on_field_clicked(self):
+        if self._expanded:
+            self.hideDropdown()
+        else:
+            self.showDropdown()
 
     def keyPressEvent(self, event):
         if self._search_enabled and event.key() == Qt.Key.Key_Backspace:

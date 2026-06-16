@@ -1,24 +1,24 @@
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.overlays.in_window_overlay import TopLevelInWindowOverlay
 
 
-class DragDropOverlay(QWidget):
+class DragDropOverlay(TopLevelInWindowOverlay):
     def __init__(self, parent=None):
-        if parent is None:
-            raise ValueError("DragDropOverlay requires an in-window parent widget")
-        super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Widget)
+        super().__init__(
+            parent,
+            close_on_background=False,
+            close_on_escape=False,
+            close_on_deactivate=False,
+        )
         self._horizontal = False
         self._texts = ("", "")
         self._target_rect = None
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.hide()
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def set_overlay_state(
         self,

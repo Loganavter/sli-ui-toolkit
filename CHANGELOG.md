@@ -9,12 +9,18 @@
 - Multi-region `Button` support via `ButtonRegion`, `HorizontalSplit`, `VerticalSplit`, `GridSplit`, `CustomSplit`, `Divider`, `regions=`/`split=`/`divider=`, `set_regions(...)`, and region-scoped signals/capabilities/ripples.
 - New `"sidebar_nav"` button variant registered in `sidebar_nav_list.py` — resolves backgrounds from `list_item.background.normal/.hover` and `accent` tokens for the checked state.
 - `IconListWidget.add_item(text, icon=None, data=None)` helper, returning a proxy with `QListWidgetItem`-style API (`text`/`setText`/`setIcon`/`setSizeHint`/`data`/`setData`).
+- `IconListWidget` selected-icon modes: `"invert"` for selected color inversion and `"replace"` for alternate selected icons via `selected_icon=` or `(normal_icon, selected_icon)` pairs.
 - Declarative `ButtonSpec` / `RegionSpec` control model with content, style, shape, and behavior specs plus `Button.from_spec(...)` / `set_spec(...)` for complex button controls.
 - `Button.actionTriggered(action_id, data)` and behavior-level `action` / `data` / `callback` dispatch for declarative button controls.
 - Arbitrary path-shaped button regions via `path_fn` and `z_index`; hit-testing, background, content, and ripple clipping now respect region `QPainterPath`s.
+- `TopLevelInWindowOverlay`, `OverlaySlot`, and `OverlayItem` as reusable full-window in-window overlay infrastructure for arbitrary child widgets.
+- Virtualization support for dropdown items in `ComboBox` using a pool of `_DropdownItemSlot` widgets (extends `Button`).
 
 ### Changed
+- Legacy button widget names (`IconButton`, `ToggleIconButton`, `AutoRepeatButton`, `ToolButton`, `ToolButtonWithMenu`, `ButtonGroupContainer`, `ButtonType`, `ButtonMode`, etc.) now remain available only as lazy compatibility lookups that emit `DeprecationWarning`; they stay out of `__all__` and are scheduled for removal in `0.3.0`.
+- Older `sli_ui_toolkit.ui.widgets.atomic.combobox*` compatibility modules now emit `DeprecationWarning`; canonical `sli_ui_toolkit.widgets` and `sli_ui_toolkit.ui.widgets.comboboxes` imports remain warning-free.
 - `InstancesCounterButton` is now a thin `Button` regions subclass, so its add/remove halves share the standard button painter, hover states, dividers, theme resolution, and ripple feedback.
+- `DragDropOverlay` now inherits from `TopLevelInWindowOverlay`, reusing the shared in-window overlay base while preserving its pointer-transparent drag/drop painting API.
 - Refactored the core `Button` implementation (`button.py`) by isolating visual style properties/methods into a dedicated mixin `_ButtonStyleApi` (`style_api.py`) and input event handlers into `_ButtonEvents` (`events.py`), shrinking the facade code and unifying geometry calculations for text formats.
 - `IconListWidget` is no longer a `QListWidget`. It is now a `QWidget` wrapping a vertical stack of toolkit `Button`s inside a `QScrollArea`, so sidebar navigation reuses the unified Button visuals (ripple, theming, hover/press). Public surface preserved: `set_items`, `clear`, `count`, `item`, `currentRow`, `setCurrentRow`, `setIconSize`/`iconSize`, `refresh_icons`, `enable_minimal_scrollbar`, signals `currentRowChanged(int)` and `currentItemChanged(item, prev)`. Rows are rendered by a custom `_NavRowContent` (left-aligned icon + text) on a `_NavRowButton` (`toggle=False`, `NoFocus`) — selection is driven entirely by `IconListWidget`, ripple stays in overlay mode (a shade darker than hover) instead of auto-gradient between unchecked/checked backgrounds.
 - `MarkdownHelpDialog` populates its sidebar via `add_item(section.title)` instead of constructing `QListWidgetItem(text, parent)` directly.
@@ -26,13 +32,25 @@
 - Button region runtime state and geometry now flow through `ButtonController`, keeping compatibility aliases on `Button` while moving toward a spec/controller/renderer architecture.
 - `InstancesCounterButton` now builds its add/remove layout as a `ButtonSpec` factory rather than assembling raw regions directly.
 - `SingleRegionSplit` now gives each region the full widget rect, enabling overlay-style custom path regions without a separate split layout.
+- Refactored `ScrollableComboBox`, `ComboBox`, `_SimpleRow`, `_MenuItem`, and `RatingListItem` to inherit from the `Button` base class, enabling standardized ripple effects, focus, and state pipelines.
+- Improved `ComboBox` dropdown opening trigger to fire on click (release) rather than press, allowing the click wave to complete.
+- Enabled temporary mouse transparency (`WA_TransparentForMouseEvents`) on flyouts during open animation to prevent accidental hover triggers.
+- Optimized flyout initialization speed in `UnifiedFlyoutPanel` and `SimpleOptionsFlyout` by freezing layout/paint updates during bulk row insertions, preventing performance degradation on large lists.
+- Scaled down icons on `RatingListItem` adjustment buttons from default sizing to a compact 14px.
+- Adjusted `OverlayScrollArea` viewport margin behavior to properly reserve space for the minimalist scrollbar without clipping.
 
 ### Fixed
 - Resolved a bug in `HoverCoordinator` where widgets in non-active child windows incorrectly evaluated hover events under Wayland due to global coordinate translation limits; events are now reconciled selectively against the source window.
+- Synchronized programmatic `Button.setChecked(...)` with the main region `CHECKED` state, so widgets that update selection from models use the same painter state as click-driven toggles.
+- Fixed `CalendarDayButton` interaction layering: day cells no longer keep a focus outline after clicks, hover uses the standard `Button` event path, selection wins over hover/data/weekend backgrounds, and ripple feedback is visible on press.
+- Completed the remaining keyboard audit item for `InstancesCounterButton`: it is now Tab-reachable and supports keyboard add/remove activation.
+- Restored `IconListWidget` row icons after the Button-backed rewrite by drawing resolved row pixmaps instead of raw icon identifiers.
 
 ### Removed
 - Removed default bottom focus underline painting and associated configuration methods from `ComboBox` to simplify visual styling.
 - Removed custom focus outline drawing from `Switch` to avoid clipping artifacts along track boundaries.
+- `PasteDirectionOverlay` (superseded by the reusable `TopLevelInWindowOverlay` infrastructure).
+- `ChoiceOverlay` and `ChoiceSlot` from the public widget exports; legacy explicit imports now emit `DeprecationWarning` and should migrate to `TopLevelInWindowOverlay` / `OverlaySlot`.
 
 ## 0.2.10
 

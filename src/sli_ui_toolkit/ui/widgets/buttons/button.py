@@ -114,7 +114,15 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
     regionMenuTriggered = pyqtSignal(str, object)
     actionTriggered = pyqtSignal(str, object)
 
-    triggered = menuTriggered  # backwards-compat alias
+    @property
+    def triggered(self):
+        warnings.warn(
+            "Button.triggered is deprecated and will be removed in 0.3.0. "
+            "Use Button.menuTriggered instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.menuTriggered
 
     # Имена-алиасы для подклассов (CalendarDayButton) и capabilities.
     _hovered = _state_property(ButtonState.HOVERED)
@@ -511,14 +519,23 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
     def setChecked(self, checked: bool, emit: bool = True, emit_signal: bool | None = None):
         """emit_signal — backwards-compat alias for emit."""
         if emit_signal is not None:
+            warnings.warn(
+                "Button.setChecked(..., emit_signal=...) is deprecated and "
+                "will be removed in 0.3.0. Use emit=... instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
             emit = emit_signal
         if not self._has_toggle:
             return
         if self._checked != checked:
             self._checked = checked
+            self._controller.set_state("_main", ButtonState.CHECKED, checked)
+            self._sync_region_aliases()
             if emit:
                 self.toggled.emit(checked)
                 self.regionToggled.emit("_main", checked)
+            self.update()
 
     def isChecked(self) -> bool:
         return self._checked

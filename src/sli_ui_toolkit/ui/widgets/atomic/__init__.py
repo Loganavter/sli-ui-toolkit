@@ -5,7 +5,7 @@ from sli_ui_toolkit.ui.widgets.atomic.custom_group_widget import (
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.atomic.drop_zone_label import DropZoneLabel
 from sli_ui_toolkit.ui.widgets.atomic.checkbox import CheckBox
-from sli_ui_toolkit.ui.widgets.atomic.combobox import ComboBox
+from sli_ui_toolkit.ui.widgets.comboboxes.combo_box import ComboBox
 from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton
 from sli_ui_toolkit.ui.widgets.atomic.slider import Slider
 from sli_ui_toolkit.ui.widgets.atomic.switch import Switch
@@ -18,7 +18,7 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
 from sli_ui_toolkit.ui.widgets.atomic.instances_counter_button import (
     InstancesCounterButton,
 )
-from sli_ui_toolkit.ui.widgets.atomic.comboboxes import ScrollableComboBox
+from sli_ui_toolkit.ui.widgets.comboboxes.scrollable_combobox import ScrollableComboBox
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import (
     Label,
     LabelConfig,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QWheelEvent
+from PyQt6.QtGui import QKeyEvent, QWheelEvent
 from PyQt6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.widgets.buttons import (
@@ -46,7 +46,7 @@ class InstancesCounterButton(Button):
             wheel_requires_focus=wheel_requires_focus,
             parent=parent,
         )
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.regionClicked.connect(self._on_region_clicked)
 
     # ---------- public API ----------
@@ -85,6 +85,30 @@ class InstancesCounterButton(Button):
             event.accept()
             return
         super().wheelEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        if event.isAutoRepeat():
+            event.accept()
+            return
+
+        key = event.key()
+        if key in (
+            Qt.Key.Key_Space,
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Plus,
+        ):
+            self.addClicked.emit()
+            event.accept()
+            return
+
+        if key in (Qt.Key.Key_Down, Qt.Key.Key_Minus) and self._can_remove:
+            self.removeClicked.emit()
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
 
     # ---------- internals ----------
 

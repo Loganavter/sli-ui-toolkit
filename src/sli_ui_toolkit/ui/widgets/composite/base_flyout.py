@@ -325,6 +325,12 @@ class BaseFlyout(QWidget):
             final_rect.y() + int(round(slide_dy)),
         )
         self.setGeometry(QRect(start_pos, final_rect.size()))
+        # Блокируем mouse-events до конца анимации — иначе flyout, проезжающий
+        # под уже неподвижным курсором, подсвечивает «случайную» строку.
+        # WA_TransparentForMouseEvents отключает доставку и виджету, и его
+        # детям (см. Qt docs). Снимаем на animation finished + reconcile,
+        # чтобы реальный hover применился по фактическому положению курсора.
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.show()
         self.raise_()
 
@@ -341,6 +347,12 @@ class BaseFlyout(QWidget):
         if self._show_animation is not None:
             self._show_animation.deleteLater()
             self._show_animation = None
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        try:
+            from sli_ui_toolkit.ui.widgets.helpers import hover_coordinator
+            hover_coordinator().reconcile()
+        except Exception:
+            pass
 
     def _overlay_rect_relative_to_anchor(
         self,

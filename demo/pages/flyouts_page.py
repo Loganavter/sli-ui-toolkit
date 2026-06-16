@@ -277,8 +277,8 @@ class FlyoutsPage(GalleryPage):
             return
         self._font_flyout.show_aligned(
             anchor,
-            anchor_point="center-right",
-            flyout_point="center-left",
+            anchor_point="top-right",
+            flyout_point="bottom-left",
             offset=10,
             animation="slide",
         )
