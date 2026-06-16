@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.13
+
+### Fixed
+- Synchronized `sli_ui_toolkit.__version__` with the package version (0.2.12 was published with a stale `_version.py` reporting `"0.2.11"` at runtime).
+
 ## 0.2.12
 
 ### Changed
