@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.12
+
+### Changed
+- `Button` no longer auto-resolves a state-transition ripple gradient for toggle widgets. Gradient ripples are now strictly opt-in via `setRippleColors(color_from, color_to)`; without an explicit call, all buttons (including toggles) fall back to the default overlay ripple.
+
+### Removed
+- Redundant `CalendarDayButton._resolve_ripple_colors` override (now identical to the base default).
+
 ## 0.2.11
 
 ### Added
