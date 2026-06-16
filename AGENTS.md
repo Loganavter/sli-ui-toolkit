@@ -19,7 +19,7 @@ Read these files before changing code:
 1. [README.md](README.md)
 2. [docs/dev/ARCHITECTURE.md](docs/dev/ARCHITECTURE.md)
 3. [docs/user/API_CATALOG.md](docs/user/API_CATALOG.md)
-4. [docs/user/DESIGN_LANGUAGE.md](docs/user/DESIGN_LANGUAGE.md)
+4. [docs/dev/DESIGN_LANGUAGE.md](docs/dev/DESIGN_LANGUAGE.md)
 5. [CHANGELOG.md](CHANGELOG.md)
 
 ## Hard Rules
@@ -38,6 +38,10 @@ Read these files before changing code:
 - Do not add Improve-ImgSLI-specific or Tkonverter-specific logic to the toolkit.
 - Do not add fallback imports from host applications.
 - Do not bias the design toward the dark theme. Light and dark themes are both first-class and must resolve through `ThemeManager` tokens.
+- Keep committed package metadata in [src/sli_ui_toolkit.egg-info/](src/sli_ui_toolkit.egg-info/) in sync when changing package docs, public exports, dependencies, or source file inventory:
+  - [src/sli_ui_toolkit.egg-info/PKG-INFO](src/sli_ui_toolkit.egg-info/PKG-INFO) mirrors project metadata / long description links;
+  - [src/sli_ui_toolkit.egg-info/SOURCES.txt](src/sli_ui_toolkit.egg-info/SOURCES.txt) must include added package, docs, and test files and drop removed files;
+  - [src/sli_ui_toolkit.egg-info/requires.txt](src/sli_ui_toolkit.egg-info/requires.txt), [dependency_links.txt](src/sli_ui_toolkit.egg-info/dependency_links.txt), and [top_level.txt](src/sli_ui_toolkit.egg-info/top_level.txt) must stay consistent with packaging changes.
 
 ## Project Shape
 

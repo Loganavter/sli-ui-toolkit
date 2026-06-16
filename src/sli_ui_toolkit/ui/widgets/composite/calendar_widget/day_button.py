@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QDate, QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtCore import QDate, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -21,6 +21,8 @@ class CalendarDayButton(Button):
         )
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(28, 36)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
         self._is_weekend = False
         self._weekend_color: QColor | None = None
         self._is_disabled_export = False
@@ -36,7 +38,7 @@ class CalendarDayButton(Button):
     def set_data(self, has_data: bool, color: QColor | None = None) -> None:
         self._has_data = has_data
         self._data_color = color
-        self.update()
+        self._sync_calendar_background()
 
     def set_date(self, date: QDate) -> None:
         self.date = date
@@ -44,61 +46,37 @@ class CalendarDayButton(Button):
     def set_weekend(self, is_weekend: bool, color: QColor | None = None) -> None:
         self._is_weekend = is_weekend
         self._weekend_color = color
-        self.update()
+        self._sync_calendar_background()
 
     def set_disabled_export(self, is_disabled: bool, color: QColor | None = None) -> None:
         self._is_disabled_export = is_disabled
         self._disabled_export_color = color
-        self.update()
+        self._sync_calendar_background()
 
-    def paintEvent(self, event):
+    def setChecked(self, checked: bool, emit: bool = True, emit_signal: bool | None = None):
+        super().setChecked(checked, emit=emit, emit_signal=emit_signal)
+        self._sync_calendar_background()
+
+    def _sync_calendar_background(self) -> None:
+        """Resolve calendar semantic backgrounds without bypassing Button input state."""
         if self._is_disabled_export and self._disabled_export_color:
-            self._override_bg_color = self._disabled_export_color
+            self.set_background_color(None)
+            self.set_override_bg_color(QColor(self._disabled_export_color))
         elif self._checked:
-            self._override_bg_color = self._theme_manager.get_color("accent")
+            self.set_background_color(None)
+            self.set_override_bg_color(self._theme_manager.get_color("accent"))
         elif self._is_weekend and self._weekend_color:
-            self._override_bg_color = self._weekend_color
+            self.set_override_bg_color(None)
+            self.set_background_color(QColor(self._weekend_color))
         elif self._has_data and self._data_color:
-            self._override_bg_color = self._data_color
+            self.set_override_bg_color(None)
+            self.set_background_color(QColor(self._data_color))
         else:
-            self._override_bg_color = None
+            self.set_override_bg_color(None)
+            self.set_background_color(None)
 
-        super().paintEvent(event)
-
-    def _compute_base_tint(self) -> QColor | None:
-        """Compute visual indicator tints (weekend, data, etc).
-
-        Returns highest-priority tint. In the future, this can be extended
-        to blend multiple tints or apply interactive state modifiers.
-        Priority order: disabled > weekend > data
-        """
-        if self._is_disabled_export and self._disabled_export_color:
-            color = QColor(self._disabled_export_color)
-            color.setAlpha(60)
-            return color
-
-        if self._is_weekend and self._weekend_color:
-            color = QColor(self._weekend_color)
-            color.setAlpha(60)
-            return color
-
-        if self._has_data and self._data_color:
-            color = QColor(self._data_color)
-            color.setAlpha(50)
-            return color
-
-        return None
-
-    def _paint_tint_overlay(self, tint_color: QColor) -> None:
-        """Paint a tint layer on top of the button without blocking hover."""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(tint_color)
-        painter.setPen(Qt.PenStyle.NoPen)
-
-        radius = max(0, int(self._corner_radius_px or 6))
-        rect_f = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        painter.drawRoundedRect(rect_f, radius, radius)
+    def _resolve_ripple_colors(self) -> tuple[QColor | None, QColor | None]:
+        return None, None
 
     def _on_click(self):
         if self.date:
@@ -107,19 +85,6 @@ class CalendarDayButton(Button):
     def _on_context_menu(self, pos):
         if self.date:
             self.date_context_menu.emit(self.date)
-
-    def enterEvent(self, event):
-        if self._has_data:
-            super().enterEvent(event)
-        event.accept()
-
-    def leaveEvent(self, event):
-        if self._has_data:
-            super().leaveEvent(event)
-        else:
-            self._hovered = False
-            self.update()
-        event.accept()
 
     def sizeHint(self) -> QSize:
         return QSize(50, 70)

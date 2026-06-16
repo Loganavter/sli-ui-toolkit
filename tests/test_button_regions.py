@@ -15,6 +15,7 @@ from sli_ui_toolkit.widgets import (
     ShapeSpec,
     VerticalSplit,
 )
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 
 
 def _show(widget, qtbot):
@@ -234,3 +235,15 @@ def test_path_region_z_index_wins_over_lower_region(qtbot):
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton, pos=QPoint(2, 2))
 
     assert clicked == ["diamond", "base"]
+
+
+def test_button_set_checked_updates_main_region_state():
+    button = Button(text="Toggle", toggle=True)
+
+    button.setChecked(True, emit=False)
+    assert button.isChecked() is True
+    assert ButtonState.CHECKED in button.region_states("_main")
+
+    button.setChecked(False, emit=False)
+    assert button.isChecked() is False
+    assert ButtonState.CHECKED not in button.region_states("_main")

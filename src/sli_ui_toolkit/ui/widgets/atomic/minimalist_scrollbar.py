@@ -250,16 +250,19 @@ class OverlayScrollArea(QScrollArea):
         native = self.verticalScrollBar()
         should_show = native.maximum() > native.minimum()
         self.custom_v_scrollbar.setVisible(should_show)
+        if self._reserve_scrollbar_space and should_show:
+            self.setViewportMargins(0, 0, self._scrollbar_width, 0)
+        else:
+            self.setViewportMargins(0, 0, 0, 0)
         self._position_scrollbar()
 
     def _position_scrollbar(self):
         if not self.custom_v_scrollbar.isVisible():
             return
+        # Anchor to the scroll area's right edge so reserve_scrollbar_space=True
+        # places the bar in the reserved gap rather than inside the viewport.
         self.custom_v_scrollbar.setGeometry(
-            self.viewport().x()
-            + self.viewport().width()
-            - self._scrollbar_width
-            - self._scrollbar_gap,
+            self.width() - self._scrollbar_width - self._scrollbar_gap,
             self.viewport().y(),
             self._scrollbar_width,
             self.viewport().height(),

@@ -3,50 +3,94 @@ from __future__ import annotations
 import logging
 import time
 
-from PyQt6.QtCore import QEvent, QPoint, QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen, QPolygon
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPen, QPolygon
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
+from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.buttons.layers import (
+    BackgroundLayer,
+    RippleLayer,
+)
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 
 logger = logging.getLogger(__name__)
 
-class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
+
+class _ComboContentLayer(Layer):
+    """Текст слева + chevron справа. Заменяет дефолтный ContentLayer."""
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        p = ctx.painter
+        rect = ctx.effective_rect.toRect()
+
+        is_disabled = ButtonState.DISABLED in ctx.effective_states
+        text_color = QColor(tm.get_color("dialog.text"))
+        if is_disabled:
+            text_color.setAlpha(140 if tm.is_dark() else 120)
+
+        font = widget.getItemFont()
+        p.setFont(font)
+        p.setPen(QPen(text_color))
+        fm = QFontMetrics(font)
+        text_rect = QRect(
+            rect.x() + 12,
+            rect.y(),
+            max(0, rect.width() - 12 - 28),
+            rect.height(),
+        )
+        elided = fm.elidedText(
+            widget._text, Qt.TextElideMode.ElideRight, text_rect.width()
+        )
+        p.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            elided,
+        )
+
+        p.setPen(QPen(text_color, 1.5))
+        center_x = rect.x() + rect.width() - 14
+        center_y = rect.center().y()
+        p.drawPolyline(
+            QPolygon(
+                [
+                    QPoint(center_x - 4, center_y - 1),
+                    QPoint(center_x, center_y + 2),
+                    QPoint(center_x + 4, center_y - 1),
+                ]
+            )
+        )
+
+
+class ScrollableComboBox(Button):
     currentIndexChanged = pyqtSignal(int)
-    clicked = pyqtSignal()
     wheelScrolledToIndex = pyqtSignal(int)
 
     def __init__(self, parent=None, *, wheel_requires_focus: bool = False):
-        super().__init__(parent)
-        self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
+        super().__init__(
+            text="",
+            variant="surface",
+            size=(0, 33),
+            corner_radius=6,
+            wheel_requires_focus=wheel_requires_focus,
+            layers=[BackgroundLayer(), RippleLayer(), _ComboContentLayer()],
+            parent=parent,
+        )
         self._current_index = -1
         self._count = 0
         self._text = ""
-        self._items = []
-        self._hovered = False
-        self._pressed = False
-        self._flyout_is_open = False
-        self._flyout_open_timestamp = 0.0
+        self._items: list[str] = []
         self._auto_width = False
         self._debounce_timer = QTimer(self)
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.setInterval(300)
         self._debounce_timer.timeout.connect(self._apply_debounced_index)
         self._pending_index = -1
-        self.setFixedHeight(33)
         self.setMinimumWidth(0)
-        self.setProperty("class", "default")
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.theme_manager = ThemeManager.get_instance()
-        self.theme_manager.theme_changed.connect(self.update)
-        self.setMouseTracking(True)
-        register_hover_widget(self)
 
-    def _style_prefix(self) -> str:
-        btn_class = str(self.property("class") or "")
-        return "button.primary" if "primary" in btn_class else "button.dialog.default"
+    # ---------------- auto-width ----------------
 
     def setAutoWidthEnabled(self, enabled: bool):
         self._auto_width = bool(enabled)
@@ -61,17 +105,12 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
     def _adjustWidthToContent(self):
         if not self._auto_width:
             return
-        try:
-            font = self.getItemFont()
-        except Exception:
-            font = self.font()
-        fm = QFontMetrics(font)
+        fm = QFontMetrics(self.getItemFont())
         max_text_w = 0
-        if self._items:
-            for item_text in self._items:
-                w = fm.horizontalAdvance(str(item_text))
-                if w > max_text_w:
-                    max_text_w = w
+        for item_text in self._items:
+            w = fm.horizontalAdvance(str(item_text))
+            if w > max_text_w:
+                max_text_w = w
         current_text_w = fm.horizontalAdvance(self._text or "")
         if current_text_w > max_text_w:
             max_text_w = current_text_w
@@ -79,6 +118,8 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
         if self.width() != int(needed):
             self.setFixedWidth(int(needed))
             self.updateGeometry()
+
+    # ---------------- state ----------------
 
     def count(self):
         return self._count
@@ -105,12 +146,9 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
                 QTimer.singleShot(0, self._adjustWidthToContent)
             self.currentIndexChanged.emit(index)
 
-    def _apply_debounced_index(self):
-        if self._pending_index != -1 and self._pending_index != self.currentIndex():
-            self.wheelScrolledToIndex.emit(self._pending_index)
-        self._pending_index = -1
-
-    def updateState(self, count: int, current_index: int, text: str = "", items: list = None):
+    def updateState(
+        self, count: int, current_index: int, text: str = "", items: list = None
+    ):
         self._count = count
         self._current_index = current_index
         if text:
@@ -127,55 +165,7 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
         if self._auto_width:
             QTimer.singleShot(0, self._adjustWidthToContent)
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        tm = self.theme_manager
-        is_dark = tm.is_dark()
-        prefix = self._style_prefix()
-        text_color = (
-            tm.get_color("button.primary.text")
-            if prefix == "button.primary"
-            else tm.get_color("dialog.text")
-        )
-        if not self.isEnabled():
-            bg_color = tm.get_color(f"{prefix}.background")
-            text_color = QColor(text_color)
-            text_color.setAlpha(140 if is_dark else 120)
-        elif self._pressed:
-            bg_color = tm.get_color(f"{prefix}.background.pressed")
-        elif self._flyout_is_open:
-            bg_color = tm.get_color(f"{prefix}.background")
-        elif self._hovered:
-            bg_color = tm.get_color(f"{prefix}.background.hover")
-        else:
-            bg_color = tm.get_color(f"{prefix}.background")
-        rect = self.rect()
-        rectf = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg_color))
-        painter.drawRoundedRect(rectf, 6, 6)
-        border_color = QColor(tm.get_color(f"{prefix}.border"))
-        pen_border = QPen(border_color)
-        pen_border.setWidthF(1.0)
-        painter.setPen(pen_border)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(rectf, 6, 6)
-        painter.setPen(QPen(text_color))
-        font = self.getItemFont()
-        painter.setFont(font)
-        fm = QFontMetrics(font)
-        text_rect = rect.adjusted(12, 0, -28, 0)
-        elided_text = fm.elidedText(self._text, Qt.TextElideMode.ElideRight, int(text_rect.width()))
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided_text)
-        arrow_color = text_color
-        painter.setPen(QPen(arrow_color, 1.5))
-        center_x = rect.width() - 14
-        center_y = rect.center().y()
-        p1 = QPoint(center_x - 4, center_y - 1)
-        p2 = QPoint(center_x, center_y + 2)
-        p3 = QPoint(center_x + 4, center_y - 1)
-        painter.drawPolyline(QPolygon([p1, p2, p3]))
+    # ---------------- popup integration hooks ----------------
 
     def getItemFont(self) -> QFont:
         return self.font()
@@ -183,43 +173,12 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
     def getItemHeight(self) -> int:
         return self.height() - 2
 
-    def enterEvent(self, event):
-        self.setHoverActive(True)
-        super().enterEvent(event)
+    # ---------------- wheel ----------------
 
-    def leaveEvent(self, event):
-        self.setHoverActive(False)
-        super().leaveEvent(event)
-
-    def hoverHitTest(self, pos) -> bool:
-        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
-        return self.rect().contains(point)
-
-    def setHoverActive(self, active: bool) -> None:
-        active = bool(active)
-        if self._hovered != active:
-            self._hovered = active
-            self.update()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._pressed = True
-            self.setFocus()
-            self.update()
-            event.accept()
-        else:
-            super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            if self._pressed:
-                self._pressed = False
-                self.update()
-                if self.rect().contains(event.pos()):
-                    self.clicked.emit()
-            event.accept()
-        else:
-            super().mouseReleaseEvent(event)
+    def _apply_debounced_index(self):
+        if self._pending_index != -1 and self._pending_index != self.currentIndex():
+            self.wheelScrolledToIndex.emit(self._pending_index)
+        self._pending_index = -1
 
     def wheelEvent(self, event):
         if not self.shouldHandleWheelEvent(event):
@@ -227,7 +186,11 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
         if not self.isEnabled() or self.count() <= 1:
             event.ignore()
             return
-        start_index = self._pending_index if self._debounce_timer.isActive() else self.currentIndex()
+        start_index = (
+            self._pending_index
+            if self._debounce_timer.isActive()
+            else self.currentIndex()
+        )
         delta = event.angleDelta().y()
         if delta > 0:
             new_index = (start_index - 1 + self.count()) % self.count()
@@ -243,15 +206,7 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
             self.update()
             event.accept()
 
-    def setFlyoutOpen(self, is_open: bool):
-        if is_open:
-            self._flyout_open_timestamp = time.time()
-        else:
-            if self._flyout_open_timestamp > 0:
-                time.time() - self._flyout_open_timestamp
-            self._flyout_open_timestamp = 0.0
-        self._flyout_is_open = is_open
-        self.update()
+    # ---------------- misc ----------------
 
     def changeEvent(self, event: QEvent):
         if event.type() in (QEvent.Type.FontChange, QEvent.Type.ApplicationFontChange):
@@ -259,3 +214,12 @@ class ScrollableComboBox(WheelScrollPolicyMixin, QWidget):
             if self._auto_width:
                 QTimer.singleShot(0, self._adjustWidthToContent)
         super().changeEvent(event)
+
+    # Compat: старая реализация хранила timestamp открытия flyout. Сохраним
+    # внешний контракт, но time-tracking упростим — Button сам управляет hover.
+    def setFlyoutOpen(self, is_open: bool):
+        if is_open:
+            self._flyout_open_timestamp = time.time()
+        else:
+            self._flyout_open_timestamp = 0.0
+        super().setFlyoutOpen(is_open)

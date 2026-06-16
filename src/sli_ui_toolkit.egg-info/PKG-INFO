@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: sli-ui-toolkit
-Version: 0.2.12
+Version: 0.2.11
 Summary: Reusable PyQt UI toolkit primitives for SLI desktop tools.
 Author: Loganavter
 License: MIT
@@ -36,9 +36,9 @@ Use it when you want:
 
 This file is the integration entry point, not the full reference.
 
-- Full public API: [docs/API_CATALOG.md](docs/API_CATALOG.md)
-- Internal structure: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Visual conventions: [docs/DESIGN_LANGUAGE.md](docs/DESIGN_LANGUAGE.md)
+- Full public API: [docs/user/API_CATALOG.md](docs/user/API_CATALOG.md)
+- Internal structure: [docs/dev/ARCHITECTURE.md](docs/dev/ARCHITECTURE.md)
+- Visual conventions: [docs/dev/DESIGN_LANGUAGE.md](docs/dev/DESIGN_LANGUAGE.md)
 - Docs index: [docs/README.md](docs/README.md)
 
 ## Import Layers
@@ -113,7 +113,7 @@ install_application_tooltips(app)
 window = QWidget()
 layout = QVBoxLayout(window)
 
-save_button = Button("save", text="Save", variant="primary")
+save_button = Button("save", text="Save", variant="surface")
 mode_combo = ComboBox()
 mode_combo.addItems(["Fast", "Balanced", "Quality"])
 
@@ -148,7 +148,7 @@ hovered or current item.
 - `MarkdownHelpDialog`
   Reusable markdown help/documentation dialog.
 
-Usage details live in [docs/API_CATALOG.md](docs/API_CATALOG.md).
+Usage details live in [docs/user/API_CATALOG.md](docs/user/API_CATALOG.md).
 
 ## Notes
 

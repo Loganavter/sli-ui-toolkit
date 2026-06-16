@@ -27,7 +27,7 @@ class ListsPage(GalleryPage):
         lw = IconListWidget(icon_size=QSize(24, 24), row_height=40)
         lw.setIconSize(QSize(24, 24))
         lw.set_items([
-            IconListItem(text=f"Asset folder {i}", icon="folder", data=f"/project/assets/{i}")
+            IconListItem(text=f"Asset folder {i}", icon="folder_open", data=f"/project/assets/{i}")
             for i in range(1, 16)
         ])
         lw.enable_minimal_scrollbar()
@@ -54,11 +54,12 @@ class ListsPage(GalleryPage):
         nav_layout.setSpacing(12)
         nav = IconListWidget()
         nav.setIconSize(QSize(20, 20))
+        nav.setSelectedIconMode("replace")
         nav.set_items([
-            ("Home", "menu"),
-            ("Library", "folder"),
-            ("Settings", "settings"),
-            ("About", "info"),
+            IconListItem("Home", ("photo", "chart")),
+            IconListItem("Library", ("folder_open", "download")),
+            IconListItem("Settings", ("settings", "sync")),
+            IconListItem("About", ("help", "incognito")),
         ])
         nav.enable_minimal_scrollbar()
         nav.setFixedSize(220, 220)

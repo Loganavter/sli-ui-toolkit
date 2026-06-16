@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QWidget
 
 from sli_ui_toolkit.widgets import (
     Button,
+    InstancesCounterButton,
     ScrollableComboBox,
     SimpleUnifiedFlyoutController,
     SimpleUnifiedFlyoutStore,
@@ -64,6 +65,42 @@ def test_switch_focus_policy_is_strong():
 def test_scrollable_combobox_focus_policy_is_strong():
     box = ScrollableComboBox()
     assert box.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+
+def test_instances_counter_button_focus_policy_is_strong():
+    counter = InstancesCounterButton()
+    assert counter.focusPolicy() == Qt.FocusPolicy.StrongFocus
+
+
+def test_instances_counter_button_keyboard_adds(qtbot):
+    counter = InstancesCounterButton()
+    _show(counter, qtbot)
+    counter.setFocus()
+    fired: list[int] = []
+    counter.addClicked.connect(lambda: fired.append(1))
+
+    qtbot.keyClick(counter, Qt.Key.Key_Space)
+    qtbot.keyClick(counter, Qt.Key.Key_Return)
+    qtbot.keyClick(counter, Qt.Key.Key_Up)
+    qtbot.keyClick(counter, Qt.Key.Key_Plus)
+
+    assert fired == [1, 1, 1, 1]
+
+
+def test_instances_counter_button_keyboard_removes_only_when_allowed(qtbot):
+    counter = InstancesCounterButton()
+    _show(counter, qtbot)
+    counter.setFocus()
+    fired: list[int] = []
+    counter.removeClicked.connect(lambda: fired.append(1))
+
+    qtbot.keyClick(counter, Qt.Key.Key_Down)
+    counter.set_count(2)
+    counter.set_can_remove(True)
+    qtbot.keyClick(counter, Qt.Key.Key_Down)
+    qtbot.keyClick(counter, Qt.Key.Key_Minus)
+
+    assert fired == [1, 1]
 
 
 def _make_timeline(qtbot, total_frames: int = 50):

@@ -26,14 +26,109 @@ from PyQt6.QtWidgets import (
 from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
-from sli_ui_toolkit.widgets import Button
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
+from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 
 DEFAULT_MINUS_ICON = "remove"
 DEFAULT_PLUS_ICON = "add"
 
-class RatingListItem(WheelScrollPolicyMixin, QWidget):
+
+class _RatingRowBgLayer(Layer):
+    """Position-aware rounded BG: outer corners use outer_r, internal use inner_r.
+
+    Reads `widget.position` ∈ {"first","middle","last","only"} и `widget.is_current`,
+    `widget._is_being_dragged`. Inset фон на 2px.
+    """
+
+    INNER_R = 5
+    OUTER_R = 8
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        states = ctx.effective_states
+        is_active = (
+            widget.is_current
+            or ButtonState.HOVERED in states
+            or ButtonState.PRESSED in states
+        )
+        key = "list_item.background.hover" if is_active else "list_item.background.normal"
+        p = ctx.painter
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        if widget._is_being_dragged:
+            p.setOpacity(0.35)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(tm.get_color(key))
+        bg_rect = ctx.rect.toRect().adjusted(2, 2, -2, -2)
+        pos = widget.position
+        if pos == "middle":
+            p.drawRoundedRect(bg_rect, self.INNER_R, self.INNER_R)
+        else:
+            r = bg_rect
+            tl = self.OUTER_R if pos in ("first", "only") else self.INNER_R
+            tr = self.OUTER_R if pos in ("first", "only") else self.INNER_R
+            bl = self.OUTER_R if pos in ("last", "only") else self.INNER_R
+            br = self.OUTER_R if pos in ("last", "only") else self.INNER_R
+            path = QPainterPath()
+            path.moveTo(r.left() + tl, r.top())
+            path.lineTo(r.right() - tr, r.top())
+            path.arcTo(r.right() - 2 * tr, r.top(), 2 * tr, 2 * tr, 90, -90)
+            path.lineTo(r.right(), r.bottom() - br)
+            path.arcTo(r.right() - 2 * br, r.bottom() - 2 * br, 2 * br, 2 * br, 0, -90)
+            path.lineTo(r.left() + bl, r.bottom())
+            path.arcTo(r.left(), r.bottom() - 2 * bl, 2 * bl, 2 * bl, -90, -90)
+            path.lineTo(r.left(), r.top() + tl)
+            path.arcTo(r.left(), r.top(), 2 * tl, 2 * tl, 180, -90)
+            path.closeSubpath()
+            p.drawPath(path)
+        if widget._is_being_dragged:
+            p.setOpacity(1.0)
+
+
+class _RatingRowIndicatorLayer(Layer):
+    """Левый accent-бар для current row."""
+
+    def applies(self, ctx) -> bool:
+        return bool(getattr(ctx.widget, "is_current", False))
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        rect = ctx.rect.toRect()
+        pen = QPen(tm.get_color("accent"))
+        pen.setWidth(3)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p = ctx.painter
+        if widget._is_being_dragged:
+            p.setOpacity(0.35)
+        p.setPen(pen)
+        x = rect.left() + pen.width()
+        p.drawLine(x, rect.top() + 7, x, rect.bottom() - 7)
+        if widget._is_being_dragged:
+            p.setOpacity(1.0)
+
+
+class _RatingRowSeparatorLayer(Layer):
+    """Вертикальный separator между rating_label и name_label (только image-type)."""
+
+    def applies(self, ctx) -> bool:
+        widget = ctx.widget
+        return widget.item_type == "image" and getattr(widget, "rating_label", None) is not None
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        p = ctx.painter
+        if widget._is_being_dragged:
+            p.setOpacity(0.35)
+        p.setPen(QPen(tm.get_color("separator.color"), 1))
+        x_pos = widget.rating_label.geometry().right() + widget.layout.spacing() // 2
+        p.drawLine(x_pos, 6, x_pos, widget.height() - 6)
+        if widget._is_being_dragged:
+            p.setOpacity(1.0)
+
+
+class RatingListItem(Button):
     itemSelected = pyqtSignal(int)
     itemRightClicked = pyqtSignal(int)
 
@@ -58,8 +153,27 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
         position="middle",
         wheel_requires_focus: bool = False,
     ):
-        super().__init__(parent=parent)
-        self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
+        # `item_type`/`position` нужны кастомным layer'ам ещё до super().__init__,
+        # потому что Button.__init__ может вызвать update()/paint в зависимости
+        # от theme bootstrap.
+        self.item_type = item_type
+        self.position = position
+        self.is_current = is_current
+        self._is_being_dragged = False
+        self.rating_label = None
+        super().__init__(
+            text="",
+            size=(0, item_height),
+            corner_radius=8,
+            wheel_requires_focus=wheel_requires_focus,
+            layers=[
+                _RatingRowBgLayer(),
+                RippleLayer(),
+                _RatingRowIndicatorLayer(),
+                _RatingRowSeparatorLayer(),
+            ],
+            parent=parent,
+        )
         self.index = index
         self.full_path = full_path
         self.image_number = image_number
@@ -69,24 +183,22 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
         self._create_rating_gesture = create_rating_gesture
         self._on_update_drop_indicator = on_update_drop_indicator
         self._on_clear_drop_indicator = on_clear_drop_indicator
-        self.is_current = is_current
-        self.item_type = item_type
-        self.position = position
-        self._hovered = False
-        self.setMouseTracking(True)
-        register_hover_widget(self)
 
-        self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update_styles)
 
         self.drag_start_pos = QPoint()
         self._drag_start_pos_global = QPointF()
-        self._is_being_dragged = False
 
         self.tooltip_timer = QTimer(self)
         self.tooltip_timer.setSingleShot(True)
         self.tooltip_timer.setInterval(500)
         self.tooltip_timer.timeout.connect(self._show_tooltip)
+
+        # Row click → external selection. Button.clicked не срабатывает, если
+        # release пришёл по child-Button'у (Qt потребит event на ребёнке) или
+        # если start drag отменил его (см. mouseReleaseEvent).
+        self.clicked.connect(lambda: self.itemSelected.emit(self.index))
+        self.rightClicked.connect(lambda: self.itemRightClicked.emit(self.index))
 
         self.layout = QHBoxLayout(self)
 
@@ -122,8 +234,12 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
             rating_font.setPixelSize(max(8, base_px - 3))
             self.rating_label.setFont(rating_font)
 
-            self.btn_minus = Button(resolve_icon(DEFAULT_MINUS_ICON), parent=self)
-            self.btn_plus = Button(resolve_icon(DEFAULT_PLUS_ICON), parent=self)
+            self.btn_minus = Button(
+                resolve_icon(DEFAULT_MINUS_ICON), icon_size=14, parent=self
+            )
+            self.btn_plus = Button(
+                resolve_icon(DEFAULT_PLUS_ICON), icon_size=14, parent=self
+            )
             self.btn_minus.setObjectName("minusButton")
             self.btn_plus.setObjectName("plusButton")
             for btn in [self.btn_minus, self.btn_plus]:
@@ -211,124 +327,36 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
             self.btn_plus.setIcon(resolve_icon(DEFAULT_PLUS_ICON))
         self.update()
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        tm = self.theme_manager
-
-        if self._is_being_dragged:
-            painter.setOpacity(0.35)
-
-        if self.is_current or self._hovered:
-            bg_color = tm.get_color("list_item.background.hover")
-        else:
-            bg_color = tm.get_color("list_item.background.normal")
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(bg_color)
-        background_rect = self.rect().adjusted(2, 2, -2, -2)
-
-        inner_r = 5
-        outer_r = 8
-        pos = self.position
-        if pos == "middle":
-            painter.drawRoundedRect(background_rect, inner_r, inner_r)
-        else:
-            r = background_rect
-            path = QPainterPath()
-            tl = outer_r if pos in ("first", "only") else inner_r
-            tr = outer_r if pos in ("first", "only") else inner_r
-            bl = outer_r if pos in ("last", "only") else inner_r
-            br = outer_r if pos in ("last", "only") else inner_r
-            path.moveTo(r.left() + tl, r.top())
-            path.lineTo(r.right() - tr, r.top())
-            path.arcTo(r.right() - 2 * tr, r.top(), 2 * tr, 2 * tr, 90, -90)
-            path.lineTo(r.right(), r.bottom() - br)
-            path.arcTo(r.right() - 2 * br, r.bottom() - 2 * br, 2 * br, 2 * br, 0, -90)
-            path.lineTo(r.left() + bl, r.bottom())
-            path.arcTo(r.left(), r.bottom() - 2 * bl, 2 * bl, 2 * bl, -90, -90)
-            path.lineTo(r.left(), r.top() + tl)
-            path.arcTo(r.left(), r.top(), 2 * tl, 2 * tl, 180, -90)
-            path.closeSubpath()
-            painter.drawPath(path)
-
-        if self.is_current:
-            indicator_pen = QPen(tm.get_color("accent"))
-            indicator_pen.setWidth(3)
-            indicator_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(indicator_pen)
-            y1, y2 = self.rect().top() + 7, self.rect().bottom() - 7
-            x = self.rect().left() + indicator_pen.width()
-            painter.drawLine(x, y1, x, y2)
-
-        if self.item_type == "image":
-            separator_color = tm.get_color("separator.color")
-            painter.setPen(QPen(separator_color, 1))
-            x_pos = self.rating_label.geometry().right() + self.layout.spacing() // 2
-            painter.drawLine(x_pos, 6, x_pos, self.height() - 6)
-
-        if self._is_being_dragged:
-            painter.setOpacity(1.0)
-
     def enterEvent(self, event):
-        self.setHoverActive(True)
+        super().enterEvent(event)
         if self.full_path:
             self.tooltip_timer.start()
-        self.update()
-        super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.setHoverActive(False)
+        super().leaveEvent(event)
         self.tooltip_timer.stop()
         PathTooltip.get_instance().hide_tooltip()
-        self.update()
-        super().leaveEvent(event)
-
-    def hoverHitTest(self, pos) -> bool:
-        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
-        return self.rect().contains(point)
-
-    def setHoverActive(self, active: bool) -> None:
-        active = bool(active)
-        if self._hovered != active:
-            self._hovered = active
-            self.update()
 
     def mousePressEvent(self, event: QMouseEvent):
         self.tooltip_timer.stop()
         PathTooltip.get_instance().hide_tooltip()
-
         if event.button() == Qt.MouseButton.LeftButton:
-            if self.item_type == "image":
-                child = self.childAt(event.pos())
-                if child is not self.btn_plus and child is not self.btn_minus:
-                    self.drag_start_pos = event.pos()
-                    self._drag_start_pos_global = event.globalPosition()
-            else:
-                self.drag_start_pos = event.pos()
-                self._drag_start_pos_global = event.globalPosition()
-
+            self.drag_start_pos = event.pos()
+            self._drag_start_pos_global = event.globalPosition()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
+        super().mouseMoveEvent(event)
         if not (event.buttons() & Qt.MouseButton.LeftButton):
             return
-
         if self._is_drag_initiated:
             return
-
-        if self.item_type == "image":
-
-            child = self.childAt(event.pos())
-            if child is self.btn_plus or child is self.btn_minus:
-                event.accept()
-                return
 
         current_global_pos = self.mapToGlobal(event.pos())
         start_global_pos = self.mapToGlobal(self.drag_start_pos)
         distance = (current_global_pos - start_global_pos).manhattanLength()
 
         if distance >= QApplication.startDragDistance():
-
             if self.item_type == "image" and self._active_button:
                 try:
                     self._active_button._initial_delay_timer.stop()
@@ -349,28 +377,14 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
             self._notify_flyout_drop_indicator(event.globalPosition())
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        if not self._is_drag_initiated:
-            if self.rect().contains(event.pos()):
-                if event.button() == Qt.MouseButton.LeftButton:
-                    should_select = True
-                    if self.item_type == "image":
-
-                        child = self.childAt(event.pos())
-                        if child is self.btn_plus or child is self.btn_minus:
-                            should_select = False
-                        else:
-
-                            is_on_plus = self.btn_plus.geometry().contains(event.pos())
-                            is_on_minus = self.btn_minus.geometry().contains(
-                                event.pos()
-                            )
-                            if is_on_plus or is_on_minus:
-                                should_select = False
-
-                    if should_select:
-                        self.itemSelected.emit(self.index)
-                elif event.button() == Qt.MouseButton.RightButton:
-                    self.itemRightClicked.emit(self.index)
+        if self._is_drag_initiated:
+            # Drag swallowed the click — clear PRESSED state without firing
+            # Button.clicked → itemSelected.
+            self._pressed = False
+            self._pressed_region = None
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
         if (
             self.item_type == "image"
@@ -384,7 +398,6 @@ class RatingListItem(WheelScrollPolicyMixin, QWidget):
         self._is_drag_initiated = False
         self._active_button = None
         self._notify_flyout_clear_indicator()
-        super().mouseReleaseEvent(event)
 
     def _on_plus_clicked(self):
         if self._is_drag_initiated or self._active_button not in (None, self.btn_plus):

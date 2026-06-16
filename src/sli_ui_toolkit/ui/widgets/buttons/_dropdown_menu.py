@@ -11,29 +11,71 @@ from sli_ui_toolkit.ui.in_window_surface import (
     attach_in_window_widget,
     paint_shadowed_surface,
 )
-from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
+from sli_ui_toolkit.ui.widgets.buttons.button import Button
+from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 
-class _MenuItem(QWidget):
-    clicked = pyqtSignal()
 
+class _MenuItemBgLayer(Layer):
+    def applies(self, ctx) -> bool:
+        widget = ctx.widget
+        states = ctx.effective_states
+        return (
+            widget._is_current
+            or ButtonState.HOVERED in states
+            or ButtonState.PRESSED in states
+        )
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        rect = ctx.rect.toRect().adjusted(2, 2, -2, -2)
+        p = ctx.painter
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(tm.get_color("list_item.background.hover")))
+        p.drawRoundedRect(rect, 4, 4)
+
+
+class _MenuItemContentLayer(Layer):
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        p = ctx.painter
+        rect = ctx.rect.toRect()
+        text_color = widget._foreground_color or tm.get_color("dialog.text")
+        if widget._check_icon:
+            icon_rect = QRect(10, (rect.height() - 20) // 2, 20, 20)
+            p.drawPixmap(icon_rect, widget._check_icon)
+        p.setPen(QPen(text_color))
+        p.setFont(widget.font())
+        text_x = 40 if widget._check_icon else 12
+        text_y = rect.center().y() + 5
+        p.drawText(text_x, text_y, widget._text)
+
+
+class _MenuItem(Button):
     def __init__(self, text: str, is_current: bool, parent=None):
-        super().__init__(parent)
+        super().__init__(
+            text="",
+            size=(0, 40),
+            corner_radius=4,
+            layers=[_MenuItemBgLayer(), RippleLayer(), _MenuItemContentLayer()],
+            parent=parent,
+        )
         self._text = text
         self._is_current = is_current
-        self._hovered = False
-        self._check_icon = None
+        self._check_icon = (
+            normalized_icon_pixmap("check", 20) if is_current else None
+        )
         self._foreground_color = None
-        self.setFixedHeight(40)
-        self.setMouseTracking(True)
-        register_hover_widget(self)
-        if is_current:
-            self._check_icon = normalized_icon_pixmap("check", 20)
 
     def event(self, event):
         if event.type() == QEvent.Type.DynamicPropertyChange:
-            if event.propertyName().data().decode("utf-8", errors="ignore") == "foregroundColor":
-                self._foreground_color = self.property("foregroundColor") or self._foreground_color
+            name = event.propertyName().data().decode("utf-8", errors="ignore")
+            if name == "foregroundColor":
+                self._foreground_color = (
+                    self.property("foregroundColor") or self._foreground_color
+                )
                 self.update()
         return super().event(event)
 
@@ -41,47 +83,6 @@ class _MenuItem(QWidget):
         self._is_current = is_current
         self._check_icon = normalized_icon_pixmap("check", 20) if is_current else None
         self.update()
-
-    def enterEvent(self, event):
-        self.setHoverActive(True)
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self.setHoverActive(False)
-        super().leaveEvent(event)
-
-    def hoverHitTest(self, pos) -> bool:
-        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
-        return self.rect().contains(point)
-
-    def setHoverActive(self, active: bool) -> None:
-        active = bool(active)
-        if self._hovered != active:
-            self._hovered = active
-            self.update()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        tm = ThemeManager.get_instance()
-        painter.setPen(Qt.PenStyle.NoPen)
-        if self._is_current or self._hovered:
-            painter.setBrush(QBrush(tm.get_color("list_item.background.hover")))
-            painter.drawRoundedRect(self.rect().adjusted(2, 2, -2, -2), 4, 4)
-        text_color = self._foreground_color or tm.get_color("dialog.text")
-        if self._check_icon:
-            icon_rect = QRect(10, (self.height() - 20) // 2, 20, 20)
-            painter.drawPixmap(icon_rect, self._check_icon)
-        painter.setPen(QPen(text_color))
-        painter.setFont(self.font())
-        text_x = 40 if self._check_icon else 12
-        text_y = self.rect().center().y() + 5
-        painter.drawText(text_x, text_y, self._text)
 
 class DropdownMenu(QWidget):
     item_selected = pyqtSignal(QAction)

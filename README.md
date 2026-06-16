@@ -127,10 +127,9 @@ inside toolkit internals, or only when no public export exists yet.
 - [User docs](docs/user/README.md)
 - [Full public API](docs/user/API_CATALOG.md)
 - [Button API](docs/user/BUTTON_API.md)
-- [Design language](docs/user/DESIGN_LANGUAGE.md)
-- [Keyboard behavior](docs/user/KEYBOARD.md)
 - [Developer docs](docs/dev/README.md)
 - [Architecture](docs/dev/ARCHITECTURE.md)
+- [Design language](docs/dev/DESIGN_LANGUAGE.md)
 - [Docs index](docs/README.md)
 
 ## Development Notes

@@ -117,6 +117,7 @@ class _ButtonEvents:
                     self._set_region_state(region_id, ButtonState.CHECKED, checked)
                     self.regionToggled.emit(region_id, checked)
                     if region_id == "_main":
+                        self._checked = checked
                         self.toggled.emit(checked)
                 if self._defer_click and region_id == "_main":
                     QTimer.singleShot(0, self._emit_click_signals)

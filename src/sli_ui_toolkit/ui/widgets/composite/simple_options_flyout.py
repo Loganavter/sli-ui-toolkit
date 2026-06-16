@@ -17,14 +17,56 @@ from PyQt6.QtWidgets import (
 
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 
 logger = logging.getLogger(__name__)
 
-class _SimpleRow(QWidget):
-    clicked = pyqtSignal(int)
+
+class _RowBackgroundLayer(Layer):
+    """Inset rounded background, list_item.* tokens, hover/current → hover color."""
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        states = ctx.effective_states
+        is_active = (
+            widget.is_current
+            or ButtonState.HOVERED in states
+            or ButtonState.PRESSED in states
+        )
+        key = "list_item.background.hover" if is_active else "list_item.background.normal"
+        rect = ctx.rect.toRect().adjusted(2, 2, -2, -2)
+        p = ctx.painter
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(tm.get_color(key)))
+        p.drawRoundedRect(rect, 5, 5)
+
+
+class _CurrentIndicatorLayer(Layer):
+    """Левый accent-индикатор для current row."""
+
+    def applies(self, ctx) -> bool:
+        return bool(getattr(ctx.widget, "is_current", False))
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        rect = ctx.rect.toRect()
+        pen = QPen(tm.get_color("accent"))
+        pen.setWidth(3)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p = ctx.painter
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(pen)
+        x = rect.left() + pen.width()
+        p.drawLine(x, rect.top() + 7, x, rect.bottom() - 7)
+
+
+class _SimpleRow(Button):
+    rowClicked = pyqtSignal(int)
 
     def __init__(
         self,
@@ -35,75 +77,34 @@ class _SimpleRow(QWidget):
         item_font: QFont,
         parent: QWidget = None,
     ):
-        super().__init__(parent)
+        super().__init__(
+            text="",
+            size=(0, item_height),
+            corner_radius=5,
+            layers=[_RowBackgroundLayer(), RippleLayer(), _CurrentIndicatorLayer()],
+            parent=parent,
+        )
         self.index = index
         self.text = text
         self.is_current = is_current
-        self._hovered = False
-        self.theme_manager = ThemeManager.get_instance()
-        self.setFixedHeight(item_height)
-        self.setMouseTracking(True)
-        register_hover_widget(self)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 0, 10, 0)
         self.label = QLabel(text)
         self.label.setFont(item_font)
+        self.label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         layout.addWidget(self.label)
         try:
             self.theme_manager.theme_changed.connect(self._apply_label_style)
         except Exception:
             pass
         self._apply_label_style()
+        self.clicked.connect(lambda: self.rowClicked.emit(self.index))
 
     def _apply_label_style(self):
         font = QFont(self.label.font())
         font.setBold(False)
         self.label.setFont(font)
         self.label.setProperty("class", "option-label")
-
-    def enterEvent(self, e):
-        self.setHoverActive(True)
-        super().enterEvent(e)
-
-    def leaveEvent(self, e):
-        self.setHoverActive(False)
-        super().leaveEvent(e)
-
-    def hoverHitTest(self, pos) -> bool:
-        point = pos.toPoint() if hasattr(pos, "toPoint") else pos
-        return self.rect().contains(point)
-
-    def setHoverActive(self, active: bool) -> None:
-        active = bool(active)
-        if self._hovered != active:
-            self._hovered = active
-            self.update()
-
-    def mouseReleaseEvent(self, e):
-        if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(e.pos()):
-            self.clicked.emit(self.index)
-        super().mouseReleaseEvent(e)
-
-    def paintEvent(self, e):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        tm = self.theme_manager
-        if self.is_current or self._hovered:
-            bg_color = tm.get_color("list_item.background.hover")
-        else:
-            bg_color = tm.get_color("list_item.background.normal")
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(bg_color))
-        background_rect = self.rect().adjusted(2, 2, -2, -2)
-        painter.drawRoundedRect(background_rect, 5, 5)
-        if self.is_current:
-            indicator_pen = QPen(tm.get_color("accent"))
-            indicator_pen.setWidth(3)
-            indicator_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(indicator_pen)
-            y1, y2 = self.rect().top() + 7, self.rect().bottom() - 7
-            x = self.rect().left() + indicator_pen.width()
-            painter.drawLine(x, y1, x, y2)
 
 class SimpleOptionsFlyout(BaseFlyout):
     item_chosen = pyqtSignal(int)
@@ -172,25 +173,31 @@ class SimpleOptionsFlyout(BaseFlyout):
         self._current_index = (
             current_index if 0 <= current_index < len(self._options) else -1
         )
-        # Clear existing rows (keep trailing stretch at end of layout).
-        while self._rows_layout.count() > 1:
-            item = self._rows_layout.takeAt(0)
-            if w := item.widget():
-                w.deleteLater()
-            del item
-        for i, text in enumerate(self._options):
-            row = _SimpleRow(
-                i,
-                text,
-                i == self._current_index,
-                self._item_height,
-                self._item_font,
-                self._rows_container,
-            )
-            row.clicked.connect(self._on_row_clicked)
-            self._rows_layout.insertWidget(self._rows_layout.count() - 1, row)
-
-        self._update_size()
+        # Batch: каждый insertWidget() триггерит relayout+repaint у _rows_container.
+        # Для N строк это ≈O(N²) и есть основной источник фриза при открытии
+        # ScrollableComboBox-flyout'а с длинным списком.
+        self._rows_container.setUpdatesEnabled(False)
+        try:
+            # Clear existing rows (keep trailing stretch at end of layout).
+            while self._rows_layout.count() > 1:
+                item = self._rows_layout.takeAt(0)
+                if w := item.widget():
+                    w.deleteLater()
+                del item
+            for i, text in enumerate(self._options):
+                row = _SimpleRow(
+                    i,
+                    text,
+                    i == self._current_index,
+                    self._item_height,
+                    self._item_font,
+                    self._rows_container,
+                )
+                row.rowClicked.connect(self._on_row_clicked)
+                self._rows_layout.insertWidget(self._rows_layout.count() - 1, row)
+            self._update_size()
+        finally:
+            self._rows_container.setUpdatesEnabled(True)
 
     def _update_size(
         self,

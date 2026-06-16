@@ -8,10 +8,11 @@ no-indicator). Это даёт «бесплатный» ripple-эффект (ove
 Совместимый публичный API (минимально достаточный набор для существующих
 потребителей, см. toolkit demo, markdown_help_dialog, Improve-ImgSLI settings):
 
-    set_items(iterable), add_item(text, icon=None, data=None),
+    set_items(iterable), add_item(text, icon=None, data=None, selected_icon=None),
     clear(), count(), currentRow(), setCurrentRow(int),
     item(idx) -> _ListItem (proxy с text/icon/data/sizeHint),
-    setIconSize(QSize), iconSize(), enable_minimal_scrollbar(),
+    setIconSize(QSize), iconSize(), setSelectedIconMode(str),
+    selectedIconMode(), enable_minimal_scrollbar(),
     refresh_icons(),
 
     signals: currentRowChanged(int), currentItemChanged(item, prev)
@@ -26,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPixmap
+from PyQt6.QtGui import QColor, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QScrollArea,
@@ -68,13 +69,25 @@ register_variant(
 
 _LEFT_PADDING = 12
 _ICON_TEXT_GAP = 10
+_SELECTED_ICON_MODES = {"invert", "replace"}
+
+
+def _split_icon_pair(icon: object | None) -> tuple[object | None, object | None]:
+    if isinstance(icon, (tuple, list)) and len(icon) >= 2:
+        return icon[0], icon[1]
+    return icon, None
 
 
 class _NavRowContent(Content):
     """Иконка слева + текст вертикально по центру, без горизонтального центрирования."""
 
-    def __init__(self, icon, text: str, selected_pixmap: QPixmap | None) -> None:
-        self.icon = icon
+    def __init__(
+        self,
+        normal_pixmap: QPixmap | None,
+        selected_pixmap: QPixmap | None,
+        text: str,
+    ) -> None:
+        self.normal_pixmap = normal_pixmap
         self.text = text
         self.selected_pixmap = selected_pixmap
 
@@ -84,12 +97,11 @@ class _NavRowContent(Content):
         style = read_widget_style(widget)
         icon_px = int(style.icon_size_px or ctx.icon_size_px)
 
-        pixmap: QPixmap | None = None
-        if self.icon is not None:
-            if widget.isChecked() and self.selected_pixmap is not None:
-                pixmap = self.selected_pixmap
-            else:
-                pixmap = normalized_icon_pixmap(self.icon, icon_px)
+        pixmap = (
+            self.selected_pixmap
+            if widget.isChecked() and self.selected_pixmap is not None
+            else self.normal_pixmap
+        )
 
         x = _LEFT_PADDING
         if pixmap is not None and not pixmap.isNull():
@@ -119,27 +131,41 @@ class _NavRowButton(Button):
         kwargs["toggle"] = False
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._normal_pixmap: QPixmap | None = None
         self._selected_pixmap: QPixmap | None = None
 
     def isChecked(self) -> bool:
-        return ButtonState.CHECKED in self._states
+        return ButtonState.CHECKED in self._controller.states("_main")
 
     def set_selected(self, selected: bool) -> None:
-        if selected:
-            self._states.add(ButtonState.CHECKED)
-        else:
-            self._states.discard(ButtonState.CHECKED)
+        self._controller.set_state("_main", ButtonState.CHECKED, bool(selected))
+        self._sync_region_aliases()
         self.update()
 
     def set_selected_pixmap(self, pixmap: QPixmap | None) -> None:
         self._selected_pixmap = pixmap
         self.update()
 
+    def set_nav_pixmaps(
+        self,
+        normal_pixmap: QPixmap | None,
+        selected_pixmap: QPixmap | None,
+    ) -> None:
+        self._normal_pixmap = normal_pixmap
+        self._selected_pixmap = selected_pixmap
+        self.update()
+
     def _build_content(self):
+        return self._nav_content()
+
+    def _build_region_content(self, region):
+        return self._nav_content()
+
+    def _nav_content(self):
         return _NavRowContent(
-            icon=self._icon_unchecked,
-            text=self._text,
+            normal_pixmap=self._normal_pixmap,
             selected_pixmap=self._selected_pixmap,
+            text=self._text,
         )
 
 
@@ -149,14 +175,16 @@ class IconListItem:
     icon: object | None = None
     data: object | None = None
     row_height: int = 44
+    selected_icon: object | None = None
 
 
 @dataclass
 class _RowSpec:
     text: str
     icon: object | None
+    selected_icon: object | None
     row_height: int
-    button: Button
+    button: _NavRowButton
     data_roles: dict[int, object] = field(default_factory=dict)
     normal_pixmap: QPixmap | None = None
     selected_pixmap: QPixmap | None = None
@@ -191,7 +219,17 @@ class _ListItem:
         spec = self._spec
         if spec is None:
             return
-        spec.icon = icon
+        normal_icon, selected_icon = _split_icon_pair(icon)
+        spec.icon = normal_icon
+        if selected_icon is not None:
+            spec.selected_icon = selected_icon
+        self._owner._apply_icon(spec)
+
+    def setSelectedIcon(self, icon: object | None) -> None:
+        spec = self._spec
+        if spec is None:
+            return
+        spec.selected_icon = icon
         self._owner._apply_icon(spec)
 
     def setSizeHint(self, size: QSize) -> None:
@@ -226,10 +264,12 @@ class IconListWidget(QWidget):
         *,
         icon_size: QSize | None = None,
         row_height: int = 44,
+        selected_icon_mode: str = "invert",
     ) -> None:
         super().__init__(parent)
         self._row_height = int(row_height)
         self._icon_size: QSize = icon_size if isinstance(icon_size, QSize) else QSize(24, 24)
+        self._selected_icon_mode = self._normalize_selected_icon_mode(selected_icon_mode)
         self._rows: list[_RowSpec] = []
         self._current_row: int = -1
 
@@ -267,7 +307,7 @@ class IconListWidget(QWidget):
             if isinstance(item, IconListItem):
                 spec = item
             elif isinstance(item, tuple):
-                spec = IconListItem(*item)
+                spec = self._item_from_tuple(item)
             else:
                 spec = IconListItem(text=str(item))
             self._append_row(spec)
@@ -278,12 +318,14 @@ class IconListWidget(QWidget):
         icon: object | None = None,
         data: object | None = None,
         row_height: int | None = None,
+        selected_icon: object | None = None,
     ) -> _ListItem:
         spec = IconListItem(
             text=text,
             icon=icon,
             data=data,
             row_height=row_height or self._row_height,
+            selected_icon=selected_icon,
         )
         self._append_row(spec)
         return _ListItem(self, len(self._rows) - 1)
@@ -345,6 +387,18 @@ class IconListWidget(QWidget):
         for row in self._rows:
             self._apply_icon(row)
 
+    def selectedIconMode(self) -> str:
+        return self._selected_icon_mode
+
+    def setSelectedIconMode(self, mode: str) -> None:
+        normalized = self._normalize_selected_icon_mode(mode)
+        if normalized == self._selected_icon_mode:
+            return
+        self._selected_icon_mode = normalized
+        self.refresh_icons()
+
+    set_selected_icon_mode = setSelectedIconMode
+
     # -------- public: scroll appearance --------
 
     def enable_minimal_scrollbar(self) -> None:
@@ -353,6 +407,10 @@ class IconListWidget(QWidget):
     # -------- internals --------
 
     def _append_row(self, spec: IconListItem) -> None:
+        icon, selected_icon_from_pair = _split_icon_pair(spec.icon)
+        selected_icon = spec.selected_icon
+        if selected_icon is None:
+            selected_icon = selected_icon_from_pair
         button = _NavRowButton(
             text=spec.text,
             toggle=True,
@@ -363,7 +421,8 @@ class IconListWidget(QWidget):
         )
         row = _RowSpec(
             text=spec.text,
-            icon=spec.icon,
+            icon=icon,
+            selected_icon=selected_icon,
             row_height=spec.row_height or self._row_height,
             button=button,
         )
@@ -390,7 +449,7 @@ class IconListWidget(QWidget):
         row.normal_pixmap = None
         row.selected_pixmap = None
         row.button.setIcon(row.icon)
-        row.button.set_selected_pixmap(None)
+        row.button.set_nav_pixmaps(None, None)
         if row.icon is None:
             return
         base_icon = resolve_icon(row.icon)
@@ -403,9 +462,8 @@ class IconListWidget(QWidget):
             return
 
         row.normal_pixmap = normal_pixmap
-        selected_pixmap = self._tinted_pixmap(normal_pixmap, self._selected_icon_color())
-        row.selected_pixmap = selected_pixmap if not selected_pixmap.isNull() else normal_pixmap
-        row.button.set_selected_pixmap(row.selected_pixmap)
+        row.selected_pixmap = self._selected_pixmap_for_row(row, normal_pixmap)
+        row.button.set_nav_pixmaps(row.normal_pixmap, row.selected_pixmap)
 
     def _update_row_icon(self, row: _RowSpec) -> None:
         row.button.update()
@@ -424,17 +482,66 @@ class IconListWidget(QWidget):
             color = QColor("white")
         return color
 
-    def _tinted_pixmap(self, base_pixmap: QPixmap, color: QColor) -> QPixmap:
+    def _selected_pixmap_for_row(
+        self,
+        row: _RowSpec,
+        normal_pixmap: QPixmap,
+    ) -> QPixmap:
+        if self._selected_icon_mode == "replace":
+            selected_icon = row.selected_icon
+            if selected_icon is None:
+                return normal_pixmap
+            resolved = resolve_icon(selected_icon)
+            if resolved.isNull():
+                return normal_pixmap
+            size = self._icon_size if self._icon_size.isValid() else QSize(24, 24)
+            selected_pixmap = normalized_icon_pixmap(resolved, size.height())
+            return selected_pixmap if not selected_pixmap.isNull() else normal_pixmap
+
+        selected_pixmap = self._inverted_pixmap(normal_pixmap)
+        return selected_pixmap if not selected_pixmap.isNull() else normal_pixmap
+
+    def _normalize_selected_icon_mode(self, mode: str) -> str:
+        normalized = str(mode or "").strip().lower().replace("-", "_")
+        aliases = {
+            "inversion": "invert",
+            "inverse": "invert",
+            "replace_icon": "replace",
+            "replacement": "replace",
+        }
+        normalized = aliases.get(normalized, normalized)
+        if normalized not in _SELECTED_ICON_MODES:
+            raise ValueError(
+                "selected_icon_mode must be 'invert' or 'replace', "
+                f"got {mode!r}"
+            )
+        return normalized
+
+    def _item_from_tuple(self, item: tuple) -> IconListItem:
+        if len(item) <= 4:
+            return IconListItem(*item)
+        text, icon, data, row_height, selected_icon = item[:5]
+        return IconListItem(
+            text=text,
+            icon=icon,
+            data=data,
+            row_height=row_height,
+            selected_icon=selected_icon,
+        )
+
+    def _inverted_pixmap(self, base_pixmap: QPixmap) -> QPixmap:
         if base_pixmap.isNull():
             return QPixmap()
-        tinted = QPixmap(base_pixmap.size())
-        tinted.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(tinted)
-        painter.setRenderHints(
-            QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform
-        )
-        painter.drawPixmap(0, 0, base_pixmap)
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-        painter.fillRect(tinted.rect(), color)
-        painter.end()
-        return tinted
+        image = base_pixmap.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+        for y in range(image.height()):
+            for x in range(image.width()):
+                color = image.pixelColor(x, y)
+                alpha = color.alpha()
+                if alpha == 0:
+                    continue
+                color.setRed(255 - color.red())
+                color.setGreen(255 - color.green())
+                color.setBlue(255 - color.blue())
+                color.setAlpha(alpha)
+                image.setPixelColor(x, y, color)
+        return QPixmap.fromImage(image)

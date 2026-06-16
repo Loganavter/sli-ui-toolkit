@@ -79,8 +79,8 @@ btn = Button(icon=(AppIcon.VERTICAL, AppIcon.HORIZONTAL), toggle=True)
 # Text button in dialog
 btn = Button(text="Browse…", variant="surface")
 
-# Icon + text with primary style
-btn = Button(AppIcon.SAVE, text="Save", variant="primary")
+# Icon + text with dialog/action surface style
+btn = Button(AppIcon.SAVE, text="Save", variant="surface")
 
 # Long press support
 btn = Button(AppIcon.DELETE, long_press=True, background_color=QColor("#D93025"))
@@ -156,7 +156,7 @@ btn = Button.from_spec(
 | Variant | Theme prefix | Border | Use case |
 |---------|-------------|--------|----------|
 | `"default"` | `button.toggle` | no | Toolbar toggles (default) |
-| `"primary"` | `button.primary` | yes | Text buttons in main UI |
+| `"primary"` | `button.primary` | yes | Deprecated compatibility alias for `"surface"`; removed in 0.3.0 |
 | `"surface"` | `button.dialog.default` | yes | Dialog buttons |
 | `"ghost"` | transparent | no | Invisible until hovered |
 | `"subtle"` | Window color | no | Blends with background |
@@ -173,7 +173,7 @@ btn = Button.from_spec(
 | `rightClicked` | Right mouse button |
 | `middleClicked` | Middle mouse button |
 | `menuTriggered(object)` | Menu item selected (emits item data) |
-| `triggered` | Alias for `menuTriggered` |
+| `triggered` | Deprecated alias for `menuTriggered`; emits `DeprecationWarning` and will be removed in 0.3.0 |
 | `regionClicked(str)` | Region click by id |
 | `regionPressed(str)` / `regionReleased(str)` | Region press/release by id |
 | `regionToggled(str, bool)` | Region toggle state changed |
@@ -215,6 +215,12 @@ group = ButtonGroup([btn1, btn2, btn3], label="View")
 | Widget | Description |
 |--------|-------------|
 | `InstancesCounterButton` | Segmented add/remove counter button implemented as a thin `Button` regions subclass. |
+
+Legacy button widget names such as `IconButton`, `ToggleIconButton`,
+`ScrollableIconButton`, `AutoRepeatButton`, `ToolButton`, `ToolButtonWithMenu`,
+`ButtonGroupContainer`, `ButtonType`, and `ButtonMode` are compatibility
+lookups only. Explicit imports emit `DeprecationWarning`; these names are not in
+`__all__` and will be removed in `0.3.0`.
 
 ### Labels
 
@@ -368,9 +374,7 @@ spin.setWheelRequiresFocus(False)
 | `BaseFlyout` | Base class for anchored flyout widgets. |
 | `SimpleOptionsFlyout` | Flyout displaying a list of clickable text options. |
 | `IconActionFlyout` / `IconAction` | Customizable horizontal flyout for icon action buttons. |
-| `FlyoutIconButton` | Icon button that auto-manages an attached flyout on hover/click. |
 | `IndexedToggleFlyout` | Flyout with numbered toggle slots (show/hide per instance). |
-| `FontSettingsFlyout` | Text settings flyout: size, weight, opacity, foreground/background color swatches, text background switch, and placement radios. |
 | `UnifiedFlyout` | Full-featured dual-pane overlay list with drag-drop reordering, session management, animated open/close. Import: `sli_ui_toolkit.ui.widgets.composite.unified_flyout`. |
 
 `BaseFlyout.show_aligned(anchor_widget, anchor_point="bottom-center", flyout_point="top-center", ...)`
@@ -386,7 +390,7 @@ still accepted for compatibility.
 |--------|-------------|
 | `SidebarDialogShell` | Sidebar + stacked pages dialog container. |
 | `ScrollableDialogPage` | Ready-made scrollable page for dialog content. |
-| `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. |
+| `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. Selected icons support `selected_icon_mode="invert"` (default color inversion) or `"replace"` with `selected_icon=` / `(normal_icon, selected_icon)` pairs. |
 | `MarkdownHelpDialog` / `MarkdownHelpSection` | Markdown-based help/documentation dialog with anchors, generated TOC, and internal `help://slug#anchor` navigation. |
 
 Markdown help section discovery helpers are intentionally not exported from
@@ -438,8 +442,9 @@ Markdown help section discovery helpers are intentionally not exported from
 
 | Widget | Description |
 |--------|-------------|
-| `DragDropOverlay` | Transparent overlay showing drop zones during drag. |
-| `PasteDirectionOverlay` | Directional paste target overlay (up/down/left/right). Signals: `direction_selected(str)`, `cancelled()`. |
+| `TopLevelInWindowOverlay` | Modal full-window in-window overlay that can host arbitrary `QWidget` content. Children can be placed by `OverlaySlot` around an anchor or with explicit overlay-local geometry. Emits `dismissed()`. |
+| `OverlaySlot` / `OverlayItem` | Slot enum and item metadata used by `TopLevelInWindowOverlay`. |
+| `DragDropOverlay` | Transparent drag/drop zone painter built on `TopLevelInWindowOverlay`; keeps pointer transparency and the existing `set_overlay_state(...)` API. |
 
 ---
 

@@ -23,6 +23,33 @@ from sli_ui_toolkit.ui.widgets.buttons.specs import (
     ToggleBehavior,
 )
 
+import warnings
+
+_LEGACY_BUTTON_NAMES = {
+    "IconButton",
+    "SimpleIconButton",
+    "ToggleIconButton",
+    "ScrollableIconButton",
+    "ToggleScrollableIconButton",
+    "LongPressIconButton",
+    "NumberedToggleIconButton",
+    "UnifiedIconButton",
+    "AutoRepeatButton",
+    "CustomButton",
+    "ToolButton",
+    "ToolButtonWithMenu",
+    "MagnifierInstancesButton",
+}
+
+_LEGACY_BUTTON_GROUP_NAMES = {
+    "ButtonGroupContainer",
+}
+
+_LEGACY_BUTTON_SENTINELS = {
+    "ButtonType",
+    "ButtonMode",
+}
+
 __all__ = [
     "Button",
     "ButtonConfig",
@@ -47,3 +74,31 @@ __all__ = [
     "ShapeSpec",
     "ToggleBehavior",
 ]
+
+
+def __getattr__(name: str):
+    if name in _LEGACY_BUTTON_NAMES:
+        warnings.warn(
+            f"{name} is deprecated and will be removed in 0.3.0. "
+            "Use the composable Button class instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return Button
+    if name in _LEGACY_BUTTON_GROUP_NAMES:
+        warnings.warn(
+            f"{name} is deprecated and will be removed in 0.3.0. "
+            "Use ButtonGroup instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ButtonGroup
+    if name in _LEGACY_BUTTON_SENTINELS:
+        warnings.warn(
+            f"{name} is deprecated and will be removed in 0.3.0. "
+            "Use Button keyword arguments or ButtonSpec instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return Button
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

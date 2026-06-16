@@ -191,7 +191,7 @@ Button(
 | `size` | `(int, int)` | `(36, 36)` | Fixed size (width, height) |
 | `icon_size` | `int` | `22` | Icon pixel size |
 | `corner_radius` | `int` | `None` | Corner radius (auto-calculated if None) |
-| `variant` | `str` | `"default"` | Color variant: "default", "primary", "surface", "ghost", "subtle". |
+| `variant` | `str` | `"default"` | Color variant: "default", "surface", "ghost". Deprecated compatibility values warn. |
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
 | `defer_click` | `bool` | `False` | Emit `clicked`/`shortClicked` on the next event-loop tick (see [Press animations & blocking handlers](#press-animations--blocking-handlers)) |
 | `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the legacy parameters. |
@@ -305,7 +305,7 @@ button.setShowUnderline(False)
 button.set_show_strike_through(True)
 
 # Variant
-button.setVariant('primary')
+button.setVariant('surface')
 variant = button.getVariant()
 
 # Size & spacing
@@ -364,14 +364,6 @@ button.set_menu_items(menu_items)
 button.show_menu()
 ```
 
-### Painter Control
-
-```python
-# Use new ButtonPainterV2 (default: True)
-button.use_painter_v2(True)   # Use new painter
-button.use_painter_v2(False)  # Use legacy painter
-```
-
 ## ButtonRow API
 
 ```python
@@ -421,11 +413,14 @@ Predefined color schemes (use `setVariant()` or `variant=` param):
 ```python
 # Available variants
 "default"    # Toolbar/toggle appearance
-"primary"    # Accent-tinted action
 "surface"    # Neutral surface action
 "ghost"      # Transparent until hovered
-"subtle"     # Blends with the window background
 ```
+
+`"primary"` is a deprecated compatibility alias for `"surface"` and emits
+`DeprecationWarning`. Legacy button widget names such as `AutoRepeatButton`,
+`IconButton`, `ToolButton`, and `ButtonGroupContainer` are compatibility
+lookups only and will be removed in `0.3.0`.
 
 ## Density
 
@@ -509,7 +504,7 @@ btn.toggled.connect(lambda checked: print(f"Date selected: {checked}"))
 btn = Button(
     text='Custom',
     size=(100, 40),
-    variant='primary',
+    variant='surface',
 )
 
 # Override colors
@@ -566,13 +561,6 @@ day_btn.set_data(True, QColor(0, 200, 0))        # Has data, green
 
 # New painter architecture handles rendering
 ```
-
-## Performance Notes
-
-- ✅ ButtonPainterV2 uses efficient primitives (no full redraws)
-- ✅ Immutable ButtonDrawContext allows compiler optimizations
-- ✅ Capabilities attach/detach cleanly (no memory leaks)
-- ✅ Hybrid fallback ensures no rendering failures
 
 ## Troubleshooting
 
