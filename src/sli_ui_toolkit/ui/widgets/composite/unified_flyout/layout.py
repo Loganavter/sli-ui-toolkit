@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, QSize
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, QSize
+from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.ui.in_window_surface import (
     clamp_surface_rect,

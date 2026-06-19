@@ -7,8 +7,8 @@ divider_hidden/...) get something visible.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QRect, Qt
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 
 from sli_ui_toolkit.theme import ThemeManager
 

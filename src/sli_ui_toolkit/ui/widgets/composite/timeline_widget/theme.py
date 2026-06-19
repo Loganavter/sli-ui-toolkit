@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 def build_theme_colors(widget) -> dict[str, Any]:
     tm = widget.theme_manager

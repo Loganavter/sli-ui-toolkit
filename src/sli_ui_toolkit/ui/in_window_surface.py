@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt
-from PyQt6.QtGui import QPainter
-from PyQt6.QtGui import QGuiApplication
-from PyQt6.QtWidgets import QBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import QPoint, QRect, QSize, Qt
+from PySide6.QtGui import QPainter
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.config import resolve_overlay_layer
 from sli_ui_toolkit.ui.widgets.helpers import draw_rounded_shadow

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import warnings
 
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import UnderlineConfig, draw_bottom_underline

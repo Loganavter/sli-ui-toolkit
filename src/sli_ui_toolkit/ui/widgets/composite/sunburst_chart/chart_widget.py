@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QPointF
-from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QTimer, Signal, QPointF
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainter
+from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsTextItem,
     QGraphicsView,
@@ -25,10 +25,10 @@ class SunburstChartWidget(QWidget):
     Connect to signals for user interaction.
     """
 
-    segment_clicked = pyqtSignal(str, int)
-    segment_hover_enter = pyqtSignal(object, QPointF)
-    segment_hover_move = pyqtSignal(object, QPointF)
-    segment_hover_leave = pyqtSignal()
+    segment_clicked = Signal(str, int)
+    segment_hover_enter = Signal(object, QPointF)
+    segment_hover_move = Signal(object, QPointF)
+    segment_hover_leave = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)

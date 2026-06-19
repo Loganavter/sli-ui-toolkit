@@ -1,6 +1,6 @@
 # SLI UI Toolkit Demo Application
 
-A showcase of all main widget families in the `sli-ui-toolkit` PyQt6 library, with light and dark theme support.
+A showcase of all main widget families in the `sli-ui-toolkit` PySide6 library, with light and dark theme support.
 
 ## What's Included
 
@@ -48,7 +48,7 @@ demo/
 ## Requirements
 
 - Python 3.10+
-- PyQt6 >= 6.6
+- PySide6 >= 6.6
 - sli-ui-toolkit (installed in editable mode)
 
 ## Development

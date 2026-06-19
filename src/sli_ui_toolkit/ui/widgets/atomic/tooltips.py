@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
-from PyQt6.QtGui import QPainter
-from PyQt6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
+from PySide6.QtGui import QPainter
+from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from ..helpers import draw_rounded_shadow

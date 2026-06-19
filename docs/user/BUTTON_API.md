@@ -74,7 +74,7 @@ region's content/bounding rect, `path_fn` supplies the true clickable/painted
 shape, and `z_index` controls overlapping hit priority.
 
 ```python
-from PyQt6.QtGui import QPainterPath
+from PySide6.QtGui import QPainterPath
 
 def diamond_path(rect):
     path = QPainterPath()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import QObject, QPoint, QTimer
+from PySide6.QtCore import QObject, QPoint, QTimer
 
 from sli_ui_toolkit.config import get_flyout_timings
 
@@ -73,7 +73,7 @@ class AnchoredFlyoutAutoHide(QObject):
         except RuntimeError:
             return
 
-        from PyQt6.QtGui import QCursor
+        from PySide6.QtGui import QCursor
 
         cursor_pos = QCursor.pos()
 

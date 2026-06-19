@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, pyqtSignal
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 class OverlaySlot(Enum):
@@ -45,7 +45,7 @@ class TopLevelInWindowOverlay(QWidget):
     or with an explicit geometry in overlay-local coordinates.
     """
 
-    dismissed = pyqtSignal()
+    dismissed = Signal()
 
     def __init__(
         self,

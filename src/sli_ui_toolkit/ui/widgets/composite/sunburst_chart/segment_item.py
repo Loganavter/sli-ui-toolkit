@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QObject, QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont, QPainterPath, QPen
-from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem
+from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QBrush, QColor, QFont, QPainterPath, QPen
+from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem
 
 from sli_ui_toolkit.ui.widgets.composite.sunburst_chart.models import SunburstSegmentData
 
@@ -13,10 +13,10 @@ def _contrast_text_color(color: QColor) -> QColor:
     return QColor("#111111") if luminance > 170 else QColor("#ffffff")
 
 class SegmentSignals(QObject):
-    clicked = pyqtSignal(str, int)
-    hover_enter = pyqtSignal(object, QPointF)
-    hover_move = pyqtSignal(object, QPointF)
-    hover_leave = pyqtSignal()
+    clicked = Signal(str, int)
+    hover_enter = Signal(object, QPointF)
+    hover_move = Signal(object, QPointF)
+    hover_leave = Signal()
 
 class SunburstSegmentItem(QGraphicsPathItem):
     SCENE_SCALE = 400.0

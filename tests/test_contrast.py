@@ -12,7 +12,7 @@ direct ratio assertions and only sanity-checked for opacity.
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.palettes import FLUENT_DARK, FLUENT_LIGHT
 

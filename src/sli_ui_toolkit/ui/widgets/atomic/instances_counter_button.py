@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent, QWheelEvent
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeyEvent, QWheelEvent
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.widgets.buttons import (
     Button,
@@ -19,10 +19,10 @@ from sli_ui_toolkit.ui.widgets.buttons import (
 
 
 class InstancesCounterButton(Button):
-    addClicked = pyqtSignal()
-    removeClicked = pyqtSignal()
-    wheelScrolled = pyqtSignal(int)
-    countChanged = pyqtSignal(int)
+    addClicked = Signal()
+    removeClicked = Signal()
+    wheelScrolled = Signal(int)
+    countChanged = Signal(int)
 
     _OUTER_SIZE = 36
     _CORNER_RADIUS = 6

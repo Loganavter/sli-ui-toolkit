@@ -4,9 +4,9 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QEvent, QSize, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QFontMetrics
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEvent, QSize, Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QFontMetrics
+from PySide6.QtWidgets import (
     QDialog,
     QFrame,
     QScrollArea,
@@ -178,7 +178,7 @@ class MarkdownHelpDialog(QDialog):
         self.theme_manager.theme_changed.connect(self._apply_styles)
 
     def _setup_ui(self) -> None:
-        from PyQt6.QtWidgets import QHBoxLayout
+        from PySide6.QtWidgets import QHBoxLayout
 
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)

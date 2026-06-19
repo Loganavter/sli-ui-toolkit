@@ -1,6 +1,6 @@
 # sli-ui-toolkit Agent Guide
 
-This repository contains the shared PyQt6 UI toolkit used by Improve-ImgSLI and Tkonverter. SLI stands for **Shared Lightweight Interface**.
+This repository contains the shared PySide6 UI toolkit used by Improve-ImgSLI and Tkonverter. SLI stands for **Shared Lightweight Interface**.
 
 ## What This Library Is
 

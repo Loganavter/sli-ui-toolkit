@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from PyQt6.QtCore import QEvent, QEasingCurve, QSize, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout
+from PySide6.QtCore import QEvent, QEasingCurve, QSize, Signal
+from PySide6.QtWidgets import QHBoxLayout
 
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.managers import AnchoredFlyoutAutoHide
@@ -20,9 +20,9 @@ class IconAction:
     enabled: bool = True
 
 class IconActionFlyout(BaseFlyout):
-    actionTriggered = pyqtSignal(str)
-    elementHovered = pyqtSignal(str)
-    elementHoverEnded = pyqtSignal()
+    actionTriggered = Signal(str)
+    elementHovered = Signal(str)
+    elementHoverEnded = Signal()
 
     def __init__(
         self,

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon, QPixmap
 
 from sli_ui_toolkit.icons import resolve_icon
 
@@ -68,7 +68,7 @@ def normalized_icon_pixmap(icon_value, size: int | QSize) -> QPixmap:
 
     result = QPixmap(target_w, target_h)
     result.fill(Qt.GlobalColor.transparent)
-    from PyQt6.QtGui import QPainter
+    from PySide6.QtGui import QPainter
 
     painter = QPainter(result)
     try:

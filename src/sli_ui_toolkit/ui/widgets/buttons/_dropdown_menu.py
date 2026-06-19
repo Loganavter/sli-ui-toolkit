@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QBrush, QColor, QFontMetrics, QGuiApplication, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPropertyAnimation, QRect, QSize, Qt, Signal
+from PySide6.QtGui import QAction, QBrush, QColor, QFontMetrics, QGuiApplication, QPainter, QPen
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.in_window_surface import (
@@ -85,7 +85,7 @@ class _MenuItem(Button):
         self.update()
 
 class DropdownMenu(QWidget):
-    item_selected = pyqtSignal(QAction)
+    item_selected = Signal(QAction)
 
     MARGIN = 8
     SHADOW_RADIUS = 8

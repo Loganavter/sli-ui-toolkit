@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QObject, QEvent, Qt, QTimer
-from PyQt6.QtWidgets import QApplication, QLineEdit, QWidget
+from PySide6.QtCore import QObject, QEvent, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 class _EditableTextEventFilter(QObject):
     def __init__(self, widget: QWidget):

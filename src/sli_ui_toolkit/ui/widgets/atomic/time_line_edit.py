@@ -1,6 +1,6 @@
-from PyQt6.QtCore import QEvent, QRect, QSize, Qt, QTime, QTimer
-from PyQt6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPen
-from PyQt6.QtWidgets import QSizePolicy
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTime, QTimer
+from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPen
+from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin

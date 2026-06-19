@@ -1,7 +1,7 @@
 from typing import Optional, Protocol, Set
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QTimer
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QTimer
+from PySide6.QtWidgets import QApplication, QWidget
 
 class ManagedFlyout(Protocol):
     def isVisible(self) -> bool: ...

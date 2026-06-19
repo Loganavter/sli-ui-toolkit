@@ -13,8 +13,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from PyQt6.QtCore import QRect, QRectF, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetrics
+from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics
 
 from sli_ui_toolkit.icons import get_named_icon
 from sli_ui_toolkit.theme import ThemeManager

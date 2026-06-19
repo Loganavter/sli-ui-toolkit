@@ -1,8 +1,8 @@
 import os
 
-from PyQt6.QtCore import QRectF, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
@@ -37,9 +37,9 @@ def _paths_from_urls_and_uri_list(mime, urls: list) -> list[str]:
     return paths
 
 class DropZoneLabel(Label):
-    file_dropped = pyqtSignal(str)
-    drop_zone_drag_active = pyqtSignal(bool)
-    drop_zone_hover_state_changed = pyqtSignal(bool)
+    file_dropped = Signal(str)
+    drop_zone_drag_active = Signal(bool)
+    drop_zone_hover_state_changed = Signal(bool)
 
     def __init__(self, text: str = "", parent: QWidget | None = None):
         super().__init__(text, parent, variant="adaptive")

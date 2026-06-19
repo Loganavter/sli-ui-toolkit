@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QEvent, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetrics
-from PyQt6.QtWidgets import QLabel, QSizePolicy
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics
+from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 

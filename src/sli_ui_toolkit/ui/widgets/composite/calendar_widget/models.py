@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PyQt6.QtCore import QDate
+from PySide6.QtCore import QDate
 
 @dataclass
 class CalendarDayInfo:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.ui.widgets.buttons.variants import derive_custom_palette
 

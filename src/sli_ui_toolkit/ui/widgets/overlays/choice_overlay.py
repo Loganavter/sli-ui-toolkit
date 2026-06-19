@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import warnings
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.overlays.in_window_overlay import (
@@ -20,8 +20,8 @@ from sli_ui_toolkit.ui.widgets.overlays.in_window_overlay import (
 class ChoiceOverlay(TopLevelInWindowOverlay):
     """Deprecated directional button choice helper."""
 
-    chosen = pyqtSignal(str)
-    cancelled = pyqtSignal()
+    chosen = Signal(str)
+    cancelled = Signal()
 
     def __init__(
         self,

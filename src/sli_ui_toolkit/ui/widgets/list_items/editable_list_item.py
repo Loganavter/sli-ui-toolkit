@@ -1,14 +1,14 @@
 from typing import Any
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic import CheckBox, CustomLineEdit
 from sli_ui_toolkit.ui.widgets.buttons import Button
 
 
 class EditableListItem(QWidget):
-    delete_clicked = pyqtSignal()
+    delete_clicked = Signal()
 
     def __init__(
         self,

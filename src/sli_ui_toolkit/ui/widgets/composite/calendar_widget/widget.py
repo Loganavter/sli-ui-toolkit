@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QDate, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QWheelEvent
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QDate, Qt, Signal
+from PySide6.QtGui import QColor, QWheelEvent
+from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -62,16 +62,16 @@ class CalendarWidget(QWidget):
     Connect to signals for navigation and selection.
     """
 
-    date_clicked = pyqtSignal(QDate)
-    date_context_menu = pyqtSignal(QDate)
-    month_selected = pyqtSignal(int, int)
-    month_context_menu = pyqtSignal(int, int)
-    year_selected = pyqtSignal(int)
-    year_context_menu = pyqtSignal(int)
+    date_clicked = Signal(QDate)
+    date_context_menu = Signal(QDate)
+    month_selected = Signal(int, int)
+    month_context_menu = Signal(int, int)
+    year_selected = Signal(int)
+    year_context_menu = Signal(int)
 
-    navigate_previous = pyqtSignal()
-    navigate_next = pyqtSignal()
-    title_clicked = pyqtSignal()
+    navigate_previous = Signal()
+    navigate_next = Signal()
+    title_clicked = Signal()
 
     def __init__(
         self,

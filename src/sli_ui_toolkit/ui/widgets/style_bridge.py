@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QColor
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QColor
 
 @dataclass(frozen=True)
 class WidgetStyleTokens:

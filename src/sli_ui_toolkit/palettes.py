@@ -1,7 +1,7 @@
 """Example color palettes for sli-ui-toolkit applications.
 
 These palettes can be used as templates for your own applications.
-All colors are defined as PyQt6 QColor objects.
+All colors are defined as PySide6 QColor objects.
 
 Usage:
     from sli_ui_toolkit.theme import ThemeManager
@@ -12,7 +12,7 @@ Usage:
     theme_manager.set_theme("light", app)
 """
 
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 # Default Fluent-inspired palettes shipped with the toolkit.
 FLUENT_LIGHT = {

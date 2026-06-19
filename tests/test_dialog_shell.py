@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QSizePolicy
+from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.widgets import SidebarDialogShell
 

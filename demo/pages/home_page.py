@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QGridLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QWidget
 
 from sli_ui_toolkit import __version__
 from sli_ui_toolkit.widgets import CustomGroupWidget, Label

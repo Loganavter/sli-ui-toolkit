@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtGui import QColor, QPen
+from PySide6.QtGui import QColor, QPen
 
 from sli_ui_toolkit.theme import ThemeManager
 

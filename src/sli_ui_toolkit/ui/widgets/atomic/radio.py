@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRectF, QSize, Qt, QTimer, pyqtProperty
-from PyQt6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QRadioButton, QSizePolicy
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Property
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QRadioButton, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
@@ -47,7 +47,7 @@ class RadioButton(QRadioButton):
         self._hover_progress = max(0.0, min(1.0, float(value)))
         self.update()
 
-    hoverProgress = pyqtProperty(float, fget=get_hover_progress, fset=set_hover_progress)
+    hoverProgress = Property(float, fget=get_hover_progress, fset=set_hover_progress)
 
     def _indicator_rect(self, full_rect: QRectF) -> QRectF:
         return QRectF(

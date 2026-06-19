@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from PyQt6.QtGui import QImage, QPainter
-from PyQt6.QtWidgets import QSizePolicy
+from PySide6.QtGui import QImage, QPainter
+from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.widgets import IconListItem, IconListWidget
 from sli_ui_toolkit.theme import ThemeManager

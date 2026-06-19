@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.widgets import (
     BaseFlyout,
@@ -33,7 +33,7 @@ def _trigger(text: str, on_click) -> Button:
 class _FontFlyout(BaseFlyout):
     """Example of composing a multi-control flyout with BaseFlyout's builder API."""
 
-    settings_changed = pyqtSignal(int, int, QColor, QColor, bool, str, int)
+    settings_changed = Signal(int, int, QColor, QColor, bool, str, int)
 
     def __init__(self, parent_widget: QWidget) -> None:
         super().__init__(parent_widget)

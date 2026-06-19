@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QPointF
+from PySide6.QtCore import QPointF
 
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode, logger
 

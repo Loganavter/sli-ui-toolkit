@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import Dict, Type, TypeVar, Union
 
-from PyQt6.QtGui import QIcon
+from PySide6.QtGui import QIcon
 
 from sli_ui_toolkit.theme import ThemeManager
 

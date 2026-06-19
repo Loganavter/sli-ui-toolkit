@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QMouseEvent
-from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices, QMouseEvent
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.widgets import CustomGroupWidget, Label

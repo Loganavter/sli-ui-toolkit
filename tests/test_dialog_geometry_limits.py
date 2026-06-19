@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QDialog, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QVBoxLayout
 
 from sli_ui_toolkit.ui.dialogs import BaseDialog, setup_dialog_scaffold
 from sli_ui_toolkit.widgets import MarkdownHelpDialog, MarkdownHelpSection

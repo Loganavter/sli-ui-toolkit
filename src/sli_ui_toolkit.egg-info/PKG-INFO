@@ -1,14 +1,14 @@
 Metadata-Version: 2.4
 Name: sli-ui-toolkit
 Version: 0.2.15
-Summary: Reusable PyQt UI toolkit primitives for SLI desktop tools.
+Summary: Reusable PySide6 UI toolkit primitives for SLI desktop tools.
 Author: Loganavter
 License: MIT
 Project-URL: Repository, https://github.com/Loganavter/sli-ui-toolkit
 Project-URL: Issues, https://github.com/Loganavter/sli-ui-toolkit/issues
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
-Requires-Dist: PyQt6>=6.6
+Requires-Dist: PySide6>=6.6
 Requires-Dist: markdown>=3.4
 Provides-Extra: dev
 Requires-Dist: pytest>=7; extra == "dev"
@@ -17,7 +17,7 @@ Requires-Dist: tomli>=2.0; python_version < "3.11" and extra == "dev"
 
 # SLI UI Toolkit
 
-Reusable PyQt6 widgets and UI infrastructure for compact desktop tools.
+Reusable PySide6 widgets and UI infrastructure for compact desktop tools.
 
 SLI stands for **Shared Lightweight Interface**. The toolkit was extracted from
 Improve-ImgSLI and Tkonverter, but host-specific icons, translations, resources,
@@ -81,7 +81,7 @@ The test suite uses `pytest-qt` and defaults to offscreen Qt through
 Most application code should import from `sli_ui_toolkit.widgets`.
 
 ```python
-from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.widgets import Button, ComboBox

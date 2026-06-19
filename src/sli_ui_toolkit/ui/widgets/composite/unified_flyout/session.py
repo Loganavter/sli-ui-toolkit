@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QTimer
+from PySide6.QtCore import QTimer
 
 from sli_ui_toolkit.config import create_rating_gesture
 

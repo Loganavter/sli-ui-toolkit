@@ -10,9 +10,9 @@ _pressed, _is_scrolling, _has_*, _ripple, _defer_click, и на capabilities
 
 from __future__ import annotations
 
-from PyQt6 import sip
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QMouseEvent, QWheelEvent
+import shiboken6 as sip
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QMouseEvent, QWheelEvent
 
 from .capabilities import LongPressCapability, MenuCapability, ScrollCapability
 from .state import ButtonState
@@ -126,20 +126,20 @@ class _ButtonEvents:
                     self.regionClicked.emit(region_id)
                     if region_id == "_main":
                         self._emit_click_signals()
-                        if sip.isdeleted(self):
+                        if not sip.isValid(self):
                             return
             self._pressed_region = None
 
         elif event.button() == Qt.MouseButton.RightButton:
             if self._region_at(event.position()) is not None:
                 self.rightClicked.emit()
-                if sip.isdeleted(self):
+                if not sip.isValid(self):
                     return
 
         elif event.button() == Qt.MouseButton.MiddleButton:
             if self._region_at(event.position()) is not None:
                 self.middleClicked.emit()
-                if sip.isdeleted(self):
+                if not sip.isValid(self):
                     return
 
         super().mouseReleaseEvent(event)
@@ -177,10 +177,10 @@ class _ButtonEvents:
 
     def _activate_via_keyboard(self):
         self.pressed.emit()
-        if sip.isdeleted(self):
+        if not sip.isValid(self):
             return
         self.released.emit()
-        if sip.isdeleted(self):
+        if not sip.isValid(self):
             return
         if self._has_menu:
             menu_cap = self.get_capability(MenuCapability)
@@ -196,10 +196,10 @@ class _ButtonEvents:
             self._emit_click_signals()
 
     def _emit_click_signals(self) -> None:
-        if sip.isdeleted(self):
+        if not sip.isValid(self):
             return
         self.clicked.emit()
-        if sip.isdeleted(self):
+        if not sip.isValid(self):
             return
         self.shortClicked.emit()
 

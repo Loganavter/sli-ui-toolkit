@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from weakref import WeakSet, ref
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, Qt
-from PyQt6.QtGui import QCursor, QMouseEvent
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QCursor, QMouseEvent
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 _HOVER_EVENT_TYPES = {

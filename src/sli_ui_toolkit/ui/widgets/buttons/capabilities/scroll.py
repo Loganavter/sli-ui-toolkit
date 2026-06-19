@@ -3,10 +3,10 @@
 from dataclasses import dataclass
 from typing import Callable
 
-from PyQt6.QtCore import QPoint, QSize, QTimer
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPixmap
-from PyQt6.QtWidgets import QGraphicsDropShadowEffect, QLabel, QWidget
-from PyQt6.QtCore import Qt
+from PySide6.QtCore import QPoint, QSize, QTimer
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPixmap
+from PySide6.QtWidgets import QGraphicsDropShadowEffect, QLabel, QWidget
+from PySide6.QtCore import Qt
 
 from sli_ui_toolkit.icons import get_named_icon, resolve_icon
 from .base import ButtonCapability

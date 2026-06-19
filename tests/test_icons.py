@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtGui import QIcon
+from PySide6.QtGui import QIcon
 
 from sli_ui_toolkit.icons import resolve_icon
 

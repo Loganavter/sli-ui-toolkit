@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
-from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
-from PyQt6.QtGui import QBrush, QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
+from PySide6.QtGui import QBrush, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,

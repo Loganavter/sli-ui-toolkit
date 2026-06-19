@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from PyQt6.QtGui import QIcon
+from PySide6.QtGui import QIcon
 
 from sli_ui_toolkit.ui.services.icon_service import (
     IconService,

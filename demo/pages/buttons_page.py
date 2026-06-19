@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QHBoxLayout, QWidget
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.buttons.content import ButtonRow
 from sli_ui_toolkit.widgets import (

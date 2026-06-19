@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QObject, QPointF
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QObject, QPointF
+from PySide6.QtWidgets import QApplication
 
 from sli_ui_toolkit.ui.widgets.composite.drag_ghost_widget import DragGhostWidget
 

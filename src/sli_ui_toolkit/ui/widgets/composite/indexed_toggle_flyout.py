@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QHBoxLayout, QWidget
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.managers import AnchoredFlyoutAutoHide
 from sli_ui_toolkit.ui.widgets.buttons import Button

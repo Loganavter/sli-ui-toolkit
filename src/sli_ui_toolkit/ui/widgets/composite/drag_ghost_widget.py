@@ -1,6 +1,6 @@
-from PyQt6.QtCore import QPoint, QRectF, Qt
-from PyQt6.QtGui import QPainter, QPainterPath, QPixmap
-from PyQt6.QtWidgets import QGraphicsOpacityEffect, QWidget
+from PySide6.QtCore import QPoint, QRectF, Qt
+from PySide6.QtGui import QPainter, QPainterPath, QPixmap
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QWidget
 
 class DragGhostWidget(QWidget):
     def __init__(self, parent=None):

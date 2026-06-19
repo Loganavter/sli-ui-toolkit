@@ -1,9 +1,9 @@
 import logging
 from enum import Enum
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPainter, QPainterPath
-from PyQt6.QtWidgets import QGraphicsEffect
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPainter, QPainterPath
+from PySide6.QtWidgets import QGraphicsEffect
 
 logger = logging.getLogger(__name__)
 

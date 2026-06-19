@@ -1,6 +1,6 @@
 """Theme palettes for the sli-ui-toolkit demo application."""
 
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 LIGHT_PALETTE = {
     "Window": QColor("#ffffff"),

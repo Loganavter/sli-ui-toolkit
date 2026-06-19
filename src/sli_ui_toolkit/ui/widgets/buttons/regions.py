@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
-from PyQt6.QtCore import QLineF, QRectF
-from PyQt6.QtGui import QColor, QCursor, QPainterPath
+from PySide6.QtCore import QLineF, QRectF
+from PySide6.QtGui import QColor, QCursor, QPainterPath
 
 from .content import ButtonRow
 
