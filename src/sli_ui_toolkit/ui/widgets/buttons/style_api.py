@@ -228,6 +228,10 @@ class _ButtonStyleApi:
         self._menu_items = items
         had_menu = self._has_menu
         self._has_menu = bool(items)
+        for region in getattr(self, "_regions", []) or []:
+            if region.id == "_main":
+                region.menu = list(items) if items else None
+                break
         cap = self.get_capability(MenuCapability)
         if self._has_menu and cap is None:
             self.attach_capability(MenuCapability(menu_items=items))

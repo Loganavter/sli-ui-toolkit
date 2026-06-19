@@ -139,6 +139,8 @@ Examples:
 - `SidebarDialogShell`
 - `MarkdownHelpDialog`
 - `ProcessConsoleWidget`
+- `AdaptiveTabStrip`, which owns tab painting, add/close controls, and
+  adaptive close-button layout while the host owns document/session lifecycle
 
 ### 5. Specialized UI families
 
