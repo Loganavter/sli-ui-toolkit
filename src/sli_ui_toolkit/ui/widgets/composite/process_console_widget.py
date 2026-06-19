@@ -3,9 +3,9 @@ from __future__ import annotations
 import html
 import os
 
-from PyQt6.QtCore import QProcess, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFontDatabase
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtCore import QProcess, Qt, Signal
+from PySide6.QtGui import QColor, QFontDatabase
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QTextEdit, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
@@ -18,12 +18,12 @@ def _qt_enum_value(value) -> int:
 
 
 class ProcessConsoleWidget(QWidget):
-    outputReceived = pyqtSignal(str)
-    errorReceived = pyqtSignal(str)
-    commandSubmitted = pyqtSignal(str)
-    processStarted = pyqtSignal()
-    processFinished = pyqtSignal(int, int)
-    processStateChanged = pyqtSignal(int)
+    outputReceived = Signal(str)
+    errorReceived = Signal(str)
+    commandSubmitted = Signal(str)
+    processStarted = Signal()
+    processFinished = Signal(int, int)
+    processStateChanged = Signal(int)
 
     def __init__(self, parent=None, *, max_entries: int = 2000):
         super().__init__(parent)

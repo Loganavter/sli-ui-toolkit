@@ -1,6 +1,6 @@
 """Base page widget for demo pages."""
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout
 from sli_ui_toolkit.widgets import Label, OverlayScrollArea
 
 

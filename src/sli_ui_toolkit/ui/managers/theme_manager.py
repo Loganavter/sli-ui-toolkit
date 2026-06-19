@@ -3,14 +3,14 @@ import logging
 import os
 from typing import Dict, Optional
 
-from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QColor, QPalette
+from PySide6.QtWidgets import QApplication
 
 theme_logger = logging.getLogger("ThemeManager")
 
 class ThemeManager(QObject):
-    theme_changed = pyqtSignal()
+    theme_changed = Signal()
 
     _instance: Optional["ThemeManager"] = None
 

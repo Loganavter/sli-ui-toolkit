@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.widgets import (

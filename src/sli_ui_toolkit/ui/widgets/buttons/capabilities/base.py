@@ -1,7 +1,7 @@
 """Base class for button capabilities."""
 
 from abc import ABC, abstractmethod
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
 
 class ButtonCapability(ABC):

@@ -1,6 +1,6 @@
 """MenuCapability — dropdown menu integration."""
 
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
 from .base import ButtonCapability
 

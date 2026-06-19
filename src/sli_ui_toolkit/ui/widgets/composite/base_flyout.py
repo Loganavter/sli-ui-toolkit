@@ -1,7 +1,7 @@
 import math
 from typing import Any
 
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     QEasingCurve,
     QPoint,
     QPropertyAnimation,
@@ -9,8 +9,8 @@ from PyQt6.QtCore import (
     QSize,
     Qt,
 )
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPen
-from PyQt6.QtWidgets import QButtonGroup, QHBoxLayout, QWidget
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QWidget
 
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.ui.in_window_surface import (

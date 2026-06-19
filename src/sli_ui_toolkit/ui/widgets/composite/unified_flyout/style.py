@@ -1,7 +1,7 @@
 import time
 
-from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QPainter
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QPainter
 
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode
 from sli_ui_toolkit.ui.widgets.helpers import draw_rounded_shadow

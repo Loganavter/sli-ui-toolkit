@@ -1,6 +1,6 @@
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFocusEvent, QIntValidator
-from PyQt6.QtWidgets import QSizePolicy
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFocusEvent, QIntValidator
+from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
@@ -8,7 +8,7 @@ from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
 
 class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
-    valueChanged = pyqtSignal(int)
+    valueChanged = Signal(int)
 
     def __init__(
         self,

@@ -14,8 +14,8 @@ from __future__ import annotations
 from typing import Any
 import warnings
 
-from PyQt6.QtCore import QEvent, QSize
-from PyQt6.QtGui import QColor, QCursor
+from PySide6.QtCore import QEvent, QSize
+from PySide6.QtGui import QColor, QCursor
 
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
 

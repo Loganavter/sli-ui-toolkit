@@ -6,8 +6,8 @@ import os
 # Add parent directory to path to allow imports when running as script
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon
 
 from sli_ui_toolkit.icons import configure_icon_resolver
 from sli_ui_toolkit.config import FlyoutTimingConfig, configure_toolkit

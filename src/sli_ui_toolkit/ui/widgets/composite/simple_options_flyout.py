@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 import time
 
-from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, Signal
+from PySide6.QtGui import QBrush, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
+from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
@@ -66,7 +66,7 @@ class _CurrentIndicatorLayer(Layer):
 
 
 class _SimpleRow(Button):
-    rowClicked = pyqtSignal(int)
+    rowClicked = Signal(int)
 
     def __init__(
         self,
@@ -107,8 +107,8 @@ class _SimpleRow(Button):
         self.label.setProperty("class", "option-label")
 
 class SimpleOptionsFlyout(BaseFlyout):
-    item_chosen = pyqtSignal(int)
-    closed = pyqtSignal()
+    item_chosen = Signal(int)
+    closed = Signal()
 
     MARGIN = 8
     APPEAR_EXTRA_Y = 6

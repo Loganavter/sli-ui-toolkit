@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QRect, QRectF, Qt
-from PyQt6.QtGui import QColor, QFont, QPen
+from PySide6.QtCore import QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QPen
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style

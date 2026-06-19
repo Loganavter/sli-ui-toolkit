@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, Qt
-from PyQt6.QtGui import QColor
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.ui.widgets.composite.calendar_widget.day_button import CalendarDayButton
 

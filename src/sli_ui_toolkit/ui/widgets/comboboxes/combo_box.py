@@ -3,9 +3,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -80,8 +80,8 @@ class _ComboFieldContentLayer(Layer):
 
 
 class ComboBox(Button):
-    currentIndexChanged = pyqtSignal(int)
-    currentTextChanged = pyqtSignal(str)
+    currentIndexChanged = Signal(int)
+    currentTextChanged = Signal(str)
 
     BASE_HEIGHT = 33
     RADIUS = 6

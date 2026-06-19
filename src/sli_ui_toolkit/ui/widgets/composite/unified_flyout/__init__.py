@@ -1,5 +1,5 @@
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.config import get_flyout_timings
 from .bootstrap import _UnifiedFlyoutBootstrapMixin
@@ -33,9 +33,9 @@ class UnifiedFlyout(
     _UnifiedFlyoutDragDropMixin,
     QWidget,
 ):
-    item_chosen = pyqtSignal(int, int)
-    simple_item_chosen = pyqtSignal(int)
-    closing_animation_finished = pyqtSignal()
+    item_chosen = Signal(int, int)
+    simple_item_chosen = Signal(int)
+    closing_animation_finished = Signal()
 
     SHADOW_RADIUS = 10
     MARGIN = 0

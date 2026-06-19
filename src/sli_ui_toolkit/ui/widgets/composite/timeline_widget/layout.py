@@ -4,7 +4,7 @@ import logging
 import math
 from typing import Any
 
-from PyQt6.QtCore import QPointF, QRectF
+from PySide6.QtCore import QPointF, QRectF
 from . import viewport as timeline_viewport
 
 logger = logging.getLogger(__name__)

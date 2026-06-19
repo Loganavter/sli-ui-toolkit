@@ -4,9 +4,9 @@ import logging
 import math
 from typing import Any
 
-from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
-from PyQt6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtCore import QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.widgets import MinimalistScrollBar
@@ -27,11 +27,11 @@ class TimelineWidget(QWidget):
     Supply app-specific behavior via ``callbacks`` (:class:`TimelineCallbacks`).
     """
 
-    headMoved = pyqtSignal(int)
-    deletePressed = pyqtSignal()
-    zoomChanged = pyqtSignal()
-    viewportChanged = pyqtSignal()
-    resized = pyqtSignal()
+    headMoved = Signal(int)
+    deletePressed = Signal()
+    zoomChanged = Signal()
+    viewportChanged = Signal()
+    resized = Signal()
 
     def __init__(
         self,

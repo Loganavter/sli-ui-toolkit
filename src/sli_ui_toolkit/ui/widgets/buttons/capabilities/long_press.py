@@ -1,7 +1,7 @@
 """LongPressCapability — press-and-hold gesture detection."""
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QWidget
 
 from .base import ButtonCapability
 

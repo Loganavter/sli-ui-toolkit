@@ -5,9 +5,9 @@ Replaces ButtonGroupContainer from atomic/.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QRect, Qt
-from PyQt6.QtGui import QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
+from PySide6.QtCore import QRect, Qt
+from PySide6.QtGui import QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 

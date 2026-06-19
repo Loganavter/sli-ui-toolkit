@@ -1,8 +1,8 @@
 import os
 from functools import lru_cache
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 from sli_ui_toolkit.theme import ThemeManager
 

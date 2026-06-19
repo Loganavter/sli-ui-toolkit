@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QPointF, Qt
-from PyQt6.QtGui import QPainterPath, QWheelEvent
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QPainterPath, QWheelEvent
 
 from sli_ui_toolkit.widgets import (
     Button,

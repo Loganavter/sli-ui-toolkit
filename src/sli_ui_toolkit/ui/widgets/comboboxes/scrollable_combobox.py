@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 import time
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPen, QPolygon
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPen, QPolygon
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -65,8 +65,8 @@ class _ComboContentLayer(Layer):
 
 
 class ScrollableComboBox(Button):
-    currentIndexChanged = pyqtSignal(int)
-    wheelScrolledToIndex = pyqtSignal(int)
+    currentIndexChanged = Signal(int)
+    wheelScrolledToIndex = Signal(int)
 
     def __init__(self, parent=None, *, wheel_requires_focus: bool = False):
         super().__init__(

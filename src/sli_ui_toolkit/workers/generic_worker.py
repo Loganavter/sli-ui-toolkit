@@ -3,14 +3,14 @@ import traceback
 from collections.abc import Callable
 from typing import Any
 
-from PyQt6.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
+from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
 class WorkerSignals(QObject):
-    finished = pyqtSignal()
-    error = pyqtSignal(tuple)
-    result = pyqtSignal(object)
-    progress = pyqtSignal(int)
-    partial_result = pyqtSignal(object)
+    finished = Signal()
+    error = Signal(tuple)
+    result = Signal(object)
+    progress = Signal(int)
+    partial_result = Signal(object)
 
 class GenericWorker(QRunnable):
     def __init__(self, fn: Callable[..., Any], *args: Any, **kwargs: Any):
@@ -31,7 +31,7 @@ class GenericWorker(QRunnable):
             ):
                 raise
 
-    @pyqtSlot()
+    @Slot()
     def run(self) -> None:
         try:
             result = self.fn(*self.args, **self.kwargs)

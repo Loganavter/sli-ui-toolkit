@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
     QPointF,
@@ -9,10 +9,10 @@ from PyQt6.QtCore import (
     QSize,
     Qt,
     QTimer,
-    pyqtProperty,
+    Property,
 )
-from PyQt6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QCheckBox, QSizePolicy
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QCheckBox, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
@@ -69,7 +69,7 @@ class CheckBox(QCheckBox):
         self._hover_progress = max(0.0, min(1.0, float(value)))
         self.update()
 
-    hoverProgress = pyqtProperty(float, fget=get_hover_progress, fset=set_hover_progress)
+    hoverProgress = Property(float, fget=get_hover_progress, fset=set_hover_progress)
 
     def get_checked_progress(self) -> float:
         return self._checked_progress
@@ -78,7 +78,7 @@ class CheckBox(QCheckBox):
         self._checked_progress = max(0.0, min(1.0, float(value)))
         self.update()
 
-    checkedProgress = pyqtProperty(
+    checkedProgress = Property(
         float, fget=get_checked_progress, fset=set_checked_progress
     )
 

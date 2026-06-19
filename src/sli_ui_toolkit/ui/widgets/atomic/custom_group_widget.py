@@ -1,6 +1,6 @@
-from PyQt6.QtCore import QRect, QSize, Qt
-from PyQt6.QtGui import QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtGui import QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 

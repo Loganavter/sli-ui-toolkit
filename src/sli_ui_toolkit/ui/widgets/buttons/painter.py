@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import warnings
 
-from PyQt6.QtCore import QRectF
-from PyQt6.QtGui import QPainter
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QPainter
 
 from sli_ui_toolkit.theme import ThemeManager
 

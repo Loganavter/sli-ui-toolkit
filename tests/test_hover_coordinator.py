@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QPointF
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.widgets.helpers import hover_coordinator
 from sli_ui_toolkit.widgets import CheckBox, RadioButton

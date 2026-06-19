@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QPainterPath
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtGui import QPainterPath
 
 from .layers.ripple import RippleEffect
 from .regions import ButtonRegion, Divider, SingleRegionSplit, SplitLayout

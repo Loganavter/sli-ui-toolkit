@@ -52,7 +52,7 @@ re-exports only.
 A single `Button` class replaces all legacy button widgets via composable parameters.
 
 ```python
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.widgets import (
     Button,
@@ -593,7 +593,7 @@ surface uses `flyout.background` / `flyout.border`; rows use
 
 ## Reuse Guidance
 
-All widgets are generic and safe for reuse in any PyQt6 application. No widget imports application-specific modules.
+All widgets are generic and safe for reuse in any PySide6 application. No widget imports application-specific modules.
 
 Safe first choices for new code:
 

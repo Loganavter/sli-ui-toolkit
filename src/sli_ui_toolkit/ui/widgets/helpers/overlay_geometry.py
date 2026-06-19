@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QRect, QSize
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QPoint, QRect, QSize
+from PySide6.QtWidgets import QWidget
 
 def calculate_centered_overlay_geometry(
     *,

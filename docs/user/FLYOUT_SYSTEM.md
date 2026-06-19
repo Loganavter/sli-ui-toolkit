@@ -220,8 +220,8 @@ By default it autosizes from font metrics and uses a bold font derived from the
 button. You can fully override its content and dimensions:
 
 ```python
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QFont
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QFont
 from sli_ui_toolkit.ui.widgets.buttons.capabilities import ValuePopupContent
 
 def fmt(value: int) -> ValuePopupContent:

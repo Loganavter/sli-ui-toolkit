@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QAbstractListModel, QMimeData, QModelIndex, Qt
+from PySide6.QtCore import QAbstractListModel, QMimeData, QModelIndex, Qt
 
 NameRole = Qt.ItemDataRole.UserRole + 1
 RatingRole = Qt.ItemDataRole.UserRole + 2

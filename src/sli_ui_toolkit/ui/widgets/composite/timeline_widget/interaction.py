@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, Qt
+from PySide6.QtCore import QPointF, Qt
 
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from . import layout as timeline_layout

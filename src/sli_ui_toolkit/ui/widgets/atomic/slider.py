@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QPropertyAnimation, QRectF, QSize, Qt, pyqtProperty
-from PyQt6.QtGui import QBrush, QColor, QCursor, QPainter, QPen
-from PyQt6.QtWidgets import QSlider
+from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QPropertyAnimation, QRectF, QSize, Qt, Property
+from PySide6.QtGui import QBrush, QColor, QCursor, QPainter, QPen
+from PySide6.QtWidgets import QSlider
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
@@ -48,7 +48,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
             self._inner_scale_current = v
             self.update()
 
-    innerScale = pyqtProperty(float, fget=get_inner_scale, fset=set_inner_scale)
+    innerScale = Property(float, fget=get_inner_scale, fset=set_inner_scale)
 
     def _target_inner_scale(self) -> float:
         if self._pressed:

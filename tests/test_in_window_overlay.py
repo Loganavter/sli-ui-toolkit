@@ -4,8 +4,8 @@ import pytest
 
 import sli_ui_toolkit.widgets as public_widgets
 from sli_ui_toolkit.ui.widgets import overlays
-from PyQt6.QtCore import QPoint
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.widgets.overlays.choice_overlay import ChoiceOverlay
 from sli_ui_toolkit.widgets import DragDropOverlay, Label, OverlaySlot, TopLevelInWindowOverlay

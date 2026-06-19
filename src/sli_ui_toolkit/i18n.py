@@ -6,12 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 
 logger = logging.getLogger(__name__)
 
 class ToolkitTranslationEvents(QObject):
-    language_changed = pyqtSignal(str)
+    language_changed = Signal(str)
 
 def _deep_merge(
     base: dict[str, Any],

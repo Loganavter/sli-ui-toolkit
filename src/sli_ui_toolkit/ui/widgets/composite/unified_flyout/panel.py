@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
-from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
-from PyQt6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
+from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.theme import ThemeManager

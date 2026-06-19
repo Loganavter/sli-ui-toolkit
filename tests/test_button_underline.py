@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from PyQt6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPixmap
 
 from sli_ui_toolkit import FLUENT_DARK, FLUENT_LIGHT, ThemeManager
 from sli_ui_toolkit.ui.widgets.buttons.context import DrawContext

@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QPoint, QRect, QTimer, Qt
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QPoint, QRect, QTimer, Qt
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.config import get_dragdrop_service, get_flyout_timings, resolve_overlay_layer
 from sli_ui_toolkit.managers import FlyoutManager

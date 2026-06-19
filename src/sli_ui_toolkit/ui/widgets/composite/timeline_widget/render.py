@@ -4,8 +4,8 @@ import bisect
 import math
 from types import SimpleNamespace
 
-from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 
 from . import layout as timeline_layout
 from . import primitives as timeline_primitives

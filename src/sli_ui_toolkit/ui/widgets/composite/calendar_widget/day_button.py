@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QDate, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor
-from PyQt6.QtWidgets import QSizePolicy
+from PySide6.QtCore import QDate, QSize, Qt, Signal
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.theme import ThemeManager
 
 class CalendarDayButton(Button):
-    date_clicked = pyqtSignal(QDate)
-    date_context_menu = pyqtSignal(QDate)
+    date_clicked = Signal(QDate)
+    date_context_menu = Signal(QDate)
 
     def __init__(self, parent=None):
         super().__init__(

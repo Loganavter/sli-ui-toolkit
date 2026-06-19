@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any
 
-from PyQt6.QtCore import QRectF
-from PyQt6.QtGui import QColor, QPainter, QPainterPath
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QRectF
+from PySide6.QtGui import QColor, QPainter, QPainterPath
+from PySide6.QtWidgets import QWidget
 
 from .state import StateSet
 from .variants import VariantSpec

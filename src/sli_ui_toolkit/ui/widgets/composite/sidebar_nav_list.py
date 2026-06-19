@@ -26,9 +26,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QImage, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QImage, QPixmap
+from PySide6.QtWidgets import (
     QFrame,
     QScrollArea,
     QSizePolicy,
@@ -268,8 +268,8 @@ class _ListItem:
 
 
 class IconListWidget(QWidget):
-    currentRowChanged = pyqtSignal(int)
-    currentItemChanged = pyqtSignal(object, object)
+    currentRowChanged = Signal(int)
+    currentItemChanged = Signal(object, object)
 
     def __init__(
         self,

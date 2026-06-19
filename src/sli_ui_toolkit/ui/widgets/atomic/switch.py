@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, pyqtProperty, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QCursor, QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, Property, Signal
+from PySide6.QtGui import QBrush, QColor, QCursor, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.i18n import get_current_language, tr, translation_events
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 class Switch(QWidget):
-    checkedChanged = pyqtSignal(bool)
+    checkedChanged = Signal(bool)
     toggled = checkedChanged
 
     TRACK_WIDTH = 44
@@ -58,7 +58,7 @@ class Switch(QWidget):
         self._progress = max(0.0, min(1.0, float(v)))
         self.update()
 
-    progress = pyqtProperty(float, fget=get_progress, fset=set_progress)
+    progress = Property(float, fget=get_progress, fset=set_progress)
 
     def get_hover(self) -> float:
         return self._hover
@@ -67,7 +67,7 @@ class Switch(QWidget):
         self._hover = max(0.0, min(1.0, float(v)))
         self.update()
 
-    hover = pyqtProperty(float, fget=get_hover, fset=set_hover)
+    hover = Property(float, fget=get_hover, fset=set_hover)
 
     def isChecked(self) -> bool:  # noqa: N802
         return self._checked

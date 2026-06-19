@@ -1,6 +1,6 @@
 # SLI UI Toolkit
 
-Reusable PyQt6 widgets and UI infrastructure for compact desktop tools.
+Reusable PySide6 widgets and UI infrastructure for compact desktop tools.
 
 SLI stands for **Shared Lightweight Interface**. The toolkit was extracted from
 Improve-ImgSLI and Tkonverter, but host-specific icons, translations, resources,
@@ -64,7 +64,7 @@ The test suite uses `pytest-qt` and defaults to offscreen Qt through
 Most application code should import from `sli_ui_toolkit.widgets`.
 
 ```python
-from PyQt6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.widgets import Button, ComboBox

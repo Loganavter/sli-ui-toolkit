@@ -5,8 +5,8 @@ Uses OverlayScrollArea from the toolkit instead of raw QScrollArea.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFrame, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.widgets import Label, OverlayScrollArea
 

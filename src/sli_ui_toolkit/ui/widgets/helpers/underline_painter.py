@@ -2,9 +2,9 @@ import math
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
-from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QPen
-from PyQt6.QtWidgets import QLineEdit
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QPen
+from PySide6.QtWidgets import QLineEdit
 
 _TAPER_SEGMENTS = 24
 

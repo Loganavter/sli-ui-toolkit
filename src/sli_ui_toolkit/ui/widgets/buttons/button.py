@@ -19,9 +19,9 @@ from dataclasses import dataclass
 from typing import Any
 import warnings
 
-from PyQt6.QtCore import QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter
-from PyQt6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QPainter
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
@@ -95,24 +95,24 @@ def _state_property(state: ButtonState):
 
 
 class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
-    clicked = pyqtSignal()
-    pressed = pyqtSignal()
-    released = pyqtSignal()
-    toggled = pyqtSignal(bool)
-    valueChanged = pyqtSignal(int)
-    longPressed = pyqtSignal()
-    rightClicked = pyqtSignal()
-    middleClicked = pyqtSignal()
-    menuTriggered = pyqtSignal(object)
-    shortClicked = pyqtSignal()
-    regionClicked = pyqtSignal(str)
-    regionPressed = pyqtSignal(str)
-    regionReleased = pyqtSignal(str)
-    regionToggled = pyqtSignal(str, bool)
-    regionValueChanged = pyqtSignal(str, int)
-    regionLongPressed = pyqtSignal(str)
-    regionMenuTriggered = pyqtSignal(str, object)
-    actionTriggered = pyqtSignal(str, object)
+    clicked = Signal()
+    pressed = Signal()
+    released = Signal()
+    toggled = Signal(bool)
+    valueChanged = Signal(int)
+    longPressed = Signal()
+    rightClicked = Signal()
+    middleClicked = Signal()
+    menuTriggered = Signal(object)
+    shortClicked = Signal()
+    regionClicked = Signal(str)
+    regionPressed = Signal(str)
+    regionReleased = Signal(str)
+    regionToggled = Signal(str, bool)
+    regionValueChanged = Signal(str, int)
+    regionLongPressed = Signal(str)
+    regionMenuTriggered = Signal(str, object)
+    actionTriggered = Signal(str, object)
 
     @property
     def triggered(self):

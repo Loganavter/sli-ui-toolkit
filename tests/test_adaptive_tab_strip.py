@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QTabBar
+from PySide6.QtWidgets import QTabBar
 
 from sli_ui_toolkit.widgets import AdaptiveTabStrip, CloseButtonPolicy
 

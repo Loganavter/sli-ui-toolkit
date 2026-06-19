@@ -1,12 +1,12 @@
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     QEvent,
     QPoint,
     QPointF,
     Qt,
     QTimer,
-    pyqtSignal,
+    Signal,
 )
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QCursor,
     QFont,
     QFontMetrics,
@@ -15,7 +15,7 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -129,8 +129,8 @@ class _RatingRowSeparatorLayer(Layer):
 
 
 class RatingListItem(Button):
-    itemSelected = pyqtSignal(int)
-    itemRightClicked = pyqtSignal(int)
+    itemSelected = Signal(int)
+    itemRightClicked = Signal(int)
 
     def __init__(
         self,

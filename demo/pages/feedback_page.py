@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.widgets import (
     Button,
@@ -114,7 +114,7 @@ class FeedbackPage(GalleryPage):
         )
 
     def _show_progress_toast(self) -> None:
-        from PyQt6.QtCore import QTimer
+        from PySide6.QtCore import QTimer
         mgr = self._ensure_toast_manager()
         self._toast_progress_value = 0
         self._toast_progress_id = mgr.show_toast(

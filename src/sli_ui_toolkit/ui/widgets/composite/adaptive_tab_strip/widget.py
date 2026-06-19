@@ -4,9 +4,9 @@ from enum import Enum
 import math
 from typing import Any
 
-from PyQt6.QtCore import QRect, QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFontMetrics, QLinearGradient, QPainter, QPen
-from PyQt6.QtWidgets import QHBoxLayout, QSizePolicy, QTabBar, QWidget
+from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QLinearGradient, QPainter, QPen
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QTabBar, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -249,9 +249,9 @@ class _AdaptiveTabBar(QTabBar):
 
 
 class AdaptiveTabStrip(QWidget):
-    currentChanged = pyqtSignal(int)
-    tabCloseRequested = pyqtSignal(int)
-    addRequested = pyqtSignal()
+    currentChanged = Signal(int)
+    tabCloseRequested = Signal(int)
+    addRequested = Signal()
 
     def __init__(
         self,

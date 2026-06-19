@@ -10,7 +10,7 @@ If you need something else:
 
 ## What This Package Is
 
-`sli-ui-toolkit` is a reusable PyQt6 UI layer with three main responsibilities:
+`sli-ui-toolkit` is a reusable PySide6 UI layer with three main responsibilities:
 
 - preserve the SLI name as **Shared Lightweight Interface**;
 

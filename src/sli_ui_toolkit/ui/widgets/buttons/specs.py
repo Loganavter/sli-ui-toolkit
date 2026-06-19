@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from PyQt6.QtCore import QSize
-from PyQt6.QtGui import QColor
+from PySide6.QtCore import QSize
+from PySide6.QtGui import QColor
 
 from .content import ButtonRow
 from .regions import ButtonRegion, Divider, SingleRegionSplit, SplitLayout

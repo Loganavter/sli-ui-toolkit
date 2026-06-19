@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QRegion
-from PyQt6.QtWidgets import QScrollArea, QScrollBar
+from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QRegion
+from PySide6.QtWidgets import QScrollArea, QScrollBar
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget

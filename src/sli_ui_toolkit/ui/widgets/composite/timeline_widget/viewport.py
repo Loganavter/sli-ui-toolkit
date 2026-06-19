@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 
-from PyQt6.QtCore import QPointF, QRect, QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter
-from PyQt6.QtWidgets import QScrollArea, QWidget
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter
+from PySide6.QtWidgets import QScrollArea, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from . import layout as timeline_layout

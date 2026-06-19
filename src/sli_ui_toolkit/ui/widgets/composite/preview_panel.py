@@ -1,6 +1,6 @@
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QWheelEvent
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QWheelEvent
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic import CustomGroupBuilder, MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.buttons import Button

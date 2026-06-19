@@ -1,8 +1,8 @@
 import logging
 
-from PyQt6.QtCore import QEvent, QRect, Qt
-from PyQt6.QtGui import QMouseEvent
-from PyQt6.QtWidgets import QApplication, QListView
+from PySide6.QtCore import QEvent, QRect, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QApplication, QListView
 
 from sli_ui_toolkit.widgets import MinimalistScrollBar
 

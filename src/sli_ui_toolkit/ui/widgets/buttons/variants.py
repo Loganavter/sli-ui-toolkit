@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from PyQt6.QtGui import QColor
+from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.theme import ThemeManager
 

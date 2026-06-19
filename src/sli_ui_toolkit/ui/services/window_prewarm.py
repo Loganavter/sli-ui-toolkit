@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QWidget
 
 @runtime_checkable
 class OffscreenPrewarmAware(Protocol):
