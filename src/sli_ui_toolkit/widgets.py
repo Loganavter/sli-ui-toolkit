@@ -46,7 +46,9 @@ from sli_ui_toolkit.ui.widgets.buttons import (
     VerticalSplit,
 )
 from sli_ui_toolkit.ui.widgets.composite import (
+    AdaptiveTabStrip,
     BaseFlyout,
+    CloseButtonPolicy,
     DragGhostWidget,
     IconAction,
     IconActionFlyout,
@@ -155,6 +157,8 @@ __all__ = [
     "ToggleBehavior",
     "VerticalSplit",
     "ButtonPainter",
+    "AdaptiveTabStrip",
+    "CloseButtonPolicy",
     "BaseFlyout",
     "CustomGroupBuilder",
     "CustomGroupWidget",

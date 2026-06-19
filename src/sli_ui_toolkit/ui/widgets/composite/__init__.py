@@ -1,4 +1,8 @@
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
+from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import (
+    AdaptiveTabStrip,
+    CloseButtonPolicy,
+)
 from sli_ui_toolkit.ui.widgets.composite.color_swatch import ColorSwatch
 from sli_ui_toolkit.ui.widgets.composite.icon_action_flyout import (
     IconAction,
@@ -64,6 +68,8 @@ from sli_ui_toolkit.ui.widgets.composite.calendar_widget import (
 
 __all__ = [
     "BaseFlyout",
+    "AdaptiveTabStrip",
+    "CloseButtonPolicy",
     "ColorSwatch",
     "IconAction",
     "IconActionFlyout",

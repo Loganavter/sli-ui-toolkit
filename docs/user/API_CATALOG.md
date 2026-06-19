@@ -367,6 +367,33 @@ spin.setWheelRequiresFocus(False)
 
 ## Composite Widgets
 
+### AdaptiveTabStrip
+
+Compact workspace-style tabs with a trailing add button and adaptive close
+buttons.
+
+```python
+from sli_ui_toolkit.widgets import AdaptiveTabStrip, CloseButtonPolicy
+
+tabs = AdaptiveTabStrip(
+    add_icon=AppIcon.ADD,
+    close_icon=AppIcon.CLOSE,
+    close_policy=CloseButtonPolicy.ALL_WHEN_FIT_ELSE_CURRENT,
+    single_tab_closable=True,
+)
+tabs.addRequested.connect(create_workspace)
+tabs.tabCloseRequested.connect(close_workspace)
+tabs.currentChanged.connect(activate_workspace)
+```
+
+The strip reserves close-button width for every tab, so switching the selected
+tab never changes tab widths. With the default close policy, every close button
+is shown while full-size tabs fit; otherwise only the current tab keeps one.
+
+`AdaptiveTabStrip` exposes common `QTabBar`-style methods such as `addTab`,
+`removeTab`, `count`, `setCurrentIndex`, `setTabData`, and `tabData`. The
+underlying widgets are available as `tab_bar` and `add_button`.
+
 ### Flyouts & Panels
 
 | Widget | Description |
