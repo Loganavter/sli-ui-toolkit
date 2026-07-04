@@ -1,5 +1,10 @@
 from .drag_drop_overlay import DragDropOverlay
 from .in_window_overlay import OverlayItem, OverlaySlot, TopLevelInWindowOverlay
+from sli_ui_toolkit.deprecations import (
+    CHOICE_OVERLAY_DEPRECATIONS,
+    raise_missing_attribute,
+    resolve_deprecated_attribute,
+)
 
 __all__ = [
     "DragDropOverlay",
@@ -11,15 +16,16 @@ __all__ = [
 
 def __getattr__(name: str):
     if name in {"ChoiceOverlay", "ChoiceSlot"}:
-        import warnings
-
         from . import choice_overlay
 
-        warnings.warn(
-            f"{name} is deprecated and is not part of the public overlay API. "
-            "Use TopLevelInWindowOverlay and OverlaySlot instead.",
-            DeprecationWarning,
+        return resolve_deprecated_attribute(
+            module_name=__name__,
+            name=name,
+            registry=CHOICE_OVERLAY_DEPRECATIONS,
+            values={
+                "ChoiceOverlay": choice_overlay.ChoiceOverlay,
+                "ChoiceSlot": OverlaySlot,
+            },
             stacklevel=2,
         )
-        return getattr(choice_overlay, name)
-    raise AttributeError(name)
+    raise_missing_attribute(__name__, name)

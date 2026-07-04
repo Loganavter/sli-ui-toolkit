@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QRect, Qt
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
+from sli_ui_toolkit.ui.widgets.buttons.capabilities import ButtonCapability
 from sli_ui_toolkit.ui.widgets.buttons.content import ButtonRow
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.painter import default_layers
+from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 from sli_ui_toolkit.widgets import (
     Button,
     ButtonGroup,
@@ -13,6 +18,71 @@ from sli_ui_toolkit.widgets import (
 )
 
 from demo.components import ButtonPlaygroundCard, GalleryPage
+
+
+class WheelCounterCapability(ButtonCapability):
+    """Recipe: a wheel-driven value counter, built purely on the public
+    ButtonCapability API. The toolkit no longer ships this as a built-in
+    Button feature (no more ``scrollable=``/``valueChanged``) — apps that
+    want it define their own capability like this one and attach it with
+    ``button.attach_capability(...)``.
+    """
+
+    def __init__(self, min_value: int, max_value: int, start: int = 0, on_change=None):
+        super().__init__()
+        self.min_value = min_value
+        self.max_value = max_value
+        self.value = max(min_value, start)
+        self._on_change = on_change
+        self._button = None
+
+    def attach(self, button, region_id=None):
+        super().attach(button, region_id=region_id)
+        self._button = button
+
+    def detach(self, button):
+        self._button = None
+
+    def handle_wheel_event(self, event) -> bool:
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return False
+        step = 1 if delta > 0 else -1
+        new_value = max(self.min_value, min(self.max_value, self.value + step))
+        if new_value != self.value:
+            self.value = new_value
+            if self._on_change is not None:
+                self._on_change(new_value)
+            if self._button is not None:
+                self._button.update()
+        event.accept()
+        return True
+
+
+class ValueBelowIconLayer(Layer):
+    """Recipe: draws ``capability.value`` under the icon. Value-under-icon
+    rendering used to be a built-in Button feature; now it's just a custom
+    Layer passed via ``Button(layers=[...])``.
+    """
+
+    def __init__(self, capability: WheelCounterCapability):
+        self._capability = capability
+
+    def draw(self, ctx, tm) -> None:
+        rect = ctx.effective_rect.toAlignedRect()
+        style = read_widget_style(ctx.widget)
+        font = QFont()
+        font.setPixelSize(9)
+        font.setBold(True)
+        ctx.painter.setFont(font)
+        ctx.painter.setPen(style.foreground_color or QColor(tm.get_color("dialog.text")))
+        value_h = 12
+        value_y = rect.y() + rect.height() - value_h - 1
+        ctx.painter.drawText(
+            QRect(rect.x(), value_y, rect.width(), value_h),
+            Qt.AlignmentFlag.AlignCenter,
+            str(self._capability.value),
+        )
 
 
 MENU_LONG = [
@@ -69,24 +139,20 @@ class ButtonsPage(GalleryPage):
         )
         self.add_card("Toggle", toggle_btn, "Бистабильная кнопка.")
 
-        scroll_btn = Button(icon="line_weight", scrollable=(0, 10), variant="default")
-        scroll_btn.setValue(3)
+        wheel_counter = WheelCounterCapability(min_value=0, max_value=10, start=3)
+        scroll_btn = Button(
+            icon="line_weight",
+            variant="default",
+            layers=[*default_layers(), ValueBelowIconLayer(wheel_counter)],
+        )
+        scroll_btn.attach_capability(wheel_counter)
         self.add_card(
-            "Scrollable (icon + auto value chip)",
+            "Wheel counter (app-level recipe)",
             scroll_btn,
-            "Прокрутите колесом мыши — значение отрисовывается под иконкой "
-            "автоматически (icon + value chip).",
-        )
-
-        scroll_toggle_btn = Button(
-            icon="line_weight", toggle=True, scrollable=(0, 10), variant="default"
-        )
-        scroll_toggle_btn.setValue(0)
-        self.add_card(
-            "Scrollable + Toggle (count=0 → 'off' popup)",
-            scroll_toggle_btn,
-            "При значении 0 popup сверху показывает иконку divider_hidden "
-            "(или текст 'off', если иконка не настроена).",
+            "Button больше не знает про scroll-counter'ы из коробки. Это "
+            "WheelCounterCapability + ValueBelowIconLayer — обе накрафчены "
+            "на app-уровне поверх ButtonCapability/Layer API (см. исходник "
+            "этой страницы).",
         )
 
         lp_btn = Button(

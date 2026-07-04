@@ -210,51 +210,6 @@ protocols — see `unified_flyout/simple_adapter.py` for the minimal contract.
 
 ---
 
-## Scroll-button value popup
-
-When a `Button` is created with `scrollable=(min, max)`, scrolling the wheel
-over it pops up a small label showing the current value. This is not a
-`BaseFlyout` — it is a lightweight `QLabel` managed by `ScrollCapability`.
-
-By default it autosizes from font metrics and uses a bold font derived from the
-button. You can fully override its content and dimensions:
-
-```python
-from PySide6.QtCore import QSize
-from PySide6.QtGui import QFont
-from sli_ui_toolkit.ui.widgets.buttons.capabilities import ValuePopupContent
-
-def fmt(value: int) -> ValuePopupContent:
-    if value == 0:
-        return ValuePopupContent(text="off")
-    return ValuePopupContent(
-        text=f"{value}px",
-        font=QFont("Inter", 13, QFont.Weight.Bold),
-        size=QSize(56, 32),                           # omit → autosize
-        style="QLabel#ValuePopupLabel { padding: 2px 6px; }",
-    )
-
-button.configure_value_popup(formatter=fmt, padding=(14, 6))
-```
-
-`ValuePopupContent` fields (all optional):
-
-| Field | Effect when set |
-| --- | --- |
-| `text` | Label text. |
-| `pixmap` | Replaces text with an icon. |
-| `size` | Fixed popup size. Omit for autosize from font + padding. |
-| `font` | Override default bold font derived from the button. |
-| `style` | Extra QSS appended to the base stylesheet — useful for color/padding overrides. |
-
-Host apps can also wire a richer popup controller via
-`Button.set_popup_controller(controller)`. The controller must implement
-`show_popup(id, anchor, *, text, pixmap, size, position, offset, timeout_ms)`
-and `hide_popup(id)`. When set, the scroll capability defers to it instead of
-the built-in `QLabel`.
-
----
-
 ## Practical recipes
 
 ### "Open one, close everything else"

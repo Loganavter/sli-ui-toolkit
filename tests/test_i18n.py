@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from sli_ui_toolkit import (
+    I18nStateError,
+    TranslationManager,
     emit_language_changed,
     get_current_language,
     tr,
@@ -26,3 +30,13 @@ def test_emit_language_changed_updates_current(qapp):
     emit_language_changed("en")
     assert get_current_language() == "en"
     assert received == ["en"]
+
+
+def test_manual_language_signal_emit_is_blocked(qapp):
+    with pytest.raises(I18nStateError, match="Use emit_language_changed"):
+        translation_events().language_changed.emit("ru")
+
+
+def test_legacy_load_language_is_blocked():
+    with pytest.raises(I18nStateError, match="load_language"):
+        TranslationManager().load_language("ru")

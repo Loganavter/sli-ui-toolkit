@@ -70,9 +70,6 @@ from sli_ui_toolkit.widgets import (
 # Icon-only toggle
 btn = Button(AppIcon.MAGNIFIER, toggle=True)
 
-# Icon with scroll wheel value
-btn = Button(AppIcon.LINE, toggle=True, scrollable=(0, 10), show_underline=True)
-
 # Icon pair (unchecked/checked icons)
 btn = Button(icon=(AppIcon.VERTICAL, AppIcon.HORIZONTAL), toggle=True)
 
@@ -101,6 +98,15 @@ btn = Button(
     divider=Divider(),
 )
 btn.regionClicked.connect(lambda region_id: ...)
+
+# Linked regions: shared hover/press state across a "card"-style capsule
+btn = Button(
+    regions=[
+        ButtonRegion(id="icon", icon="photo", group="card"),
+        ButtonRegion(id="text", rows=[...], group="card"),
+    ],
+    split=HorizontalSplit(),
+)
 
 # Arbitrary path-shaped regions are supported through path_fn/z_index
 btn = Button(
@@ -135,7 +141,6 @@ btn = Button.from_spec(
 | `icon` | icon / (icon, icon) | Single icon or (unchecked, checked) pair |
 | `text` | str | Text label (with or without icon) |
 | `toggle` | bool | Checkable on/off behavior |
-| `scrollable` | (min, max) | Enable mouse-wheel value adjustment |
 | `long_press` | bool | Emit `longPressed` after hold delay |
 | `badge` | str/int | Small overlay badge text |
 | `show_underline` | bool | Bottom color underline |
@@ -143,7 +148,7 @@ btn = Button.from_spec(
 | `underline_thickness` | float/None | Explicit underline thickness in pixels |
 | `menu` | list | Dropdown menu items |
 | `variant` | str | Visual variant (see below) |
-| `wheel_requires_focus` | bool | Require focus before wheel-scroll handling when `scrollable` is enabled |
+| `wheel_requires_focus` | bool | Require focus before wheel events reach attached capabilities (see BUTTON_API.md's Capability Management section) |
 | `regions` | list[ButtonRegion] | Optional multi-region content/behavior model |
 | `split` | SplitLayout | Region geometry (`HorizontalSplit`, `VerticalSplit`, `GridSplit`, `CustomSplit`) |
 | `divider` | Divider/None | Optional whole-widget divider rendering between split regions |
@@ -168,7 +173,6 @@ btn = Button.from_spec(
 | `clicked` | Click or short-click (when `long_press=True`) |
 | `shortClicked` | Alias for click in long-press mode |
 | `toggled(bool)` | Toggle state changed |
-| `valueChanged(int)` | Scroll value changed |
 | `longPressed` | Long press detected |
 | `rightClicked` | Right mouse button |
 | `middleClicked` | Middle mouse button |
@@ -177,7 +181,6 @@ btn = Button.from_spec(
 | `regionClicked(str)` | Region click by id |
 | `regionPressed(str)` / `regionReleased(str)` | Region press/release by id |
 | `regionToggled(str, bool)` | Region toggle state changed |
-| `regionValueChanged(str, int)` | Region scroll value changed |
 | `regionLongPressed(str)` | Region long press detected |
 | `regionMenuTriggered(str, object)` | Region menu item selected |
 | `actionTriggered(str, object)` | Declarative behavior action id and payload |
@@ -188,7 +191,6 @@ btn = Button.from_spec(
 |--------|-------------|
 | `setUnderlineColor(QColor\|list\|None)` | Set underline color |
 | `setUnderlineThickness(float\|None)` | Set underline thickness in pixels |
-| `set_value(int)` / `get_value()` | Scroll value access |
 | `setBadge(str)` | Update badge text |
 | `setBadgeStyle(filled=..., background_color=..., border_color=..., text_color=...)` | Configure badge outline/fill colors. Badges are outline-only by default. |
 | `set_footer_mode(bool)` | Flat top, rounded bottom (for footer buttons) |
@@ -196,8 +198,13 @@ btn = Button.from_spec(
 | `set_override_bg_color(QColor)` | Force background color |
 | `set_actions(list)` | Update menu items |
 | `show_menu()` | Programmatically open menu |
-| `set_regions(list[ButtonRegion], split=..., divider=...)` | Replace region geometry/content at runtime |
+| `set_regions(list[ButtonRegion], split=..., divider=...)` | Replace region geometry/content at runtime. Reconciles by region id — same-id regions keep their hover/ripple/capability state, not a full reset |
 | `set_spec(ButtonSpec)` | Replace the full declarative control description at runtime |
+| `update_region(region_id, **changes)` | Replace one or more static `ButtonRegion` fields on a single region, leaving other regions and this region's runtime state untouched (see [BUTTON_API.md](BUTTON_API.md#updating-one-region-at-runtime)) |
+| `setRegionChecked(region_id, checked, emit=True)` | Set a region's CHECKED state from code — generalizes `setChecked()`, which is hardcoded to `"_main"` |
+| `region(region_id)` | Live `RegionHandle` exposing both static config and runtime state as plain attributes, e.g. `button.region("copy").checked = True` |
+| `region_states(region_id)` | Read-only `frozenset[ButtonState]` snapshot for one region |
+| `regions()` | Copy of the current `list[ButtonRegion]` (mutating the returned list has no effect — use `update_region`/`set_regions`) |
 | `setFlyoutOpen(bool)` | Visual state for attached flyout |
 
 **Underline scaling:** underline thickness and arc radius scale proportionally with widget height (baseline: 32 px). This ensures visibility on high-DPI / large UI modes.
@@ -221,6 +228,38 @@ Legacy button widget names such as `IconButton`, `ToggleIconButton`,
 `ButtonGroupContainer`, `ButtonType`, and `ButtonMode` are compatibility
 lookups only. Explicit imports emit `DeprecationWarning`; these names are not in
 `__all__` and will be removed in `0.3.0`.
+
+### ContextMenu
+
+`ContextMenu` is a theme-aware native `QMenu` for right-click commands. It is
+intended for app/domain context actions such as rename, duplicate, remove,
+properties, and submenus. Unlike flyouts, it uses Qt's menu behavior for focus,
+keyboard navigation, submenus, and native popup lifecycle.
+
+```python
+from sli_ui_toolkit.widgets import ContextMenuBuilder
+
+menu = (
+    ContextMenuBuilder()
+    .action("rename", "Rename", shortcut="F2")
+    .action("duplicate", "Duplicate")
+    .separator()
+    .action("remove", "Remove", danger=True)
+    .build(parent, on_triggered=lambda action_id, data: ...)
+)
+menu.popup_at(global_pos)
+```
+
+Public names:
+
+| Name | Description |
+|------|-------------|
+| `ContextMenu` | `QMenu` subclass built from declarative entries. |
+| `ContextMenuAction` | Action item model: id, text, icon, enabled, checked, danger, shortcut, data, children. |
+| `ContextMenuSeparator` | Separator model. |
+| `ContextMenuSection` | Group of entries with optional disabled title. |
+| `ContextMenuBuilder` | Chainable builder for common menus. |
+| `show_context_menu(parent, global_pos, entries, on_triggered=...)` | Convenience function that builds and pops up a menu. |
 
 ### Labels
 
@@ -337,14 +376,13 @@ Wheel-scrollable widgets use the shared `wheel_requires_focus` policy. It
 defaults to `False`, so wheel interaction works on hover without clicking first.
 When a widget handles wheel input, it takes focus so focused visuals activate
 consistently. Set it to `True` when a control should only react after focus. The
-same policy is available on `Button(scrollable=...)`, `ComboBox`,
-`ScrollableComboBox`, `InstancesCounterButton`, `Slider`, `SpinBox`, and
-`TimeLineEdit`.
+same policy is available on `Button`, `ComboBox`, `ScrollableComboBox`,
+`InstancesCounterButton`, `Slider`, `SpinBox`, and `TimeLineEdit`.
 
 ```python
 spin = SpinBox(wheel_requires_focus=True)
 slider = Slider(wheel_requires_focus=True)
-button = Button(icon="line_weight", scrollable=(0, 10), wheel_requires_focus=True)
+button = Button(icon="line_weight", wheel_requires_focus=True)
 
 spin.setWheelRequiresFocus(False)
 ```
@@ -511,12 +549,13 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 
 | Name | Description |
 |------|-------------|
+| `I18nStateError` | Raised when code tries to mutate translation state through unsafe legacy/manual paths. |
 | `TranslationManager` | Singleton: loads `<i18n_root>/<lang>/*.json`, merges with `en/` fallback, caches per language. |
 | `configure_i18n(i18n_root=...)` | Set path to i18n directory. |
-| `tr(key, language=None, default=None)` | Translate dotted key (e.g. `"dialog.save.title"`). |
+| `tr(key, language=None, default=None)` | Pure translation lookup for a dotted key (e.g. `"dialog.save.title"`). Passing `language=` reads that language without changing global UI state. |
 | `get_current_language()` | Return currently loaded language code. |
-| `translation_events()` | Return `ToolkitTranslationEvents` with `language_changed(str)` signal. |
-| `emit_language_changed(lang)` | Emit language-changed signal. |
+| `translation_events()` | Return `ToolkitTranslationEvents` with guarded `language_changed(str)` signal. Connect/disconnect are public; direct `.emit(...)` is blocked because it desynchronizes translation state. |
+| `emit_language_changed(lang)` | Official path for global UI language changes; updates current language and emits `language_changed`. |
 
 ---
 
@@ -597,7 +636,7 @@ All widgets are generic and safe for reuse in any PySide6 application. No widget
 
 Safe first choices for new code:
 
-- `Button` with appropriate `variant` — covers icons, toggles, scrollable, long-press, menus, text
+- `Button` with appropriate `variant` — covers icons, toggles, long-press, menus, text
 - `ButtonGroup` for grouped toolbar sections
 - Labels, `CustomLineEdit`
 - `SidebarDialogShell` + `ScrollableDialogPage`

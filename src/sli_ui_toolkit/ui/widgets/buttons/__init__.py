@@ -6,6 +6,7 @@ from sli_ui_toolkit.ui.widgets.buttons.regions import (
     Divider,
     GridSplit,
     HorizontalSplit,
+    RegionHandle,
     SingleRegionSplit,
     VerticalSplit,
 )
@@ -18,37 +19,18 @@ from sli_ui_toolkit.ui.widgets.buttons.specs import (
     MenuBehavior,
     RegionSpec,
     RegionStyle,
-    ScrollBehavior,
     ShapeSpec,
     ToggleBehavior,
 )
 
-import warnings
-
-_LEGACY_BUTTON_NAMES = {
-    "IconButton",
-    "SimpleIconButton",
-    "ToggleIconButton",
-    "ScrollableIconButton",
-    "ToggleScrollableIconButton",
-    "LongPressIconButton",
-    "NumberedToggleIconButton",
-    "UnifiedIconButton",
-    "AutoRepeatButton",
-    "CustomButton",
-    "ToolButton",
-    "ToolButtonWithMenu",
-    "MagnifierInstancesButton",
-}
-
-_LEGACY_BUTTON_GROUP_NAMES = {
-    "ButtonGroupContainer",
-}
-
-_LEGACY_BUTTON_SENTINELS = {
-    "ButtonType",
-    "ButtonMode",
-}
+from sli_ui_toolkit.deprecations import (
+    BUTTON_COMPAT_DEPRECATIONS,
+    LEGACY_BUTTON_GROUP_NAMES,
+    LEGACY_BUTTON_NAMES,
+    LEGACY_BUTTON_SENTINELS,
+    raise_missing_attribute,
+    resolve_deprecated_attribute,
+)
 
 __all__ = [
     "Button",
@@ -60,6 +42,7 @@ __all__ = [
     "Divider",
     "GridSplit",
     "HorizontalSplit",
+    "RegionHandle",
     "SingleRegionSplit",
     "VerticalSplit",
     "BehaviorSpec",
@@ -70,35 +53,23 @@ __all__ = [
     "MenuBehavior",
     "RegionSpec",
     "RegionStyle",
-    "ScrollBehavior",
     "ShapeSpec",
     "ToggleBehavior",
 ]
 
 
 def __getattr__(name: str):
-    if name in _LEGACY_BUTTON_NAMES:
-        warnings.warn(
-            f"{name} is deprecated and will be removed in 0.3.0. "
-            "Use the composable Button class instead.",
-            DeprecationWarning,
+    values = {
+        **{legacy: Button for legacy in LEGACY_BUTTON_NAMES},
+        **{legacy: ButtonGroup for legacy in LEGACY_BUTTON_GROUP_NAMES},
+        **{legacy: Button for legacy in LEGACY_BUTTON_SENTINELS},
+    }
+    if name in values:
+        return resolve_deprecated_attribute(
+            module_name=__name__,
+            name=name,
+            registry=BUTTON_COMPAT_DEPRECATIONS,
+            values=values,
             stacklevel=2,
         )
-        return Button
-    if name in _LEGACY_BUTTON_GROUP_NAMES:
-        warnings.warn(
-            f"{name} is deprecated and will be removed in 0.3.0. "
-            "Use ButtonGroup instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return ButtonGroup
-    if name in _LEGACY_BUTTON_SENTINELS:
-        warnings.warn(
-            f"{name} is deprecated and will be removed in 0.3.0. "
-            "Use Button keyword arguments or ButtonSpec instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return Button
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    raise_missing_attribute(__name__, name)

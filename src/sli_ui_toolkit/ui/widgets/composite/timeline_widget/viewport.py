@@ -253,7 +253,7 @@ def pos_to_frame(widget, x: float) -> int:
     if logical_width <= 0:
         return 0
     ratio = (x - widget.LEFT_GUTTER) / logical_width
-    frame = int(ratio * frame_span(widget))
+    frame = int(round(ratio * frame_span(widget)))
     return max(0, min(frame, widget._total_frames - 1))
 
 def pos_to_float_index(widget, x: float) -> float:

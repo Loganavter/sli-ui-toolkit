@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from PySide6.QtGui import QColor
 
-from sli_ui_toolkit.ui.widgets.buttons.variants import derive_custom_palette
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+from sli_ui_toolkit.ui.widgets.buttons.variants import (
+    derive_custom_palette,
+    get_variant,
+    resolve_background,
+    resolve_background_layers,
+)
 
 
 RED = QColor("#D93025")
@@ -52,6 +58,32 @@ def test_ghost_variant_starts_transparent():
     assert pal.hover.alpha() > 0
     assert pal.pressed.alpha() > pal.hover.alpha()
     assert pal.border is None
+
+
+def test_ghost_variant_standard_hover_is_translucent(qapp):
+    from sli_ui_toolkit.theme import ThemeManager
+
+    tm = ThemeManager.get_instance()
+    variant = get_variant("ghost")
+
+    hover = resolve_background(variant, frozenset({ButtonState.HOVERED}), tm)
+    pressed = resolve_background(variant, frozenset({ButtonState.PRESSED}), tm)
+
+    assert 0 < hover.alpha() < 255
+    assert hover.alpha() < pressed.alpha() < 255
+
+
+def test_standard_variant_background_is_resolved_as_layers(qapp):
+    from sli_ui_toolkit.theme import ThemeManager
+
+    tm = ThemeManager.get_instance()
+    variant = get_variant("default")
+
+    layers = resolve_background_layers(variant, frozenset({ButtonState.HOVERED}), tm)
+
+    assert len(layers) == 2
+    assert layers[0].rgba() == QColor(tm.get_color("button.toggle.background.normal")).rgba()
+    assert layers[1].rgba() == QColor(tm.get_color("button.toggle.background.hover")).rgba()
 
 
 def test_unknown_variant_falls_back_to_tint():

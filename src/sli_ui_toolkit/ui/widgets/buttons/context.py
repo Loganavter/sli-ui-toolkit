@@ -22,6 +22,7 @@ class DrawContext:
     states: StateSet
     variant: VariantSpec
     corner_radius: int
+    corner_radii: tuple[int, int, int, int] = (0, 0, 0, 0)
 
     content: Any = None  # Content | None — см. content.py
 
@@ -37,8 +38,6 @@ class DrawContext:
     is_footer: bool = False
 
     icon_size_px: int = 22
-    scroll_value: int | None = None
-    scroll_value_always_visible: bool = False
 
     # Region-aware fields. When `region_id` is set, layers should prefer these
     # over their whole-widget counterparts. Default None keeps single-region
@@ -56,6 +55,9 @@ class DrawContext:
     region_underline_color: Any = None
     region_underline_thickness: float | None = None
     region_icon_size_px: int | None = None
+    region_corner_radii: tuple[int, int, int, int] | None = None
+    region_clip_content: bool = True
+    region_ripple_rect: QRectF | None = None
 
     def scoped_to(
         self,
@@ -73,6 +75,9 @@ class DrawContext:
         underline_color: Any = None,
         underline_thickness: float | None = None,
         icon_size_px: int | None = None,
+        corner_radii: tuple[int, int, int, int] | None = None,
+        clip_content: bool = True,
+        ripple_rect: QRectF | None = None,
     ) -> "DrawContext":
         return replace(
             self,
@@ -89,7 +94,14 @@ class DrawContext:
             region_underline_color=underline_color,
             region_underline_thickness=underline_thickness,
             region_icon_size_px=icon_size_px,
+            region_corner_radii=corner_radii,
+            region_clip_content=clip_content,
+            region_ripple_rect=ripple_rect if ripple_rect is not None else rect,
         )
+
+    @property
+    def effective_ripple_rect(self) -> QRectF:
+        return self.region_ripple_rect if self.region_ripple_rect is not None else self.effective_rect
 
     # ---------------- effective accessors ----------------
     # Layers use these to be region-aware without caring whether a region is

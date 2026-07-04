@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.2.16
+
+### Added
+- `ButtonRegion.group` (and matching `RegionSpec.group`) — regions that share the same group propagate hover/press state to each other and treat a press-then-release within any sibling region of the group as a click of the press region. Lets a multi-region button render as one visual capsule (e.g. icon + multi-row text).
+- Content drawing inside a grouped region skips the region-path clip so glyph antialiasing/overflow near the inner boundary spills onto the sibling region (matching bg) instead of being trimmed.
+- Per-corner button radii via `Button(corner_radii=(tl, tr, br, bl))`, `ButtonConfig.corner_radii`, `ShapeSpec.corner_radii`, and region-level `ButtonRegion.corner_radii` for seamless split/grouped capsules and custom title-bar controls.
+- `ButtonCapability.handle_wheel_event(event)` — an optional hook (default no-op) that any attached capability can override to receive wheel events routed to its region. `Button.wheelEvent` dispatches to it duck-typed, with no hardcoded capability type.
+- `Button.update_region(region_id, **changes)` and `Button.setRegionChecked(region_id, checked, emit=True)` — programmatic per-region updates that reconcile through `set_regions()` by id, leaving other regions' and the target region's own runtime state (hover/ripple/capabilities) untouched. Previously the only way to change one region's static fields or checked state was to rebuild and pass the whole region list, and `setChecked()` only ever addressed the implicit `"_main"` region.
+- `Button.region(region_id)` returns a `RegionHandle` — a live view exposing both static `ButtonRegion` fields and runtime state (`checked`, read-only `hovered`/`pressed`) as plain attributes, e.g. `button.region("copy").checked = True`, so callers don't need to know which of the two internal stores a given field lives in.
+
+### Changed
+- Button backgrounds now resolve as paint layers, preserving a base layer below hover/pressed/checked overlays. The `"ghost"` variant uses translucent theme-aware overlays instead of borrowing toggle background tokens.
+- Runtime `Button.setIcon(...)`, `setText(...)`, `setRows(...)`, and `set_actions(...)` now keep the main controller region in sync with facade state.
+- Right-click presses on buttons now start the same region-aware ripple feedback path as left-click presses before emitting `rightClicked` on release.
+- `UnifiedFlyout` sizing now keeps the panel width aligned to the anchor button and allows the decorative shadow halo to extend outside the clamped content area.
+- Timeline scrubbing now keeps the visual scrub index from the precise pointer position and rounds frame selection from pointer position, reducing off-by-one feel while dragging.
+- Deprecated imports and runtime compatibility aliases now use a centralized `sli_ui_toolkit.deprecations` registry with consistent replacement, removal-version, and changelog context instead of hand-written warnings scattered across modules.
+- i18n state changes now have fail-fast guards: direct `translation_events().language_changed.emit(...)` and legacy `TranslationManager.load_language(...)` raise `I18nStateError` with documentation guidance. Use `emit_language_changed(lang)` for global UI language changes and `tr(key, language=...)` / `ensure_loaded(lang)` for passive lookups.
+- `Button.set_regions()`/`set_spec()` now detach capabilities left over from regions that disappear across a reshape (previously a region's capability, and any `QTimer` it owned, leaked forever once that region id stopped appearing in a subsequent call).
+
+### Removed
+- **Breaking:** `ContextMenu` no longer subclasses `QMenu` — it is now a regular in-window overlay widget (like the rest of this toolkit's flyouts/tooltips/dropdowns), rendered inside the host window instead of as a separate frameless OS popup window. Public API (`ContextMenuBuilder`, `ContextMenuAction`/`ContextMenuSection`/`ContextMenuSeparator`, `show_context_menu`, `popup_at`/`exec_at`, `actionTriggered`) is unchanged, but code that reached into `QMenu`/`QAction` internals (`.actions()`, `.menu()`, `.trigger()`) needs to use the new row-based structure instead.
+- **Breaking:** the built-in scroll-wheel value counter is gone entirely — `Button(scrollable=...)`/`ButtonConfig.scrollable`, `ScrollCapability`, `ValuePopupContent`, `ScrollBehavior`, `Button.valueChanged`/`regionValueChanged`, `setValue`/`getValue`/`setRange`, `configure_value_popup`/`set_popup_controller`, and the value-under-icon rendering in `IconContent` are all removed. Button no longer owns this concern; it only provides the generic primitives (`attach_capability()`, `ButtonCapability.handle_wheel_event`, and custom `Layer`s via `Button(layers=...)`) needed to build an equivalent app-level counter — see the "Wheel counter (app-level recipe)" card in `demo/pages/buttons_page.py` (`WheelCounterCapability` + `ValueBelowIconLayer`).
+- Toggle+scroll composition (`_do_toggle_scroll_click`/`_handle_toggle_scroll_wheel`) is removed along with the scroll system it composed with.
+- `Button._is_scrolling` and `ButtonState.SCROLLING` — leftovers of the removed scroll capability. No layer in the paint pipeline branched on `SCROLLING` any more, but `_is_scrolling` remained a live property backed by `_region_states`, which made it look like a supported hook for app-level capabilities to flip. It wasn't; it did nothing visually. Custom capabilities that want visual feedback should drive a custom `Layer` (see `attach_capability()`/`Button(layers=...)`) instead.
+
+### Fixed
+- Application tooltips now support `QTabBar` per-tab tooltips and ignore empty tooltip events instead of showing blank bubbles.
+- `GenericWorker` keeps itself alive until `finished` is delivered under PySide6, preventing queued `result` / `error` / `finished` signals from being dropped after `QThreadPool` auto-deletes the runnable wrapper.
+- Direct icon pixmap rendering is restored: `normalized_icon_pixmap(...)` no longer crops and rescales glyphs based on alpha bounds, avoiding distorted source-designed icon padding.
+
+## 0.2.15
+
+### Added
+- `AdaptiveTabStrip` composite (workspace-style tabs with trailing add button and adaptive close-button policy).
+- `ContextMenu`, `ContextMenuAction`, `ContextMenuSection`, `ContextMenuSeparator`, `ContextMenuBuilder`, and `show_context_menu(...)` — a theme-aware native `QMenu` API for app/domain context actions with shortcuts, icons, checked items, disabled/danger entries, sections, separators, and submenus.
+- Top-level window decoration helpers: `CustomTitleBar`, `apply_frameless(...)`, `remove_frameless(...)`, `set_frameless_runtime(...)`, and `decorate_dialog(...)` for frameless windows/dialogs with client-side title bars and resize handling.
+- Tests covering the new tab strip, context menu, window decoration helpers, per-corner button radii, PySide6 import surface, underline gating, layered/custom backgrounds, and worker/i18n/tooltip regressions.
+
+### Changed
+- Migrated runtime from PyQt6 to PySide6.
+- Updated package metadata, README/docs examples, demo imports, tests, and AUR template dependency declarations from PyQt6 to PySide6.
+- Moved `ColorSwatch` out of the public toolkit API; the demo now owns its local color swatch example.
+- Removed `BaseFlyout.make_color_swatch(...)` with the public `ColorSwatch` removal; demos now compose color swatches locally instead of exporting that helper from the toolkit.
+- Reworked i18n lookup flow: `tr(key, language=...)` loads alternate language packs without changing global language or emitting `language_changed`; explicit global switching goes through `emit_language_changed(...)` / `set_current_language(...)`.
+- Replaced `TranslationsBinder` with widget-lifetime-bound helpers: `translatable_text(...)`, `translatable_tooltip(...)`, `translatable_placeholder(...)`, and `translatable_callback(...)`.
+
 ## 0.2.14
 
 ### Fixed

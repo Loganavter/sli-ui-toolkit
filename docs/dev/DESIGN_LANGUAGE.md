@@ -199,6 +199,11 @@ Flyouts are in-window widgets (not native popups):
 - Auto-hide on mouse leave with configurable delay.
 - Only one flyout active at a time (`FlyoutManager`).
 
+Context menus are the exception: use `ContextMenu` for right-click command
+menus. It is a styled native `QMenu`, not an in-window flyout, so Qt owns focus,
+keyboard navigation, submenus, and popup dismissal while the toolkit owns the
+declarative item model and theme stylesheet.
+
 ## Token Tiers
 
 Palette tokens fall into three tiers. The split lets host applications know which

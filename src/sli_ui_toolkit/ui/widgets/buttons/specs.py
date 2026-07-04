@@ -19,14 +19,37 @@ from .regions import ButtonRegion, Divider, SingleRegionSplit, SplitLayout
 ActionCallback = Callable[[str, Any], None]
 
 
+CornerRadii = tuple[int, int, int, int]
+
+
+def normalize_corner_radii(
+    corner_radius: int | None,
+    corner_radii: CornerRadii | None,
+    fallback: int = 0,
+) -> CornerRadii:
+    if corner_radii is not None:
+        tl, tr, br, bl = corner_radii
+        return (int(tl), int(tr), int(br), int(bl))
+    base = int(corner_radius) if corner_radius is not None else fallback
+    return (base, base, base, base)
+
+
+def is_uniform_radii(radii: CornerRadii) -> bool:
+    return radii[0] == radii[1] == radii[2] == radii[3]
+
+
 @dataclass(frozen=True)
 class ShapeSpec:
     corner_radius: int | None = None
     size: tuple[int, int] = (36, 36)
     icon_size: int = 22
+    corner_radii: CornerRadii | None = None
 
     def qsize(self) -> QSize:
         return QSize(int(self.size[0]), int(self.size[1]))
+
+    def resolved_corner_radii(self, fallback: int = 0) -> CornerRadii:
+        return normalize_corner_radii(self.corner_radius, self.corner_radii, fallback)
 
 
 @dataclass(frozen=True)
@@ -90,13 +113,6 @@ class ToggleBehavior(BehaviorSpec):
 
 
 @dataclass(frozen=True)
-class ScrollBehavior(BehaviorSpec):
-    min_value: int = 0
-    max_value: int = 10
-    kind: str = "scroll"
-
-
-@dataclass(frozen=True)
 class LongPressBehavior(BehaviorSpec):
     delay_ms: int = 600
     kind: str = "long_press"
@@ -121,15 +137,13 @@ class RegionSpec:
     rect_fn: Any = None
     path_fn: Any = None
     z_index: int = 0
+    group: str | None = None
 
     @classmethod
     def from_region(cls, region: ButtonRegion) -> "RegionSpec":
         behaviors: list[BehaviorSpec] = [ClickBehavior()]
         if region.toggle:
             behaviors.append(ToggleBehavior())
-        if region.scrollable is not None:
-            min_v, max_v = region.scrollable
-            behaviors.append(ScrollBehavior(min_value=int(min_v), max_value=int(max_v)))
         if region.long_press:
             behaviors.append(LongPressBehavior(delay_ms=region.long_press_ms))
         if region.menu:
@@ -146,16 +160,13 @@ class RegionSpec:
             rect_fn=region.rect_fn,
             path_fn=region.path_fn,
             z_index=region.z_index,
+            group=region.group,
         )
 
     def to_region(self) -> ButtonRegion:
         toggle = any(isinstance(b, ToggleBehavior) for b in self.behaviors)
         long_press = next(
             (b for b in self.behaviors if isinstance(b, LongPressBehavior)),
-            None,
-        )
-        scroll = next(
-            (b for b in self.behaviors if isinstance(b, ScrollBehavior)),
             None,
         )
         menu = next((b for b in self.behaviors if isinstance(b, MenuBehavior)), None)
@@ -168,7 +179,6 @@ class RegionSpec:
             toggle=toggle,
             long_press=long_press is not None,
             long_press_ms=long_press.delay_ms if long_press else 600,
-            scrollable=(scroll.min_value, scroll.max_value) if scroll else None,
             menu=list(menu.items) if menu else None,
             badge=self.badge,
             variant=self.style.variant,
@@ -185,6 +195,7 @@ class RegionSpec:
             rect_fn=self.rect_fn,
             path_fn=self.path_fn,
             z_index=self.z_index,
+            group=self.group,
         )
 
 

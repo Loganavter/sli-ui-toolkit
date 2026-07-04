@@ -22,6 +22,7 @@ from sli_ui_toolkit.widgets import (
 )
 
 from demo.components import GalleryPage
+from demo.components.color_swatch import ColorSwatch
 
 
 def _trigger(text: str, on_click) -> Button:
@@ -43,8 +44,8 @@ class _FontFlyout(BaseFlyout):
         self.size_slider = self._slider(50, 400, 100)
         self.weight_slider = self._slider(0, 100, 50)
         self.opacity_slider = self._slider(5, 100, 100)
-        self.color_swatch = self.make_color_swatch(QColor("#ffffff"))
-        self.bg_color_swatch = self.make_color_swatch(QColor("#000000"))
+        self.color_swatch = ColorSwatch(QColor("#ffffff"), parent=self)
+        self.bg_color_swatch = ColorSwatch(QColor("#000000"), parent=self)
         self.draw_bg_switch = Switch()
 
         self.add_row("Font size", self.size_slider)
@@ -182,7 +183,7 @@ class FlyoutsPage(GalleryPage):
             "Font settings flyout (built via BaseFlyout)",
             font_holder,
             "Пример: размер, жирность, opacity, color swatches, background и позиция — "
-            "целиком собрано через add_row/add_radio_row/make_color_swatch.",
+            "целиком собрано через add_row/add_radio_row.",
         )
 
         unified_holder = QWidget()

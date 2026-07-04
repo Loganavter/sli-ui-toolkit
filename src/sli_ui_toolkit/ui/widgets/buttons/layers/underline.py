@@ -1,4 +1,4 @@
-"""UnderlineLayer — кастомное подчёркивание (явный цвет/accent fallback/scroll-style)."""
+"""UnderlineLayer — кастомное подчёркивание (явный цвет/accent fallback)."""
 
 from __future__ import annotations
 
@@ -33,20 +33,22 @@ def _clamp_underline_thickness(thickness: float) -> float:
 
 
 class UnderlineLayer(Layer):
+    @staticmethod
+    def _gate(ctx: DrawContext) -> bool:
+        return bool(ctx.effective_show_underline)
+
     def applies(self, ctx: DrawContext) -> bool:
-        return bool(
-            ctx.effective_show_underline
-            or ctx.effective_underline_color is not None
-            or ctx.scroll_value is not None
-        )
+        return self._gate(ctx)
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
+        if not self._gate(ctx):
+            return
         widget = ctx.widget
         style = read_widget_style(widget)
 
         resolved = ctx.effective_underline_color or style.underline_color
         has_explicit = resolved is not None
-        if not resolved and (ctx.effective_show_underline or ctx.scroll_value is not None):
+        if not resolved:
             resolved = style.accent_color or tm.get_color("accent")
         if resolved is None:
             return
@@ -54,11 +56,9 @@ class UnderlineLayer(Layer):
         alpha = None
         if isinstance(resolved, QColor):
             if has_explicit:
-                alpha = min(resolved.alpha(), 100)
+                alpha = resolved.alpha()
             else:
-                alpha = resolved.alpha() if resolved.alpha() < 255 else (
-                    40 if ctx.scroll_value is not None else 200
-                )
+                alpha = resolved.alpha() if resolved.alpha() < 255 else 200
 
         radius = max(0, ctx.corner_radius)
         scale = max(1.0, widget.rect().height() / 32.0)
@@ -67,7 +67,7 @@ class UnderlineLayer(Layer):
         thickness = (
             ctx.effective_underline_thickness
             if ctx.effective_underline_thickness is not None
-            else (2.0 if ctx.scroll_value is not None else 1.0)
+            else 1.0
         )
         thickness = _clamp_underline_thickness(thickness)
 

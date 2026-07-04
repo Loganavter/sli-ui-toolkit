@@ -15,13 +15,14 @@ from PySide6.QtWidgets import (
 from sli_ui_toolkit.widgets import (
     Button,
     CheckBox,
-    ColorSwatch,
     CustomGroupWidget,
     Label,
     RadioButton,
     Slider,
     SpinBox,
 )
+
+from demo.components.color_swatch import ColorSwatch
 
 
 MENU_ITEMS = [("Option A", "a"), ("Option B", "b"), ("Long Option C", "c")]
@@ -73,7 +74,7 @@ class ButtonPlaygroundCard(CustomGroupWidget):
             ["default", "surface", "ghost"], "default"
         )
         mode_host, self._mode_group, self._mode_radios = _radio_row(
-            ["normal", "toggle", "scrollable", "long press", "menu"], "normal"
+            ["normal", "toggle", "long press", "menu"], "normal"
         )
 
         self.width_spin = self._spin(1, 200, 132)
@@ -282,8 +283,6 @@ class ButtonPlaygroundCard(CustomGroupWidget):
         }
         if mode == "toggle":
             kwargs["toggle"] = True
-        elif mode == "scrollable":
-            kwargs["scrollable"] = (0, 100)
         elif mode == "long press":
             kwargs["long_press"] = True
         elif mode == "menu":
@@ -292,7 +291,6 @@ class ButtonPlaygroundCard(CustomGroupWidget):
         self._button = Button(**kwargs)
         self._button.clicked.connect(lambda: self._set_event("clicked"))
         self._button.toggled.connect(lambda checked: self._set_event(f"toggled: {checked}"))
-        self._button.valueChanged.connect(lambda v: self._set_event(f"value: {v}"))
         self._button.longPressed.connect(lambda: self._set_event("long pressed"))
         self._button.menuTriggered.connect(lambda v: self._set_event(f"menu: {v}"))
         self._preview_layout.insertWidget(1, self._button, 0, Qt.AlignmentFlag.AlignCenter)

@@ -28,3 +28,12 @@ class ButtonCapability(ABC):
     def is_enabled(self) -> bool:
         """Whether this capability should respond to events. Override in subclasses."""
         return True
+
+    def handle_wheel_event(self, event) -> bool:
+        """Optional hook: handle a wheel event routed to this capability's region.
+
+        Override and return True to consume the event. The default no-op lets
+        capabilities that don't care about wheel input (long-press, menu, ...)
+        ignore it without special-casing in Button's event dispatch.
+        """
+        return False

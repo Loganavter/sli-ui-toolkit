@@ -23,6 +23,17 @@ def test_public_widget_import_does_not_warn_for_internal_shims():
     ]
 
 
+def test_deprecation_registry_formats_replacement_context():
+    from sli_ui_toolkit.deprecations import BUTTON_COMPAT_DEPRECATIONS
+
+    message = BUTTON_COMPAT_DEPRECATIONS["ToolButton"].message()
+
+    assert "ToolButton is deprecated since 0.2.11" in message
+    assert "will be removed in 0.3.0" in message
+    assert "Use the composable Button class instead" in message
+    assert "CHANGELOG.md section 0.2.11" in message
+
+
 def test_legacy_atomic_combobox_import_warns():
     with pytest.warns(DeprecationWarning, match="atomic.combobox is deprecated"):
         module = _fresh_import("sli_ui_toolkit.ui.widgets.atomic.combobox")
@@ -55,10 +66,20 @@ def test_legacy_button_package_names_warn():
 def test_legacy_public_widget_button_names_warn():
     import sli_ui_toolkit.widgets as widgets
 
-    with pytest.warns(DeprecationWarning, match="ToolButtonWithMenu is deprecated"):
+    with pytest.warns(
+        DeprecationWarning,
+        match="ToolButtonWithMenu is deprecated since 0.2.11",
+    ):
         legacy_button = getattr(widgets, "ToolButtonWithMenu")
 
     assert legacy_button is widgets.Button
+
+
+def test_unknown_public_widget_compat_name_points_to_changelog():
+    import sli_ui_toolkit.widgets as widgets
+
+    with pytest.raises(AttributeError, match="check CHANGELOG.md"):
+        getattr(widgets, "DefinitelyRemovedWidget")
 
 
 def test_legacy_button_instance_api_warns(qapp):

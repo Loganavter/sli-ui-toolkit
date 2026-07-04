@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from PySide6.QtCore import QLineF, QRectF
 from PySide6.QtGui import QColor, QCursor, QPainterPath
 
 from .content import ButtonRow
+from .state import ButtonState
+
+if TYPE_CHECKING:
+    from .button import Button
 
 
 RectFn = Callable[[QRectF], QRectF]
@@ -25,7 +29,6 @@ class ButtonRegion:
     toggle: bool = False
     long_press: bool = False
     long_press_ms: int = 600
-    scrollable: tuple[int, int] | None = None
     menu: list[tuple[str, Any]] | None = None
     badge: int | str | None = None
     variant: str | None = None
@@ -42,6 +45,8 @@ class ButtonRegion:
     rect_fn: RectFn | None = None
     path_fn: PathFn | None = None
     z_index: int = 0
+    corner_radii: tuple[int, int, int, int] | None = None
+    group: str | None = None
 
 
 class SplitLayout(Protocol):
@@ -151,3 +156,55 @@ class Divider:
     fallback_token: str = "dialog.border"
     thickness: float = 1.0
     margin: float = 2.0
+
+
+_REGION_RUNTIME_STATES = {"checked": ButtonState.CHECKED}
+_REGION_READONLY_STATES = {"hovered": ButtonState.HOVERED, "pressed": ButtonState.PRESSED}
+
+
+class RegionHandle:
+    """Single read/write handle for one region of a multi-region ``Button``.
+
+    Hides the split between static ``ButtonRegion`` config (icon, text,
+    colors, ...) and runtime ``ButtonState`` (checked, hovered, pressed, ...)
+    behind plain attribute access, e.g. ``button.region("copy").checked = True``
+    or ``button.region("copy").text = "Copied!"``. Callers never need to know
+    which storage a given field lives in.
+    """
+
+    def __init__(self, button: "Button", region_id: str) -> None:
+        object.__setattr__(self, "_button", button)
+        object.__setattr__(self, "_region_id", region_id)
+
+    @property
+    def id(self) -> str:
+        return self._region_id
+
+    def _region(self) -> ButtonRegion:
+        region = self._button._region_by_id(self._region_id)
+        if region is None:
+            raise ValueError(f"unknown button region id: {self._region_id!r}")
+        return region
+
+    def __getattr__(self, name: str) -> Any:
+        if name in _REGION_RUNTIME_STATES or name in _REGION_READONLY_STATES:
+            state = (_REGION_RUNTIME_STATES | _REGION_READONLY_STATES)[name]
+            return state in self._button._controller.states(self._region_id)
+        region = self._region()
+        if hasattr(region, name):
+            return getattr(region, name)
+        raise AttributeError(f"ButtonRegion has no field {name!r}")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in _REGION_READONLY_STATES:
+            raise AttributeError(f"{name!r} is read-only; it is driven by user interaction")
+        if name in _REGION_RUNTIME_STATES:
+            self._button.setRegionChecked(self._region_id, bool(value))
+            return
+        region = self._region()
+        if not hasattr(region, name):
+            raise AttributeError(f"ButtonRegion has no field {name!r}")
+        self._button.update_region(self._region_id, **{name: value})
+
+    def __repr__(self) -> str:
+        return f"RegionHandle(id={self._region_id!r})"

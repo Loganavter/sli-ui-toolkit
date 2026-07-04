@@ -9,7 +9,7 @@ from PySide6.QtCore import (
     QSize,
     Qt,
 )
-from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtGui import QBrush, QPainter, QPen
 from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QWidget
 
 from sli_ui_toolkit.config import get_flyout_timings
@@ -26,7 +26,6 @@ from sli_ui_toolkit.managers import FlyoutManager
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
-from sli_ui_toolkit.ui.widgets.composite.color_swatch import ColorSwatch
 
 
 _H_AXIS = {"left": 0.0, "center": 0.5, "right": 1.0}
@@ -61,6 +60,14 @@ class BaseFlyout(QWidget):
 
         self.setWindowFlags(Qt.WindowType.Widget)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Non-window child widgets are visible by default in Qt as soon as
+        # their ancestor window is shown. Flyouts must stay hidden until an
+        # explicit show()/show_aligned() call, otherwise every flyout ever
+        # constructed (e.g. via eager tab creation at startup) flashes on
+        # screen the moment the main window becomes visible. Use the base
+        # QWidget.hide() here (not self.hide()) to avoid the overridden
+        # hide()'s activateWindow()/setFocus() side effects during __init__.
+        QWidget.hide(self)
         self.overlay_layer = attach_in_window_widget(self, parent)
         self._anchor_widget: QWidget | None = None
 
@@ -166,16 +173,6 @@ class BaseFlyout(QWidget):
         row.addStretch()
         self.content_layout.addWidget(host)
         return label, group, radios
-
-    def make_color_swatch(
-        self,
-        color: QColor | None = None,
-        *,
-        size: int = 28,
-        alpha: bool = True,
-    ) -> ColorSwatch:
-        """Build a round color-picker swatch."""
-        return ColorSwatch(color=color, size=size, alpha=alpha, parent=self)
 
     def _ensure_overlay_parent(self, anchor_widget: QWidget):
         if anchor_widget is None:

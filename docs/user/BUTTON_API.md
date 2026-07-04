@@ -24,10 +24,6 @@ btn = Button(icon='play', text='Start', size=(100, 40))
 btn = Button(icon='eye_open', toggle=True, size=(36, 36))
 btn.toggled.connect(on_toggled)  # Emitted when toggled
 
-# Scrollable button (value 0-10)
-btn = Button(icon='volume', scrollable=(0, 10), size=(36, 36))
-btn.valueChanged.connect(on_value_changed)  # Emitted on scroll
-
 # Long-press detection
 btn = Button(icon='delete', long_press=True, long_press_ms=600)
 btn.longPressed.connect(on_long_press)
@@ -69,6 +65,50 @@ btn = Button(
 btn.regionClicked.connect(handle_region)
 ```
 
+#### Linking regions into one visual capsule
+
+By default each region tracks its own hover/press state and paints
+independently. Pass `group=` on regions that should react as a single capsule:
+hover/press on any grouped region mirrors the state to every region sharing the
+same group, so they highlight together. Release on a sibling region of the same
+group still fires the press region's click. `regionClicked` keeps emitting the
+actually-clicked region id; connect once and handle either.
+
+```python
+from sli_ui_toolkit.widgets import Button, ButtonRegion, HorizontalSplit
+from sli_ui_toolkit.ui.widgets.buttons import ButtonRow
+
+card = Button(
+    regions=[
+        ButtonRegion(id="icon", icon=icon, group="card", weight=1.0),
+        ButtonRegion(
+            id="text",
+            group="card",
+            weight=5.0,
+            rows=[
+                ButtonRow(text="Title", size=15, weight="bold"),
+                ButtonRow(text="Description", size=12),
+            ],
+        ),
+    ],
+    split=HorizontalSplit(),
+    size=(0, 76),
+    corner_radius=10,
+)
+card.regionClicked.connect(lambda _id: open_card())
+```
+
+This unblocks icon-plus-multi-line-text content: keep the icon in its own
+region and the rows in a sibling region, link both with `group=`, and the whole
+capsule behaves as one button.
+
+The grouped paint shares background/state but each region still rounds its own
+rect. For a seamless capsule, set per-region `corner_radii` so the inner edge
+is squared and only the outer edge is rounded. Content rendering inside grouped
+regions is **not** clipped to the region path — glyph antialiasing and any
+overflow can spill into a sibling region of the same group, which keeps text
+near the boundary from being visually trimmed.
+
 Regions may also use arbitrary `QPainterPath` hit areas. `rect_fn` supplies the
 region's content/bounding rect, `path_fn` supplies the true clickable/painted
 shape, and `z_index` controls overlapping hit priority.
@@ -106,6 +146,110 @@ Background, content, ripple, and hit-testing are clipped to the path. Dividers
 are still layout-line based; custom path-shaped separators should be rendered
 as a dedicated layer.
 
+#### ButtonRegion fields
+
+`ButtonRegion` mirrors most of `Button`'s own constructor parameters, plus a
+few region-only layout fields (`weight`, `rect_fn`, `path_fn`, `z_index`,
+`group`, `cursor`). It does **not** carry `size`, `density`,
+`wheel_requires_focus`, `defer_click`, `split`, `divider`, `config`, `layers`,
+or `parent` — those apply to the whole `Button`, not one region.
+
+| Field | Type | Default |
+|-------|------|---------|
+| `id` | `str` | *(required)* |
+| `weight` | `float` | `1.0` |
+| `icon` | `Any` | `None` |
+| `text` | `str` | `""` |
+| `rows` | `list[ButtonRow] \| None` | `None` |
+| `toggle` | `bool` | `False` |
+| `long_press` | `bool` | `False` |
+| `long_press_ms` | `int` | `600` |
+| `menu` | `list[tuple[str, Any]] \| None` | `None` |
+| `badge` | `int \| str \| None` | `None` |
+| `variant` | `str \| None` | `None` |
+| `custom_bg_color` | `QColor \| None` | `None` |
+| `override_bg_color` | `QColor \| None` | `None` |
+| `override_border_color` | `QColor \| None` | `None` |
+| `show_underline` | `bool \| None` | `None` |
+| `underline_color` | `Any` | `None` |
+| `underline_thickness` | `float \| None` | `None` |
+| `icon_size_px` | `int \| None` | `None` |
+| `show_strike_through` | `bool` | `False` |
+| `enabled` | `bool` | `True` |
+| `cursor` | `QCursor \| None` | `None` |
+| `rect_fn` | `RectFn \| None` | `None` |
+| `path_fn` | `PathFn \| None` | `None` |
+| `z_index` | `int` | `0` |
+| `corner_radii` | `tuple[int, int, int, int] \| None` | `None` |
+| `group` | `str \| None` | `None` |
+
+Note that `checked` is **not** a `ButtonRegion` field — a region's checked
+state is runtime-only (see below), not part of its static config.
+
+#### Reading region state: `region_states`, `iter_regions`, `regions()`
+
+```python
+# Snapshot of a single region's live ButtonState set (frozenset, read-only)
+states = button.region_states("copy")
+is_hovered = ButtonState.HOVERED in states
+
+# The current list of ButtonRegion configs (a copy — mutating it does nothing)
+current = button.regions()
+
+# Iterate regions during custom painting, each yielded with a scoped DrawContext
+for ctx in button.iter_regions(paint_ctx):
+    ...
+```
+
+#### Updating one region at runtime
+
+Two problems come up once a button has more than one region: changing one
+region's static appearance (icon/text/color/...) without touching the others,
+and setting a region's checked state from code (not a user click). Both are
+solved without hand-rolling list surgery:
+
+```python
+# Change one or more static fields on a single region.
+# Internally this reconciles through set_regions() by region id, so every
+# other region — and this region's own hover/ripple runtime state — is left
+# untouched. It is *not* a full re-creation of the region list.
+button.update_region("copy", text="Copied!", icon="check")
+
+# Set a region's CHECKED state programmatically — the same effect a user
+# click would have on a toggle=True region. Generalizes setChecked(), which
+# is hardcoded to the implicit "_main" region and predates multi-region support.
+button.setRegionChecked("copy", True)
+```
+
+For the common case of syncing several fields on one region — or reading and
+writing several fields together — `button.region(region_id)` returns a live
+handle that exposes both static config and runtime state as plain attributes,
+so callers don't need to know which storage a field lives in:
+
+```python
+handle = button.region("copy")
+handle.checked            # -> reads runtime ButtonState.CHECKED
+handle.checked = True     # -> button.setRegionChecked("copy", True)
+handle.text = "Copied!"   # -> button.update_region("copy", text="Copied!")
+handle.enabled = False    # -> button.update_region("copy", enabled=False),
+                          #    which also flips the region's DISABLED state
+handle.hovered            # read-only — driven by mouse events, raises on write
+handle.pressed            # read-only, same as above
+```
+
+`button.region(region_id)` raises `ValueError` immediately if the id doesn't
+exist. `update_region`/`setRegionChecked` are the underlying primitives if you
+need to update several regions in a loop without allocating a handle per call.
+
+**Why `set_regions()` is safe to call repeatedly:** it reconciles the new
+region list against the old one by `region.id`
+(`ButtonController.set_spec`). A region whose id is reused keeps its existing
+hover/press/ripple runtime state and any attached capabilities; only regions
+whose id disappears from the new list have their runtime state and
+capabilities torn down. So replacing one `ButtonRegion` in a list you already
+have and calling `set_regions()` again — which is exactly what
+`update_region` does — is cheap and non-disruptive, not a full reset.
+
 For new complex controls, prefer the declarative spec API. It keeps content,
 style, behavior, layout, and runtime state separate internally:
 
@@ -117,7 +261,6 @@ from sli_ui_toolkit.widgets import (
     ContentSpec,
     Divider,
     RegionSpec,
-    ScrollBehavior,
     ShapeSpec,
     VerticalSplit,
 )
@@ -131,7 +274,6 @@ btn = Button.from_spec(
                 content=ContentSpec(icon="settings"),
                 behaviors=(
                     ClickBehavior(action="amount.reset"),
-                    ScrollBehavior(action="amount.change", min_value=0, max_value=10),
                 ),
             ),
         ),
@@ -141,9 +283,13 @@ btn = Button.from_spec(
     )
 )
 btn.regionClicked.connect(handle_region)
-btn.regionValueChanged.connect(handle_region_value)
 btn.actionTriggered.connect(handle_action)
 ```
+
+Need scroll-wheel-driven behavior on a region? Attach a custom
+`ButtonCapability` that implements `handle_wheel_event()` — see
+[Capability Management](#capability-management) below and the
+"Wheel counter (app-level recipe)" demo card in `demo/pages/buttons_page.py`.
 
 ## Constructor Parameters
 
@@ -153,7 +299,6 @@ Button(
     text: str = "",
     rows: list[ButtonRow] | None = None,
     toggle: bool = False,
-    scrollable: tuple[int, int] | None = None,  # (min, max)
     long_press: bool = False,
     long_press_ms: int = 600,
     badge: int | None = None,
@@ -182,7 +327,6 @@ Button(
 | `text` | `str` | `""` | Single-line text content |
 | `rows` | `list[ButtonRow]` | `None` | Multi-line text with individual styling |
 | `toggle` | `bool` | `False` | Toggleable button (on/off state) |
-| `scrollable` | `(int, int)` | `None` | Enable scroll wheel: (min, max) values |
 | `long_press` | `bool` | `False` | Detect press-and-hold |
 | `long_press_ms` | `int` | `600` | Time (ms) before long-press triggers |
 | `badge` | `int` | `None` | Number badge (top-right corner) |
@@ -218,9 +362,6 @@ button.released.connect(on_released)
 # Emitted when toggled (toggle=True only)
 button.toggled.connect(lambda checked: print(f"Toggled: {checked}"))
 
-# Emitted when scroll wheel moves (scrollable=(min,max) only)
-button.valueChanged.connect(lambda value: print(f"Value: {value}"))
-
 # Emitted after long press timeout (long_press=True only)
 button.longPressed.connect(on_long_press)
 
@@ -251,18 +392,14 @@ button.actionTriggered.connect(lambda action_id, data: ...)
 ### State Management
 
 ```python
-# Toggle state
+# Toggle state ("_main" region on single-region buttons)
 button.setChecked(True)          # Set toggle state (if toggle=True)
 is_checked = button.isChecked()  # Get toggle state
 
-# Scroll value
-button.setValue(5)               # Set value (if scrollable=(...) is set)
-value = button.getValue()        # Get current value
-button.set_value = 5             # Alias for setValue()
-value = button.get_value()       # Alias for getValue()
-
-# Set scroll range
-button.setRange(0, 20)           # Change min/max (if scrollable=(...))
+# Multi-region equivalents — see "Updating one region at runtime" above
+button.setRegionChecked("copy", True)
+button.update_region("copy", enabled=False, text="Copied!")
+button.region("copy").checked = True
 ```
 
 ### Visual Properties
@@ -325,33 +462,36 @@ button.set_footer_mode(True)
 
 ```python
 from sli_ui_toolkit.ui.widgets.buttons.capabilities import (
-    ScrollCapability, LongPressCapability, MenuCapability
+    ButtonCapability, LongPressCapability, MenuCapability
 )
 
 # Attach a capability
-scroll_cap = ScrollCapability()
-button.attach_capability(scroll_cap)
+button.attach_capability(MenuCapability([("Open", "open")]), region_id="menu")
 
 # Get attached capability
-scroll_cap = button.get_capability(ScrollCapability)
-if scroll_cap:
+menu_cap = button.get_capability(MenuCapability, region_id="menu")
+if menu_cap:
     # ... use capability
 
 # Detach capability
-button.detach_capability(ScrollCapability)
-
-# Attach a capability to a specific region
-button.attach_capability(MenuCapability([("Open", "open")]), region_id="menu")
+button.detach_capability(MenuCapability, region_id="menu")
 ```
 
 New controls should usually describe behavior with `ButtonSpec` instead of
 attaching capabilities manually. Direct capability attachment remains supported
 for compatibility and specialized toolkit internals.
 
-`BehaviorSpec` subclasses (`ClickBehavior`, `ToggleBehavior`, `ScrollBehavior`,
+`BehaviorSpec` subclasses (`ClickBehavior`, `ToggleBehavior`,
 `LongPressBehavior`, `MenuBehavior`) may carry `action=`, `data=`, and
 `callback=`. When a behavior is triggered, `Button` emits
 `actionTriggered(action_id, data)` and calls the callback if one was supplied.
+
+The toolkit does not ship a built-in scroll/value-counter capability. Subclass
+`ButtonCapability` and override `handle_wheel_event(event) -> bool` to react to
+wheel input on a region — `Button`'s `wheelEvent` duck-types over every
+capability attached to the target region and calls the hook automatically. See
+the "Wheel counter (app-level recipe)" card in `demo/pages/buttons_page.py` for
+a full example (custom capability + custom `Layer` for value rendering).
 
 ### Menu Management
 
@@ -389,7 +529,6 @@ config = ButtonConfig(
     text='Settings',
     rows=None,
     toggle=False,
-    scrollable=None,
     long_press=False,
     long_press_ms=600,
     badge=None,
@@ -443,21 +582,6 @@ btn = Button(
     size=(40, 40),
 )
 btn.toggled.connect(lambda checked: print(f"Visible: {checked}"))
-```
-
-### Scrollable Button
-
-```python
-btn = Button(
-    icon='volume',
-    scrollable=(0, 100),
-    size=(36, 36),
-)
-btn.valueChanged.connect(lambda vol: print(f"Volume: {vol}%"))
-
-# Use scroll wheel to change value
-# Or set programmatically:
-btn.setValue(50)
 ```
 
 ### Menu Button
@@ -542,11 +666,6 @@ Old code still works:
 ```python
 # These still work from button.py attributes
 _lp_timer = btn._lp_timer               # Returns LongPressCapability's timer
-_scroll_end_timer = btn._scroll_end_timer  # Returns ScrollCapability's timer
-
-# Old methods delegate to capabilities
-btn._show_scroll_popup(5)
-btn._hide_scroll_popup()
 ```
 
 ## Integration with CalendarDayButton
@@ -566,7 +685,6 @@ day_btn.set_data(True, QColor(0, 200, 0))        # Has data, green
 
 | Issue | Solution |
 |-------|----------|
-| Button not responding to scroll | Check `scrollable=(min, max)` param |
 | Menu not showing | Verify `menu=[(label, action), ...]` param |
 | Long press not triggering | Increase `long_press_ms` (default 600) |
 | Colors not applying | Use `set_override_bg_color()` or variant |
