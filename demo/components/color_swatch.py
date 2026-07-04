@@ -26,20 +26,25 @@ class ColorSwatch(Button):
         super().__init__(
             size=(size, size),
             corner_radius=max(0, size // 2),
-            background_color=initial,
-            border_color=QColor(tm.get_color("dialog.border")),
             parent=parent,
         )
         self._color = initial
+        # Use override_bg_color so the swatch shows the *exact* chosen color
+        # instead of the 18%-alpha tint that derive_custom_palette would apply.
+        self.set_override_bg_color(initial)
         self._dialog: QColorDialog | None = None
         self._alpha = bool(alpha)
         self.clicked.connect(self._open_dialog)
         tm.theme_changed.connect(self._refresh_border)
+        self._refresh_border()
 
     def _refresh_border(self) -> None:
-        self.setBorderColor(
-            QColor(ThemeManager.get_instance().get_color("dialog.border"))
-        )
+        tm = ThemeManager.get_instance()
+        try:
+            border = QColor(tm.get_color("list_item.text.normal"))
+        except Exception:
+            border = QColor("#888888")
+        self.setBorderColor(border)
 
     def color(self) -> QColor:
         return QColor(self._color)
@@ -48,7 +53,7 @@ class ColorSwatch(Button):
         if not color.isValid():
             return
         self._color = QColor(color)
-        self.set_background_color(QColor(color))
+        self.set_override_bg_color(QColor(color))
 
     setColor = set_color
 

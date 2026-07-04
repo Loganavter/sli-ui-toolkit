@@ -14,7 +14,7 @@ from PySide6.QtGui import QPainterPath
 
 from .layers.ripple import RippleEffect
 from .regions import ButtonRegion, Divider, SingleRegionSplit, SplitLayout
-from .specs import BehaviorSpec, ButtonSpec, RegionSpec, ScrollBehavior, ShapeSpec
+from .specs import BehaviorSpec, ButtonSpec, RegionSpec, ShapeSpec
 from .state import ButtonState
 
 
@@ -22,8 +22,6 @@ from .state import ButtonState
 class RegionRuntimeState:
     states: set[ButtonState] = field(default_factory=set)
     ripple: RippleEffect | None = None
-    scroll_range: tuple[int, int] | None = None
-    scroll_value: int | None = None
 
 
 class ButtonController:
@@ -36,6 +34,7 @@ class ButtonController:
         self.divider: Divider | None = None
         self.rects: dict[str, QRectF] = {}
         self.paths: dict[str, QPainterPath] = {}
+        self.group_rects: dict[str, QRectF] = {}
         self.runtime: dict[str, RegionRuntimeState] = {}
 
     def set_spec(self, spec: ButtonSpec) -> None:
@@ -46,27 +45,21 @@ class ButtonController:
         self.divider = spec.divider
         seen = {region.id for region in self.regions}
 
+        group_ripples: dict[str, RippleEffect] = {}
         for region in self.regions:
             runtime = self.runtime.setdefault(region.id, RegionRuntimeState())
-            if runtime.ripple is None:
+            if region.group:
+                shared = group_ripples.get(region.group)
+                if shared is None:
+                    shared = runtime.ripple or RippleEffect(self.button)
+                    group_ripples[region.group] = shared
+                runtime.ripple = shared
+            elif runtime.ripple is None:
                 runtime.ripple = RippleEffect(self.button)
             if region.enabled:
                 runtime.states.discard(ButtonState.DISABLED)
             else:
                 runtime.states.add(ButtonState.DISABLED)
-
-            scroll_behavior = self._scroll_behavior(region.id)
-            if scroll_behavior is not None:
-                min_v = int(scroll_behavior.min_value)
-                max_v = int(scroll_behavior.max_value)
-                runtime.scroll_range = (min_v, max_v)
-                if runtime.scroll_value is None:
-                    runtime.scroll_value = max(min_v, min(max_v, max(min_v, 1)))
-                else:
-                    runtime.scroll_value = max(min_v, min(max_v, runtime.scroll_value))
-            else:
-                runtime.scroll_range = None
-                runtime.scroll_value = None
 
         for region_id in list(self.runtime):
             if region_id not in seen:
@@ -118,6 +111,27 @@ class ButtonController:
                 paths[region.id] = path
         self.paths = paths
 
+        group_rects: dict[str, QRectF] = {}
+        for region in self.regions:
+            if not region.group:
+                continue
+            region_rect = self.rects.get(region.id)
+            if region_rect is None:
+                continue
+            if region.group in group_rects:
+                group_rects[region.group] = group_rects[region.group].united(region_rect)
+            else:
+                group_rects[region.group] = QRectF(region_rect)
+        self.group_rects = group_rects
+
+    def ripple_rect(self, region_id: str) -> QRectF | None:
+        region = next((r for r in self.regions if r.id == region_id), None)
+        if region is None:
+            return self.rects.get(region_id)
+        if region.group:
+            return self.group_rects.get(region.group, self.rects.get(region_id))
+        return self.rects.get(region_id)
+
     def region_at(self, pos) -> str | None:
         point = QPointF(pos.toPoint() if hasattr(pos, "toPoint") else pos)
         if not QRectF(self.button.rect()).contains(point):
@@ -154,22 +168,6 @@ class ButtonController:
         runtime = self.runtime.get(region_id)
         return runtime.ripple if runtime else None
 
-    def scroll_range(self, region_id: str) -> tuple[int, int] | None:
-        runtime = self.runtime.get(region_id)
-        return runtime.scroll_range if runtime else None
-
-    def scroll_value(self, region_id: str) -> int | None:
-        runtime = self.runtime.get(region_id)
-        return runtime.scroll_value if runtime else None
-
-    def set_scroll_value(self, region_id: str, value: int) -> None:
-        runtime = self.runtime.setdefault(region_id, RegionRuntimeState())
-        if runtime.scroll_range is None:
-            runtime.scroll_value = value
-            return
-        min_v, max_v = runtime.scroll_range
-        runtime.scroll_value = max(min_v, min(max_v, int(value)))
-
     def behaviors(self, region_id: str, kind: str | None = None) -> tuple[BehaviorSpec, ...]:
         spec = self.region_specs.get(region_id)
         if spec is None:
@@ -177,12 +175,3 @@ class ButtonController:
         if kind is None:
             return spec.behaviors
         return tuple(behavior for behavior in spec.behaviors if behavior.kind == kind)
-
-    def _scroll_behavior(self, region_id: str) -> ScrollBehavior | None:
-        spec = self.region_specs.get(region_id)
-        if spec is None:
-            return None
-        for behavior in spec.behaviors:
-            if isinstance(behavior, ScrollBehavior):
-                return behavior
-        return None

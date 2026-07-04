@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QPainterPath, QWheelEvent
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QPainterPath
 
 from sli_ui_toolkit.widgets import (
     Button,
@@ -11,7 +11,6 @@ from sli_ui_toolkit.widgets import (
     ContentSpec,
     InstancesCounterButton,
     RegionSpec,
-    ScrollBehavior,
     ShapeSpec,
     VerticalSplit,
 )
@@ -107,40 +106,6 @@ def test_button_from_spec_emits_region_clicked(qtbot):
 
     assert clicked == ["top", "bottom"]
     assert [region.id for region in button.regions()] == ["top", "bottom"]
-
-
-def test_button_spec_region_scroll_emits_value(qtbot):
-    button = _show(
-        Button.from_spec(
-            ButtonSpec(
-                regions=(
-                    RegionSpec(
-                        id="scroll",
-                        content=ContentSpec(icon="add"),
-                        behaviors=(ScrollBehavior(min_value=0, max_value=2),),
-                    ),
-                ),
-                shape=ShapeSpec(size=(36, 36)),
-            )
-        ),
-        qtbot,
-    )
-    values: list[tuple[str, int]] = []
-    button.regionValueChanged.connect(lambda region_id, value: values.append((region_id, value)))
-
-    event = QWheelEvent(
-        QPointF(18, 18),
-        QPointF(button.mapToGlobal(QPoint(18, 18))),
-        QPoint(0, 0),
-        QPoint(0, 120),
-        Qt.MouseButton.NoButton,
-        Qt.KeyboardModifier.NoModifier,
-        Qt.ScrollPhase.NoScrollPhase,
-        False,
-    )
-    button.wheelEvent(event)
-
-    assert values == [("scroll", 2)]
 
 
 def test_button_spec_click_behavior_dispatches_action(qtbot):

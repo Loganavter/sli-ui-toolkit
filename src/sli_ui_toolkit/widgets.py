@@ -39,7 +39,6 @@ from sli_ui_toolkit.ui.widgets.buttons import (
     MenuBehavior,
     RegionSpec,
     RegionStyle,
-    ScrollBehavior,
     ShapeSpec,
     SingleRegionSplit,
     ToggleBehavior,
@@ -49,13 +48,18 @@ from sli_ui_toolkit.ui.widgets.composite import (
     AdaptiveTabStrip,
     BaseFlyout,
     CloseButtonPolicy,
+    ContextMenu,
+    ContextMenuAction,
+    ContextMenuBuilder,
+    ContextMenuEntry,
+    ContextMenuSection,
+    ContextMenuSeparator,
     DragGhostWidget,
     IconAction,
     IconActionFlyout,
     IconListItem,
     IconListWidget,
     IndexedToggleFlyout,
-    ColorSwatch,
     MarkdownHelpDialog,
     MarkdownHelpSection,
     LogConsoleEntry,
@@ -82,6 +86,7 @@ from sli_ui_toolkit.ui.widgets.composite import (
     UnifiedFlyoutItem,
     SimpleUnifiedFlyoutStore,
     SimpleUnifiedFlyoutController,
+    show_context_menu,
 )
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import (
     application_tooltips_enabled,
@@ -106,33 +111,14 @@ from sli_ui_toolkit.style import (
     read_widget_style,
     update_widget_style,
 )
-
-import warnings
-
-_LEGACY_BUTTON_EXPORTS = {
-    "IconButton",
-    "SimpleIconButton",
-    "ToggleIconButton",
-    "ScrollableIconButton",
-    "ToggleScrollableIconButton",
-    "LongPressIconButton",
-    "NumberedToggleIconButton",
-    "UnifiedIconButton",
-    "AutoRepeatButton",
-    "CustomButton",
-    "ToolButton",
-    "ToolButtonWithMenu",
-    "MagnifierInstancesButton",
-}
-
-_LEGACY_BUTTON_GROUP_EXPORTS = {
-    "ButtonGroupContainer",
-}
-
-_LEGACY_BUTTON_SENTINEL_EXPORTS = {
-    "ButtonType",
-    "ButtonMode",
-}
+from sli_ui_toolkit.deprecations import (
+    BUTTON_COMPAT_DEPRECATIONS,
+    LEGACY_BUTTON_GROUP_NAMES,
+    LEGACY_BUTTON_NAMES,
+    LEGACY_BUTTON_SENTINELS,
+    raise_missing_attribute,
+    resolve_deprecated_attribute,
+)
 
 __all__ = [
     "Button",
@@ -151,7 +137,6 @@ __all__ = [
     "MenuBehavior",
     "RegionSpec",
     "RegionStyle",
-    "ScrollBehavior",
     "ShapeSpec",
     "SingleRegionSplit",
     "ToggleBehavior",
@@ -160,6 +145,12 @@ __all__ = [
     "AdaptiveTabStrip",
     "CloseButtonPolicy",
     "BaseFlyout",
+    "ContextMenu",
+    "ContextMenuAction",
+    "ContextMenuBuilder",
+    "ContextMenuEntry",
+    "ContextMenuSection",
+    "ContextMenuSeparator",
     "CustomGroupBuilder",
     "CustomGroupWidget",
     "CustomLineEdit",
@@ -186,7 +177,6 @@ __all__ = [
     "LogConsoleWidget",
     "InstancesCounterButton",
     "ProcessConsoleWidget",
-    "ColorSwatch",
     "MinimalistScrollBar",
     "OverlayScrollArea",
     "ScrollableComboBox",
@@ -229,32 +219,22 @@ __all__ = [
     "WidgetStyleTokens",
     "read_widget_style",
     "update_widget_style",
+    "show_context_menu",
 ]
 
 
 def __getattr__(name: str):
-    if name in _LEGACY_BUTTON_EXPORTS:
-        warnings.warn(
-            f"{name} is deprecated and will be removed in 0.3.0. "
-            "Use Button from sli_ui_toolkit.widgets instead.",
-            DeprecationWarning,
+    values = {
+        **{legacy: Button for legacy in LEGACY_BUTTON_NAMES},
+        **{legacy: ButtonGroup for legacy in LEGACY_BUTTON_GROUP_NAMES},
+        **{legacy: Button for legacy in LEGACY_BUTTON_SENTINELS},
+    }
+    if name in values:
+        return resolve_deprecated_attribute(
+            module_name=__name__,
+            name=name,
+            registry=BUTTON_COMPAT_DEPRECATIONS,
+            values=values,
             stacklevel=2,
         )
-        return Button
-    if name in _LEGACY_BUTTON_GROUP_EXPORTS:
-        warnings.warn(
-            f"{name} is deprecated and will be removed in 0.3.0. "
-            "Use ButtonGroup from sli_ui_toolkit.widgets instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return ButtonGroup
-    if name in _LEGACY_BUTTON_SENTINEL_EXPORTS:
-        warnings.warn(
-            f"{name} is deprecated and will be removed in 0.3.0. "
-            "Use Button keyword arguments or ButtonSpec instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return Button
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    raise_missing_attribute(__name__, name)

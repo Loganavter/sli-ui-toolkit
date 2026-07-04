@@ -10,7 +10,6 @@ class ButtonState(Enum):
     PRESSED = auto()
     CHECKED = auto()
     DISABLED = auto()
-    SCROLLING = auto()
     FOCUSED = auto()
 
 

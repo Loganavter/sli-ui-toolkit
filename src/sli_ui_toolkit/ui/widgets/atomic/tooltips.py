@@ -47,13 +47,30 @@ class _TooltipBubble(QWidget):
         )
         painter.end()
 
+def _is_tab_bar_like(watched) -> bool:
+    return hasattr(watched, "tabAt") and hasattr(watched, "tabToolTip")
+
+
+def _resolve_tooltip_text(watched, event) -> str:
+    if _is_tab_bar_like(watched) and event.type() == QEvent.Type.ToolTip:
+        raw = event.pos() if hasattr(event, "pos") else None
+        if raw is not None:
+            pos = raw.toPoint() if hasattr(raw, "toPoint") else raw
+            idx = watched.tabAt(pos)
+            if idx >= 0:
+                text = watched.tabToolTip(idx)
+                if text:
+                    return text
+    return watched.toolTip() if hasattr(watched, "toolTip") else ""
+
+
 class _TooltipInterceptor(QObject):
     def eventFilter(self, watched, event):
         if not _should_handle_tooltip_widget(watched):
             return super().eventFilter(watched, event)
-        tooltip_text = watched.toolTip()
+        tooltip_text = _resolve_tooltip_text(watched, event)
 
-        if event.type() == QEvent.Type.ToolTip:
+        if event.type() == QEvent.Type.ToolTip and tooltip_text:
             global_pos = (
                 event.globalPos()
                 if hasattr(event, "globalPos")
@@ -77,8 +94,8 @@ class _ApplicationTooltipInterceptor(QObject):
         if not _should_handle_tooltip_widget(watched):
             return super().eventFilter(watched, event)
 
-        tooltip_text = watched.toolTip()
-        if event.type() == QEvent.Type.ToolTip:
+        tooltip_text = _resolve_tooltip_text(watched, event)
+        if event.type() == QEvent.Type.ToolTip and tooltip_text:
             global_pos = (
                 event.globalPos()
                 if hasattr(event, "globalPos")
@@ -104,6 +121,8 @@ def _should_handle_tooltip_widget(watched) -> bool:
         return False
     if bool(getattr(watched, "_disable_custom_tooltip", False)):
         return False
+    if _is_tab_bar_like(watched):
+        return True
     if not hasattr(watched, "toolTip"):
         return False
     return bool(watched.toolTip())

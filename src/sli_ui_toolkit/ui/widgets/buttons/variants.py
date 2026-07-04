@@ -64,10 +64,17 @@ def default_resolve_bg(prefix: str) -> BackgroundResolver:
 
 
 def _ghost_resolve(states: StateSet, tm: ThemeManager) -> QColor:
+    try:
+        is_dark = tm.is_dark()
+    except Exception:
+        is_dark = False
+    overlay = QColor(255, 255, 255) if is_dark else QColor(0, 0, 0)
     if ButtonState.PRESSED in states:
-        return QColor(tm.get_color("button.toggle.background.pressed"))
+        overlay.setAlpha(31 if not is_dark else 41)
+        return overlay
     if ButtonState.HOVERED in states:
-        return QColor(tm.get_color("button.toggle.background.hover"))
+        overlay.setAlpha(18 if not is_dark else 28)
+        return overlay
     return QColor(0, 0, 0, 0)
 
 
@@ -94,6 +101,49 @@ def resolve_background(spec: VariantSpec, states: StateSet, tm: ThemeManager) ->
     """Главная точка входа: VariantSpec + StateSet → QColor."""
     resolver = spec.resolve_bg or default_resolve_bg(spec.token_prefix)
     return resolver(states, tm)
+
+
+def resolve_background_layers(spec: VariantSpec, states: StateSet, tm: ThemeManager) -> list[QColor]:
+    """Resolve background as ordered paint layers.
+
+    The final visual state is intentionally composed, not replaced: a base
+    layer is painted first and hover/pressed/check overlays are painted over
+    it. Opaque theme colors keep the old visual result, translucent state
+    colors correctly layer over whatever was painted underneath the button.
+    """
+    if spec.resolve_bg is not None:
+        bg = spec.resolve_bg(states, tm)
+        return [bg] if bg.alpha() > 0 else []
+
+    prefix = spec.token_prefix
+    if ButtonState.DISABLED in states:
+        disabled = tm.try_get_color(f"{prefix}.background.disabled")
+        if disabled is not None:
+            return [QColor(disabled)]
+        return [QColor(tm.get_color("button.toggle.background.normal"))]
+
+    normal_key = (
+        f"{prefix}.background.normal" if prefix == "button.toggle"
+        else f"{prefix}.background"
+    )
+    layers = [QColor(tm.get_color(normal_key))]
+
+    if ButtonState.PRESSED in states:
+        layers.append(QColor(tm.get_color(f"{prefix}.background.pressed")))
+    elif ButtonState.CHECKED in states:
+        checked_key = f"{prefix}.background.checked"
+        if tm.try_get_color(checked_key) is not None:
+            layers.append(QColor(tm.get_color(checked_key)))
+            if ButtonState.HOVERED in states:
+                hover_key = f"{checked_key}.hover"
+                if tm.try_get_color(hover_key) is not None:
+                    layers.append(QColor(tm.get_color(hover_key)))
+        else:
+            layers.append(QColor(tm.get_color(f"{prefix}.background.pressed")))
+    elif ButtonState.HOVERED in states:
+        layers.append(QColor(tm.get_color(f"{prefix}.background.hover")))
+
+    return [color for color in layers if color.alpha() > 0]
 
 
 def get_contrasting_text_color(bg: QColor) -> QColor:

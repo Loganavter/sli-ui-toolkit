@@ -9,6 +9,7 @@ from sli_ui_toolkit.core.logging import (
     setup_simple_logging,
 )
 from sli_ui_toolkit.i18n import (
+    I18nStateError,
     ToolkitTranslationEvents,
     TranslationManager,
     configure_i18n,
@@ -36,6 +37,13 @@ from sli_ui_toolkit.style import (
     read_widget_style,
     update_widget_style,
 )
+from sli_ui_toolkit.ui.windows import (
+    CustomTitleBar,
+    apply_frameless,
+    decorate_dialog,
+    remove_frameless,
+    set_frameless_runtime,
+)
 
 __all__ = [
     "__version__",
@@ -54,6 +62,7 @@ __all__ = [
     "read_widget_style",
     "update_widget_style",
     "FlyoutTimingConfig",
+    "I18nStateError",
     "ToolkitTranslationEvents",
     "TranslationManager",
     "configure_i18n",
@@ -69,4 +78,9 @@ __all__ = [
     "translation_events",
     "FLUENT_LIGHT",
     "FLUENT_DARK",
+    "CustomTitleBar",
+    "apply_frameless",
+    "remove_frameless",
+    "set_frameless_runtime",
+    "decorate_dialog",
 ]

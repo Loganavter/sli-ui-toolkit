@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: sli-ui-toolkit
-Version: 0.2.15
+Version: 0.2.16
 Summary: Reusable PySide6 UI toolkit primitives for SLI desktop tools.
 Author: Loganavter
 License: MIT

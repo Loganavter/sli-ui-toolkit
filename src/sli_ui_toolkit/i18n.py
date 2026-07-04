@@ -10,8 +10,51 @@ from PySide6.QtCore import QObject, Signal
 
 logger = logging.getLogger(__name__)
 
+I18N_STATE_DOC = "docs/user/API_CATALOG.md#i18n--configuration"
+
+
+class I18nStateError(RuntimeError):
+    """Raised when caller tries to mutate translation state through unsafe APIs."""
+
+
+class _GuardedSignal:
+    """Public signal facade: subscriptions are allowed, manual emit is not."""
+
+    def __init__(self, signal, *, name: str):
+        self._signal = signal
+        self._name = name
+
+    def connect(self, *args, **kwargs):
+        return self._signal.connect(*args, **kwargs)
+
+    def disconnect(self, *args, **kwargs):
+        return self._signal.disconnect(*args, **kwargs)
+
+    def emit(self, *_args, **_kwargs) -> None:
+        raise I18nStateError(
+            f"{self._name}.emit(...) is blocked because it desynchronizes "
+            f"translation state. Use emit_language_changed(lang) for global "
+            f"language changes or tr(key, language=...) for passive lookups. "
+            f"See {I18N_STATE_DOC}."
+        )
+
+
 class ToolkitTranslationEvents(QObject):
-    language_changed = Signal(str)
+    _language_changed = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._language_changed_public = _GuardedSignal(
+            self._language_changed,
+            name="translation_events().language_changed",
+        )
+
+    @property
+    def language_changed(self) -> _GuardedSignal:
+        return self._language_changed_public
+
+    def _emit_language_changed(self, lang_code: str) -> None:
+        self._language_changed.emit(lang_code)
 
 def _deep_merge(
     base: dict[str, Any],
@@ -144,23 +187,52 @@ class TranslationManager:
 
         return translations
 
-    def load_language(self, lang_code: str) -> None:
+    def ensure_loaded(self, lang_code: str) -> dict[str, Any]:
+        """Build and cache the pack for ``lang_code`` without mutating
+        ``_current_lang`` or emitting ``language_changed``. Safe to call from
+        ad-hoc ``tr(key, language=…)`` lookups.
+        """
         requested_lang = lang_code or "en"
-
-        if requested_lang == self._current_lang:
-            return
-
         cached = self._cache.get(requested_lang)
         if cached is None:
             cached = self._build_language_pack(requested_lang)
             self._cache[requested_lang] = cached
+        return cached
 
-        self._translations = cached
+    def set_current_language(self, lang_code: str, *, force_emit: bool = False) -> None:
+        """Switch the global current language. The only path that emits
+        ``language_changed``. Call this from settings/init, never from passive
+        translation lookups.
+        """
+        requested_lang = lang_code or "en"
+        if requested_lang == self._current_lang and not force_emit:
+            return
+        if requested_lang != self._current_lang or not self._translations:
+            self._translations = self.ensure_loaded(requested_lang)
         self._current_lang = requested_lang
-        self._events.language_changed.emit(requested_lang)
+        self._events._emit_language_changed(requested_lang)
+
+    def load_language(self, lang_code: str) -> None:
+        raise I18nStateError(
+            "TranslationManager.load_language(...) is blocked because it was "
+            "ambiguous: old callers used it for both passive pack loading and "
+            "global language mutation. Use emit_language_changed(lang) to "
+            "change global UI language, or ensure_loaded(lang) / "
+            "tr(key, language=...) for passive lookups. "
+            f"See {I18N_STATE_DOC}."
+        )
 
     def get(self, text: str, *args: Any, **kwargs: Any) -> str:
-        translated = _resolve_dotted_key(self._translations, text)
+        return self.get_from(self._translations, text, *args, **kwargs)
+
+    def get_from(
+        self,
+        translations: dict[str, Any],
+        text: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> str:
+        translated = _resolve_dotted_key(translations, text)
 
         if args or kwargs:
             try:
@@ -187,67 +259,118 @@ def translation_events() -> ToolkitTranslationEvents:
     return _manager._events
 
 def emit_language_changed(lang_code: str) -> None:
-    translation_events().language_changed.emit(str(lang_code or "en"))
+    """Public, explicit way to switch the global current language and notify
+    subscribers. The ONLY entry point that should emit ``language_changed``.
+    """
+    _manager.set_current_language(str(lang_code or "en"), force_emit=True)
 
 def get_current_language(default: str = "en") -> str:
     return getattr(_manager, "_current_lang", default) or default
 
 def tr(key: str, language: str | None = None, default: str | None = None, *args: Any, **kwargs: Any) -> str:
-    lang = language or get_current_language()
-    _manager.load_language(lang)
-    result = _manager.get(key, *args, **kwargs)
+    """Pure translation lookup. When ``language`` is given, the pack is loaded
+    into the cache **without** mutating the global current language or emitting
+    ``language_changed``. Use ``emit_language_changed(lang)`` for that.
+    """
+    if language is None or language == _manager._current_lang:
+        result = _manager.get(key, *args, **kwargs)
+    else:
+        pack = _manager.ensure_loaded(language)
+        result = _manager.get_from(pack, key, *args, **kwargs)
     if result == key and default is not None:
         return default
     return result
 
 
-class TranslationsBinder:
-    """Re-applies translated strings to widgets on language change.
+def _bind_widget(widget, callback: Callable[[str], None]) -> None:
+    """Apply ``callback`` immediately and re-apply on ``language_changed``.
 
-    The engine is widget-agnostic: it stores callbacks parameterized by
-    `lang_code` and invokes them on `apply(lang_code)`. Apps register
-    bindings declaratively via `bind_text/bind_tooltip/bind_placeholder/
-    bind_setter` or escape to `bind_callback` for composite or conditional
-    updates.
-
-    `tr_func` defaults to the toolkit's `tr`; pass a custom translator
-    to bind against a different translation namespace.
+    Auto-disconnects when the widget is destroyed, so callers don't need
+    to manage lifetimes.
     """
+    events = translation_events()
 
-    def __init__(self, tr_func: Callable[..., str] | None = None):
-        self._tr = tr_func or tr
-        self._bindings: list[Callable[[str], None]] = []
+    try:
+        import shiboken6 as _shiboken
+    except Exception:
+        _shiboken = None
 
-    def bind_text(self, widget, key: str, *, suffix: str = "") -> "TranslationsBinder":
-        self._bindings.append(
-            lambda lang: widget.setText(self._tr(key, lang) + suffix)
-        )
-        return self
+    def _widget_alive() -> bool:
+        if _shiboken is None:
+            return True
+        try:
+            return bool(_shiboken.isValid(widget))
+        except Exception:
+            return False
 
-    def bind_tooltip(self, widget, key: str) -> "TranslationsBinder":
-        self._bindings.append(
-            lambda lang: widget.setToolTip(self._tr(key, lang))
-        )
-        return self
+    def _on_lang(lang: str) -> None:
+        if not _widget_alive():
+            try:
+                events.language_changed.disconnect(_on_lang)
+            except (TypeError, RuntimeError):
+                pass
+            return
+        try:
+            callback(lang)
+        except (RuntimeError, SystemError):
+            # Widget already deleted on the C++ side, or one of its children
+            # returned NULL from a Qt factory (typical when a parent QObject
+            # was deleteLater'd but Python still holds a stale reference).
+            try:
+                events.language_changed.disconnect(_on_lang)
+            except (TypeError, RuntimeError):
+                pass
 
-    def bind_placeholder(self, widget, key: str) -> "TranslationsBinder":
-        self._bindings.append(
-            lambda lang: widget.setPlaceholderText(self._tr(key, lang))
-        )
-        return self
+    callback(get_current_language())
+    events.language_changed.connect(_on_lang)
 
-    def bind_setter(self, widget, setter: str, key: str, *, suffix: str = "") -> "TranslationsBinder":
-        self._bindings.append(
-            lambda lang: getattr(widget, setter)(self._tr(key, lang) + suffix)
-        )
-        return self
+    destroyed_signal = getattr(widget, "destroyed", None)
+    if destroyed_signal is not None:
+        def _cleanup(*_args) -> None:
+            try:
+                events.language_changed.disconnect(_on_lang)
+            except (TypeError, RuntimeError):
+                pass
+        destroyed_signal.connect(_cleanup)
 
-    def bind_callback(self, fn: Callable[[str], None]) -> "TranslationsBinder":
-        """Register an arbitrary callback ``fn(lang_code)`` for composite or
-        conditional updates that don't fit the simple setter pattern."""
-        self._bindings.append(fn)
-        return self
 
-    def apply(self, lang_code: str) -> None:
-        for binding in self._bindings:
-            binding(lang_code)
+def translatable_text(
+    widget,
+    key: str,
+    *,
+    suffix: str = "",
+    tr_func: Callable[..., str] | None = None,
+) -> None:
+    """Bind ``widget.setText`` to translation key ``key``."""
+    tr_func = tr_func or tr
+    _bind_widget(widget, lambda lang: widget.setText(tr_func(key, lang) + suffix))
+
+
+def translatable_tooltip(
+    widget,
+    key: str,
+    *,
+    tr_func: Callable[..., str] | None = None,
+) -> None:
+    """Bind ``widget.setToolTip`` to translation key ``key``."""
+    tr_func = tr_func or tr
+    _bind_widget(widget, lambda lang: widget.setToolTip(tr_func(key, lang)))
+
+
+def translatable_placeholder(
+    widget,
+    key: str,
+    *,
+    tr_func: Callable[..., str] | None = None,
+) -> None:
+    """Bind ``widget.setPlaceholderText`` to translation key ``key``."""
+    tr_func = tr_func or tr
+    _bind_widget(widget, lambda lang: widget.setPlaceholderText(tr_func(key, lang)))
+
+
+def translatable_callback(widget, callback: Callable[[str], None]) -> None:
+    """Bind an arbitrary ``callback(lang)`` for composite or conditional
+    updates that don't fit a simple setter pattern. Lifetime is tied to
+    ``widget`` — the connection is dropped on widget destruction.
+    """
+    _bind_widget(widget, callback)

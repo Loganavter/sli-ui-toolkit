@@ -54,7 +54,7 @@ def mouse_press_event(widget, event):
 
     x = max(widget.LEFT_GUTTER, event.pos().x())
     frame = timeline_viewport.pos_to_frame(widget, x)
-    widget._scrub_visual_index = float(frame)
+    widget._scrub_visual_index = timeline_viewport.pos_to_float_index(widget, x)
     widget._mouse_down = True
     widget._press_pos = event.pos()
     widget._press_frame = frame

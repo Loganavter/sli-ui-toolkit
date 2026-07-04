@@ -1,3 +1,4 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTabBar
 
 from sli_ui_toolkit.widgets import AdaptiveTabStrip, CloseButtonPolicy
@@ -104,3 +105,49 @@ def test_close_button_is_optically_lower_than_slot_center(qapp):
     slot = strip.tabButton(0, QTabBar.ButtonPosition.RightSide)
 
     assert slot.button.geometry().center().y() == slot.rect().center().y() + 1
+
+
+def test_close_button_hover_keeps_parent_tab_hovered(qapp):
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    strip.addTab("First")
+    strip.addTab("Second")
+    strip.resize(500, strip.sizeHint().height())
+    strip.show()
+    qapp.processEvents()
+
+    slot = strip.tabButton(1, QTabBar.ButtonPosition.RightSide)
+    global_pos = slot.button.mapToGlobal(slot.button.rect().center())
+
+    strip.tab_bar.set_hover_from_global(global_pos)
+
+    assert strip.tab_bar._hover_index == 1
+
+
+def test_close_slot_and_button_are_transparent_for_hover_layering(qapp):
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    strip.addTab("First")
+    strip.resize(300, strip.sizeHint().height())
+    strip.show()
+    qapp.processEvents()
+
+    slot = strip.tabButton(0, QTabBar.ButtonPosition.RightSide)
+
+    assert slot.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    assert slot.testAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+    assert not slot.autoFillBackground()
+    assert slot.button.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    assert slot.button.testAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+    assert not slot.button.autoFillBackground()
+
+
+def test_close_button_paints_tab_background_inside_button_pipeline(qapp):
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    strip.addTab("First")
+    strip.addTab("Second")
+    strip.resize(500, strip.sizeHint().height())
+    strip.show()
+    qapp.processEvents()
+
+    slot = strip.tabButton(1, QTabBar.ButtonPosition.RightSide)
+
+    assert type(slot.button._painter.layers[0]).__name__ == "_CloseButtonTabBackgroundLayer"

@@ -4,8 +4,10 @@
 hoverHitTest (контракт HoverCoordinator) + setEnabled.
 
 Опирается на инстансные атрибуты Button: _states, _flyout_open, _hovered,
-_pressed, _is_scrolling, _has_*, _ripple, _defer_click, и на capabilities
-(LongPress/Scroll/Menu) через get_capability.
+_pressed, _has_*, _ripple, _defer_click, и на capabilities (LongPress/Menu/...)
+через get_capability. Wheel-события диспатчатся duck-typed любой capability,
+у которой есть handle_wheel_event — так app-level capabilities (см.
+attach_capability) получают wheel-события без хардкода конкретного типа.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import shiboken6 as sip
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
-from .capabilities import LongPressCapability, MenuCapability, ScrollCapability
+from .capabilities import LongPressCapability, MenuCapability
 from .state import ButtonState
 
 
@@ -33,10 +35,6 @@ class _ButtonEvents:
             self.setHoverActive(False)
             self._set_region_state(self._pressed_region, ButtonState.PRESSED, False)
             self._pressed_region = None
-            if self._has_scroll:
-                scroll_cap = self.get_capability(ScrollCapability)
-                if scroll_cap:
-                    scroll_cap._hide_scroll_popup()
         super().leaveEvent(event)
 
     def hoverHitTest(self, pos) -> bool:
@@ -61,11 +59,8 @@ class _ButtonEvents:
     # -------- mouse --------
 
     def mousePressEvent(self, event: QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event.button() in (Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
             region_id = self._region_at(event.position())
-            self._pressed_region = region_id
-            if region_id is not None:
-                self._set_region_state(region_id, ButtonState.PRESSED, True)
             if self.isEnabled() and region_id is not None:
                 color_from, color_to = self._resolve_ripple_colors()
                 ripple = self.region_ripple(region_id) or self._ripple
@@ -74,11 +69,11 @@ class _ButtonEvents:
                     color_from=color_from,
                     color_to=color_to,
                 )
-            if self._has_scroll:
-                self._is_scrolling = False
-                scroll_cap = self.get_capability(ScrollCapability)
-                if scroll_cap:
-                    scroll_cap._hide_scroll_popup()
+        if event.button() == Qt.MouseButton.LeftButton:
+            region_id = self._region_at(event.position())
+            self._pressed_region = region_id
+            if region_id is not None:
+                self._set_region_state(region_id, ButtonState.PRESSED, True)
             lp_cap = self.get_capability(LongPressCapability, region_id=region_id)
             if lp_cap:
                 lp_cap.on_press_start()
@@ -102,7 +97,11 @@ class _ButtonEvents:
 
             lp_triggered = lp_cap.was_long_pressed() if lp_cap else False
             release_region = self._region_at(event.position())
-            if release_region is not None and release_region == region_id and not lp_triggered:
+            same_target = release_region is not None and (
+                release_region == region_id
+                or release_region in self._linked_region_ids(region_id or "")
+            )
+            if same_target and not lp_triggered:
                 region = self._region_by_id(region_id)
                 has_menu = bool(region.menu) if region is not None else self._has_menu
                 has_toggle = bool(region.toggle) if region is not None else self._has_toggle
@@ -110,8 +109,6 @@ class _ButtonEvents:
                     menu_cap = self.get_capability(MenuCapability, region_id=region_id)
                     if menu_cap:
                         menu_cap.show_menu()
-                elif region_id == "_main" and self._has_toggle and self._has_scroll:
-                    self._do_toggle_scroll_click()
                 elif has_toggle:
                     checked = ButtonState.CHECKED not in self._controller.states(region_id)
                     self._set_region_state(region_id, ButtonState.CHECKED, checked)
@@ -145,14 +142,23 @@ class _ButtonEvents:
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event: QWheelEvent):
-        region_id = self._region_at(event.position())
-        scroll_cap = self.get_capability(ScrollCapability, region_id=region_id)
-        if scroll_cap is None:
-            scroll_cap = self.get_capability(ScrollCapability)
-        if scroll_cap and not self.shouldHandleWheelEvent(event):
+        region_id = self._region_at(event.position()) or "_main"
+        caps = [
+            cap
+            for (_cap_type, cap_region), cap in self._capability_map.items()
+            if cap_region == region_id
+        ]
+        if region_id != "_main":
+            caps += [
+                cap
+                for (_cap_type, cap_region), cap in self._capability_map.items()
+                if cap_region == "_main"
+            ]
+        if caps and not self.shouldHandleWheelEvent(event):
             return
-        if scroll_cap and scroll_cap.handle_wheel_event(event):
-            return
+        for cap in caps:
+            if cap.handle_wheel_event(event):
+                return
         return super().wheelEvent(event)
 
     # -------- keyboard --------
@@ -186,8 +192,6 @@ class _ButtonEvents:
             menu_cap = self.get_capability(MenuCapability)
             if menu_cap:
                 menu_cap.show_menu()
-        elif self._has_toggle and self._has_scroll:
-            self._do_toggle_scroll_click()
         elif self._has_toggle:
             self.setChecked(not self._checked)
         if self._defer_click:
@@ -217,9 +221,6 @@ class _ButtonEvents:
         else:
             for region_id in self._controller.runtime:
                 self._controller.set_state(region_id, ButtonState.DISABLED, True)
-            scroll_cap = self.get_capability(ScrollCapability)
-            if scroll_cap:
-                scroll_cap._hide_scroll_popup()
         self._sync_region_aliases()
         self.update()
 
@@ -244,9 +245,24 @@ class _ButtonEvents:
     ) -> None:
         if region_id is None:
             return
-        self._controller.set_state(region_id, state, active)
+        targets = [region_id]
+        if state in (ButtonState.HOVERED, ButtonState.PRESSED):
+            targets = self._linked_region_ids(region_id)
+        for target_id in targets:
+            self._controller.set_state(target_id, state, active)
         self._sync_region_aliases()
         self.update()
+
+    def _linked_region_ids(self, region_id: str) -> list[str]:
+        region = self._region_by_id(region_id)
+        group = getattr(region, "group", None) if region is not None else None
+        if not group:
+            return [region_id]
+        return [
+            other.id
+            for other in self._regions
+            if getattr(other, "group", None) == group
+        ]
 
     def _update_hover_region(self, pos) -> None:
         region_id = self._region_at(pos)

@@ -4,12 +4,27 @@ from enum import Enum
 import math
 from typing import Any
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QLinearGradient, QPainter, QPen
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QCursor, QFontMetrics, QLinearGradient, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QTabBar, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.buttons.context import DrawContext
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.painter import default_layers
+
+
+class _CloseButtonTabBackgroundLayer(Layer):
+    def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
+        slot = ctx.widget.parentWidget()
+        tab_bar = slot.parentWidget() if slot is not None else None
+        color = None
+        if hasattr(tab_bar, "close_slot_background_color"):
+            color = tab_bar.close_slot_background_color(slot)
+        if color is None or color.alpha() <= 0:
+            return
+        ctx.painter.fillRect(ctx.rect, color)
 
 
 class CloseButtonPolicy(str, Enum):
@@ -22,13 +37,72 @@ class _CloseButtonSlot(QWidget):
     def __init__(self, button: QWidget, *, vertical_offset: int = 1, parent=None):
         super().__init__(parent)
         self.button = button
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
+        button.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        button.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        button.setAutoFillBackground(False)
+        self.setMouseTracking(True)
+        button.setMouseTracking(True)
         offset = int(vertical_offset)
         self.setFixedSize(button.width(), button.height() + abs(offset) * 2)
         button.setParent(self)
         button.move(0, max(0, offset * 2))
+        button.installEventFilter(self)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if watched is self.button and event.type() in (
+            QEvent.Type.Enter,
+            QEvent.Type.MouseMove,
+            QEvent.Type.Leave,
+        ):
+            tab_bar = self.parentWidget()
+            if hasattr(tab_bar, "set_hover_from_global"):
+                if event.type() == QEvent.Type.Leave:
+                    global_pos = QCursor.pos()
+                elif hasattr(event, "globalPosition"):
+                    global_pos = event.globalPosition().toPoint()
+                else:
+                    global_pos = self.button.mapToGlobal(event.pos())
+                tab_bar.set_hover_from_global(global_pos)
+                if event.type() in (QEvent.Type.Enter, QEvent.Type.MouseMove):
+                    self._force_button_hover_region(global_pos)
+        return super().eventFilter(watched, event)
+
+    def enterEvent(self, event):  # noqa: N802
+        self._sync_parent_hover("slot-enter")
+        super().enterEvent(event)
+
+    def mouseMoveEvent(self, event):  # noqa: N802
+        self._sync_parent_hover("slot-move")
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):  # noqa: N802
+        self._sync_parent_hover("slot-leave")
+        super().leaveEvent(event)
+
+    def _sync_parent_hover(self, reason: str) -> None:
+        tab_bar = self.parentWidget()
+        if not hasattr(tab_bar, "set_hover_from_global"):
+            return
+        global_pos = QCursor.pos()
+        tab_bar.set_hover_from_global(global_pos)
+
+    def _force_button_hover_region(self, global_pos) -> None:
+        update_hover_region = getattr(self.button, "_update_hover_region", None)
+        if update_hover_region is None:
+            return
+        local_pos = self.button.mapFromGlobal(global_pos)
+        if not self.button.rect().contains(local_pos):
+            return
+        update_hover_region(QPointF(local_pos))
 
 
-class _AdaptiveTabBar(QTabBar):
+class _AdaptiveTabBar(QWidget):
     _RADIUS = 8.0
     _MIN_WIDTH = 10
     _WIDTH_SCALE = 1.15
@@ -40,21 +114,23 @@ class _AdaptiveTabBar(QTabBar):
     _TEXT_FADE = 26
     _SELECTED_SHADOW_OFFSET = 0.5
     _SELECTED_SHADOW_SPREAD = 1
+    _TEXT_HEIGHT_PADDING = 16
+
+    currentChanged = Signal(int)
 
     def __init__(self, *, close_button_width: int, parent=None):
         super().__init__(parent)
         self._close_button_width = int(close_button_width)
         self._visual_tab_height = 36
         self._hover_index = -1
+        self._current_index = -1
+        self._scroll_offset = 0
+        # Each entry: {"text": str, "data": Any, "tooltip": str, "buttons": {QTabBar.ButtonPosition: QWidget|None}}
+        self._tabs: list[dict] = []
+        self._rects: list[QRect] = []
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setMouseTracking(True)
-        self.setDocumentMode(True)
-        self.setDrawBase(False)
-        self.setMovable(False)
-        self.setExpanding(False)
-        self.setUsesScrollButtons(True)
-        self.setElideMode(Qt.TextElideMode.ElideRight)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
     def set_visual_tab_height(self, height: int) -> None:
@@ -62,17 +138,120 @@ class _AdaptiveTabBar(QTabBar):
         self.updateGeometry()
         self.update()
 
-    def tabSizeHint(self, index):  # noqa: N802
-        size = super().tabSizeHint(index)
-        width = (
-            self.standard_tab_width(index)
-            + self._close_button_width
-            + self._CLOSE_GAP
-        )
-        return QSize(max(self._MIN_WIDTH, width), max(size.height(), self._visual_tab_height))
+    # -- tab collection management (QTabBar-compatible surface) --------
+
+    def addTab(self, text: str) -> int:  # noqa: N802
+        return self.insertTab(len(self._tabs), text)
+
+    def insertTab(self, index: int, text: str) -> int:  # noqa: N802
+        index = max(0, min(int(index), len(self._tabs)))
+        self._tabs.insert(index, {"text": text, "data": None, "tooltip": "", "buttons": {}})
+        self._rects.insert(index, QRect())
+        previous_current = self._current_index
+        if self._current_index == -1:
+            self._current_index = index
+        elif index <= self._current_index:
+            self._current_index += 1
+        self._relayout()
+        self.updateGeometry()
+        self.update()
+        if self._current_index != previous_current:
+            self.currentChanged.emit(self._current_index)
+        return index
+
+    def removeTab(self, index: int) -> None:  # noqa: N802
+        if not (0 <= index < len(self._tabs)):
+            return
+        entry = self._tabs.pop(index)
+        self._rects.pop(index)
+        for widget in entry["buttons"].values():
+            if widget is not None:
+                widget.hide()
+                widget.setParent(None)
+                widget.deleteLater()
+        previous_current = self._current_index
+        if not self._tabs:
+            self._current_index = -1
+        elif index < self._current_index:
+            self._current_index -= 1
+        elif index == self._current_index:
+            self._current_index = min(index, len(self._tabs) - 1)
+        self._relayout()
+        self.updateGeometry()
+        self.update()
+        if self._current_index != previous_current:
+            self.currentChanged.emit(self._current_index)
+
+    def count(self) -> int:
+        return len(self._tabs)
+
+    def currentIndex(self) -> int:  # noqa: N802
+        return self._current_index
+
+    def setCurrentIndex(self, index: int) -> None:  # noqa: N802
+        if index == self._current_index or not (0 <= index < len(self._tabs)):
+            return
+        self._current_index = index
+        self._ensure_visible(index)
+        self._position_tab_buttons()
+        self.update()
+        self.currentChanged.emit(index)
+
+    def tabText(self, index: int) -> str:  # noqa: N802
+        return self._tabs[index]["text"]
+
+    def setTabText(self, index: int, text: str) -> None:  # noqa: N802
+        self._tabs[index]["text"] = text
+        self._relayout()
+        self.updateGeometry()
+        self.update()
+
+    def tabData(self, index: int) -> Any:  # noqa: N802
+        return self._tabs[index]["data"]
+
+    def setTabData(self, index: int, data: Any) -> None:  # noqa: N802
+        self._tabs[index]["data"] = data
+
+    def tabToolTip(self, index: int) -> str:  # noqa: N802
+        if not (0 <= index < len(self._tabs)):
+            return ""
+        return self._tabs[index]["tooltip"]
+
+    def setTabToolTip(self, index: int, text: str) -> None:  # noqa: N802
+        self._tabs[index]["tooltip"] = text
+
+    def tabButton(self, index: int, position) -> QWidget | None:  # noqa: N802
+        if not (0 <= index < len(self._tabs)):
+            return None
+        return self._tabs[index]["buttons"].get(position)
+
+    def setTabButton(self, index: int, position, widget: QWidget | None) -> None:  # noqa: N802
+        existing = self._tabs[index]["buttons"].get(position)
+        if existing is not None and existing is not widget:
+            existing.hide()
+            existing.setParent(None)
+            existing.deleteLater()
+        self._tabs[index]["buttons"][position] = widget
+        if widget is not None:
+            widget.setParent(self)
+            widget.show()
+        self._position_tab_buttons()
+
+    def tabAt(self, pos: QPoint) -> int:  # noqa: N802
+        for index, rect in enumerate(self._visual_rects()):
+            if rect.contains(pos):
+                return index
+        return -1
+
+    def tabRect(self, index: int) -> QRect:  # noqa: N802
+        if not (0 <= index < len(self._rects)):
+            return QRect()
+        return self._rects[index].translated(-self._scroll_offset, 0)
+
+    # -- sizing ----------------------------------------------------------
 
     def standard_tab_width(self, index: int) -> int:
-        text_width = QFontMetrics(self.font()).horizontalAdvance(self.tabText(index))
+        text_width = QFontMetrics(self.font()).horizontalAdvance(self._tabs[index]["text"])
         natural = (
             text_width
             + self._SIDE_PADDING * 2
@@ -81,38 +260,121 @@ class _AdaptiveTabBar(QTabBar):
         )
         return max(self._MIN_WIDTH, round(natural * self._WIDTH_SCALE))
 
+    def _tab_width(self, index: int) -> int:
+        return self.standard_tab_width(index) + self._close_button_width + self._CLOSE_GAP
+
     def full_tabs_width(self) -> int:
-        return sum(
-            self.standard_tab_width(index)
-            + self._close_button_width
-            + self._CLOSE_GAP
-            for index in range(self.count())
-        )
+        return sum(self._tab_width(index) for index in range(len(self._tabs)))
+
+    def _tab_height(self) -> int:
+        native = QFontMetrics(self.font()).height() + self._TEXT_HEIGHT_PADDING
+        return max(native, self._visual_tab_height)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(self.full_tabs_width(), self._tab_height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(self._MIN_WIDTH, self._tab_height())
+
+    # -- layout / scrolling ----------------------------------------------
+
+    def _relayout(self) -> None:
+        x = 0
+        for index in range(len(self._tabs)):
+            width = self._tab_width(index)
+            self._rects[index] = QRect(x, 0, width, self._tab_height())
+            x += width
+        self._clamp_scroll_offset()
+        self._position_tab_buttons()
+
+    def _max_scroll_offset(self) -> int:
+        total = self._rects[-1].right() + 1 if self._rects else 0
+        return max(0, total - self.width())
+
+    def _clamp_scroll_offset(self) -> None:
+        self._scroll_offset = max(0, min(self._scroll_offset, self._max_scroll_offset()))
+
+    def _visual_rects(self) -> list[QRect]:
+        return [rect.translated(-self._scroll_offset, 0) for rect in self._rects]
+
+    def _ensure_visible(self, index: int) -> None:
+        if not (0 <= index < len(self._rects)):
+            return
+        rect = self._rects[index]
+        if rect.left() - self._scroll_offset < 0:
+            self._scroll_offset = rect.left()
+        elif rect.right() - self._scroll_offset > self.width():
+            self._scroll_offset = rect.right() - self.width()
+        self._clamp_scroll_offset()
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        if self._max_scroll_offset() <= 0:
+            super().wheelEvent(event)
+            return
+        delta = event.pixelDelta()
+        dx = delta.x()
+        dy = delta.y()
+        if dx == 0 and dy == 0:
+            angle = event.angleDelta()
+            dx = angle.x()
+            dy = angle.y()
+        step = -(dx if dx != 0 else dy) / 120 * 40
+        if step == 0:
+            super().wheelEvent(event)
+            return
+        self._scroll_offset += round(step)
+        self._clamp_scroll_offset()
+        self._position_tab_buttons()
+        self.update()
+        event.accept()
 
     def paintEvent(self, event) -> None:  # noqa: N802
-        self._position_tab_buttons()
         palette = self._palette()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setClipRect(event.rect())
         painter.fillRect(self.rect(), QColor(palette["strip"]))
-        for index in range(self.count()):
-            if index != self.currentIndex():
+        for index in range(len(self._tabs)):
+            if index != self._current_index:
                 self._paint_visible_tab(painter, index, event.rect(), palette)
-        if self.currentIndex() >= 0:
-            self._paint_visible_tab(painter, self.currentIndex(), event.rect(), palette)
+        if self._current_index >= 0:
+            self._paint_visible_tab(painter, self._current_index, event.rect(), palette)
 
     def _paint_visible_tab(self, painter, index, exposed_rect, palette) -> None:
         rect = self.tabRect(index)
         if rect.isValid() and rect.intersects(exposed_rect):
             self._paint_tab(painter, index, rect, palette)
 
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton:
+            index = self.tabAt(event.position().toPoint())
+            if index >= 0:
+                self.setCurrentIndex(index)
+        super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        hover_index = self.tabAt(event.pos())
-        if hover_index != self._hover_index:
-            self._hover_index = hover_index
-            self.update()
+        self._set_hover_index(self.tabAt(event.position().toPoint()))
         super().mouseMoveEvent(event)
+
+    def set_hover_from_global(self, global_pos) -> None:
+        local_pos = self.mapFromGlobal(global_pos)
+        hover_index = self.tabAt(local_pos) if self.rect().contains(local_pos) else -1
+        self._set_hover_index(hover_index)
+
+    def _set_hover_index(self, index: int) -> None:
+        if index != self._hover_index:
+            self._hover_index = index
+            self.update()
+            self._update_close_slots()
+
+    def _update_close_slots(self) -> None:
+        for index in range(len(self._tabs)):
+            slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            if slot is not None:
+                slot.update()
+                button = getattr(slot, "button", None)
+                if button is not None:
+                    button.update()
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         if self._hover_index != -1:
@@ -122,14 +384,11 @@ class _AdaptiveTabBar(QTabBar):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        self._position_tab_buttons()
-
-    def tabLayoutChange(self) -> None:  # noqa: N802
-        super().tabLayoutChange()
+        self._clamp_scroll_offset()
         self._position_tab_buttons()
 
     def _position_tab_buttons(self) -> None:
-        for index in range(self.count()):
+        for index in range(len(self._tabs)):
             slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
             if slot is None or not slot.isVisible():
                 continue
@@ -192,6 +451,17 @@ class _AdaptiveTabBar(QTabBar):
                 ),
                 fade,
             )
+
+    def close_slot_background_color(self, slot: QWidget) -> QColor | None:
+        for index in range(self.count()):
+            if self.tabButton(index, QTabBar.ButtonPosition.RightSide) is not slot:
+                continue
+            if index == self.currentIndex():
+                return QColor(self._palette()["background"])
+            if index == self._hover_index:
+                return QColor(self._palette()["hover"])
+            return QColor(self._palette()["strip"])
+        return None
 
     def _paint_selected_background(self, painter, rect, palette) -> None:
         painter.setPen(Qt.PenStyle.NoPen)
@@ -362,6 +632,7 @@ class AdaptiveTabStrip(QWidget):
             icon_size=self._close_icon_size,
             corner_radius=5,
             variant="ghost",
+            layers=[_CloseButtonTabBackgroundLayer(), *default_layers()],
         )
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         slot = _CloseButtonSlot(
@@ -381,12 +652,43 @@ class AdaptiveTabStrip(QWidget):
     # QTabBar-like compatibility surface.
     def addTab(self, text: str) -> int:  # noqa: N802
         index = self.tab_bar.addTab(text)
+        self.layout().activate()
+        self.refresh_close_buttons()
+        return index
+
+    def insertTab(self, index: int, text: str) -> int:  # noqa: N802
+        index = self.tab_bar.insertTab(index, text)
+        self.layout().activate()
         self.refresh_close_buttons()
         return index
 
     def removeTab(self, index: int) -> None:  # noqa: N802
         self.tab_bar.removeTab(index)
+        self.layout().activate()
         self.refresh_close_buttons()
+
+    def replaceTab(self, index: int, text: str) -> int:  # noqa: N802
+        """Swap the tab at ``index`` for a new one without a visible
+        intermediate frame.
+
+        A naive ``removeTab`` followed by ``addTab``/``insertTab`` briefly
+        changes the tab count, which shifts every tab after ``index`` to
+        close the gap and then shifts them back once the replacement is
+        inserted. Disabling updates for the whole swap guarantees only the
+        final layout is ever painted, instead of a transient reflow frame.
+        """
+        updates_were_enabled = self.updatesEnabled()
+        self.setUpdatesEnabled(False)
+        try:
+            self.tab_bar.removeTab(index)
+            new_index = self.tab_bar.insertTab(index, text)
+            self.layout().activate()
+            self.refresh_close_buttons()
+        finally:
+            self.setUpdatesEnabled(updates_were_enabled)
+        if updates_were_enabled:
+            self.update()
+        return new_index
 
     def count(self) -> int:
         return self.tab_bar.count()
@@ -405,6 +707,12 @@ class AdaptiveTabStrip(QWidget):
 
     def setTabToolTip(self, index: int, text: str) -> None:  # noqa: N802
         self.tab_bar.setTabToolTip(index, text)
+
+    def tabText(self, index: int) -> str:  # noqa: N802
+        return self.tab_bar.tabText(index)
+
+    def setTabText(self, index: int, text: str) -> None:  # noqa: N802
+        self.tab_bar.setTabText(index, text)
 
     def tabButton(self, index: int, position):  # noqa: N802
         return self.tab_bar.tabButton(index, position)

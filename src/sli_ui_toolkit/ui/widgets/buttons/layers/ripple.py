@@ -76,6 +76,19 @@ class RippleEffect:
     def is_active(self) -> bool:
         return self._center is not None
 
+    def cancel(self) -> None:
+        """Stop and clear the wave immediately, e.g. when the widget is
+        repositioned out from under it (layout reflow) and the animation
+        would otherwise keep visibly playing at the wrong spot."""
+        if self._center is None and not self._timer.isActive():
+            return
+        self._timer.stop()
+        self._elapsed = 0
+        self._center = None
+        self._color_from = None
+        self._color_to = None
+        self._widget.update()
+
     @property
     def center(self) -> QPointF | None:
         return self._center
@@ -124,11 +137,12 @@ class RippleLayer(Layer):
         eased = 1.0 - (1.0 - progress) ** 2
 
         rect = ctx.effective_rect
+        radius_rect = ctx.effective_ripple_rect
         corners = (
-            (rect.left(), rect.top()),
-            (rect.right(), rect.top()),
-            (rect.left(), rect.bottom()),
-            (rect.right(), rect.bottom()),
+            (radius_rect.left(), radius_rect.top()),
+            (radius_rect.right(), radius_rect.top()),
+            (radius_rect.left(), radius_rect.bottom()),
+            (radius_rect.right(), radius_rect.bottom()),
         )
         max_radius = max(
             math.hypot(center.x() - cx, center.y() - cy) for cx, cy in corners

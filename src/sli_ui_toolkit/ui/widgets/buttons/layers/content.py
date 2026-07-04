@@ -13,7 +13,7 @@ class ContentLayer(Layer):
         return ctx.effective_content is not None
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
-        if ctx.region_path is None:
+        if ctx.region_path is None or not ctx.region_clip_content:
             ctx.effective_content.draw(ctx, tm)
             return
         p = ctx.painter

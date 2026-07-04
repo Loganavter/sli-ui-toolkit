@@ -219,20 +219,16 @@ class _UnifiedFlyoutLayoutMixin:
             self.main_window if isinstance(self.main_window, QWidget) else None,
             self.overlay_layer,
         )
-        if self.overlay_layer is not None and hasattr(self.overlay_layer, "clamp_rect"):
-            try:
-                clamped = self.overlay_layer.clamp_rect(outer_rect)
-                if allow_resize:
-                    available = surface_available_rect(self, None, self.overlay_layer)
-                    clamped = clamp_surface_rect(
-                        clamped,
-                        available,
-                        allow_resize=True,
-                    )
-                return clamped
-            except Exception:
-                pass
-        return clamp_surface_rect(outer_rect, available, allow_resize=allow_resize)
+        # The outer rect includes a SHADOW_RADIUS halo on each side that is
+        # purely decorative; allowing it to extend past the available area
+        # keeps the content rect aligned with its anchor.
+        shadow_expanded = available.adjusted(
+            -self.SHADOW_RADIUS,
+            -self.SHADOW_RADIUS,
+            self.SHADOW_RADIUS,
+            self.SHADOW_RADIUS,
+        )
+        return clamp_surface_rect(outer_rect, shadow_expanded, allow_resize=allow_resize)
 
     def _start_show_animation(self, start_pos: QPoint, end_pos: QPoint):
         self._anim = QPropertyAnimation(self, b"pos", self)
@@ -291,12 +287,12 @@ class _UnifiedFlyoutLayoutMixin:
         )
         try:
             panel.adjustSize()
-            panel_w = panel.sizeHint().width()
         except Exception:
-            panel_w = 0
-        # Widen the panel to fit the longer of the panel content hint, the
-        # anchor button, or a 200 px floor.
-        width = max(panel_w, related_button.width(), 200)
+            pass
+        # Match the anchor button width exactly so the panel never extends past
+        # its anchor. Fall back to a 200 px floor only if the button has not
+        # been sized yet.
+        width = related_button.width() if related_button.width() > 0 else 200
         return QSize(width, panel._container_height)
 
     def _calculate_ideal_geometry(

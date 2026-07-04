@@ -3,7 +3,15 @@ from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import (
     AdaptiveTabStrip,
     CloseButtonPolicy,
 )
-from sli_ui_toolkit.ui.widgets.composite.color_swatch import ColorSwatch
+from sli_ui_toolkit.ui.widgets.composite.context_menu import (
+    ContextMenu,
+    ContextMenuAction,
+    ContextMenuBuilder,
+    ContextMenuEntry,
+    ContextMenuSection,
+    ContextMenuSeparator,
+    show_context_menu,
+)
 from sli_ui_toolkit.ui.widgets.composite.icon_action_flyout import (
     IconAction,
     IconActionFlyout,
@@ -70,7 +78,12 @@ __all__ = [
     "BaseFlyout",
     "AdaptiveTabStrip",
     "CloseButtonPolicy",
-    "ColorSwatch",
+    "ContextMenu",
+    "ContextMenuAction",
+    "ContextMenuBuilder",
+    "ContextMenuEntry",
+    "ContextMenuSection",
+    "ContextMenuSeparator",
     "IconAction",
     "IconActionFlyout",
     "DragGhostWidget",
@@ -106,4 +119,5 @@ __all__ = [
     "SunburstSegmentItem",
     "TimelineCallbacks",
     "TimelineWidget",
+    "show_context_menu",
 ]

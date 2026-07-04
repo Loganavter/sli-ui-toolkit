@@ -8,11 +8,12 @@ Default-pipeline задан в DEFAULT_LAYERS; Button может передат�
 
 from __future__ import annotations
 
-import warnings
+from typing import Any
 
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QPainter
 
+from sli_ui_toolkit.deprecations import BUTTON_PAINTER_PAINT, warn_deprecated
 from sli_ui_toolkit.theme import ThemeManager
 
 from .context import DrawContext
@@ -91,8 +92,6 @@ class ButtonPainter:
         is_hovered: bool = False,
         is_scrolling: bool = False,
         badge_text: str | None = None,
-        scroll_value: int | None = None,
-        scroll_value_always_visible: bool = False,
         underline_color=None,
         underline_thickness: float | None = None,
         show_underline: bool = False,
@@ -102,12 +101,7 @@ class ButtonPainter:
         custom_bg_color=None,
         is_footer: bool = False,
     ) -> None:
-        warnings.warn(
-            "ButtonPainter.paint(...) is deprecated and will be removed in "
-            "0.3.0. Use Button with layers=... or the Painter pipeline instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        warn_deprecated(BUTTON_PAINTER_PAINT, stacklevel=2)
         from .content import TextContent, RowsContent, IconContent, IconTextContent
         from .state import ButtonState
         from .variants import get_variant
@@ -120,7 +114,6 @@ class ButtonPainter:
         if is_hovered: states.add(ButtonState.HOVERED)
         if is_pressed: states.add(ButtonState.PRESSED)
         if is_checked: states.add(ButtonState.CHECKED)
-        if is_scrolling: states.add(ButtonState.SCROLLING)
         if not widget.isEnabled(): states.add(ButtonState.DISABLED)
 
         if rows:
@@ -154,7 +147,5 @@ class ButtonPainter:
             show_strike_through=show_strike_through,
             is_footer=is_footer,
             icon_size_px=icon_size,
-            scroll_value=scroll_value,
-            scroll_value_always_visible=scroll_value_always_visible,
         )
         Painter(ThemeManager.get_instance()).paint(ctx)

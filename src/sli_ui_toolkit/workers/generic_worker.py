@@ -12,6 +12,13 @@ class WorkerSignals(QObject):
     progress = Signal(int)
     partial_result = Signal(object)
 
+# Pins live workers so their WorkerSignals QObjects outlive the queued
+# cross-thread slot delivery. Without this, PySide6 GCs the Python wrapper
+# after QThreadPool auto-deletes the QRunnable, the unparented signals object
+# disappears, and queued slot calls to result/error/finished are silently
+# dropped on the main thread.
+_LIVE_WORKERS: set["GenericWorker"] = set()
+
 class GenericWorker(QRunnable):
     def __init__(self, fn: Callable[..., Any], *args: Any, **kwargs: Any):
         super().__init__()
@@ -19,6 +26,12 @@ class GenericWorker(QRunnable):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
+        self.setAutoDelete(False)
+        _LIVE_WORKERS.add(self)
+        self.signals.finished.connect(self._release_self)
+
+    def _release_self(self) -> None:
+        _LIVE_WORKERS.discard(self)
 
     def _safe_emit(self, signal_name: str, *args: Any) -> None:
         try:

@@ -17,9 +17,10 @@ import warnings
 from PySide6.QtCore import QEvent, QSize
 from PySide6.QtGui import QColor, QCursor
 
+from sli_ui_toolkit.deprecations import BUTTON_PRIMARY_VARIANT, warn_deprecated
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
 
-from .capabilities import MenuCapability, ScrollCapability
+from .capabilities import MenuCapability
 
 
 _MAX_UNDERLINE_THICKNESS = 3.0
@@ -28,7 +29,6 @@ _MAX_UNDERLINE_THICKNESS = 3.0
 def _normalize_underline_thickness(thickness: float | None) -> float | None:
     if thickness is None:
         return None
-    import warnings
     normalized = max(0.0, float(thickness))
     if normalized > _MAX_UNDERLINE_THICKNESS:
         warnings.warn(
@@ -104,6 +104,8 @@ class _ButtonStyleApi:
             self.setProperty("showUnderline", show)
             self.update()
 
+    set_show_underline = setShowUnderline
+
     # -------- background / border / decoration colors --------
 
     def set_override_bg_color(self, color: QColor | None):
@@ -168,25 +170,6 @@ class _ButtonStyleApi:
             return from_color, to_color
         return None, None
 
-    # -------- scroll popup --------
-
-    def set_popup_controller(self, controller):
-        self._popup_controller = controller
-        scroll_cap = self.get_capability(ScrollCapability)
-        if scroll_cap is not None:
-            scroll_cap._popup_controller = controller
-
-    def configure_value_popup(self, *, formatter=None, padding=None) -> None:
-        """Customize the scroll-wheel value popup.
-
-        ``formatter(value) -> ValuePopupContent`` overrides text/pixmap/size/
-        font/extra style per value. ``padding=(h, v)`` tweaks default autosize
-        margins. No-op if the button has no scroll capability.
-        """
-        cap = self.get_capability(ScrollCapability)
-        if cap is not None:
-            cap.configure_popup(formatter=formatter, padding=padding)
-
     # -------- content (icon/text/rows) --------
 
     def setIcon(self, icon):
@@ -194,16 +177,35 @@ class _ButtonStyleApi:
             self._icon_unchecked, self._icon_checked = icon[0], icon[1]
         else:
             self._icon_unchecked = self._icon_checked = icon
+        self._sync_main_region(icon=icon)
         self.update()
 
     def setText(self, text: str):
         self._text = text
+        self._sync_main_region(text=text)
         self._apply_text_geometry(bool(text))
 
     def setRows(self, rows, compact: bool = False):
         self._rows = rows or []
         self._rows_compact = compact
+        self._sync_main_region(rows=self._rows)
         self._apply_text_geometry(bool(rows))
+
+    _UNSET = object()
+
+    def _sync_main_region(self, *, text=_UNSET, icon=_UNSET, rows=_UNSET) -> None:
+        controller = getattr(self, "_controller", None)
+        if controller is None:
+            return
+        for region in controller.regions:
+            if region.id == "_main":
+                if text is not self._UNSET:
+                    region.text = text
+                if icon is not self._UNSET:
+                    region.icon = icon
+                if rows is not self._UNSET:
+                    region.rows = rows
+                return
 
     def _apply_text_geometry(self, has_text: bool):
         had_text = self._has_text
@@ -295,11 +297,7 @@ class _ButtonStyleApi:
     def setVariant(self, variant: str):
         self._variant = str(variant or "default")
         if self._variant == "primary":
-            warnings.warn(
-                "Button variant 'primary' is deprecated; use 'surface' instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+            warn_deprecated(BUTTON_PRIMARY_VARIANT, stacklevel=2)
             self._variant = "surface"
         self.setProperty("variant", self._variant)
         update_widget_style(self)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize
 from PySide6.QtGui import QIcon, QPixmap
 
 from sli_ui_toolkit.icons import resolve_icon
@@ -12,6 +12,13 @@ _pixmap_cache: OrderedDict[tuple[int, int, int], QPixmap] = OrderedDict()
 
 
 def normalized_icon_pixmap(icon_value, size: int | QSize) -> QPixmap:
+    """Return a cached pixmap of ``icon_value`` rendered at the requested size.
+
+    The icon is rendered straight from the source at the requested target
+    size; the caller is responsible for designing icons (SVG viewBox, padding)
+    appropriately for the intended display size. There is no content-aware
+    cropping or rescaling.
+    """
     if isinstance(size, QSize):
         target_w = max(1, int(size.width()))
         target_h = max(1, int(size.height()))
@@ -25,60 +32,8 @@ def normalized_icon_pixmap(icon_value, size: int | QSize) -> QPixmap:
         _pixmap_cache.move_to_end(cache_key)
         return cached
 
-    scale = 4
-    source_w = target_w * scale
-    source_h = target_h * scale
-    pixmap = icon.pixmap(QSize(source_w, source_h))
-    if pixmap.isNull():
-        return pixmap
-
-    bbox = _alpha_bbox(pixmap)
-    if bbox is None:
-        return _cache_pixmap(cache_key, icon.pixmap(QSize(target_w, target_h)))
-
-    left, top, right, bottom = bbox
-    content_w = right - left + 1
-    content_h = bottom - top + 1
-    if content_w <= 0 or content_h <= 0:
-        return _cache_pixmap(cache_key, icon.pixmap(QSize(target_w, target_h)))
-
-    # Only normalize genuinely padded sources. Filled glyphs such as pause/play
-    # intentionally occupy about half of a 24px canvas; cropping and rescaling
-    # them makes strokes/bars look much heavier than the source icon.
-    content_ratio = max(content_w / source_w, content_h / source_h)
-    if content_ratio >= 0.5:
-        return _cache_pixmap(cache_key, icon.pixmap(QSize(target_w, target_h)))
-
-    target_content_w = target_w - 2
-    target_content_h = target_h - 2
-    source_content_limit_w = target_content_w * scale
-    source_content_limit_h = target_content_h * scale
-    if content_w >= source_content_limit_w and content_h >= source_content_limit_h:
-        return _cache_pixmap(cache_key, icon.pixmap(QSize(target_w, target_h)))
-
-    cropped = pixmap.copy(left, top, content_w, content_h)
-    max_w = max(1, target_content_w)
-    max_h = max(1, target_content_h)
-    scaled = cropped.scaled(
-        max_w,
-        max_h,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
-
-    result = QPixmap(target_w, target_h)
-    result.fill(Qt.GlobalColor.transparent)
-    from PySide6.QtGui import QPainter
-
-    painter = QPainter(result)
-    try:
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        x = (target_w - scaled.width()) // 2
-        y = (target_h - scaled.height()) // 2
-        painter.drawPixmap(x, y, scaled)
-    finally:
-        painter.end()
-    return _cache_pixmap(cache_key, result)
+    pixmap = icon.pixmap(QSize(target_w, target_h))
+    return _cache_pixmap(cache_key, pixmap)
 
 
 def _cache_pixmap(cache_key: tuple[int, int, int], pixmap: QPixmap) -> QPixmap:
@@ -87,25 +42,3 @@ def _cache_pixmap(cache_key: tuple[int, int, int], pixmap: QPixmap) -> QPixmap:
     while len(_pixmap_cache) > _PIXMAP_CACHE_MAX:
         _pixmap_cache.popitem(last=False)
     return pixmap
-
-
-def _alpha_bbox(pixmap: QPixmap) -> tuple[int, int, int, int] | None:
-    image = pixmap.toImage()
-    width = image.width()
-    height = image.height()
-    left = width
-    top = height
-    right = -1
-    bottom = -1
-
-    for y in range(height):
-        for x in range(width):
-            if image.pixelColor(x, y).alpha() > 0:
-                left = min(left, x)
-                top = min(top, y)
-                right = max(right, x)
-                bottom = max(bottom, y)
-
-    if right < left or bottom < top:
-        return None
-    return left, top, right, bottom

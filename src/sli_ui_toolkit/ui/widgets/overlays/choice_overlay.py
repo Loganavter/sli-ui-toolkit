@@ -5,11 +5,14 @@ Use ``TopLevelInWindowOverlay`` directly for new overlays.
 
 from __future__ import annotations
 
-import warnings
-
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
+from sli_ui_toolkit.deprecations import (
+    CHOICE_OVERLAY_DEPRECATIONS,
+    raise_missing_attribute,
+    warn_deprecated,
+)
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.overlays.in_window_overlay import (
     OverlaySlot,
@@ -33,12 +36,7 @@ class ChoiceOverlay(TopLevelInWindowOverlay):
         spacing: int = 20,
         corner_radius: int = 10,
     ):
-        warnings.warn(
-            "ChoiceOverlay is deprecated. Use TopLevelInWindowOverlay with "
-            "Button or other child widgets instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        warn_deprecated(CHOICE_OVERLAY_DEPRECATIONS["ChoiceOverlay"], stacklevel=2)
         offset = button_size // 2 + spacing + cancel_size // 2
         super().__init__(parent, anchor=anchor, default_distance=offset)
         self._button_size = button_size
@@ -104,10 +102,6 @@ class ChoiceOverlay(TopLevelInWindowOverlay):
 
 def __getattr__(name: str):
     if name == "ChoiceSlot":
-        warnings.warn(
-            "ChoiceSlot is deprecated. Use OverlaySlot instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        warn_deprecated(CHOICE_OVERLAY_DEPRECATIONS["ChoiceSlot"], stacklevel=2)
         return OverlaySlot
-    raise AttributeError(name)
+    raise_missing_attribute(__name__, name)
