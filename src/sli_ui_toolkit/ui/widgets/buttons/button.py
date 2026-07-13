@@ -56,7 +56,11 @@ from .painter import Painter
 from .regions import ButtonRegion, Divider, RegionHandle, SingleRegionSplit, SplitLayout
 from .specs import ButtonSpec, ShapeSpec, normalize_corner_radii
 from .state import ButtonState
-from .style_api import _ButtonStyleApi, _normalize_underline_thickness
+from .style_api import (
+    _ButtonStyleApi,
+    _normalize_underline_thickness,
+    normalize_content_padding,
+)
 from .variants import get_variant
 
 
@@ -146,6 +150,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         menu: list[tuple[str, Any]] | None = None,
         size: tuple[int, int] = (36, 36),
         icon_size: int = 22,
+        content_padding: float | tuple[float, float, float, float] = 0.0,
         corner_radius: int | None = None,
         corner_radii: tuple[int, int, int, int] | None = None,
         border_color: QColor | None = None,
@@ -245,6 +250,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         self._variant = variant
         self._density = density
         self._icon_size_px = icon_size
+        self._content_padding = normalize_content_padding(content_padding)
         if corner_radius is None:
             corner_radius = 2 if self._has_text else 6
         self._corner_radius_px = corner_radius
@@ -623,6 +629,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
             show_strike_through=self._is_strike_through(),
             is_footer=self._is_footer,
             icon_size_px=self._icon_size_px,
+            content_padding=self._content_padding,
         )
 
     def iter_regions(self, ctx: DrawContext):
@@ -642,15 +649,13 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                 region_id=region.id,
                 rect=rect,
                 path=self._controller.paths.get(region.id),
+                fill_path=self._controller.fill_paths.get(region.id),
                 states=states,
                 content=self._build_region_content(region),
                 variant=get_variant(region.variant or self._variant),
                 override_bg_color=region.override_bg_color,
                 custom_bg_color=region.custom_bg_color,
                 override_border_color=region.override_border_color,
-                show_underline=region.show_underline,
-                underline_color=region.underline_color,
-                underline_thickness=region.underline_thickness,
                 icon_size_px=region.icon_size_px,
                 corner_radii=(
                     tuple(int(r) for r in region.corner_radii)

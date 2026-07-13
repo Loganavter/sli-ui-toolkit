@@ -45,6 +45,15 @@ class _ButtonEvents:
             return
         active = bool(active)
         if not active:
+            # HoverCoordinator calls this with False for every registered
+            # button in the app on every single mouse-move, not just the one
+            # under the cursor. Without this guard, an already-inactive
+            # button still ran the full region-state clear and queued a
+            # repaint (self.update()) on every mouse pixel moved anywhere in
+            # the window — the actual cost was in the needless paintEvent
+            # storm, not the coordinator loop itself.
+            if self._hovered_region is None and self._pressed_region is None:
+                return
             for region in self._regions:
                 self._controller.set_state(region.id, ButtonState.HOVERED, False)
                 self._controller.set_state(region.id, ButtonState.PRESSED, False)

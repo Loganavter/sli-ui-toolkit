@@ -31,8 +31,13 @@ def _text_color(ctx: DrawContext, tm: ThemeManager) -> QColor:
 def _rect(ctx: DrawContext) -> QRect:
     rect = ctx.effective_rect
     if isinstance(rect, QRectF):
-        return rect.toAlignedRect()
-    return QRect(rect)
+        rect = rect.toAlignedRect()
+    else:
+        rect = QRect(rect)
+    left, top, right, bottom = ctx.content_padding
+    if left or top or right or bottom:
+        rect = rect.adjusted(int(left), int(top), -int(right), -int(bottom))
+    return rect
 
 
 class Content(ABC):

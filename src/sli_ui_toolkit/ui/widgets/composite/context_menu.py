@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Sequence
 
-from PySide6.QtCore import QEventLoop, QPoint, QRect, Qt, Signal
+from PySide6.QtCore import QEventLoop, QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -221,9 +221,20 @@ class _ContextMenuRow(Button):
         elif self._has_children:
             self._trailing_width = 20
         self._submenu_open = False
+        self._has_text = bool(self._text)
         self.setEnabled(action.enabled)
         if action.tooltip:
             self.setToolTip(action.tooltip)
+
+    def sizeHint(self):
+        fm = QFontMetrics(self.font())
+        text_w = fm.horizontalAdvance(self._text) if self._text else 0
+        icon_w = self.ICON_SIZE + 8 if self._icon_pixmap is not None else 0
+        w = self._check_gutter + icon_w + text_w + self._trailing_width + 12
+        return QSize(w, self.ROW_HEIGHT)
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
 
     def set_submenu_open(self, is_open: bool) -> None:
         self._submenu_open = is_open
@@ -250,13 +261,16 @@ class ContextMenu(BaseFlyout):
         on_triggered: Callable[[str, object], None] | None = None,
         _is_submenu: bool = False,
     ):
-        super().__init__(parent)
-        self._on_triggered = on_triggered
-        self._is_submenu = _is_submenu
-        self._rows: list[_ContextMenuRow] = []
+        # These must exist before BaseFlyout.__init__ runs: attaching the
+        # widget to its overlay layer can call hide() on self as a side
+        # effect, and hide()/_close_submenu() read these attributes.
         self._open_submenu: "ContextMenu | None" = None
         self._submenu_owner_row: _ContextMenuRow | None = None
         self._owner_menu: "ContextMenu | None" = None
+        self._is_submenu = _is_submenu
+        super().__init__(parent)
+        self._on_triggered = on_triggered
+        self._rows: list[_ContextMenuRow] = []
         if _is_submenu:
             self.flyout_manager.unregister_flyout(self)
         if entries is not None:

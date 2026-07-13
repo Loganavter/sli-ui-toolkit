@@ -155,8 +155,14 @@ class IconActionFlyout(BaseFlyout):
         animation_duration_ms: int | None = None,
         animation_distance: int = 24,
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
+        toggle: bool = True,
     ):
-        if self.isVisible() and self._anchor_button is anchor_widget:
+        # ``toggle`` guards the click-to-open/close behaviour used by
+        # show_above(). Callers that reposition an already-visible flyout in
+        # response to unrelated state changes (e.g. hover/store updates) must
+        # pass toggle=False, otherwise this would hide the flyout instead of
+        # just moving it.
+        if toggle and self.isVisible() and self._anchor_button is anchor_widget:
             self.hide()
             return
         self._anchor_button = anchor_widget

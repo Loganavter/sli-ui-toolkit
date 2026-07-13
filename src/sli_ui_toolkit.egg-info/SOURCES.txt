@@ -113,6 +113,7 @@ src/sli_ui_toolkit/ui/services/icon_service.py
 src/sli_ui_toolkit/ui/services/window_prewarm.py
 src/sli_ui_toolkit/ui/widgets/__init__.py
 src/sli_ui_toolkit/ui/widgets/style_bridge.py
+src/sli_ui_toolkit/ui/widgets/themed.py
 src/sli_ui_toolkit/ui/widgets/atomic/__init__.py
 src/sli_ui_toolkit/ui/widgets/atomic/checkbox.py
 src/sli_ui_toolkit/ui/widgets/atomic/combobox.py
