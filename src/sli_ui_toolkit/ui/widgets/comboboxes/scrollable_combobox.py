@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import time
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
@@ -14,8 +13,6 @@ from sli_ui_toolkit.ui.widgets.buttons.layers import (
 )
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
-
-logger = logging.getLogger(__name__)
 
 
 class _ComboContentLayer(Layer):

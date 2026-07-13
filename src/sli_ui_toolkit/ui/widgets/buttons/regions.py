@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 RectFn = Callable[[QRectF], QRectF]
 PathFn = Callable[[QRectF], QPainterPath]
+ActionCallback = Callable[[str, Any], None]
 
 
 @dataclass
@@ -30,6 +31,12 @@ class ButtonRegion:
     long_press: bool = False
     long_press_ms: int = 600
     menu: list[tuple[str, Any]] | None = None
+    # Dispatched via Button.actionTriggered on a plain click, in addition to
+    # regionClicked — the same mechanism ButtonSpec/RegionSpec used to offer
+    # only when built through the declarative spec= path.
+    action: str | None = None
+    action_data: Any = None
+    action_callback: ActionCallback | None = None
     badge: int | str | None = None
     variant: str | None = None
     custom_bg_color: QColor | None = None

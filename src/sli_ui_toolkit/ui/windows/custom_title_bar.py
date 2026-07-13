@@ -136,6 +136,7 @@ class CustomTitleBar(QWidget):
         self.close_requested.connect(window.close)
         window.installEventFilter(self)
         self._refresh_maximize_icon()
+        self._refresh_close_button_shape()
 
     def _on_minimize(self) -> None:
         if self._target_window is not None:
@@ -160,12 +161,28 @@ class CustomTitleBar(QWidget):
             self._max_btn._icon_checked = icon
             self._max_btn.update()
 
+    def _refresh_close_button_shape(self) -> None:
+        if self._close_btn is None or self._target_window is None:
+            return
+        w = self._target_window
+        # The rounded top-right corner mirrors the window's own rounded
+        # corner (see main window paintEvent). Maximized/fullscreen windows
+        # are drawn as plain rectangles, so the hover clip must square off
+        # too — otherwise the close button keeps clipping its hover highlight
+        # to a rounded corner that no longer exists on the window itself.
+        squared = w.isMaximized() or w.isFullScreen()
+        radii = (0, 0, 0, 0) if squared else (0, self.CORNER_RADIUS, 0, 0)
+        if self._close_btn._corner_radii_px != radii:
+            self._close_btn._corner_radii_px = radii
+            self._close_btn.update()
+
     def eventFilter(self, obj, event):
         if obj is self._target_window and event.type() in (
             event.Type.WindowStateChange,
             event.Type.Resize,
         ):
             self._refresh_maximize_icon()
+            self._refresh_close_button_shape()
         return super().eventFilter(obj, event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:

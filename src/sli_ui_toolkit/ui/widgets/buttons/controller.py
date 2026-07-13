@@ -14,7 +14,7 @@ from PySide6.QtGui import QPainterPath
 
 from .layers.ripple import RippleEffect
 from .regions import ButtonRegion, Divider, SingleRegionSplit, SplitLayout
-from .specs import BehaviorSpec, ButtonSpec, RegionSpec, ShapeSpec
+from .specs import BehaviorSpec, ButtonSpec, ShapeSpec, region_behaviors
 from .state import ButtonState
 
 
@@ -29,18 +29,17 @@ class ButtonController:
         self.button = button
         self.spec = spec or ButtonSpec(regions=())
         self.regions: list[ButtonRegion] = []
-        self.region_specs: dict[str, RegionSpec] = {}
         self.split: SplitLayout = SingleRegionSplit()
         self.divider: Divider | None = None
         self.rects: dict[str, QRectF] = {}
         self.paths: dict[str, QPainterPath] = {}
+        self.fill_paths: dict[str, QPainterPath] = {}
         self.group_rects: dict[str, QRectF] = {}
         self.runtime: dict[str, RegionRuntimeState] = {}
 
     def set_spec(self, spec: ButtonSpec) -> None:
         self.spec = spec
         self.regions = spec.to_regions() or [ButtonRegion(id="_main")]
-        self.region_specs = {region.id: region for region in spec.regions}
         self.split = spec.split or SingleRegionSplit()
         self.divider = spec.divider
         seen = {region.id for region in self.regions}
@@ -99,17 +98,36 @@ class ButtonController:
             for region, region_rect in zip(self.regions, rects)
         }
         paths: dict[str, QPainterPath] = {}
+        fill_paths: dict[str, QPainterPath] = {}
         for region in self.regions:
             region_rect = self.rects.get(region.id)
             if region_rect is None:
                 continue
             if region.path_fn is not None:
-                paths[region.id] = QPainterPath(region.path_fn(rect))
+                path = QPainterPath(region.path_fn(rect))
+                paths[region.id] = path
+                fill_paths[region.id] = path
             else:
                 path = QPainterPath()
                 path.addRect(region_rect)
                 paths[region.id] = path
+                if region.group is not None and region.corner_radii is None:
+                    # Hit-testing (region_at, above) must stay on the exact
+                    # nominal rect. Painting a same-group capsule fill from
+                    # that same rect can leave a hairline antialiased seam
+                    # against the neighboring region when the split boundary
+                    # isn't pixel-aligned (routine with 3+ fractional
+                    # weights). Give the *fill* path alone a hairline
+                    # overlap; the outer capsule clip in BackgroundLayer
+                    # still trims it back at the button's true edges, so
+                    # only the inner region-to-region seam is affected.
+                    fill_path = QPainterPath()
+                    fill_path.addRect(region_rect.adjusted(-0.75, -0.75, 0.75, 0.75))
+                    fill_paths[region.id] = fill_path
+                else:
+                    fill_paths[region.id] = path
         self.paths = paths
+        self.fill_paths = fill_paths
 
         group_rects: dict[str, QRectF] = {}
         for region in self.regions:
@@ -169,9 +187,7 @@ class ButtonController:
         return runtime.ripple if runtime else None
 
     def behaviors(self, region_id: str, kind: str | None = None) -> tuple[BehaviorSpec, ...]:
-        spec = self.region_specs.get(region_id)
-        if spec is None:
+        region = next((r for r in self.regions if r.id == region_id), None)
+        if region is None:
             return ()
-        if kind is None:
-            return spec.behaviors
-        return tuple(behavior for behavior in spec.behaviors if behavior.kind == kind)
+        return region_behaviors(region, kind)

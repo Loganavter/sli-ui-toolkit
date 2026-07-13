@@ -162,7 +162,12 @@ class RippleLayer(Layer):
         )
         p.setClipPath(clip)
         if ctx.region_rect is not None:
-            p.setClipPath(ctx.effective_path, Qt.ClipOperation.IntersectClip)
+            # Use effective_fill_path (not effective_path) — same hairline
+            # overlap fix as BackgroundLayer: clipping to the exact
+            # hit-test rect leaves a visible antialiased seam against the
+            # neighboring region when the split boundary isn't pixel-aligned
+            # (e.g. 0.33/0.66 fractional weights).
+            p.setClipPath(ctx.effective_fill_path, Qt.ClipOperation.IntersectClip)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
 

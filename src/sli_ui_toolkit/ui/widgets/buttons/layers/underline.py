@@ -33,9 +33,11 @@ def _clamp_underline_thickness(thickness: float) -> float:
 
 
 class UnderlineLayer(Layer):
+    scope = "widget"
+
     @staticmethod
     def _gate(ctx: DrawContext) -> bool:
-        return bool(ctx.effective_show_underline)
+        return bool(ctx.show_underline)
 
     def applies(self, ctx: DrawContext) -> bool:
         return self._gate(ctx)
@@ -46,7 +48,7 @@ class UnderlineLayer(Layer):
         widget = ctx.widget
         style = read_widget_style(widget)
 
-        resolved = ctx.effective_underline_color or style.underline_color
+        resolved = ctx.underline_color or style.underline_color
         has_explicit = resolved is not None
         if not resolved:
             resolved = style.accent_color or tm.get_color("accent")
@@ -65,9 +67,7 @@ class UnderlineLayer(Layer):
         normalized_radius = radius / scale if scale > 0 else radius
 
         thickness = (
-            ctx.effective_underline_thickness
-            if ctx.effective_underline_thickness is not None
-            else 1.0
+            ctx.underline_thickness if ctx.underline_thickness is not None else 1.0
         )
         thickness = _clamp_underline_thickness(thickness)
 
@@ -78,7 +78,7 @@ class UnderlineLayer(Layer):
             alpha=alpha,
             color=resolved,
         )
-        rect = ctx.effective_rect
+        rect = ctx.rect
         if hasattr(rect, "toAlignedRect"):
             rect = rect.toAlignedRect()
         draw_bottom_underline(ctx.painter, rect, tm, cfg)

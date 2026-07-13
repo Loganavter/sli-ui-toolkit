@@ -116,10 +116,17 @@ class BackgroundLayer(Layer):
                 else:
                     outer = rounded_rect_path(widget_rect, outer_radii)
                 region_radii = ctx.region_corner_radii
-                if region_radii is not None and ctx.region_path is None:
+                if region_radii is not None:
                     region_path = rounded_rect_path(region_rect, region_radii)
                 else:
-                    region_path = ctx.effective_path
+                    # Use the fill-only path (controller.fill_paths), not the
+                    # hit-test path (controller.paths/ctx.region_path): plain
+                    # rect regions get a hairline overlap there so adjacent
+                    # same-group fills don't leave an antialiased seam at
+                    # non-pixel-aligned split boundaries. The outer clip below
+                    # still trims overflow at the button's true edges, so
+                    # this only affects inner region-to-region seams.
+                    region_path = ctx.effective_fill_path
                 p.save()
                 p.setClipPath(outer)
                 p.setClipPath(region_path, Qt.ClipOperation.IntersectClip)

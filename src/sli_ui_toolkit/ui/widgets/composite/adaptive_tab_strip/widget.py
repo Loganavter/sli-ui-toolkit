@@ -390,7 +390,7 @@ class _AdaptiveTabBar(QWidget):
     def _position_tab_buttons(self) -> None:
         for index in range(len(self._tabs)):
             slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
-            if slot is None or not slot.isVisible():
+            if slot is None:
                 continue
             tab_rect = self._painted_tab_rect(self.tabRect(index))
             x = tab_rect.right() - slot.width() - self._CLOSE_RIGHT_MARGIN + 1

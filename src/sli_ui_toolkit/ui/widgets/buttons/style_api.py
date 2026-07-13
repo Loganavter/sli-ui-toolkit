@@ -26,6 +26,24 @@ from .capabilities import MenuCapability
 _MAX_UNDERLINE_THICKNESS = 3.0
 
 
+def normalize_content_padding(
+    padding: float | tuple[float, float, float, float],
+) -> tuple[float, float, float, float]:
+    """CSS-margin-style normalization: single float applies to all four sides;
+    a 4-tuple gives independent (left, top, right, bottom) insets — needed to
+    e.g. reserve space only below content (icon/text) without moving it,
+    which a uniform inset cannot do for already-centered content.
+    """
+    if isinstance(padding, (tuple, list)):
+        if len(padding) != 4:
+            raise ValueError(
+                f"content_padding tuple must have 4 elements (left, top, right, bottom), got {len(padding)}"
+            )
+        return tuple(max(0.0, float(v)) for v in padding)
+    value = max(0.0, float(padding))
+    return (value, value, value, value)
+
+
 def _normalize_underline_thickness(thickness: float | None) -> float | None:
     if thickness is None:
         return None
@@ -319,6 +337,15 @@ class _ButtonStyleApi:
             self._icon_size_px = size_px
             self.setProperty("iconSizePx", size_px)
             update_widget_style(self, update_geometry=True)
+
+    def getContentPadding(self) -> tuple[float, float, float, float]:
+        return self._content_padding
+
+    def setContentPadding(self, padding: float | tuple[float, float, float, float]):
+        padding = normalize_content_padding(padding)
+        if self._content_padding != padding:
+            self._content_padding = padding
+            self.update()
 
     def getCornerRadiusPx(self) -> int:
         return int(self._corner_radius_px)

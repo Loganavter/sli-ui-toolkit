@@ -8,11 +8,9 @@ from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.widgets.buttons import (
     Button,
+    ButtonRegion,
     ButtonSpec,
-    ContentSpec,
     Divider,
-    RegionSpec,
-    RegionStyle,
     ShapeSpec,
     VerticalSplit,
 )
@@ -118,25 +116,25 @@ class InstancesCounterButton(Button):
     def _button_spec(self) -> ButtonSpec:
         if self._count <= 1:
             regions = (
-                RegionSpec(
+                ButtonRegion(
                     id="whole",
-                    content=ContentSpec(icon="add_circle"),
-                    style=RegionStyle(icon_size_px=20),
+                    icon="add_circle",
+                    icon_size_px=20,
                     enabled=True,
                 ),
             )
         else:
             regions = (
-                RegionSpec(
+                ButtonRegion(
                     id="top",
-                    content=ContentSpec(icon="add"),
-                    style=RegionStyle(icon_size_px=14),
+                    icon="add",
+                    icon_size_px=14,
                     enabled=True,
                 ),
-                RegionSpec(
+                ButtonRegion(
                     id="bottom",
-                    content=ContentSpec(icon="remove"),
-                    style=RegionStyle(icon_size_px=14),
+                    icon="remove",
+                    icon_size_px=14,
                     enabled=self._can_remove,
                 ),
             )

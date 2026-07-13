@@ -102,12 +102,32 @@ This unblocks icon-plus-multi-line-text content: keep the icon in its own
 region and the rows in a sibling region, link both with `group=`, and the whole
 capsule behaves as one button.
 
-The grouped paint shares background/state but each region still rounds its own
-rect. For a seamless capsule, set per-region `corner_radii` so the inner edge
-is squared and only the outer edge is rounded. Content rendering inside grouped
-regions is **not** clipped to the region path — glyph antialiasing and any
-overflow can spill into a sibling region of the same group, which keeps text
-near the boundary from being visually trimmed.
+A region has no rounding of its own by default — its path is a plain rect.
+The capsule look comes from `BackgroundLayer` clipping each region's fill to
+the intersection of that plain rect and the *whole button's* outer rounded
+path (built from the button-level `corner_radius`/`corner_radii`). That clip
+already rounds the outer edges of the first/last region in a group and keeps
+the shared inner edge square — **you do not need to set per-region
+`corner_radii` to get a seamless capsule; it happens automatically.** Only set
+`corner_radii` on a region when you want *that region* to deviate from the
+whole button's rounding (e.g. a smaller radius on one side, or a fully custom
+shape via `path_fn`). Borders are whole-button only: `BackgroundLayer` skips
+the border stroke entirely for any region whose rect differs from the
+button's rect, so a grouped/split button is outlined once around the full
+capsule, never per-region.
+
+Content rendering inside grouped regions is **not** clipped to the region path
+— glyph antialiasing and any overflow can spill into a sibling region of the
+same group, which keeps text near the boundary from being visually trimmed.
+
+Underline is whole-button only, same as `badge`/`divider`/
+`show_strike_through`: `setShowUnderline`/`setUnderlineColor` always draw a
+single line under the full widget rect, regardless of `regions=`/`group=`.
+`ButtonRegion.show_underline`/`underline_color`/`underline_thickness` still
+exist as fields, but only as internal storage for the `"_main"` region used
+when converting between the imperative (`Button(show_underline=...)`) and
+declarative (`ButtonSpec`) constructors — setting them on any other region
+has no visual effect; there is no per-region underline override.
 
 Regions may also use arbitrary `QPainterPath` hit areas. `rect_fn` supplies the
 region's content/bounding rect, `path_fn` supplies the true clickable/painted
@@ -165,14 +185,14 @@ or `parent` — those apply to the whole `Button`, not one region.
 | `long_press` | `bool` | `False` |
 | `long_press_ms` | `int` | `600` |
 | `menu` | `list[tuple[str, Any]] \| None` | `None` |
+| `action` | `str \| None` | `None` |
+| `action_data` | `Any` | `None` |
+| `action_callback` | `Callable[[str, Any], None] \| None` | `None` |
 | `badge` | `int \| str \| None` | `None` |
 | `variant` | `str \| None` | `None` |
 | `custom_bg_color` | `QColor \| None` | `None` |
 | `override_bg_color` | `QColor \| None` | `None` |
 | `override_border_color` | `QColor \| None` | `None` |
-| `show_underline` | `bool \| None` | `None` |
-| `underline_color` | `Any` | `None` |
-| `underline_thickness` | `float \| None` | `None` |
 | `icon_size_px` | `int \| None` | `None` |
 | `show_strike_through` | `bool` | `False` |
 | `enabled` | `bool` | `True` |
@@ -250,17 +270,17 @@ capabilities torn down. So replacing one `ButtonRegion` in a list you already
 have and calling `set_regions()` again — which is exactly what
 `update_region` does — is cheap and non-disruptive, not a full reset.
 
-For new complex controls, prefer the declarative spec API. It keeps content,
-style, behavior, layout, and runtime state separate internally:
+For new complex controls, `ButtonSpec` groups regions with split/divider/shape
+under one immutable object; `ButtonSpec.regions` is a plain
+`tuple[ButtonRegion, ...]` (there is no separate declarative region type —
+see `docs/dev/BUTTON_REGION_ARCHITECTURE.md`):
 
 ```python
 from sli_ui_toolkit.widgets import (
     Button,
+    ButtonRegion,
     ButtonSpec,
-    ClickBehavior,
-    ContentSpec,
     Divider,
-    RegionSpec,
     ShapeSpec,
     VerticalSplit,
 )
@@ -268,14 +288,8 @@ from sli_ui_toolkit.widgets import (
 btn = Button.from_spec(
     ButtonSpec(
         regions=(
-            RegionSpec(id="add", content=ContentSpec(icon="add")),
-            RegionSpec(
-                id="amount",
-                content=ContentSpec(icon="settings"),
-                behaviors=(
-                    ClickBehavior(action="amount.reset"),
-                ),
-            ),
+            ButtonRegion(id="add", icon="add"),
+            ButtonRegion(id="amount", icon="settings", action="amount.reset"),
         ),
         split=VerticalSplit(),
         divider=Divider(),
@@ -285,6 +299,9 @@ btn = Button.from_spec(
 btn.regionClicked.connect(handle_region)
 btn.actionTriggered.connect(handle_action)
 ```
+
+`action`/`action_data`/`action_callback` on `ButtonRegion` work identically
+whether the button was built via `regions=[...]` or `spec=`/`from_spec(...)`.
 
 Need scroll-wheel-driven behavior on a region? Attach a custom
 `ButtonCapability` that implements `handle_wheel_event()` — see
@@ -306,6 +323,7 @@ Button(
     menu: list[tuple[str, Any]] | None = None,
     size: tuple[int, int] = (36, 36),
     icon_size: int = 22,
+    content_padding: float | tuple[float, float, float, float] = 0.0,
     corner_radius: int | None = None,
     variant: str = "default",
     density: str = "normal",
@@ -334,6 +352,7 @@ Button(
 | `menu` | `list[tuple]` | `None` | Dropdown menu items: [(label, action), ...] |
 | `size` | `(int, int)` | `(36, 36)` | Fixed size (width, height) |
 | `icon_size` | `int` | `22` | Icon pixel size |
+| `content_padding` | `float \| tuple[float, float, float, float]` | `0.0` | Inset (px) applied to the content draw rect only (icon/text/rows), from the edges of the whole button — or of each region's rect when `regions=` is used. A single float applies uniformly to all four sides (CSS-margin-style); a 4-tuple gives independent `(left, top, right, bottom)` insets — needed for e.g. a bottom-only reserve, since a uniform inset has no visible effect on already-centered content. Background, capsule, and hit-test rect are unaffected. |
 | `corner_radius` | `int` | `None` | Corner radius (auto-calculated if None) |
 | `variant` | `str` | `"default"` | Color variant: "default", "surface", "ghost". Deprecated compatibility values warn. |
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
@@ -449,6 +468,11 @@ variant = button.getVariant()
 button.setIconSize(QSize(24, 24))
 button.setIconSizePx(24)
 button.setCornerRadiusPx(8)
+
+# Content padding — inset for icon/text/rows only, background/hit-test untouched
+button.setContentPadding(6.0)  # uniform, all sides
+button.setContentPadding((0.0, 0.0, 0.0, 4.0))  # left, top, right, bottom — bottom-only reserve
+padding = button.getContentPadding()  # always returns (left, top, right, bottom)
 
 # Density
 button.setDensity('compact')
