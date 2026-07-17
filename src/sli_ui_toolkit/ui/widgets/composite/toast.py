@@ -1,19 +1,22 @@
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QBrush, QFontMetrics, QPainter, QPen
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QRectF, Qt, QTimer
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, apply_ui_font
 from sli_ui_toolkit.ui.widgets.buttons import Button
+
+_PROGRESS_UNSET = object()
+
 
 @dataclass(slots=True)
 class ToastAction:
@@ -22,6 +25,90 @@ class ToastAction:
     dismiss: bool = True
     icon: object = None
     variant: str = "surface"
+
+
+class ToastProgressBar(QWidget):
+    """Painted toast progress track — accent fill, rounded ends, track background.
+
+    Not a ``QProgressBar``: Qt stylesheets cannot reliably round the chunk or
+    paint a distinct unfilled track across platforms.
+    """
+
+    def __init__(self, parent: QWidget | None = None, *, height: int = 6) -> None:
+        super().__init__(parent)
+        self.setObjectName("ToastProgressBar")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFixedHeight(max(2, int(height)))
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._minimum = 0
+        self._maximum = 100
+        self._value = 0
+        self._theme = ThemeManager.get_instance()
+        self._theme.theme_changed.connect(self.update)
+
+    def setRange(self, minimum: int, maximum: int) -> None:
+        self._minimum = int(minimum)
+        self._maximum = max(int(minimum) + 1, int(maximum))
+        self.setValue(self._value)
+
+    def setValue(self, value: int) -> None:
+        clamped = max(self._minimum, min(self._maximum, int(value)))
+        if clamped == self._value:
+            return
+        self._value = clamped
+        self.update()
+
+    def value(self) -> int:
+        return self._value
+
+    def minimum(self) -> int:
+        return self._minimum
+
+    def maximum(self) -> int:
+        return self._maximum
+
+    def _track_color(self) -> QColor:
+        color = self._theme.try_get_color("toast.progress.background")
+        if color is not None and color.isValid():
+            return QColor(color)
+        # Fallback when host palette omits the token.
+        base = QColor(self._theme.get_color("toast.text"))
+        base.setAlpha(36 if not self._theme.is_dark() else 64)
+        return base
+
+    def _fill_color(self) -> QColor:
+        color = self._theme.try_get_color("toast.progress.fill")
+        if color is not None and color.isValid():
+            return QColor(color)
+        accent = self._theme.try_get_color("accent")
+        if accent is not None and accent.isValid():
+            return QColor(accent)
+        return QColor("#0078D4")
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        radius = rect.height() * 0.5
+
+        painter.setBrush(QBrush(self._track_color()))
+        painter.drawRoundedRect(rect, radius, radius)
+
+        span = max(1, self._maximum - self._minimum)
+        fraction = (self._value - self._minimum) / float(span)
+        if fraction > 0.0:
+            fill_width = max(radius * 2.0, rect.width() * min(1.0, fraction))
+            fill_width = min(fill_width, rect.width())
+            fill_rect = QRectF(rect.x(), rect.y(), fill_width, rect.height())
+            painter.setBrush(QBrush(self._fill_color()))
+            painter.drawRoundedRect(fill_rect, radius, radius)
+
+        painter.end()
+
 
 class ToastNotification(QWidget):
     _MARGINS_WITH_ACTION = (12, 10, 12, 10)
@@ -38,6 +125,7 @@ class ToastNotification(QWidget):
 
         self._custom_content: QWidget | None = None
         self._action_widgets: list[QWidget] = []
+        self._width_floor = 0
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self.hide_and_close)
@@ -79,10 +167,7 @@ class ToastNotification(QWidget):
         self.progress_layout.setContentsMargins(12, 0, 12, 10)
         self.progress_layout.setSpacing(0)
 
-        self.progress_bar = QProgressBar(self.progress_container)
-        self.progress_bar.setObjectName("ToastProgressBar")
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setFixedHeight(6)
+        self.progress_bar = ToastProgressBar(self.progress_container)
         self.progress_bar.setRange(0, 100)
         self.progress_layout.addWidget(self.progress_bar)
         self.progress_container.hide()
@@ -90,6 +175,7 @@ class ToastNotification(QWidget):
 
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
+        self._apply_message_typography()
         self._apply_surface_state()
 
     def _apply_content_layout_state(self):
@@ -102,11 +188,19 @@ class ToastNotification(QWidget):
         self.main_layout.setContentsMargins(left, top, right, bottom)
 
     def _on_theme_changed(self):
+        self._apply_message_typography()
         self._repolish_surface_widgets()
+        self.progress_bar.update()
         self.adjustSize()
 
+    def _apply_message_typography(self) -> None:
+        apply_ui_font(self.message_label)
+        apply_text_color(
+            self.message_label, self.theme_manager.get_color("toast.text")
+        )
+
     def _repolish_surface_widgets(self):
-        widgets = (self, self.content_widget, self.progress_container, self.progress_bar)
+        widgets = (self, self.content_widget, self.progress_container)
         for widget in widgets:
             style = widget.style()
             style.unpolish(widget)
@@ -127,6 +221,7 @@ class ToastNotification(QWidget):
         actions: Iterable[ToastAction | QWidget | dict | tuple] | None = None,
         progress: int | None = None,
     ):
+        self._width_floor = 0
         self._set_actions(actions)
         self._apply_content_layout_state()
         self._set_content(content, max_width)
@@ -142,8 +237,9 @@ class ToastNotification(QWidget):
         success: bool,
         duration: int = 4000,
         actions: Iterable[ToastAction | QWidget | dict | tuple] | None = None,
-        progress: int | None = None,
+        progress: Any = _PROGRESS_UNSET,
     ):
+        del success  # reserved for toastSuccess property on the manager side
         if actions is not None:
             self._set_actions(actions)
         self._apply_content_layout_state()
@@ -151,7 +247,8 @@ class ToastNotification(QWidget):
             self._set_content(content, max_width)
         else:
             self._fit_to_content(max_width)
-        self._set_progress(progress)
+        if progress is not _PROGRESS_UNSET:
+            self._set_progress(progress)
         self.adjustSize()
         self._apply_duration(duration)
 
@@ -234,6 +331,14 @@ class ToastNotification(QWidget):
         widget.updateGeometry()
         self._fit_to_content(max_width)
 
+    def _apply_fixed_width(self, desired_toast_width: int, max_width: int) -> int:
+        """Grow-only width so shorter success labels do not shrink the toast."""
+        safe_max_width = max(180, int(max_width))
+        width = max(180, min(safe_max_width, int(desired_toast_width)))
+        width = max(width, self._width_floor)
+        self._width_floor = width
+        return width
+
     def _set_message_text(self, message: str, max_width: int):
         if self._custom_content is not None:
             self.main_layout.removeWidget(self._custom_content)
@@ -272,6 +377,7 @@ class ToastNotification(QWidget):
                 + progress_margins.right(),
             ),
         )
+        desired_toast_width = self._apply_fixed_width(desired_toast_width, max_width)
         final_text_width = max(
             80,
             desired_toast_width
@@ -291,7 +397,6 @@ class ToastNotification(QWidget):
         self.updateGeometry()
 
     def _fit_to_content(self, max_width: int):
-        safe_max_width = max(180, int(max_width))
         content_margins = self.main_layout.contentsMargins()
         progress_margins = self.progress_layout.contentsMargins()
         content_width = (
@@ -300,15 +405,13 @@ class ToastNotification(QWidget):
             else self.message_label.sizeHint().width()
         )
         actions_width = self.action_row.sizeHint().width() if self.action_row.isVisible() else 0
-        desired_toast_width = min(
-            safe_max_width,
-            max(
-                180,
-                content_width + content_margins.left() + content_margins.right(),
-                actions_width + content_margins.left() + content_margins.right(),
-                content_width + progress_margins.left() + progress_margins.right(),
-            ),
+        desired_toast_width = max(
+            180,
+            content_width + content_margins.left() + content_margins.right(),
+            actions_width + content_margins.left() + content_margins.right(),
+            content_width + progress_margins.left() + progress_margins.right(),
         )
+        desired_toast_width = self._apply_fixed_width(desired_toast_width, max_width)
         self.setFixedWidth(desired_toast_width)
         self.content_widget.setFixedWidth(desired_toast_width)
         self.progress_container.setFixedWidth(desired_toast_width)
@@ -365,6 +468,7 @@ class ToastNotification(QWidget):
             return super().mousePressEvent(event)
         self.hide_and_close()
         event.accept()
+
 
 class ToastManager(QObject):
     def __init__(self, parent_window, image_label=None):
@@ -425,7 +529,7 @@ class ToastManager(QObject):
         success: bool,
         duration: int = 3000,
         actions: Iterable[ToastAction | QWidget | dict | tuple] | None = None,
-        progress: int | None = None,
+        progress: Any = _PROGRESS_UNSET,
     ) -> None:
         toast = self._toasts.get(toast_id)
         if toast is None:

@@ -35,3 +35,4 @@ def test_calendar_day_button_selection_wins_over_data_background(qapp):
     button.setChecked(True, emit=False)
     assert button.getBackgroundColor() is None
     assert button._override_bg_color is not None
+    assert button.is_bg_locked() is True

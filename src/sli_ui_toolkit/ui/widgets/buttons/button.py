@@ -6,7 +6,7 @@
 - `style_api._ButtonStyleApi` — публичные set/get визуальных атрибутов и
   обработка динамических Qt-properties.
 - `events._ButtonEvents` — обработчики mouse/key/wheel/focus + click flow.
-- `capabilities/` — composable behaviour (LongPress/Menu/...). Приложения
+- `capabilities/` — composable behaviour (LongPress/...). Приложения
   могут добавлять свои capabilities через `attach_capability()` — Button не
   завязан на конкретные типы (см. `ButtonCapability.handle_wheel_event` для
   примера того, как накрафтить собственный scroll-counter на app-уровне).
@@ -30,7 +30,6 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.deprecations import (
     BUTTON_PRIMARY_VARIANT,
     BUTTON_SET_CHECKED_EMIT_SIGNAL,
-    BUTTON_TRIGGERED,
     warn_deprecated,
 )
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
@@ -38,7 +37,6 @@ from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_h
 from .capabilities import (
     ButtonCapability,
     LongPressCapability,
-    MenuCapability,
 )
 from .content import (
     ButtonRow,
@@ -77,7 +75,6 @@ class ButtonConfig:
     show_underline: bool = False
     underline_color: Any = None
     underline_thickness: float | None = None
-    menu: list[tuple[str, Any]] | None = None
     size: tuple[int, int] = (36, 36)
     icon_size: int = 22
     corner_radius: int | None = None
@@ -114,20 +111,13 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
     longPressed = Signal()
     rightClicked = Signal()
     middleClicked = Signal()
-    menuTriggered = Signal(object)
     shortClicked = Signal()
     regionClicked = Signal(str)
     regionPressed = Signal(str)
     regionReleased = Signal(str)
     regionToggled = Signal(str, bool)
     regionLongPressed = Signal(str)
-    regionMenuTriggered = Signal(str, object)
     actionTriggered = Signal(str, object)
-
-    @property
-    def triggered(self):
-        warn_deprecated(BUTTON_TRIGGERED, stacklevel=2)
-        return self.menuTriggered
 
     # Имена-алиасы для подклассов (CalendarDayButton) и capabilities.
     _hovered = _state_property(ButtonState.HOVERED)
@@ -147,9 +137,12 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         show_underline: bool = False,
         underline_color: Any = None,
         underline_thickness: float | None = None,
-        menu: list[tuple[str, Any]] | None = None,
         size: tuple[int, int] = (36, 36),
         icon_size: int = 22,
+        gap: int = 6,
+        content_align: Qt.AlignmentFlag = (
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+        ),
         content_padding: float | tuple[float, float, float, float] = 0.0,
         corner_radius: int | None = None,
         corner_radii: tuple[int, int, int, int] | None = None,
@@ -180,7 +173,6 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
             show_underline = config.show_underline
             underline_color = config.underline_color
             underline_thickness = config.underline_thickness
-            menu = config.menu
             size = config.size
             icon_size = config.icon_size
             corner_radius = config.corner_radius
@@ -211,7 +203,6 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                 toggle = main.toggle
                 long_press = main.long_press
                 long_press_ms = main.long_press_ms
-                menu = main.menu
                 badge = main.badge
                 show_underline = bool(main.show_underline)
                 underline_color = main.underline_color
@@ -241,7 +232,6 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
             self._icon_unchecked = self._icon_checked = icon
 
         self._has_toggle = toggle
-        self._has_menu = menu is not None
         self._has_text = bool(text)
         self._text = text
         self._rows = rows or []
@@ -250,6 +240,8 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         self._variant = variant
         self._density = density
         self._icon_size_px = icon_size
+        self._gap_px = max(0, int(gap))
+        self._content_align = content_align
         self._content_padding = normalize_content_padding(content_padding)
         if corner_radius is None:
             corner_radius = 2 if self._has_text else 6
@@ -274,6 +266,9 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         self._is_footer = False
         self._underline_config_color: QColor | list | None = underline_color
         self._override_bg_color: QColor | None = None
+        self._bg_locked = False
+        self._hover_color: QColor | None = None
+        self._hover_compose: str = "replace"
         self._badge = badge
         self._flyout_open = False
 
@@ -312,10 +307,6 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
 
         if long_press:
             self.attach_capability(LongPressCapability(delay_ms=long_press_ms))
-        if self._has_menu:
-            self.attach_capability(MenuCapability(menu_items=menu))
-
-        self._menu_items = menu
 
         if regions is None:
             regions = [
@@ -327,7 +318,6 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                     toggle=toggle,
                     long_press=long_press,
                     long_press_ms=long_press_ms,
-                    menu=menu,
                     badge=badge,
                     variant=variant,
                     custom_bg_color=background_color,
@@ -536,11 +526,6 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                     LongPressCapability(delay_ms=region.long_press_ms),
                     region_id=region.id,
                 )
-            if region.menu and self.get_capability(MenuCapability, region.id) is None:
-                self.attach_capability(
-                    MenuCapability(menu_items=region.menu),
-                    region_id=region.id,
-                )
 
     # -------- public API: state/value --------
 
@@ -560,18 +545,22 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         """Programmatically set the CHECKED state of any region (not just `"_main"`).
 
         Generalizes `setChecked` — same effect a user click would have on a
-        `toggle=True` region, without touching that region's other runtime
-        state (hover/ripple) or any other region.
+        `toggle=True` region. When the region belongs to a ``group=``, CHECKED
+        mirrors to every sibling in that group (same as HOVERED/PRESSED).
         """
         checked = bool(checked)
-        if (ButtonState.CHECKED in self._controller.states(region_id)) == checked:
+        linked = self._linked_region_ids(region_id)
+        if all(
+            (ButtonState.CHECKED in self._controller.states(rid)) == checked
+            for rid in linked
+        ):
             return
         self._set_region_state(region_id, ButtonState.CHECKED, checked)
-        if region_id == "_main":
+        if "_main" in linked:
             self._checked = checked
         if emit:
             self.regionToggled.emit(region_id, checked)
-            if region_id == "_main":
+            if region_id == "_main" or "_main" in linked:
                 self.toggled.emit(checked)
 
     # -------- paint --------
@@ -622,6 +611,10 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
             override_bg_color=self._override_bg_color,
             custom_bg_color=self._custom_bg_color,
             override_border_color=self._border_color_override,
+            hover_color=getattr(self, "_hover_color", None),
+            hover_compose=getattr(self, "_hover_compose", "replace"),
+            bg_locked=bool(getattr(self, "_bg_locked", False)),
+            hovered_region_id=getattr(self, "_hovered_region", None),
             badge_text=str(self._badge) if self._badge is not None else None,
             show_underline=self._show_underline,
             underline_color=self._underline_config_color,
@@ -630,6 +623,8 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
             is_footer=self._is_footer,
             icon_size_px=self._icon_size_px,
             content_padding=self._content_padding,
+            gap_px=self._gap_px,
+            content_align=self._content_align,
         )
 
     def iter_regions(self, ctx: DrawContext):
@@ -656,6 +651,14 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                 override_bg_color=region.override_bg_color,
                 custom_bg_color=region.custom_bg_color,
                 override_border_color=region.override_border_color,
+                hover_color=(
+                    region.hover_color
+                    if region.hover_color is not None
+                    else getattr(self, "_hover_color", None)
+                ),
+                hover_compose=region.hover_compose or getattr(self, "_hover_compose", "replace"),
+                bg_locked=bool(region.bg_locked) or bool(getattr(self, "_bg_locked", False)),
+                group=region.group,
                 icon_size_px=region.icon_size_px,
                 corner_radii=(
                     tuple(int(r) for r in region.corner_radii)

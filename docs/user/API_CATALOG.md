@@ -27,6 +27,12 @@ Exports:
 - `get_log_directory`, `get_unique_filepath`, `resource_path`
 - `setup_logging`, `setup_simple_logging`
 - `install_application_tooltips`, `set_application_tooltips_enabled`, `application_tooltips_enabled`
+- `CustomTitleBar`, `TitleBarMenu`, `TitleBarMenuStrip`, `TitleBarPresets`
+- `WindowChrome`, `WindowChromeConfig`, `WindowControlsConfig`
+- `decorate_dialog`, `apply_frameless`, `set_frameless_runtime`
+- Popup menus: `ContextMenu`, `popup_context_menu_for_anchor`, `entries_from_labeled_data` — see **ContextMenu** in widgets catalog
+
+See [WINDOW_CHROME_API.md](WINDOW_CHROME_API.md) for title bar zones, menu strips, and flyout anchors.
 
 ### `from sli_ui_toolkit.widgets import ...`
 
@@ -39,9 +45,9 @@ Canonical home for `WidgetStyleTokens`, `read_widget_style`,
 `sli_ui_toolkit` and `sli_ui_toolkit.widgets`.
 
 Implementation-specific imports are also available for toolkit internals, for
-example `sli_ui_toolkit.ui.widgets.comboboxes.ComboBox`. Older
-`sli_ui_toolkit.ui.widgets.atomic.combobox*` modules are compatibility
-re-exports only.
+example `sli_ui_toolkit.ui.widgets.comboboxes.ComboBox`. Prefer
+`sli_ui_toolkit.widgets` for application code. Thin shims under
+`sli_ui_toolkit.ui.widgets.atomic.combobox*` re-export the same types.
 
 ---
 
@@ -49,7 +55,8 @@ re-exports only.
 
 ### Button (unified)
 
-A single `Button` class replaces all legacy button widgets via composable parameters.
+Composable `Button` with icons, text, toggle, long-press, badges, menus, and
+multi-region layouts.
 
 ```python
 from PySide6.QtGui import QColor
@@ -60,9 +67,7 @@ from sli_ui_toolkit.widgets import (
     ButtonRegion,
     ButtonSpec,
     ClickBehavior,
-    ContentSpec,
     Divider,
-    RegionSpec,
     ShapeSpec,
     VerticalSplit,
 )
@@ -82,8 +87,17 @@ btn = Button(AppIcon.SAVE, text="Save", variant="surface")
 # Long press support
 btn = Button(AppIcon.DELETE, long_press=True, background_color=QColor("#D93025"))
 
-# Dropdown menu
-btn = Button(AppIcon.MODE, menu=[("Option A", "a"), ("Option B", "b")])
+# Popup menu (app-owned ContextMenu)
+from sli_ui_toolkit.widgets import entries_from_labeled_data, popup_context_menu_for_anchor
+
+btn = Button(AppIcon.MODE)
+btn.clicked.connect(
+    lambda: popup_context_menu_for_anchor(
+        btn.window(),
+        btn,
+        entries_from_labeled_data([("Option A", "a"), ("Option B", "b")], current="a"),
+    )
+)
 
 # Badge overlay
 btn = Button(AppIcon.MAGNIFIER, toggle=True, badge="3")
@@ -116,16 +130,12 @@ btn = Button(
     ],
 )
 
-# Declarative spec API for new complex controls
+# Declarative spec API
 btn = Button.from_spec(
     ButtonSpec(
         regions=(
-            RegionSpec(
-                id="add",
-                content=ContentSpec(icon="add"),
-                behaviors=(ClickBehavior(action="counter.add"),),
-            ),
-            RegionSpec(id="remove", content=ContentSpec(icon="remove")),
+            ButtonRegion(id="add", icon="add", action="counter.add"),
+            ButtonRegion(id="remove", icon="remove"),
         ),
         split=VerticalSplit(),
         divider=Divider(),
@@ -161,7 +171,7 @@ btn = Button.from_spec(
 | Variant | Theme prefix | Border | Use case |
 |---------|-------------|--------|----------|
 | `"default"` | `button.toggle` | no | Toolbar toggles (default) |
-| `"primary"` | `button.primary` | yes | Deprecated compatibility alias for `"surface"`; removed in 0.3.0 |
+| `"primary"` | `button.primary` | yes | Deprecated alias for `"surface"`; removed in 0.3.0 |
 | `"surface"` | `button.dialog.default` | yes | Dialog buttons |
 | `"ghost"` | transparent | no | Invisible until hovered |
 | `"subtle"` | Window color | no | Blends with background |
@@ -176,13 +186,10 @@ btn = Button.from_spec(
 | `longPressed` | Long press detected |
 | `rightClicked` | Right mouse button |
 | `middleClicked` | Middle mouse button |
-| `menuTriggered(object)` | Menu item selected (emits item data) |
-| `triggered` | Deprecated alias for `menuTriggered`; emits `DeprecationWarning` and will be removed in 0.3.0 |
 | `regionClicked(str)` | Region click by id |
 | `regionPressed(str)` / `regionReleased(str)` | Region press/release by id |
 | `regionToggled(str, bool)` | Region toggle state changed |
 | `regionLongPressed(str)` | Region long press detected |
-| `regionMenuTriggered(str, object)` | Region menu item selected |
 | `actionTriggered(str, object)` | Declarative behavior action id and payload |
 
 **Runtime methods:**
@@ -195,9 +202,11 @@ btn = Button.from_spec(
 | `setBadgeStyle(filled=..., background_color=..., border_color=..., text_color=...)` | Configure badge outline/fill colors. Badges are outline-only by default. |
 | `set_footer_mode(bool)` | Flat top, rounded bottom (for footer buttons) |
 | `set_show_strike_through(bool)` | Red diagonal strikethrough |
-| `set_override_bg_color(QColor)` | Force background color |
-| `set_actions(list)` | Update menu items |
-| `show_menu()` | Programmatically open menu |
+| `set_override_bg_color(QColor)` | Exact base fill (hover/pressed still apply unless locked) |
+| `set_bg_locked(bool)` | When True, paint base only (no hover/pressed overlays) |
+| `set_hover_color(QColor \| None)` | Widget/`_main` local hover overlay (`None` = standard) |
+| `set_hover_compose("replace"\|"stack")` | Apply hover compose mode to every region |
+| `set_background_color(QColor)` | Custom seed → derived palette |
 | `set_regions(list[ButtonRegion], split=..., divider=...)` | Replace region geometry/content at runtime. Reconciles by region id — same-id regions keep their hover/ripple/capability state, not a full reset |
 | `set_spec(ButtonSpec)` | Replace the full declarative control description at runtime |
 | `update_region(region_id, **changes)` | Replace one or more static `ButtonRegion` fields on a single region, leaving other regions and this region's runtime state untouched (see [BUTTON_API.md](BUTTON_API.md#updating-one-region-at-runtime)) |
@@ -223,18 +232,18 @@ group = ButtonGroup([btn1, btn2, btn3], label="View")
 |--------|-------------|
 | `InstancesCounterButton` | Segmented add/remove counter button implemented as a thin `Button` regions subclass. |
 
-Legacy button widget names such as `IconButton`, `ToggleIconButton`,
+Deprecated button widget names such as `IconButton`, `ToggleIconButton`,
 `ScrollableIconButton`, `AutoRepeatButton`, `ToolButton`, `ToolButtonWithMenu`,
-`ButtonGroupContainer`, `ButtonType`, and `ButtonMode` are compatibility
-lookups only. Explicit imports emit `DeprecationWarning`; these names are not in
-`__all__` and will be removed in `0.3.0`.
+`ButtonGroupContainer`, `ButtonType`, and `ButtonMode` are lookups only. Explicit
+imports emit `DeprecationWarning`; these names are not in `__all__` and will be
+removed in `0.3.0`.
 
 ### ContextMenu
 
 `ContextMenu` is a theme-aware native `QMenu` for right-click commands. It is
 intended for app/domain context actions such as rename, duplicate, remove,
-properties, and submenus. Unlike flyouts, it uses Qt's menu behavior for focus,
-keyboard navigation, submenus, and native popup lifecycle.
+properties, and submenus. Compared with flyouts, it uses Qt's menu behavior for
+focus, keyboard navigation, submenus, and native popup lifecycle.
 
 ```python
 from sli_ui_toolkit.widgets import ContextMenuBuilder
@@ -259,6 +268,9 @@ Public names:
 | `ContextMenuSeparator` | Separator model. |
 | `ContextMenuSection` | Group of entries with optional disabled title. |
 | `ContextMenuBuilder` | Chainable builder for common menus. |
+| `entries_from_labeled_data(items, current=..., checkable=...)` | Build checkable picker entries from `[(label, data), ...]`. |
+| `entries_from_callbacks(items)` | Build command entries from `[(label, callback_or_data), ...]`. |
+| `popup_context_menu_for_anchor(parent, anchor, entries, ...)` | Anchor-aligned dropdown (replaces removed `Button.menu` / `DropdownMenu`). |
 | `show_context_menu(parent, global_pos, entries, on_triggered=...)` | Convenience function that builds and pops up a menu. |
 
 ### Labels
@@ -328,7 +340,7 @@ custom = Label(
 | `Slider` | Custom-painted slider with accent track. |
 | `SpinBox` | Custom-painted compact spinbox. |
 | `Switch` | Custom-painted toggle switch. |
-| `ComboBox` | Full custom-painted combo box with dropdown popup, type-to-search matching, and keyboard navigation. |
+| `ComboBox` | Full custom-painted combo box with dropdown popup, type-to-search matching, and keyboard navigation. `showDropdown(focus_index=…)` scrolls a row into view without changing `currentIndex`; `dropdown_row_widget(index)` returns that row for Find Action pulse. |
 | `ScrollableComboBox` | Combo box with mouse-wheel cycling. |
 | `TimeLineEdit` | Compact toolkit-painted `HH:mm` input with validation/normalization, two right-side repeatable step buttons, and no native `QTimeEdit` chrome. |
 
@@ -405,6 +417,27 @@ spin.setWheelRequiresFocus(False)
 
 ## Composite Widgets
 
+### TopTabBar / TopTabHost
+
+Horizontal content-section tabs for dialogs (export settings, wizards). Twin of
+`IconListWidget` on the other axis — not for closable workspace documents.
+
+```python
+from sli_ui_toolkit.widgets import TopTabHost
+
+tabs = TopTabHost()
+tabs.addTab(standard_page, "Standard")
+tabs.addTab(manual_page, "Manual")
+tabs.currentChanged.connect(on_tab_changed)
+```
+
+`TopTabBar` alone is enough when the host already owns a stack. Tab chrome is
+painter-driven (`top_tab` Button variant); do not style tabs with QSS.
+
+Implementation lives under `sli_ui_toolkit.ui.widgets.composite.top_tab_bar/`
+(`bar`, `host`, `pane`, `chrome`, `tab_button`, …) — import the public types
+from `sli_ui_toolkit.widgets`.
+
 ### AdaptiveTabStrip
 
 Compact workspace-style tabs with a trailing add button and adaptive close
@@ -446,8 +479,8 @@ underlying widgets are available as `tab_bar` and `add_button`.
 aligns a named point on the anchor to a named point on the flyout. Point strings
 use vertical-horizontal tokens such as `"top-left"`, `"center-right"`, or
 `"bottom-center"`; the `"center"` half can be omitted for centered edge points,
-for example `"top"`. The legacy `position="top"` / `"bottom-left"` style is
-still accepted for compatibility.
+for example `"top"`. Shorter `position="top"` / `"bottom-left"` forms are also
+accepted (deprecated alias of the point API).
 
 ### Dialogs & Navigation
 
@@ -456,11 +489,17 @@ still accepted for compatibility.
 | `SidebarDialogShell` | Sidebar + stacked pages dialog container. |
 | `ScrollableDialogPage` | Ready-made scrollable page for dialog content. |
 | `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. Selected icons support `selected_icon_mode="invert"` (default color inversion) or `"replace"` with `selected_icon=` / `(normal_icon, selected_icon)` pairs. |
-| `MarkdownHelpDialog` / `MarkdownHelpSection` | Markdown-based help/documentation dialog with anchors, generated TOC, and internal `help://slug#anchor` navigation. |
+| `TopTabBar` / `TopTabItem` / `TopTabHost` | Horizontal content-section tabs (axis twin of `IconListWidget`). `TopTabBar` is the painted strip; `TopTabHost` adds a bordered page stack with folder-tab chrome and a `QTabWidget`-like API (`addTab`, `setCurrentIndex`, `setTabText`, …). Not for closable workspace docs — use `AdaptiveTabStrip` there. |
+| `MarkdownHelpDialog` / `MarkdownHelpSection` | Markdown→HTML help dialog (`QTextBrowser`) with anchors, TOC, and `help://slug#anchor` navigation. Useful for tests and simple HTML help. |
+| `HelpDocumentView` | Native widget-tree help page renderer (controlled markdown subset, figures, kbd, links). Prefer for illustrated manuals; see Improve-ImgSLI `docs/dev/HELP_SYSTEM.md`. |
 
 Markdown help section discovery helpers are intentionally not exported from
 `sli_ui_toolkit.widgets`. Import them only where needed from
 `sli_ui_toolkit.ui.widgets.composite.help_sections`.
+
+Block parsers for `HelpDocumentView` live under
+`sli_ui_toolkit.ui.widgets.composite.help_document`
+(`parse_help_blocks`, `FigureBlock`, …).
 
 ### Path & File
 
@@ -479,7 +518,7 @@ Markdown help section discovery helpers are intentionally not exported from
 
 | Widget | Description |
 |--------|-------------|
-| `ToastManager` / `ToastNotification` / `ToastAction` | In-window transient toasts. `show_toast(content, actions=...)` accepts strings, custom content widgets, `ToastAction` entries, action specs, or action widgets. |
+| `ToastManager` / `ToastNotification` / `ToastAction` / `ToastProgressBar` | In-window transient toasts. `show_toast(content, actions=...)` accepts strings, custom content widgets, `ToastAction` entries, action specs, or action widgets. Progress uses painted `ToastProgressBar` (accent fill, rounded track). |
 
 ### Data Visualization
 
@@ -549,7 +588,7 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 
 | Name | Description |
 |------|-------------|
-| `I18nStateError` | Raised when code tries to mutate translation state through unsafe legacy/manual paths. |
+| `I18nStateError` | Raised when code tries to mutate translation state outside the supported API. |
 | `TranslationManager` | Singleton: loads `<i18n_root>/<lang>/*.json`, merges with `en/` fallback, caches per language. |
 | `configure_i18n(i18n_root=...)` | Set path to i18n directory. |
 | `tr(key, language=None, default=None)` | Pure translation lookup for a dotted key (e.g. `"dialog.save.title"`). Passing `language=` reads that language without changing global UI state. |
@@ -566,6 +605,7 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 | `ThemeManager` | Palette + QSS theme application singleton. |
 | `FlyoutManager` | Ensures only one registered flyout is active at a time. |
 | `DelayedActionTimer` | Single-shot delayed callback wrapper. |
+| `SettleGate` | Restartable quiet-period gate with optional per-pulse work (resize: cheap refit + deferred heavy pass). |
 | `AnchoredFlyoutAutoHide` | Auto-hide helper for anchored flyouts. |
 
 ---

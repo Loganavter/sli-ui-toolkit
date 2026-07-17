@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import shiboken6
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QPainter, QPen
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, apply_ui_font
 from ..helpers import draw_rounded_shadow
 
 class _TooltipBubble(QWidget):
@@ -28,6 +30,8 @@ class _TooltipBubble(QWidget):
         self.label = QLabel(self)
         self.label.setObjectName("TooltipContentWidget")
         self.label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.label.setContentsMargins(4, 4, 4, 4)
+        self.label.setStyleSheet("")
         layout.addWidget(self.label)
         self.hide()
 
@@ -39,12 +43,17 @@ class _TooltipBubble(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        geo = self.label.geometry()
         draw_rounded_shadow(
             painter,
-            self.label.geometry(),
+            geo,
             steps=self.SHADOW_RADIUS,
             radius=self.CONTENT_RADIUS,
         )
+        tm = ThemeManager.get_instance()
+        painter.setBrush(tm.get_color("tooltip.background"))
+        painter.setPen(QPen(tm.get_color("tooltip.border"), 1))
+        painter.drawRoundedRect(geo, self.CONTENT_RADIUS, self.CONTENT_RADIUS)
         painter.end()
 
 def _is_tab_bar_like(watched) -> bool:
@@ -118,6 +127,11 @@ class _ApplicationTooltipInterceptor(QObject):
 
 def _should_handle_tooltip_widget(watched) -> bool:
     if not isinstance(watched, QWidget):
+        return False
+    try:
+        if not shiboken6.isValid(watched):
+            return False
+    except Exception:
         return False
     if bool(getattr(watched, "_disable_custom_tooltip", False)):
         return False
@@ -235,9 +249,11 @@ class PathTooltip(QObject):
         if not self._is_alive(self._label):
             self._label = None
             return
-        self._label.label.style().unpolish(self._label.label)
-        self._label.label.style().polish(self._label.label)
-        self._label.label.update()
+        label = self._label.label
+        label.setStyleSheet("")
+        apply_ui_font(label)
+        apply_text_color(label, self.theme_manager.get_color("tooltip.text"))
+        label.update()
         self._label.update()
 
     def _show_now(self, pos: QPoint, text: str) -> None:

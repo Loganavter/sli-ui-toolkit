@@ -71,10 +71,6 @@ def draw_bottom_underline(
     cfg = config or UnderlineConfig()
     widget = painter.device()
 
-    if theme_manager.is_dark():
-        if not (widget and isinstance(widget, QLineEdit)):
-            return
-
     if widget and hasattr(widget, "property"):
         btn_class = str(widget.property("class") or "")
         prefix = "button.primary" if btn_class == "primary" else "button.default"

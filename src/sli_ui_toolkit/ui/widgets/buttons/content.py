@@ -14,14 +14,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from PySide6.QtCore import QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics
+from PySide6.QtGui import QColor, QFontMetrics
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import paint_font, ui_font
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 
 from .context import DrawContext
 from .state import ButtonState
+
+
+def _widget_paint_font(widget):
+    return paint_font(widget)
+
+
 def _text_color(ctx: DrawContext, tm: ThemeManager) -> QColor:
     """Цвет текста: style/theme; solid overrides can still set foregroundColor."""
     style = read_widget_style(ctx.widget)
@@ -51,6 +58,8 @@ class TextContent(Content):
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
         p = ctx.painter
+        font = _widget_paint_font(ctx.widget)
+        p.setFont(font)
         p.setPen(_text_color(ctx, tm))
         rect = _rect(ctx)
 
@@ -100,10 +109,7 @@ class RowsContent(Content):
         if self.compact:
             heights = []
             for row in self.rows:
-                f = QFont()
-                f.setPixelSize(row.size)
-                if row.weight == "bold":
-                    f.setBold(True)
+                f = ui_font(pixel_size=row.size, bold=(row.weight == "bold"))
                 heights.append(QFontMetrics(f).lineSpacing())
             total = sum(heights) + self.row_gap * max(0, len(self.rows) - 1)
             y = rect.y() + max(0, (widget_h - total) // 2)
@@ -121,10 +127,7 @@ class RowsContent(Content):
 
     @staticmethod
     def _draw_row(p, row, ctx, style, tm, x, width, y, height):
-        f = QFont()
-        f.setPixelSize(row.size)
-        if row.weight == "bold":
-            f.setBold(True)
+        f = ui_font(pixel_size=row.size, bold=(row.weight == "bold"))
         p.setFont(f)
         if row.color:
             color = row.color
@@ -181,14 +184,38 @@ class IconTextContent(Content):
         )
         pixmap = normalized_icon_pixmap(self.icon, icon_px)
 
-        total_w = icon_px + 6 + p.fontMetrics().horizontalAdvance(self.text)
-        start_x = rect.x() + (rect.width() - total_w) // 2
-        icon_y = rect.y() + (rect.height() - icon_px) // 2
+        gap = max(0, int(getattr(ctx, "gap_px", 6) or 6))
+        text_w = p.fontMetrics().horizontalAdvance(self.text)
+        total_w = icon_px + gap + text_w
+        align = getattr(
+            ctx,
+            "content_align",
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+        )
+        if align & Qt.AlignmentFlag.AlignLeft:
+            start_x = int(rect.x())
+        elif align & Qt.AlignmentFlag.AlignRight:
+            start_x = int(rect.x() + rect.width() - total_w)
+        else:
+            start_x = int(rect.x() + (rect.width() - total_w) // 2)
+
+        if align & Qt.AlignmentFlag.AlignTop:
+            icon_y = int(rect.y())
+            text_v = Qt.AlignmentFlag.AlignTop
+        elif align & Qt.AlignmentFlag.AlignBottom:
+            icon_y = int(rect.y() + rect.height() - icon_px)
+            text_v = Qt.AlignmentFlag.AlignBottom
+        else:
+            icon_y = int(rect.y() + (rect.height() - icon_px) // 2)
+            text_v = Qt.AlignmentFlag.AlignVCenter
 
         p.drawPixmap(start_x, icon_y, pixmap)
+        font = _widget_paint_font(ctx.widget)
+        p.setFont(font)
         p.setPen(_text_color(ctx, tm))
+        text_x = start_x + icon_px + gap
         p.drawText(
-            QRect(start_x + icon_px + 6, rect.y(), rect.width(), rect.height()),
-            Qt.AlignmentFlag.AlignVCenter,
+            QRect(text_x, int(rect.y()), max(0, int(rect.right()) - text_x + 1), int(rect.height())),
+            text_v | Qt.AlignmentFlag.AlignLeft,
             self.text,
         )

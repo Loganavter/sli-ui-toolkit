@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QFont, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsPathItem, QGraphicsTextItem
 
 from sli_ui_toolkit.ui.widgets.composite.sunburst_chart.models import SunburstSegmentData
@@ -71,9 +71,10 @@ class SunburstSegmentItem(QGraphicsPathItem):
             self.setPen(QPen(pen_color, 1.0, Qt.PenStyle.SolidLine))
 
     def _add_label(self):
+        from sli_ui_toolkit.ui.managers.ui_font import ui_font
+
         text_item = QGraphicsTextItem(self.data.label, self)
-        font = QFont()
-        font.setPointSize(int(self.data.font_size * 1.5))
+        font = ui_font(point_size=int(self.data.font_size * 1.5))
         text_item.setFont(font)
         text_item.setDefaultTextColor(_contrast_text_color(self.base_color))
         br = text_item.boundingRect()

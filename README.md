@@ -2,9 +2,8 @@
 
 Reusable PySide6 widgets and UI infrastructure for compact desktop tools.
 
-SLI stands for **Shared Lightweight Interface**. The toolkit was extracted from
-Improve-ImgSLI and Tkonverter, but host-specific icons, translations, resources,
-and business logic stay outside the library.
+SLI stands for **Shared Lightweight Interface**. Host-specific icons,
+translations, resources, and business logic stay outside the library.
 
 ## What Is Included
 

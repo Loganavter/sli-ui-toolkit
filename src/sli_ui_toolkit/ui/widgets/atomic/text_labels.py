@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics
+from PySide6.QtGui import QColor, QFontMetrics
 from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
 
 
 @dataclass(frozen=True)
@@ -158,7 +159,9 @@ class Label(QLabel):
                 | Qt.TextInteractionFlag.TextSelectableByKeyboard
             )
         QLabel.setText(self, text)
+        self._applying_style = False
         self.theme_manager.theme_changed.connect(self._apply_style)
+        UiFont.get_instance().font_changed.connect(self._apply_style)
         self._apply_style()
 
     def variant(self) -> str:
@@ -242,8 +245,13 @@ class Label(QLabel):
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
-        if event.type() == QEvent.Type.ApplicationFontChange:
+        et = event.type()
+        if et == QEvent.Type.ApplicationFontChange:
             self._preferred_width_cache = None
+            self._apply_style()
+            return
+        # Reparent / style polish can wipe WA_SetPalette text colors.
+        if et in (QEvent.Type.ParentChange, QEvent.Type.StyleChange):
             self._apply_style()
 
     def sizeHint(self):
@@ -266,39 +274,49 @@ class Label(QLabel):
         return hint
 
     def _apply_style(self) -> None:
-        spec = get_label_variant(self._variant_name)
-        font = QFont(self.font())
-        pixel_size = self._pixel_size_override
-        if pixel_size is None:
-            pixel_size = spec.pixel_size
-        if pixel_size is not None:
-            font.setPixelSize(max(1, int(pixel_size)))
-        if self._family_override:
-            font.setFamily(self._family_override)
-        font.setBold(
-            spec.bold if self._bold_override is None else bool(self._bold_override)
-        )
-        font.setItalic(bool(self._italic_override))
-        font.setUnderline(bool(self._underline_override))
-        font.setStrikeOut(bool(self._strike_out_override))
-        self.setFont(font)
+        if self._applying_style:
+            return
+        self._applying_style = True
+        try:
+            spec = get_label_variant(self._variant_name)
+            font = ui_font(
+                family=self._family_override,
+                pixel_size=(
+                    self._pixel_size_override
+                    if self._pixel_size_override is not None
+                    else spec.pixel_size
+                ),
+                bold=(
+                    spec.bold
+                    if self._bold_override is None
+                    else bool(self._bold_override)
+                ),
+                italic=bool(self._italic_override),
+                underline=bool(self._underline_override),
+                strike_out=bool(self._strike_out_override),
+            )
+            # Color via palette — never setStyleSheet("color:…") (Qt then ignores setFont).
+            apply_text_color(self, self._resolve_color(spec))
+            self.setFont(font)
 
-        color = self._resolve_color(spec)
-        if color is not None:
-            self.setStyleSheet(f"color: {color.name(QColor.NameFormat.HexArgb)};")
+            if self._expanding():
+                self.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+            else:
+                self.setSizePolicy(
+                    QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+                )
 
-        if self._expanding():
-            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        else:
-            self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            minimum_width = self._minimum_width()
+            if minimum_width > 0:
+                QLabel.setMinimumWidth(self, minimum_width)
 
-        minimum_width = self._minimum_width()
-        if minimum_width > 0:
-            QLabel.setMinimumWidth(self, minimum_width)
-
-        self._update_elided_text()
-        self.updateGeometry()
-        self.update()
+            self._update_elided_text()
+            self.updateGeometry()
+            self.update()
+        finally:
+            self._applying_style = False
 
     def _resolve_color(self, spec: LabelVariantSpec) -> QColor | None:
         if self._color_override is not None:

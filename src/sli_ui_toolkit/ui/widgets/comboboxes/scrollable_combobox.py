@@ -165,7 +165,9 @@ class ScrollableComboBox(Button):
     # ---------------- popup integration hooks ----------------
 
     def getItemFont(self) -> QFont:
-        return self.font()
+        from sli_ui_toolkit.ui.managers.ui_font import paint_font
+
+        return paint_font(self)
 
     def getItemHeight(self) -> int:
         return self.height() - 2

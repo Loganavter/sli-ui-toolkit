@@ -1,4 +1,6 @@
 dist/
+build/lib/
+build/bdist.*/
 *.egg-info/
 __pycache__/
 *.pyc

@@ -1,7 +1,7 @@
 """Button visual style API — mixin со всеми setX/getX визуальных атрибутов.
 
 Включает: badge, underline, цвета (foreground/accent/border/background), content
-(icon/text/rows), menu-items, variant/density/corner radius/icon size, size hints,
+(icon/text/rows), variant/density/corner radius/icon size, size hints,
 flyout/footer/popup, а также dispatcher динамических Qt-properties.
 
 Сам по себе класс не наследует QWidget — он подмешивается в Button и опирается
@@ -14,13 +14,11 @@ from __future__ import annotations
 from typing import Any
 import warnings
 
-from PySide6.QtCore import QEvent, QSize
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QColor, QCursor
 
 from sli_ui_toolkit.deprecations import BUTTON_PRIMARY_VARIANT, warn_deprecated
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
-
-from .capabilities import MenuCapability
 
 
 _MAX_UNDERLINE_THICKNESS = 3.0
@@ -127,8 +125,46 @@ class _ButtonStyleApi:
     # -------- background / border / decoration colors --------
 
     def set_override_bg_color(self, color: QColor | None):
+        """Set an exact base fill color (pixel-accurate normal layer).
+
+        Unlike historically, this no longer freezes hover/pressed — set
+        ``bg_locked=True`` when interaction overlays must be suppressed.
+        """
         self._override_bg_color = color
         self.update()
+
+    def set_bg_locked(self, locked: bool) -> None:
+        """When True, paint base only (no hover/pressed/hover_color overlays)."""
+        self._bg_locked = bool(locked)
+        self.update()
+
+    def is_bg_locked(self) -> bool:
+        return bool(getattr(self, "_bg_locked", False))
+
+    def set_hover_color(self, color: QColor | None) -> None:
+        """Widget-level hover overlay color (feeds ``_main`` / context default).
+
+        For multi-region buttons prefer per-region ``hover_color=`` or
+        ``update_region(...);`` this setter also writes ``_main`` when present.
+        """
+        self._hover_color = QColor(color) if color is not None else None
+        if self._region_by_id("_main") is not None:
+            self.update_region("_main", hover_color=self._hover_color)
+        else:
+            self.update()
+
+    def hover_color(self) -> QColor | None:
+        return getattr(self, "_hover_color", None)
+
+    def set_hover_compose(self, compose: str) -> None:
+        """``replace`` (default) or ``stack`` — applied to every current region."""
+        normalized = compose if compose in ("replace", "stack") else "replace"
+        self._hover_compose = normalized
+        for region in list(self._controller.regions):
+            self.update_region(region.id, hover_compose=normalized)
+
+    def hover_compose(self) -> str:
+        return getattr(self, "_hover_compose", "replace")
 
     def set_background_color(self, color: QColor | None):
         self._custom_bg_color = color
@@ -242,36 +278,6 @@ class _ButtonStyleApi:
         self.updateGeometry()
         self.update()
 
-    # -------- menu --------
-
-    def set_menu_items(self, items):
-        self._menu_items = items
-        had_menu = self._has_menu
-        self._has_menu = bool(items)
-        for region in getattr(self, "_regions", []) or []:
-            if region.id == "_main":
-                region.menu = list(items) if items else None
-                break
-        cap = self.get_capability(MenuCapability)
-        if self._has_menu and cap is None:
-            self.attach_capability(MenuCapability(menu_items=items))
-        elif cap is not None:
-            cap.set_menu_items(items)
-        if not self._has_menu and had_menu and cap is not None:
-            self.detach_capability(MenuCapability)
-
-    set_actions = set_menu_items
-
-    def set_current_by_data(self, data: Any):
-        cap = self.get_capability(MenuCapability)
-        if cap is not None and getattr(cap, "_menu_widget", None) is not None:
-            cap._menu_widget.set_current_by_data(data)
-
-    def show_menu(self):
-        cap = self.get_capability(MenuCapability)
-        if cap is not None:
-            cap.show_menu()
-
     # -------- misc visual state --------
 
     def setFlyoutOpen(self, is_open: bool):
@@ -298,7 +304,7 @@ class _ButtonStyleApi:
         if self._has_text:
             fm = self.fontMetrics()
             text_w = fm.horizontalAdvance(self._text) if self._text else 0
-            icon_w = self._icon_size_px + 6 if self._icon_unchecked else 0
+            icon_w = self._icon_size_px + self._gap_px if self._icon_unchecked else 0
             w = text_w + icon_w + 24
             h = max(32, fm.height() + 16)
             return QSize(w, h)
@@ -337,6 +343,23 @@ class _ButtonStyleApi:
             self._icon_size_px = size_px
             self.setProperty("iconSizePx", size_px)
             update_widget_style(self, update_geometry=True)
+
+    def getGap(self) -> int:
+        return int(self._gap_px)
+
+    def setGap(self, gap: int):
+        gap = max(0, int(gap))
+        if self._gap_px != gap:
+            self._gap_px = gap
+            self.update()
+
+    def getContentAlign(self) -> Qt.AlignmentFlag:
+        return self._content_align
+
+    def setContentAlign(self, align: Qt.AlignmentFlag):
+        if self._content_align != align:
+            self._content_align = align
+            self.update()
 
     def getContentPadding(self) -> tuple[float, float, float, float]:
         return self._content_padding

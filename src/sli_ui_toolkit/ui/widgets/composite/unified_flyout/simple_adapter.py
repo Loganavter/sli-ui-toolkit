@@ -4,7 +4,6 @@ store/controller/main_window — accepts plain item lists and two anchor widgets
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import SimpleNamespace
 
 
 @dataclass
@@ -123,9 +122,10 @@ class SimpleUnifiedFlyoutController:
 
 
 def make_main_window_proxy(host_window, anchor_left, anchor_right):
-    """Build the minimal `main_window.ui` surface UnifiedFlyout reads."""
-    ui = SimpleNamespace(combo_image1=anchor_left, combo_image2=anchor_right)
-    host_window.ui = ui  # attach so existing code paths find `self.main_window.ui.combo_imageN`
+    """Deprecated shim — prefer ``UnifiedFlyout.set_list_anchors``."""
+    flyout = getattr(host_window, "_unified_flyout", None)
+    if flyout is not None and hasattr(flyout, "set_list_anchors"):
+        flyout.set_list_anchors(anchor_left, anchor_right)
     return host_window
 
 

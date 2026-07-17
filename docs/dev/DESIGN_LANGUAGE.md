@@ -20,19 +20,18 @@ The toolkit implements a custom theme-aware design language with the following p
 
 ## Not Fluent, Not Material
 
-The design was originally inspired by WinUI 3 / Fluent Design but has diverged significantly:
+The toolkit is a pragmatic, compact language for image/video and text-processing
+tool UIs — not a Fluent or Material clone:
 
 | Aspect | Fluent Design | SLI Toolkit |
 |--------|---------------|-------------|
 | Elevation | Acrylic/Mica layers, shadows | Flat with minimal shadow on flyouts only |
 | Motion | Spring-based, reveal highlight | Simple OutCubic property animations |
-| Typography | Segoe UI Variable, type ramp | System font, 3 label sizes |
+| Typography | Segoe UI Variable, type ramp | Host `UiFont` / app font (e.g. Source Sans 3), Label type ramp |
 | Color | Semantic tokens, layered tints | Single accent + palette-resolved colors |
 | Density | Standard/Compact modes | Single compact-density mode |
 | Borders | Rounded 4 px default | 2–8 px radius depending on context |
 | Iconography | Segoe Fluent Icons | App-supplied SVG icons via resolver |
-
-The result is a pragmatic, compact toolkit for image/video and text-processing tool UIs — not a faithful Fluent implementation.
 
 ## Color System
 
@@ -64,9 +63,34 @@ QSS files use `@token` placeholders resolved at theme-apply time:
 
 ## Typography
 
-Text uses the unified `Label` component. Prefer direct typography options for
-local UI needs and register variants only when a preset is shared across multiple
-surfaces.
+Text uses the unified `Label` component and the process-wide **`UiFont`**
+resolver (`sli_ui_toolkit.managers.ui_font` / `UiFont`). Prefer direct
+typography options for local UI needs and register variants only when a preset
+is shared across multiple surfaces.
+
+### Single source of truth (`UiFont`)
+
+```python
+from sli_ui_toolkit.managers import UiFont, ui_font, apply_text_color
+
+# Paint / metrics — never bare QFont() or QFont(widget.font()) alone:
+font = ui_font(pixel_size=13, bold=True)
+
+# Host (after loading a builtin TTF and app.setFont):
+UiFont.get_instance().set_family("Source Sans 3")
+UiFont.get_instance().sync_from_application()
+
+# Text color — palette only (color-only QSS makes Qt ignore setFont):
+apply_text_color(label, theme.get_color("dialog.text"))
+```
+
+| Trap | Rule |
+|------|------|
+| `QFont()` | Always start from `ui_font(...)` |
+| `setStyleSheet("color:…")` on labels | Use `apply_text_color` / palette |
+| App/global QSS `QLabel { color:… }` | Forbidden — same paint bypass as local sheets |
+| Copying `widget.font()` before host font apply | Resolve through `UiFont` (pinned family) |
+| `unpolish`/`polish` after `setPalette` on dialogs | Polish first, then set palette (`ThemeManager.apply_theme_to_dialog`) |
 
 | Use case | Recommended `Label` options |
 |----------|-----------------------------|
@@ -102,7 +126,7 @@ them sharp on hi-DPI screens without per-widget tuning.
 | `Button` (icon, dropdown menu trigger) | 36×36 px when used as a flyout anchor | `button.py:435` / `button.py:454` |
 | `InstancesCounterButton` | 36×36 px capsule, 6 px corner radius | Thin `Button` regions subclass with `_OUTER_SIZE` / `_CORNER_RADIUS` |
 | `LoadingSpinner` | 40×40 px | `setFixedSize(40, 40)` |
-| `Dropdown menu row` | 40 px row height inside flyout container | `_dropdown_menu.py:26` |
+| `Context menu row` | 40 px row height inside flyout container | `context_menu/` |
 | `TimelineWidget` | 25 px ruler, 72 px thumbnail strip, 180 px left gutter (140–320 px clamp), 18 px playhead handle | constants on `TimelineWidget` |
 
 ### Density Assumptions
@@ -249,7 +273,8 @@ Grouped by widget family (full keys in `src/sli_ui_toolkit/palettes.py`):
 - **Labels** — `label.image.background`.
 - **Help dialog** — `help.separator`, `help.code.background`, `help.nav.background`,
   `help.nav.border`, `help.nav.hover`, `help.nav.selected`, `help.nav.selected.text`.
-- **Toasts** — `toast.background`, `toast.text`, `toast.border`.
+- **Toasts** — `toast.background`, `toast.text`, `toast.border`,
+  `toast.progress.background`, `toast.progress.fill` (fill falls back to `accent`).
 - **Slider** — `slider.track.background`, `slider.track.unfilled`,
   `slider.thumb.outer`.
 - **Switch** — `switch.track.off.border`, `switch.knob.off`, `switch.knob.on`,

@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
 
 from sli_ui_toolkit.widgets import (
     Button,
+    entries_from_labeled_data,
+    popup_context_menu_for_anchor,
     CheckBox,
     CustomGroupWidget,
     Label,
@@ -286,15 +288,36 @@ class ButtonPlaygroundCard(CustomGroupWidget):
         elif mode == "long press":
             kwargs["long_press"] = True
         elif mode == "menu":
-            kwargs["menu"] = MENU_ITEMS
+            pass
 
         self._button = Button(**kwargs)
-        self._button.clicked.connect(lambda: self._set_event("clicked"))
+        if mode == "menu":
+            self._button.clicked.connect(self._show_playground_menu)
+        else:
+            self._button.clicked.connect(lambda: self._set_event("clicked"))
         self._button.toggled.connect(lambda checked: self._set_event(f"toggled: {checked}"))
         self._button.longPressed.connect(lambda: self._set_event("long pressed"))
-        self._button.menuTriggered.connect(lambda v: self._set_event(f"menu: {v}"))
         self._preview_layout.insertWidget(1, self._button, 0, Qt.AlignmentFlag.AlignCenter)
         self._apply()
+
+    def _show_playground_menu(self) -> None:
+        button = self._button
+        if button is None:
+            return
+        parent = button.window()
+        if parent is None:
+            return
+        entries = entries_from_labeled_data(MENU_ITEMS, checkable=False)
+
+        def on_triggered(_action_id: str, data: object) -> None:
+            self._set_event(f"menu: {data}")
+
+        popup_context_menu_for_anchor(
+            parent,
+            button,
+            entries,
+            on_triggered=on_triggered,
+        )
 
     def _apply(self, *args) -> None:
         if self._button is None:

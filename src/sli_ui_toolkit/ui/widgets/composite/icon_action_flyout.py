@@ -24,6 +24,9 @@ class IconActionFlyout(BaseFlyout):
     elementHovered = Signal(str)
     elementHoverEnded = Signal()
 
+    # Identity for host ``GroupShowPolicy``.
+    flyout_group = "actions"
+
     def __init__(
         self,
         parent=None,
@@ -153,7 +156,7 @@ class IconActionFlyout(BaseFlyout):
         offset=5,
         animation: str = "none",
         animation_duration_ms: int | None = None,
-        animation_distance: int = 24,
+        animation_distance: int | None = None,
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
         toggle: bool = True,
     ):

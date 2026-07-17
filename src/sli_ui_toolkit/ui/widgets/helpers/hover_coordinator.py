@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from weakref import WeakKeyDictionary, ref
 
+import shiboken6
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
 from PySide6.QtGui import QCursor, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget
@@ -20,6 +21,16 @@ _CLEAR_EVENT_TYPES = {
     QEvent.Type.WindowDeactivate,
     QEvent.Type.EnabledChange,
 }
+
+
+def _is_alive(widget: QWidget | None) -> bool:
+    """True while the shiboken wrapper still owns a live C++ QWidget."""
+    if widget is None:
+        return False
+    try:
+        return bool(shiboken6.isValid(widget))
+    except Exception:
+        return False
 
 
 class HoverCoordinator(QObject):
@@ -76,6 +87,9 @@ class HoverCoordinator(QObject):
         # tracking O(N) expensive-Qt-call work per mouse pixel moved.
         top_widget = QApplication.widgetAt(pos)
         for widget, (has_hit_test, has_set_hover) in list(self._widgets.items()):
+            if not _is_alive(widget):
+                self._widgets.pop(widget, None)
+                continue
             if source_window is not None and widget.window() is not source_window:
                 self._set_hover(widget, has_set_hover, False)
                 continue
@@ -83,10 +97,18 @@ class HoverCoordinator(QObject):
 
     def clear_all(self) -> None:
         for widget, (_, has_set_hover) in list(self._widgets.items()):
+            if not _is_alive(widget):
+                self._widgets.pop(widget, None)
+                continue
             self._set_hover(widget, has_set_hover, False)
 
     def clear_descendants(self, root: QWidget) -> None:
+        if not _is_alive(root):
+            return
         for widget, (_, has_set_hover) in list(self._widgets.items()):
+            if not _is_alive(widget):
+                self._widgets.pop(widget, None)
+                continue
             if widget is root or root.isAncestorOf(widget):
                 self._set_hover(widget, has_set_hover, False)
 
@@ -140,12 +162,15 @@ class HoverCoordinator(QObject):
 
     @staticmethod
     def _is_reconcilable(widget: QWidget) -> bool:
+        if not _is_alive(widget):
+            return False
         return bool(widget.isVisible() and widget.isEnabled())
 
     @staticmethod
     def _set_hover(widget: QWidget, has_set_hover: bool, active: bool) -> None:
-        if has_set_hover:
-            widget.setHoverActive(active)  # type: ignore[attr-defined]
+        if not has_set_hover or not _is_alive(widget):
+            return
+        widget.setHoverActive(active)  # type: ignore[attr-defined]
 
     @staticmethod
     def _global_pos_from_event(event: QEvent) -> QPoint | None:

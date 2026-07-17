@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any
 
-from PySide6.QtCore import QRectF
+from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
@@ -29,6 +29,10 @@ class DrawContext:
     override_bg_color: QColor | None = None
     custom_bg_color: QColor | None = None
     override_border_color: QColor | None = None
+    hover_color: QColor | None = None
+    hover_compose: str = "replace"
+    bg_locked: bool = False
+    hovered_region_id: str | None = None
 
     badge_text: str | None = None
     show_underline: bool = False
@@ -39,6 +43,11 @@ class DrawContext:
 
     icon_size_px: int = 22
     content_padding: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+    # Internal spacing for IconTextContent (icon ↔ label) — not a region split.
+    gap_px: int = 6
+    content_align: Qt.AlignmentFlag = (
+        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+    )
 
     # Region-aware fields. When `region_id` is set, layers should prefer these
     # over their whole-widget counterparts. Default None keeps single-region
@@ -53,6 +62,10 @@ class DrawContext:
     region_override_bg_color: QColor | None = None
     region_custom_bg_color: QColor | None = None
     region_override_border_color: QColor | None = None
+    region_hover_color: QColor | None = None
+    region_hover_compose: str | None = None
+    region_bg_locked: bool | None = None
+    region_group: str | None = None
     region_icon_size_px: int | None = None
     region_corner_radii: tuple[int, int, int, int] | None = None
     region_clip_content: bool = True
@@ -71,6 +84,10 @@ class DrawContext:
         override_bg_color: QColor | None = None,
         custom_bg_color: QColor | None = None,
         override_border_color: QColor | None = None,
+        hover_color: QColor | None = None,
+        hover_compose: str | None = None,
+        bg_locked: bool | None = None,
+        group: str | None = None,
         icon_size_px: int | None = None,
         corner_radii: tuple[int, int, int, int] | None = None,
         clip_content: bool = True,
@@ -88,6 +105,10 @@ class DrawContext:
             region_override_bg_color=override_bg_color,
             region_custom_bg_color=custom_bg_color,
             region_override_border_color=override_border_color,
+            region_hover_color=hover_color,
+            region_hover_compose=hover_compose,
+            region_bg_locked=bg_locked,
+            region_group=group,
             region_icon_size_px=icon_size_px,
             region_corner_radii=corner_radii,
             region_clip_content=clip_content,
@@ -155,6 +176,33 @@ class DrawContext:
             if self.region_override_border_color is not None
             else self.override_border_color
         )
+
+    @property
+    def effective_hover_color(self) -> QColor | None:
+        return (
+            self.region_hover_color
+            if self.region_hover_color is not None
+            else self.hover_color
+        )
+
+    @property
+    def effective_hover_compose(self) -> str:
+        compose = (
+            self.region_hover_compose
+            if self.region_hover_compose is not None
+            else self.hover_compose
+        )
+        return compose if compose in ("replace", "stack") else "replace"
+
+    @property
+    def effective_bg_locked(self) -> bool:
+        if self.region_bg_locked is not None:
+            return bool(self.region_bg_locked)
+        return bool(self.bg_locked)
+
+    @property
+    def effective_group(self) -> str | None:
+        return self.region_group
 
     @property
     def effective_icon_size_px(self) -> int:

@@ -10,6 +10,7 @@ from sli_ui_toolkit.config import create_rating_gesture
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.model import (
     IsCurrentRole,
@@ -41,7 +42,7 @@ class RatingDelegate(QStyledItemDelegate):
         self.store = store
         self.image_number = image_number
         self.item_height = item_height
-        self.item_font = item_font or QApplication.font()
+        self.item_font = rebase_font(item_font) if item_font else ui_font()
         self.item_type = item_type
 
         self.rating_width = 25
@@ -114,11 +115,13 @@ class RatingDelegate(QStyledItemDelegate):
             rating_rect = QRect(
                 r.left() + self.margin, r.top(), self.rating_width, r.height()
             )
-            rating_font = QFont(self.item_font)
+            rating_font = rebase_font(self.item_font)
             base_px = self.item_font.pixelSize()
             if base_px <= 0:
                 base_px = QFontMetrics(self.item_font).height()
-            rating_font.setPixelSize(max(8, base_px - 3))
+            rating_font = rebase_font(
+                self.item_font, pixel_size=max(8, base_px - 3)
+            )
             painter.setFont(rating_font)
             painter.setPen(self.theme_manager.get_color("list_item.text.rating"))
             painter.drawText(rating_rect, Qt.AlignmentFlag.AlignCenter, str(rating))

@@ -4,10 +4,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QFontMetrics, QMouseEvent, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QFontMetrics, QMouseEvent, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
@@ -50,8 +51,9 @@ class _SlotContentLayer(Layer):
         text_rect = rect.adjusted(padding, 0, -padding, 0)
         p = ctx.painter
         p.setPen(QPen(tm.get_color("dialog.text")))
-        p.setFont(widget.font())
-        fm = QFontMetrics(widget.font())
+        font = paint_font(widget)
+        p.setFont(font)
+        fm = QFontMetrics(font)
         elided = fm.elidedText(widget._text, Qt.TextElideMode.ElideRight, text_rect.width())
         p.drawText(
             text_rect,
@@ -172,6 +174,13 @@ class _DropdownOverlay(QWidget):
         for slot in self._slots[visible_count:]:
             slot.hide()
 
+    def slot_for_index(self, index: int):
+        """Visible dropdown row widget for ``index``, or ``None``."""
+        for slot in self._slots:
+            if slot.isVisible() and slot._item_index == index:
+                return slot
+        return None
+
     def _on_slot_clicked(self, slot: _DropdownItemSlot) -> None:
         idx = slot._item_index
         if idx >= 0:
@@ -206,13 +215,22 @@ class _DropdownOverlay(QWidget):
         if window is None:
             return
 
+        # Same selection-centered geometry as a normal click so the list stays
+        # aligned with the field. Find Action only changes which row gets the
+        # accent wash (``_focus_row``), not where the popup is parked.
+        anchor_index = owner.currentIndex()
         outer = calculate_centered_overlay_geometry(
             anchor_widget=owner,
             owner_window=window,
-            content_size=QSize(max(owner.width(), owner.minimumWidth()), self._list_height()),
+            content_size=QSize(
+                max(owner.width(), owner.minimumWidth()), self._list_height()
+            ),
             shadow_radius=self.SHADOW,
-            current_index=owner.currentIndex(),
-            visible_index=max(0, owner._visible_position_for_index(owner.currentIndex()) - owner._scroll_offset),
+            current_index=anchor_index,
+            visible_index=max(
+                0,
+                owner._visible_position_for_index(anchor_index) - owner._scroll_offset,
+            ),
             row_height=self._item_height(),
             scrollable=len(self._visible_item_indices()) > owner.maxVisibleItems(),
         )

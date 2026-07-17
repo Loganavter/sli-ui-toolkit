@@ -13,15 +13,9 @@ If you need something else:
 `sli-ui-toolkit` is a reusable PySide6 UI layer with three main responsibilities:
 
 - preserve the SLI name as **Shared Lightweight Interface**;
-
 - provide custom-painted widgets and small reusable composites;
 - provide shared UI infrastructure such as theming, icon resolution, i18n, flyout management, and workers;
 - keep host-app specifics outside the toolkit and inject them through configuration hooks.
-
-The package was extracted from Improve-ImgSLI and Tkonverter, so it is not a
-from-scratch neutral framework. Treat it as a reusable slice of those apps that
-has been cleaned up for wider PyQt use: app behavior stays in host projects,
-while widgets, managers, and theme-aware primitives stay here.
 
 It is not a full application framework. App-specific icons, translations, business logic, and resource-folder conventions should stay in the host app.
 
@@ -37,6 +31,8 @@ The toolkit intentionally exposes a small number of public entry points.
   Main public widget catalog.
 - `sli_ui_toolkit.theme`
   `ThemeManager`.
+- `sli_ui_toolkit.managers`
+  `FlyoutManager`, `UiFont` / `ui_font(...)`, flyout show policies.
 - `sli_ui_toolkit.i18n`
   Translation manager and `tr(...)`.
 - `sli_ui_toolkit.icons`
@@ -94,9 +90,7 @@ Files:
 Responsibilities:
 
 - re-export public widgets from their implementation folders;
-- keep import ergonomics stable even if internals move.
-
-This layer is where compatibility is preserved when implementation files are reorganized.
+- keep import ergonomics stable when internals move.
 
 ### 3. Low-level widgets
 
@@ -166,7 +160,7 @@ This is the practical meaning of the main folders.
 
 ### `ui/widgets/atomic/`
 
-Simple widgets and compatibility re-exports.
+Simple widgets.
 
 Put code here when:
 
@@ -174,9 +168,12 @@ Put code here when:
 - the widget has little or no internal decomposition;
 - it is a basic primitive.
 
-Do not put large subsystems here just because they are “single controls”. `ComboBox` was already large enough to deserve its own folder.
+Do not put large subsystems here just because they are “single controls”.
+`ComboBox` belongs in `ui/widgets/comboboxes/`.
 
-`atomic/combobox.py` and `atomic/comboboxes.py` are compatibility re-exports for older imports. New code should import comboboxes from `sli_ui_toolkit.widgets` or `sli_ui_toolkit.ui.widgets.comboboxes`.
+`atomic/combobox.py` and `atomic/comboboxes.py` are thin re-export shims.
+Canonical imports: `sli_ui_toolkit.widgets` or
+`sli_ui_toolkit.ui.widgets.comboboxes`.
 
 ### `ui/widgets/buttons/`
 
@@ -186,7 +183,7 @@ Typical internal split:
 
 - public re-export;
 - main widget facade (`Button`);
-- declarative specs (`ButtonSpec`, `RegionSpec`, content/style/behavior specs);
+- declarative specs (`ButtonSpec`, `ButtonRegion`, behavior/shape specs);
 - controller/runtime state (`ButtonController`);
 - painter/layers;
 - menu/dropdown helpers;
@@ -194,9 +191,8 @@ Typical internal split:
 
 Use this folder as the model for any control family that grows beyond one file.
 
-`Button` should stay a compatibility-friendly QWidget facade. New behavior
-should be added by extending specs, controller routing, layouts, or renderer
-layers rather than growing ad-hoc state directly on the widget.
+`Button` is a thin `QWidget` facade. Extend specs, controller routing, layouts,
+or renderer layers rather than growing ad-hoc state on the widget.
 
 ### `ui/widgets/comboboxes/`
 
@@ -327,16 +323,13 @@ When the composite itself becomes a subsystem with:
 
 ## How To Move Code Without Breaking Apps
 
-The package already uses compatibility re-exports for this.
-
-Safe pattern:
+Safe pattern when relocating an implementation:
 
 1. Move the real implementation to a better folder.
-2. Keep the old module path as a thin import shim.
+2. Keep the previous module path as a thin import shim (or update all call
+   sites in the same change if the path was never public).
 3. Keep `widgets.py` exporting the same public names.
-4. Update docs to point to the new canonical location.
-
-This is how `ComboBox` was reorganized into `ui/widgets/comboboxes/` without breaking older imports.
+4. Update docs to point to the canonical location.
 
 ## Host-App Boundary
 

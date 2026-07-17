@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QChildEvent, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtGui import QCursor, QHoverEvent, QMouseEvent
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 RESIZE_MARGIN = 4
+# Qt unbound max when maximumWidth/Height were never set.
+QWIDGETSIZE_MAX = 16777215
 
 
 def _win_refresh_native_frame(window: QWidget, custom_decorations: bool) -> None:
@@ -100,24 +102,20 @@ def _win_refresh_native_frame(window: QWidget, custom_decorations: bool) -> None
         pass
 
 
-def apply_frameless(window: QWidget) -> None:
+def apply_frameless(window: QWidget, *, resizable: bool = True) -> None:
     flags = window.windowFlags()
     flags |= Qt.WindowType.FramelessWindowHint
     window.setWindowFlags(flags)
-    window.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-    if window.findChild(_ResizeFilter) is None:
-        f = _ResizeFilter(window)
-        window.installEventFilter(f)
+    if resizable:
+        window.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        window.setMouseTracking(True)
+    _set_resize_filter(window, enabled=resizable)
 
 
 def remove_frameless(window: QWidget) -> None:
     flags = window.windowFlags() & ~Qt.WindowType.FramelessWindowHint
     window.setWindowFlags(flags)
-    f = window.findChild(_ResizeFilter)
-    if f is not None:
-        window.removeEventFilter(f)
-        f.setParent(None)
-        f.deleteLater()
+    _set_resize_filter(window, enabled=False)
 
 
 def set_frameless_runtime(window: QWidget, enabled: bool) -> None:
@@ -144,17 +142,35 @@ def set_frameless_runtime(window: QWidget, enabled: bool) -> None:
 
     if enabled:
         window.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-        if window.findChild(_ResizeFilter) is None:
-            f = _ResizeFilter(window)
-            window.installEventFilter(f)
+        window.setMouseTracking(True)
+        _set_resize_filter(window, enabled=True)
     else:
-        f = window.findChild(_ResizeFilter)
-        if f is not None:
-            window.removeEventFilter(f)
-            f.setParent(None)
-            f.deleteLater()
+        _set_resize_filter(window, enabled=False)
 
     _win_refresh_native_frame(window, custom_decorations=enabled)
+
+
+def _set_resize_filter(window: QWidget, *, enabled: bool) -> None:
+    existing = window.findChild(_ResizeFilter)
+    app = QApplication.instance()
+    if not enabled:
+        if existing is not None:
+            existing.clear_cursor()
+            existing.end_manual_resize()
+            if app is not None:
+                app.removeEventFilter(existing)
+            window.removeEventFilter(existing)
+            existing.setParent(None)
+            existing.deleteLater()
+        return
+    if existing is None:
+        f = _ResizeFilter(window)
+        # App-level filter so title-bar / content children cannot steal the
+        # edge zone. Installing on both app and window would double-fire.
+        if app is not None:
+            app.installEventFilter(f)
+        else:
+            window.installEventFilter(f)
 
 
 _LEFT = int(Qt.Edge.LeftEdge.value)
@@ -192,51 +208,255 @@ def _cursor_for_edges(value: int) -> Qt.CursorShape:
 
 
 class _ResizeFilter(QObject):
+    """Edge-resize hit testing for frameless windows.
+
+    Listens to the target window and (via the QApplication filter) its
+    descendants so title-bar / content widgets cannot steal the edge zone.
+    Falls back to a software drag when ``QWindow.startSystemResize`` fails
+    (common for modal dialogs on Wayland).
+    """
+
     def __init__(self, target: QWidget):
         super().__init__(target)
         self._target = target
-        self._has_override_cursor = False
+        self._cursor_armed = False
+        self._manual_edges = 0
+        self._manual_origin = QPoint()
+        self._manual_geometry = QRect()
+        self._ensure_mouse_tracking(target)
+
+    def _ensure_mouse_tracking(self, root: QWidget) -> None:
+        """Need move events on children, otherwise only bare chrome updates the cursor."""
+        try:
+            root.setMouseTracking(True)
+            root.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+            for child in root.findChildren(QWidget):
+                child.setMouseTracking(True)
+        except RuntimeError:
+            pass
 
     def eventFilter(self, obj, event):
-        if obj is not self._target:
-            return False
-        if self._target.isMaximized() or self._target.isFullScreen():
-            self._clear_cursor()
+        target = getattr(self, "_target", None)
+        if target is None:
             return False
 
         t = event.type()
-        if t == QEvent.Type.HoverMove and isinstance(event, QHoverEvent):
-            self._update_cursor(event.position().toPoint().x(), event.position().toPoint().y())
-        elif t == QEvent.Type.HoverLeave:
+        if t == QEvent.Type.Show and obj is target:
+            self._ensure_mouse_tracking(target)
+            return False
+        if t == QEvent.Type.ChildAdded and obj is target and isinstance(event, QChildEvent):
+            child = event.child()
+            if isinstance(child, QWidget):
+                try:
+                    child.setMouseTracking(True)
+                except RuntimeError:
+                    pass
+            return False
+        if t in (
+            QEvent.Type.Hide,
+            QEvent.Type.Close,
+            QEvent.Type.WindowDeactivate,
+            QEvent.Type.ApplicationDeactivate,
+        ):
+            if obj is target or (
+                t == QEvent.Type.ApplicationDeactivate and obj is QApplication.instance()
+            ):
+                self.end_manual_resize()
+                self._clear_cursor()
+            return False
+
+        if not isinstance(obj, QWidget):
+            return False
+
+        try:
+            owner = obj.window()
+        except RuntimeError:
+            return False
+        if owner is not target:
+            # Pointer moved to another top-level — drop any stuck resize cursor.
+            if self._cursor_armed and not self._manual_edges:
+                self._clear_cursor()
+            return False
+
+        if target.isMaximized() or target.isFullScreen():
+            self.end_manual_resize()
             self._clear_cursor()
-        elif t == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            return False
+
+        if self._manual_edges and t == QEvent.Type.MouseMove and isinstance(
+            event, QMouseEvent
+        ):
+            self._update_manual_resize(event.globalPosition().toPoint())
+            event.accept()
+            return True
+
+        if self._manual_edges and t == QEvent.Type.MouseButtonRelease and isinstance(
+            event, QMouseEvent
+        ):
             if event.button() == Qt.MouseButton.LeftButton:
-                pos = event.position().toPoint()
-                value = _edges_for_pos(self._target.width(), self._target.height(), pos.x(), pos.y())
-                if value != 0:
-                    handle = self._target.windowHandle()
-                    if handle is not None:
-                        try:
-                            handle.startSystemResize(Qt.Edges(value))
-                            event.accept()
-                            return True
-                        except Exception:
-                            pass
+                self.end_manual_resize()
+                event.accept()
+                return True
+
+        local = self._local_pos(obj, event)
+        if local is None:
+            if t in (QEvent.Type.Leave, QEvent.Type.HoverLeave) and obj is target:
+                self._clear_cursor()
+            return False
+
+        if t in (QEvent.Type.HoverMove, QEvent.Type.MouseMove):
+            if not self._manual_edges:
+                self._update_cursor(local.x(), local.y())
+            return False
+
+        if t in (QEvent.Type.Leave, QEvent.Type.HoverLeave) and obj is target:
+            if not self._manual_edges:
+                self._clear_cursor()
+            return False
+
+        if t == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            if event.button() != Qt.MouseButton.LeftButton:
+                return False
+            value = _edges_for_pos(target.width(), target.height(), local.x(), local.y())
+            if value == 0:
+                return False
+            if self._start_resize(value, event.globalPosition().toPoint()):
+                event.accept()
+                return True
         return False
+
+    def _local_pos(self, obj: QWidget, event) -> QPoint | None:
+        target = self._target
+        if isinstance(event, QHoverEvent):
+            point = event.position().toPoint()
+        elif isinstance(event, QMouseEvent):
+            point = event.position().toPoint()
+        else:
+            return None
+        if obj is target:
+            return point
+        try:
+            return obj.mapTo(target, point)
+        except RuntimeError:
+            return None
+
+    def _start_resize(self, edges: int, global_pos: QPoint) -> bool:
+        target = self._target
+        handle = target.windowHandle()
+        if handle is not None:
+            try:
+                if handle.startSystemResize(Qt.Edges(edges)):
+                    return True
+            except Exception:
+                pass
+        self._begin_manual_resize(edges, global_pos)
+        return True
+
+    def _begin_manual_resize(self, edges: int, global_pos: QPoint) -> None:
+        target = self._target
+        self._manual_edges = edges
+        self._manual_origin = QPoint(global_pos)
+        self._manual_geometry = QRect(target.geometry())
+        target.grabMouse()
+        self._update_cursor_for_edges(edges)
+
+    def _update_manual_resize(self, global_pos: QPoint) -> None:
+        target = self._target
+        edges = self._manual_edges
+        if not edges:
+            return
+        dx = global_pos.x() - self._manual_origin.x()
+        dy = global_pos.y() - self._manual_origin.y()
+        geo = QRect(self._manual_geometry)
+        min_w = max(1, target.minimumWidth())
+        min_h = max(1, target.minimumHeight())
+        max_w = target.maximumWidth()
+        max_h = target.maximumHeight()
+
+        if edges & _LEFT:
+            new_left = geo.left() + dx
+            max_left = geo.right() - min_w + 1
+            if max_w < QWIDGETSIZE_MAX:
+                max_left = min(max_left, geo.right() - max_w + 1)
+            new_left = min(new_left, max_left)
+            geo.setLeft(new_left)
+        elif edges & _RIGHT:
+            new_width = geo.width() + dx
+            new_width = max(min_w, new_width)
+            if max_w < QWIDGETSIZE_MAX:
+                new_width = min(max_w, new_width)
+            geo.setWidth(new_width)
+
+        if edges & _TOP:
+            new_top = geo.top() + dy
+            max_top = geo.bottom() - min_h + 1
+            if max_h < QWIDGETSIZE_MAX:
+                max_top = min(max_top, geo.bottom() - max_h + 1)
+            new_top = min(new_top, max_top)
+            geo.setTop(new_top)
+        elif edges & _BOTTOM:
+            new_height = geo.height() + dy
+            new_height = max(min_h, new_height)
+            if max_h < QWIDGETSIZE_MAX:
+                new_height = min(max_h, new_height)
+            geo.setHeight(new_height)
+
+        if geo.width() < min_w:
+            if edges & _LEFT:
+                geo.setLeft(geo.right() - min_w + 1)
+            else:
+                geo.setWidth(min_w)
+        if geo.height() < min_h:
+            if edges & _TOP:
+                geo.setTop(geo.bottom() - min_h + 1)
+            else:
+                geo.setHeight(min_h)
+
+        target.setGeometry(geo)
+
+    def end_manual_resize(self) -> None:
+        if not self._manual_edges:
+            return
+        self._manual_edges = 0
+        target = self._target
+        if target is not None and target.mouseGrabber() is target:
+            target.releaseMouse()
 
     def _update_cursor(self, x: int, y: int) -> None:
         value = _edges_for_pos(self._target.width(), self._target.height(), x, y)
         if value == 0:
             self._clear_cursor()
             return
+        self._update_cursor_for_edges(value)
+
+    def _update_cursor_for_edges(self, value: int) -> None:
+        self._clear_peer_cursors()
         cursor = QCursor(_cursor_for_edges(value))
-        if self._has_override_cursor:
-            self._target.setCursor(cursor)
-        else:
-            self._target.setCursor(cursor)
-            self._has_override_cursor = True
+        self._target.setCursor(cursor)
+        self._cursor_armed = True
+
+    def _clear_peer_cursors(self) -> None:
+        """Drop resize cursors left on other top-levels (modal open / Wayland)."""
+        app = QApplication.instance()
+        if app is None:
+            return
+        target = self._target
+        for widget in app.topLevelWidgets():
+            if widget is target:
+                continue
+            peer = widget.findChild(_ResizeFilter)
+            if peer is not None and peer is not self:
+                peer.clear_cursor()
 
     def _clear_cursor(self) -> None:
-        if self._has_override_cursor:
-            self._target.unsetCursor()
-            self._has_override_cursor = False
+        if not self._cursor_armed:
+            return
+        target = self._target
+        if target is not None:
+            target.unsetCursor()
+        self._cursor_armed = False
+
+    def clear_cursor(self) -> None:
+        """Public hook for callers that remove the filter while a cursor is set."""
+        self._clear_cursor()
+

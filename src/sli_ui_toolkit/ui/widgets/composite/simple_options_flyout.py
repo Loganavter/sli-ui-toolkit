@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
@@ -101,7 +102,7 @@ class _SimpleRow(Button):
         self.clicked.connect(lambda: self.rowClicked.emit(self.index))
 
     def _apply_label_style(self):
-        font = QFont(self.label.font())
+        font = rebase_font(self.label.font())
         font.setBold(False)
         self.label.setFont(font)
         self.label.setProperty("class", "option-label")
@@ -109,6 +110,9 @@ class _SimpleRow(Button):
 class SimpleOptionsFlyout(BaseFlyout):
     item_chosen = Signal(int)
     closed = Signal()
+
+    # Identity for host ``GroupShowPolicy`` (interp / combo pickers, etc.).
+    flyout_group = "options"
 
     MARGIN = 8
     APPEAR_EXTRA_Y = 6
@@ -121,11 +125,12 @@ class SimpleOptionsFlyout(BaseFlyout):
         self._options: list[str] = []
         self._current_index: int = -1
         self._item_height = 36
-        self._item_font = QFont(QApplication.font(self))
+        self._item_font = ui_font()
         self._max_visible_items = self.MAX_VISIBLE_ITEMS
-        self._move_duration_ms = get_flyout_timings().flyout_animation_duration_ms
+        timings = get_flyout_timings()
+        self._move_duration_ms = timings.flyout_animation_duration_ms
         self._move_easing = QEasingCurve.Type.OutQuad
-        self._drop_offset_px = 80
+        self._drop_offset_px = timings.dropdown_drop_offset_px
         self._anim: QPropertyAnimation | None = None
         self._anchor_widget: QWidget | None = None
 
@@ -166,7 +171,9 @@ class SimpleOptionsFlyout(BaseFlyout):
         self._item_height = max(28, int(h))
 
     def set_row_font(self, f: QFont):
-        self._item_font = QFont(f)
+        # Callers often pass QApplication.font() / widget.font() which may still
+        # carry a baked system face — rebase onto UiFont.
+        self._item_font = rebase_font(f)
 
     def populate(self, labels: list[str], current_index: int = -1):
         self._options = list(labels)
@@ -364,7 +371,11 @@ class SimpleOptionsFlyout(BaseFlyout):
 
         self.move(start_pos)
 
-        self.setVisible(True)
+        # Prefer QWidget.show so BaseFlyout registration / active state stay in
+        # sync (request_show already ran above; BaseFlyout.show would re-enter).
+        from PySide6.QtWidgets import QWidget as _QWidget
+
+        _QWidget.show(self)
         self.raise_()
 
         if not self.isVisible():
@@ -414,11 +425,10 @@ class SimpleOptionsFlyout(BaseFlyout):
                 win.setFocus()
 
     def hideEvent(self, e):
-        if hasattr(self, "_just_opened") and getattr(self, "_just_opened", False):
-            time_since_open = time.monotonic() - getattr(self, "_open_timestamp", 0)
-            if time_since_open < 0.3:
-                e.ignore()
-                return
+        # Never swallow hideEvent: ignoring it after hide() already ran leaves
+        # host flags (e.g. _interp_popup_open) desynced because closed is skipped.
+        # Open-click races are handled by FlyoutManager anchor hits / host toggle.
+        if hasattr(self, "_just_opened"):
             self._just_opened = False
 
         super().hideEvent(e)
@@ -426,9 +436,6 @@ class SimpleOptionsFlyout(BaseFlyout):
         if self._anim:
             self._anim.stop()
             self._anim = None
-
-        if hasattr(self, "_just_opened"):
-            self._just_opened = False
 
         try:
             self.closed.emit()

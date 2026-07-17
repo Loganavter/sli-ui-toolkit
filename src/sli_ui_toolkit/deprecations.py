@@ -162,9 +162,9 @@ CHOICE_OVERLAY_DEPRECATIONS = {
 
 BUTTON_TRIGGERED = DeprecationEntry(
     symbol="Button.triggered",
-    replacement="Button.menuTriggered",
+    replacement="ContextMenu.on_triggered (menu API removed in 3.1.0)",
     since="0.2.11",
-    changelog="0.2.11",
+    changelog="3.1.0",
 )
 
 BUTTON_SET_CHECKED_EMIT_SIGNAL = DeprecationEntry(

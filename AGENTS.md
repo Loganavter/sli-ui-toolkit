@@ -4,9 +4,10 @@ This repository contains the shared PySide6 UI toolkit used by Improve-ImgSLI an
 
 ## What This Library Is
 
-`sli-ui-toolkit` is effectively an extracted slice of two existing applications, not a neutral toolkit designed from scratch. Some APIs, widget families, and naming choices still reflect Improve-ImgSLI and Tkonverter history. The name keeps that history, but the current expansion is Shared Lightweight Interface.
+`sli-ui-toolkit` is a reusable PySide6 UI layer (Shared Lightweight Interface)
+shared by Improve-ImgSLI, Tkonverter, and other host apps.
 
-The goal is still to keep it reusable for any PyQt application:
+Keep it reusable:
 
 - host-specific resources, icons, translations, and business logic stay outside the library;
 - application behavior is injected through configuration hooks, callbacks, signals, or plain data objects;

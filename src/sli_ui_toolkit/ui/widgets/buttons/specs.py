@@ -74,18 +74,11 @@ class LongPressBehavior(BehaviorSpec):
     kind: str = "long_press"
 
 
-@dataclass(frozen=True)
-class MenuBehavior(BehaviorSpec):
-    items: tuple[tuple[str, Any], ...] = ()
-    kind: str = "menu"
-
-
 def region_behaviors(region: ButtonRegion, kind: str | None = None) -> tuple[BehaviorSpec, ...]:
     """Behaviors implied by a ``ButtonRegion``'s own fields.
 
-    Computed on demand rather than captured once into a separately-stored
-    spec, so it can never drift from the region it describes — see
-    ``docs/dev/BUTTON_REGION_ARCHITECTURE.md``.
+    Computed on demand rather than stored separately, so it cannot drift from
+    the region it describes — see ``docs/dev/BUTTON_REGION_ARCHITECTURE.md``.
     """
     behaviors: list[BehaviorSpec] = [
         ClickBehavior(action=region.action, data=region.action_data, callback=region.action_callback)
@@ -94,8 +87,6 @@ def region_behaviors(region: ButtonRegion, kind: str | None = None) -> tuple[Beh
         behaviors.append(ToggleBehavior())
     if region.long_press:
         behaviors.append(LongPressBehavior(delay_ms=region.long_press_ms))
-    if region.menu:
-        behaviors.append(MenuBehavior(items=tuple(region.menu)))
     if kind is None:
         return tuple(behaviors)
     return tuple(b for b in behaviors if b.kind == kind)

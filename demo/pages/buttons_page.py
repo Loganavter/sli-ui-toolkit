@@ -15,6 +15,8 @@ from sli_ui_toolkit.widgets import (
     Button,
     ButtonGroup,
     InstancesCounterButton,
+    entries_from_labeled_data,
+    popup_context_menu_for_anchor,
 )
 
 from demo.components import ButtonPlaygroundCard, GalleryPage
@@ -162,11 +164,18 @@ class ButtonsPage(GalleryPage):
         lp_btn.longPressed.connect(lambda: lp_btn.setText("Long-pressed!"))
         self.add_card("Long Press", lp_btn, "Удерживайте кнопку 600 мс.")
 
-        wide_menu = Button(text="Actions", menu=MENU_LONG, variant="surface")
+        wide_menu = Button(text="Actions", variant="surface")
+        wide_menu.clicked.connect(
+            lambda *, _button=wide_menu: popup_context_menu_for_anchor(
+                _button.window(),
+                _button,
+                entries_from_labeled_data(MENU_LONG, checkable=False),
+            )
+        )
         self.add_card(
             "Button menu",
             wide_menu,
-            "Dropdown не уже кнопки и расширяется под самый длинный пункт.",
+            "Клик открывает ContextMenu; ширина подстраивается под самый длинный пункт.",
         )
 
         self.add_section("Badges")

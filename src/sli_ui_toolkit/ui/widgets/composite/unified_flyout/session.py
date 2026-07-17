@@ -39,11 +39,12 @@ class _UnifiedFlyoutSessionMixin:
         self.start_closing_animation()
 
     def _on_item_right_clicked(self, list_num, index):
-        session_handler = self._get_session_handler()
-        if session_handler is not None and hasattr(
-            session_handler, "remove_specific_image_from_list"
-        ):
-            session_handler.remove_specific_image_from_list(list_num, index)
+        """Forward right-click to the host; do not delete the row here.
+
+        Hosts that want a context menu connect ``item_context_menu_requested``.
+        ``create_double_list`` wires a remove fallback for standalone demos.
+        """
+        self.item_context_menu_requested.emit(list_num, index)
 
     def _get_current_index(self, image_number: int) -> int:
         if image_number == 1:

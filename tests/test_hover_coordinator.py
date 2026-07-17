@@ -24,6 +24,35 @@ def test_hover_coordinator_clears_managed_descendants(qapp):
     parent.deleteLater()
 
 
+def test_hover_coordinator_skips_deleted_widgets(qapp):
+    """Deleted hover buttons must not crash clear_descendants / reconcile."""
+    import shiboken6
+
+    from sli_ui_toolkit.widgets import Button
+
+    parent = QWidget()
+    parent.resize(200, 100)
+    parent.show()
+    button = Button(text="card", parent=parent)
+    button.show()
+    qapp.processEvents()
+
+    coordinator = hover_coordinator()
+    assert button in coordinator._widgets
+
+    # Immediate C++ teardown (same end-state as deferred delete after events).
+    button.setParent(None)
+    shiboken6.delete(button)
+    assert not shiboken6.isValid(button)
+
+    # Must not raise RuntimeError / shiboken "already deleted".
+    coordinator.clear_descendants(parent)
+    coordinator.reconcile()
+    coordinator.clear_all()
+
+    parent.deleteLater()
+
+
 def test_radio_hover_hit_test_ignores_empty_widget_area(qapp):
     radio = RadioButton("Option")
     radio.resize(220, radio.sizeHint().height())

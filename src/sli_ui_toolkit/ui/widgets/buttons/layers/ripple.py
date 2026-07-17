@@ -123,7 +123,12 @@ class RippleEffect:
 class RippleLayer(Layer):
     def applies(self, ctx: DrawContext) -> bool:
         ripple = _ripple_for(ctx)
-        return ripple is not None and ripple.is_active()
+        if ripple is None or not ripple.is_active():
+            return False
+        # Shared group ripple is painted once for the whole group capsule
+        # (including any layout gap between siblings). Painting per-region
+        # with a per-region fill clip left a dead strip in gaps.
+        return _is_group_ripple_paint_owner(ctx)
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
         ripple = _ripple_for(ctx)
@@ -136,8 +141,8 @@ class RippleLayer(Layer):
         progress = ripple.progress()
         eased = 1.0 - (1.0 - progress) ** 2
 
-        rect = ctx.effective_rect
         radius_rect = ctx.effective_ripple_rect
+        draw_rect = radius_rect if _region_group(ctx) else ctx.effective_rect
         corners = (
             (radius_rect.left(), radius_rect.top()),
             (radius_rect.right(), radius_rect.top()),
@@ -162,12 +167,20 @@ class RippleLayer(Layer):
         )
         p.setClipPath(clip)
         if ctx.region_rect is not None:
-            # Use effective_fill_path (not effective_path) — same hairline
-            # overlap fix as BackgroundLayer: clipping to the exact
-            # hit-test rect leaves a visible antialiased seam against the
-            # neighboring region when the split boundary isn't pixel-aligned
-            # (e.g. 0.33/0.66 fractional weights).
-            p.setClipPath(ctx.effective_fill_path, Qt.ClipOperation.IntersectClip)
+            if _region_group(ctx) is not None:
+                # Unite over the whole group — covers layout gaps inside the
+                # shared capsule. Hairline fill-path overlap stays for
+                # ungrouped abutting regions below.
+                group_clip = QPainterPath()
+                group_clip.addRect(radius_rect)
+                p.setClipPath(group_clip, Qt.ClipOperation.IntersectClip)
+            else:
+                # Use effective_fill_path (not effective_path) — same hairline
+                # overlap fix as BackgroundLayer: clipping to the exact
+                # hit-test rect leaves a visible antialiased seam against the
+                # neighboring region when the split boundary isn't pixel-aligned
+                # (e.g. 0.33/0.66 fractional weights).
+                p.setClipPath(ctx.effective_fill_path, Qt.ClipOperation.IntersectClip)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
 
@@ -176,7 +189,7 @@ class RippleLayer(Layer):
             # (затирая мгновенно-применившийся новый bg от BackgroundLayer),
             # затем растущий круг color_to «открывает» новое состояние из точки клика.
             p.setBrush(QBrush(ripple.color_from))
-            p.drawRect(rect)
+            p.drawRect(draw_rect)
             p.setBrush(QBrush(ripple.color_to))
             p.drawEllipse(center, radius, radius)
         else:
@@ -210,3 +223,34 @@ def _ripple_for(ctx: DrawContext) -> RippleEffect | None:
         if ripple is not None:
             return ripple
     return getattr(ctx.widget, "_ripple", None)
+
+
+def _region_group(ctx: DrawContext) -> str | None:
+    if ctx.region_id is None:
+        return None
+    controller = getattr(ctx.widget, "_controller", None)
+    regions = controller.regions if controller is not None else getattr(ctx.widget, "_regions", [])
+    for region in regions:
+        if region.id == ctx.region_id:
+            return getattr(region, "group", None)
+    return None
+
+
+def _is_group_ripple_paint_owner(ctx: DrawContext) -> bool:
+    """True if this scoped region should emit the (possibly shared) ripple.
+
+    Ungrouped regions always own their own ripple. For ``group=``, only the
+    first region in the button's region list that belongs to that group paints,
+    so a layout gap between siblings is covered once via the united ripple rect.
+    """
+    group = _region_group(ctx)
+    if group is None:
+        return True
+    if ctx.region_id is None:
+        return False
+    controller = getattr(ctx.widget, "_controller", None)
+    regions = controller.regions if controller is not None else getattr(ctx.widget, "_regions", [])
+    for region in regions:
+        if getattr(region, "group", None) == group:
+            return region.id == ctx.region_id
+    return True

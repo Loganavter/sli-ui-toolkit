@@ -1,23 +1,69 @@
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Literal
 
-from PySide6.QtCore import QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QIcon, QMouseEvent
+from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, Signal
+from PySide6.QtGui import QIcon, QMouseEvent, QPainter, QColor
 from PySide6.QtWidgets import (
-    QApplication,
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QWidget,
 )
 
+from sli_ui_toolkit.ui.windows.rounded_body import paint_top_rounded_background
+
+from sli_ui_toolkit.managers import FlyoutManager
+from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import (
+    Label,
+    LabelVariantSpec,
+    register_label_variant,
+)
 from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.windows.window_controls import WindowControlsHandle
+
+TitleAlign = Literal["center", "leading"]
+TitleBarZone = Literal["leading", "trailing", "center"]
 
 
-def _system_titlebar_font():
-    font = QApplication.font()
-    font.setPointSizeF(font.pointSizeF() * 1.0)
-    return font
+def resolve_titlebar_color(token: str, *, fallback: str = "Window") -> QColor:
+    """Resolve a title-bar palette token with a safe fallback chain."""
+    tm = ThemeManager.get_instance()
+    color = tm.try_get_color(token)
+    if color is not None and color.isValid():
+        return color
+    color = tm.try_get_color(fallback)
+    if color is not None and color.isValid():
+        return color
+    return tm.get_color("WindowText" if token.endswith(".text") else "Window")
+
+
+def _ensure_titlebar_label_variant() -> None:
+    # Always (re)register: get_label_variant() silently falls back to "body"
+    # when a name is missing, so a KeyError guard never ran and the title
+    # stayed at body size (12px) regardless of this spec.
+    register_label_variant(
+        LabelVariantSpec(
+            "titlebar",
+            pixel_size=16,
+            color_token="titlebar.text",
+        )
+    )
+
+
+def _zone_host(parent: QWidget) -> QWidget:
+    host = QWidget(parent)
+    host.setObjectName("TitleBarZoneHost")
+    host.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+    host.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+    host.setAutoFillBackground(False)
+    layout = QHBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+    host.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+    return host
 
 
 class CustomTitleBar(QWidget):
@@ -28,6 +74,8 @@ class CustomTitleBar(QWidget):
     HEIGHT = 36
     BUTTON_WIDTH = 46
     ICON_SIZE = 16
+    APP_ICON_SLOT = 28
+    CORNER_RADIUS = 10
 
     def __init__(
         self,
@@ -43,35 +91,84 @@ class CustomTitleBar(QWidget):
         show_close: bool = True,
     ):
         super().__init__(parent)
+        _ensure_titlebar_label_variant()
         self.setObjectName("CustomTitleBar")
         self.setFixedHeight(self.HEIGHT)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
 
         self._maximize_icon = maximize_icon
         self._restore_icon = restore_icon
+        self._app_icon_label: QLabel | None = None
         self._target_window: QWidget | None = None
         self._drag_start_global: QPoint | None = None
+        self._drag_enabled = True
+        self._drag_exclusions: set[int] = set()
+        self._title_align: TitleAlign = "center"
+        self._title_visible = True
+        self._theme_manager = ThemeManager.get_instance()
+        self._theme_manager.theme_changed.connect(self._on_theme_changed)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
 
-        self._left_spacer = QWidget(self)
-        self._left_spacer.setFixedWidth(0)
-        self._left_spacer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(self._left_spacer)
+        # Spacers keep leading+left == trailing+right+buttons so equal stretches
+        # place the title at the true window center (not shifted toward chrome).
+        self._left_balance = QWidget(self)
+        self._left_balance.setFixedWidth(0)
+        self._left_balance.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        self._layout.addWidget(self._left_balance)
 
-        layout.addStretch(1)
-        self._title_label = QLabel(title, self)
+        self._leading_host = _zone_host(self)
+        self._layout.addWidget(self._leading_host)
+
+        self._layout.addStretch(1)
+
+        self._center_host = _zone_host(self)
+        self._center_host.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
+        center_layout = self._center_host.layout()
+        assert center_layout is not None
+        self._title_label = Label(
+            title,
+            variant="titlebar",
+            alignment=Qt.AlignmentFlag.AlignCenter,
+            parent=self._center_host,
+        )
         self._title_label.setObjectName("CustomTitleBarTitle")
-        self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._title_label.setFont(_system_titlebar_font())
-        self._title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(self._title_label)
-        layout.addStretch(1)
+        self._title_label.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        center_layout.addWidget(self._title_label)
+        self._layout.addWidget(self._center_host)
+
+        self._layout.addStretch(1)
+
+        self._trailing_host = _zone_host(self)
+        self._layout.addWidget(self._trailing_host)
+
+        self._balance_spacer = QWidget(self)
+        self._balance_spacer.setFixedWidth(0)
+        self._balance_spacer.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        self._layout.addWidget(self._balance_spacer)
 
         self._buttons_container = QWidget(self)
         self._buttons_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        self._buttons_container.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground, True
+        )
+        self._buttons_container.setAttribute(
+            Qt.WidgetAttribute.WA_NoSystemBackground, True
+        )
+        self._buttons_container.setAutoFillBackground(False)
         buttons_layout = QHBoxLayout(self._buttons_container)
         buttons_layout.setContentsMargins(0, 0, 0, 0)
         buttons_layout.setSpacing(0)
@@ -80,6 +177,7 @@ class CustomTitleBar(QWidget):
             self._min_btn = self._mk_button(minimize_icon, "min")
             self._min_btn.clicked.connect(self.minimize_requested.emit)
             buttons_layout.addWidget(self._min_btn)
+            self.register_drag_exclusion(self._min_btn)
         else:
             self._min_btn = None
 
@@ -87,6 +185,7 @@ class CustomTitleBar(QWidget):
             self._max_btn = self._mk_button(maximize_icon, "max")
             self._max_btn.clicked.connect(self.maximize_toggle_requested.emit)
             buttons_layout.addWidget(self._max_btn)
+            self.register_drag_exclusion(self._max_btn)
         else:
             self._max_btn = None
 
@@ -94,21 +193,275 @@ class CustomTitleBar(QWidget):
             self._close_btn = self._mk_button(close_icon, "close")
             self._close_btn.clicked.connect(self.close_requested.emit)
             buttons_layout.addWidget(self._close_btn)
+            self.register_drag_exclusion(self._close_btn)
         else:
             self._close_btn = None
 
-        layout.addWidget(self._buttons_container)
-        self._sync_left_spacer()
+        self._layout.addWidget(self._buttons_container)
+        self._controls_handle = WindowControlsHandle(
+            min_btn=self._min_btn,
+            max_btn=self._max_btn,
+            close_btn=self._close_btn,
+            container=self._buttons_container,
+        )
+        self._apply_title_alignment()
+        self._sync_balance_spacer()
 
-    def _sync_left_spacer(self) -> None:
-        hint = self._buttons_container.sizeHint().width()
-        self._left_spacer.setFixedWidth(max(hint, 0))
+        if icon is not None:
+            self.set_icon(icon)
+
+    def set_icon(self, icon: QIcon | None) -> None:
+        """Show a leading app icon (draggable with the title bar chrome)."""
+        if icon is None or icon.isNull():
+            if self._app_icon_label is not None:
+                self._app_icon_label.hide()
+                self._sync_balance_spacer()
+            return
+
+        if self._app_icon_label is None:
+            label = QLabel(self._leading_host)
+            label.setObjectName("CustomTitleBarAppIcon")
+            label.setFixedSize(self.APP_ICON_SLOT, self.HEIGHT)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            # Keep drag on the icon slot — it is chrome, not a control.
+            label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            self._app_icon_label = label
+            self._zone_layout("leading").insertWidget(0, label)
+
+        pixmap = icon.pixmap(self.ICON_SIZE, self.ICON_SIZE)
+        self._app_icon_label.setPixmap(pixmap)
+        self._app_icon_label.show()
+        self._sync_balance_spacer()
+
+    def _stretch_indices(self) -> tuple[int, int]:
+        # [left_balance][leading][stretch][center][stretch][trailing][right_balance][buttons]
+        return (2, 4)
+
+    def _apply_title_alignment(self) -> None:
+        before_idx, after_idx = self._stretch_indices()
+        if self._title_align == "center":
+            self._layout.setStretch(before_idx, 1)
+            self._layout.setStretch(after_idx, 1)
+            self._title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        else:
+            self._layout.setStretch(before_idx, 0)
+            self._layout.setStretch(after_idx, 1)
+            self._title_label.setAlignment(
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+            )
+
+    def _zone_layout(self, zone: TitleBarZone) -> QHBoxLayout:
+        host = {
+            "leading": self._leading_host,
+            "trailing": self._trailing_host,
+            "center": self._center_host,
+        }[zone]
+        layout = host.layout()
+        assert layout is not None
+        return layout
+
+    def _clear_zone(self, zone: TitleBarZone) -> None:
+        layout = self._zone_layout(zone)
+        keep = {self._title_label}
+        if zone == "leading" and self._app_icon_label is not None:
+            keep.add(self._app_icon_label)
+        for index in reversed(range(layout.count())):
+            item = layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is None or widget in keep:
+                continue
+            layout.takeAt(index)
+            widget.deleteLater()
+
+    def _set_zone_widget(self, zone: TitleBarZone, widget: QWidget | None) -> None:
+        if zone == "center" and widget is None:
+            self._clear_zone("center")
+            layout = self._zone_layout("center")
+            if layout.indexOf(self._title_label) < 0:
+                layout.addWidget(self._title_label)
+            self._title_label.setVisible(self._title_visible)
+            return
+
+        self._clear_zone(zone)
+        if widget is None:
+            if zone == "center":
+                layout = self._zone_layout("center")
+                if layout.indexOf(self._title_label) < 0:
+                    layout.addWidget(self._title_label)
+                self._title_label.setVisible(self._title_visible)
+            return
+        layout = self._zone_layout(zone)
+        layout.addWidget(widget)
+        if zone != "center":
+            self.register_drag_exclusion(widget)
+
+    def set_leading(self, widget: QWidget | None) -> None:
+        self._set_zone_widget("leading", widget)
+        self._sync_balance_spacer()
+
+    def set_trailing(self, widget: QWidget | None) -> None:
+        self._set_zone_widget("trailing", widget)
+        self._sync_balance_spacer()
+
+    def set_center(self, widget: QWidget | None) -> None:
+        self._set_zone_widget("center", widget)
+
+    def set_title(self, title: str, *, align: TitleAlign | None = None) -> None:
+        self._title_label.setText(title)
+        if align is not None:
+            self.set_title_alignment(align)
+        else:
+            self._sync_balance_spacer()
+
+    def set_title_alignment(self, align: TitleAlign) -> None:
+        self._title_align = align
+        self._apply_title_alignment()
+        self._sync_balance_spacer()
+
+    def set_title_visible(self, visible: bool) -> None:
+        self._title_visible = visible
+        self._title_label.setVisible(visible)
+
+    def set_drag_enabled(self, enabled: bool) -> None:
+        self._drag_enabled = enabled
+
+    def register_drag_exclusion(self, widget: QWidget) -> None:
+        self._drag_exclusions.add(id(widget))
+
+    def window_controls(self) -> WindowControlsHandle:
+        return self._controls_handle
+
+    def add_widget(self, widget: QWidget, *, zone: TitleBarZone = "leading") -> QWidget:
+        layout = self._zone_layout(zone)
+        layout.addWidget(widget)
+        self.register_drag_exclusion(widget)
+        self._sync_balance_spacer()
+        return widget
+
+    def add_button(self, button: Button, *, zone: TitleBarZone = "leading") -> Button:
+        self.add_widget(button, zone=zone)
+        return button
+
+    def add_buttons(
+        self, buttons: Sequence[Button], *, zone: TitleBarZone = "leading"
+    ) -> QWidget:
+        row = _zone_host(self)
+        row_layout = row.layout()
+        assert row_layout is not None
+        for button in buttons:
+            row_layout.addWidget(button)
+            self.register_drag_exclusion(button)
+        layout = self._zone_layout(zone)
+        if layout.count() == 0:
+            layout.addWidget(row)
+            self.register_drag_exclusion(row)
+        else:
+            for button in buttons:
+                layout.addWidget(button)
+            row.deleteLater()
+        self._sync_balance_spacer()
+        return row
+
+    def set_menu_strip(self, strip: QWidget) -> None:
+        self.set_leading(strip)
+
+    def _chrome_side_widths(self) -> tuple[int, int]:
+        leading = max(
+            self._leading_host.sizeHint().width(),
+            self._leading_host.minimumSizeHint().width(),
+        )
+        trailing = max(
+            self._trailing_host.sizeHint().width(),
+            self._trailing_host.minimumSizeHint().width(),
+        )
+        buttons = self._controls_handle.size_hint_width()
+        return leading, trailing + buttons
+
+    def _sync_balance_spacer(self) -> None:
+        if self._title_align != "center":
+            self._left_balance.setFixedWidth(0)
+            self._balance_spacer.setFixedWidth(0)
+            return
+        left, right = self._chrome_side_widths()
+        if left < right:
+            self._left_balance.setFixedWidth(right - left)
+            self._balance_spacer.setFixedWidth(0)
+        else:
+            self._left_balance.setFixedWidth(0)
+            self._balance_spacer.setFixedWidth(left - right)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._sync_left_spacer()
+        self._sync_balance_spacer()
+        self._apply_corner_mask()
 
-    CORNER_RADIUS = 10
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._apply_corner_mask()
+
+    def _apply_corner_mask(self) -> None:
+        from sli_ui_toolkit.ui.windows.rounded_body import (
+            apply_top_trailing_rounded_mask,
+        )
+
+        # Title bar paints its own AA rounded fill — a full-bar setMask would
+        # stair-case that edge. Only clip the control cluster so the close
+        # button cannot poke through the top-right arc.
+        self.clearMask()
+        window = self._target_window if self._target_window is not None else self.window()
+        squared = bool(
+            window is not None
+            and (window.isMaximized() or window.isFullScreen())
+        )
+        buttons = getattr(self, "_buttons_container", None)
+        if buttons is not None:
+            apply_top_trailing_rounded_mask(
+                buttons,
+                radius=float(self.CORNER_RADIUS),
+                squared=squared,
+            )
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        try:
+            color = resolve_titlebar_color("titlebar.background", fallback="Window")
+            window = self._target_window if self._target_window is not None else self.window()
+            squared = bool(
+                window is not None
+                and (window.isMaximized() or window.isFullScreen())
+            )
+            paint_top_rounded_background(
+                painter,
+                QRectF(self.rect()),
+                color=color,
+                radius=float(self.CORNER_RADIUS),
+                squared=squared,
+            )
+        finally:
+            painter.end()
+        super().paintEvent(event)
+
+    def _on_theme_changed(self, *_args) -> None:
+        self.update()
+        self._title_label.update()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ApplicationFontChange:
+            # Title Label re-applies itself; menu triggers need a repaint so
+            # TextContent picks up the new QApplication.font() family.
+            self._title_label.update()
+            for zone in (
+                getattr(self, "_leading_host", None),
+                getattr(self, "_trailing_host", None),
+                getattr(self, "_center_host", None),
+            ):
+                if zone is None:
+                    continue
+                zone.update()
+                for child in zone.findChildren(QWidget):
+                    child.update()
+            self.update()
 
     def _mk_button(self, icon: Any, role: str) -> Button:
         corner_radii = (0, self.CORNER_RADIUS, 0, 0) if role == "close" else (0, 0, 0, 0)
@@ -125,9 +478,6 @@ class CustomTitleBar(QWidget):
         btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn.setCursor(Qt.CursorShape.ArrowCursor)
         return btn
-
-    def set_title(self, title: str) -> None:
-        self._title_label.setText(title)
 
     def attach_window(self, window: QWidget) -> None:
         self._target_window = window
@@ -157,37 +507,72 @@ class CustomTitleBar(QWidget):
         is_max = self._target_window.isMaximized()
         icon = self._restore_icon if is_max else self._maximize_icon
         if icon is not None:
-            self._max_btn._icon_unchecked = icon
-            self._max_btn._icon_checked = icon
-            self._max_btn.update()
+            self._max_btn.setIcon(icon)
 
     def _refresh_close_button_shape(self) -> None:
         if self._close_btn is None or self._target_window is None:
             return
         w = self._target_window
-        # The rounded top-right corner mirrors the window's own rounded
-        # corner (see main window paintEvent). Maximized/fullscreen windows
-        # are drawn as plain rectangles, so the hover clip must square off
-        # too — otherwise the close button keeps clipping its hover highlight
-        # to a rounded corner that no longer exists on the window itself.
         squared = w.isMaximized() or w.isFullScreen()
         radii = (0, 0, 0, 0) if squared else (0, self.CORNER_RADIUS, 0, 0)
         if self._close_btn._corner_radii_px != radii:
             self._close_btn._corner_radii_px = radii
             self._close_btn.update()
 
+    def _hide_active_flyouts(self) -> None:
+        try:
+            FlyoutManager.get_instance().close_all()
+        except Exception:
+            pass
+
     def eventFilter(self, obj, event):
-        if obj is self._target_window and event.type() in (
+        target_window = getattr(self, "_target_window", None)
+        if obj is target_window and event.type() in (
             event.Type.WindowStateChange,
             event.Type.Resize,
+            event.Type.Move,
         ):
             self._refresh_maximize_icon()
             self._refresh_close_button_shape()
+            self._apply_corner_mask()
+            if event.type() in (event.Type.Resize, event.Type.Move):
+                self._hide_active_flyouts()
         return super().eventFilter(obj, event)
 
+    def _is_draggable_at(self, pos: QPoint) -> bool:
+        if not self._drag_enabled or self._target_window is None:
+            return False
+        child = self.childAt(pos)
+        if child is None:
+            return True
+        widget = child
+        while widget is not None and widget is not self:
+            if id(widget) in self._drag_exclusions:
+                return False
+            if isinstance(widget, Button) and widget.isEnabled() and widget.isVisible():
+                return False
+            if (
+                widget is not self._balance_spacer
+                and widget is not self._left_balance
+                and not widget.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                and widget.isEnabled()
+                and widget.isVisible()
+                and widget.parentWidget() is not self._buttons_container
+                and widget is not self._title_label
+            ):
+                if widget.objectName() != "TitleBarZoneHost":
+                    return False
+            widget = widget.parentWidget()
+        return True
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._target_window is not None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._is_draggable_at(event.position().toPoint())
+        ):
             self._drag_start_global = event.globalPosition().toPoint()
+        else:
+            self._drag_start_global = None
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -219,6 +604,10 @@ class CustomTitleBar(QWidget):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton and self._target_window is not None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._target_window is not None
+            and self._is_draggable_at(event.position().toPoint())
+        ):
             self._on_toggle_maximize()
         super().mouseDoubleClickEvent(event)

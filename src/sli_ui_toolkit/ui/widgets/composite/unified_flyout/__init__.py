@@ -1,7 +1,6 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QWidget
 
-from sli_ui_toolkit.config import get_flyout_timings
 from .bootstrap import _UnifiedFlyoutBootstrapMixin
 from .common import FlyoutMode
 from .content import _UnifiedFlyoutContentMixin
@@ -35,14 +34,19 @@ class UnifiedFlyout(
 ):
     item_chosen = Signal(int, int)
     simple_item_chosen = Signal(int)
+    # list_num (1|2), index — host should open a context menu (or remove).
+    item_context_menu_requested = Signal(int, int)
     closing_animation_finished = Signal()
+    # Identity tag for host ``GroupShowPolicy`` rules — no behavior by itself.
+    flyout_group = "unified_list"
 
     SHADOW_RADIUS = 10
     MARGIN = 0
-    SINGLE_APPEAR_EXTRA_Y = 8
-    DOUBLE_CONTENT_EXTRA_Y = 8
-
-    _move_duration_ms = get_flyout_timings().flyout_animation_duration_ms
+    # Gap between anchor bottom and the list panel top. Do not reuse
+    # SimpleOptionsFlyout's (APPEAR_EXTRA_Y - MARGIN): that offset is for the
+    # outer flyout widget which carries its own top margin; UnifiedFlyout
+    # positions the panel content rect directly (shadow halo sits above it).
+    SINGLE_PANEL_GAP_Y = 6
 
     def __init__(self, store, main_controller, main_window):
         super().__init__(main_window)
@@ -56,6 +60,11 @@ class UnifiedFlyout(
         self._initialize_components()
         self.hide()
 
+    def is_drag_enabled(self) -> bool:
+        return bool(getattr(self, "_drag_enabled", True))
+
+    def set_drag_enabled(self, enabled: bool) -> None:
+        self._drag_enabled = bool(enabled)
     @classmethod
     def create_double_list(
         cls,
@@ -81,9 +90,13 @@ class UnifiedFlyout(
             current_right=current_right,
         )
         controller = SimpleUnifiedFlyoutController(store)
-        host = parent_window
-        make_main_window_proxy(host, anchor_left, anchor_right)
-        return cls(store, controller, host)
+        flyout = cls(store, controller, parent_window)
+        flyout.set_list_anchors(anchor_left, anchor_right)
+        # Standalone default: right-click removes the row (no app menu).
+        flyout.item_context_menu_requested.connect(
+            controller.remove_specific_image_from_list
+        )
+        return flyout
 
     def set_lists(
         self,

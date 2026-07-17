@@ -8,6 +8,7 @@ from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
@@ -57,7 +58,7 @@ class _ComboFieldContentLayer(Layer):
         if is_disabled:
             text_color.setAlpha(140 if tm.is_dark() else 120)
         rect = ctx.rect.toRect()
-        fm = QFontMetrics(widget.font())
+        fm = QFontMetrics(paint_font(widget))
         inner_h = widget._item_height()
         inner_top = (rect.height() - inner_h) // 2
         text_rect = QRect(
@@ -70,7 +71,7 @@ class _ComboFieldContentLayer(Layer):
         if widget._search_text and widget._expanded:
             display_text = f"{widget._search_text} -> {current_text}"
         p = ctx.painter
-        p.setFont(widget.font())
+        p.setFont(paint_font(widget))
         p.setPen(QPen(text_color))
         p.drawText(
             text_rect,
@@ -109,6 +110,9 @@ class ComboBox(Button):
         self._theme = ThemeManager.get_instance()
         self._items: list[_ComboItem] = []
         self._current_index = -1
+        # While expanded, optional scroll/center target that does not change
+        # ``currentIndex`` (Find Action "show me this option" without applying).
+        self._dropdown_focus_index: int | None = None
         self._expanded = False
         self._max_visible_items = 12
         self._minimum_contents_length = 0
@@ -138,14 +142,21 @@ class ComboBox(Button):
         self._visible_indices()
         return self._visible_positions_cache.get(index, 0)
 
-    def _ensure_current_visible(self):
+    def _focus_or_current_index(self) -> int:
+        if self._dropdown_focus_index is not None and 0 <= self._dropdown_focus_index < len(
+            self._items
+        ):
+            return self._dropdown_focus_index
+        return self._current_index
+
+    def _ensure_index_visible(self, index: int) -> None:
         visible = self._visible_indices()
         visible_count = len(visible)
-        if visible_count <= self._max_visible_items or self._current_index < 0:
+        if visible_count <= self._max_visible_items or index < 0:
             self._scroll_offset = 0
             return
         try:
-            visible_position = visible.index(self._current_index)
+            visible_position = visible.index(index)
         except ValueError:
             self._scroll_offset = 0
             return
@@ -153,6 +164,9 @@ class ComboBox(Button):
             self._scroll_offset = visible_position
         elif visible_position >= self._scroll_offset + self._max_visible_items:
             self._scroll_offset = visible_position - self._max_visible_items + 1
+
+    def _ensure_current_visible(self):
+        self._ensure_index_visible(self._focus_or_current_index())
 
     def count(self) -> int:
         return len(self._items)
@@ -398,19 +412,29 @@ class ComboBox(Button):
             self._overlay_parent = window
             self._overlay = _DropdownOverlay(self, window)
 
-    def showDropdown(self):
+    def showDropdown(self, focus_index: int | None = None):
+        """Open the dropdown.
+
+        ``focus_index`` scrolls that row into view without changing
+        ``currentIndex`` (button label stays put until the user picks a row).
+        """
         if self.count() == 0:
             return
         self._ensure_overlay()
         if self._overlay is None:
             return
+        if focus_index is not None and 0 <= int(focus_index) < self.count():
+            self._dropdown_focus_index = int(focus_index)
+        else:
+            self._dropdown_focus_index = None
         self._expanded = True
         self._pressed = False
         self._ensure_current_visible()
         logger.debug(
-            "[ComboBox.showDropdown] object=%s current=%d count=%d scroll_offset=%d",
+            "[ComboBox.showDropdown] object=%s current=%d focus=%s count=%d scroll_offset=%d",
             self.objectName() or "<unnamed>",
             self.currentIndex(),
+            self._dropdown_focus_index,
             self.count(),
             self._scroll_offset,
         )
@@ -421,11 +445,18 @@ class ComboBox(Button):
         if window is not None:
             window.installEventFilter(self)
 
+    def dropdown_row_widget(self, index: int):
+        """Visible dropdown row for ``index`` after ``showDropdown``, or ``None``."""
+        if self._overlay is None:
+            return None
+        return self._overlay.slot_for_index(index)
+
     def hideDropdown(self):
         if self._overlay is not None:
             self._overlay.hide()
         self._expanded = False
         self._pressed = False
+        self._dropdown_focus_index = None
         self.clearSearch()
         self.update()
         app = QApplication.instance()
@@ -553,11 +584,19 @@ class ComboBox(Button):
             self._overlay.show_for_owner()
             return False
 
+        # Deactivate always dismisses. Hide/Close only when *this* combo's
+        # host is leaving — an app-wide filter would otherwise collapse the
+        # list when Find Action's pulse overlay hides after its blink timer.
         if event.type() in (
             QEvent.Type.WindowDeactivate,
             QEvent.Type.ApplicationDeactivate,
-            QEvent.Type.Hide,
-            QEvent.Type.Close,
+        ):
+            self.hideDropdown()
+            return False
+        if event.type() in (QEvent.Type.Hide, QEvent.Type.Close) and watched in (
+            self,
+            self._overlay,
+            self.window(),
         ):
             self.hideDropdown()
             return False
