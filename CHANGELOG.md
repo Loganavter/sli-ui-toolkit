@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.1.2
+
+### Fixed
+- `CustomTitleBar`: host Resize/Move no longer calls `FlyoutManager.close_all()` — keep `flyout_group=context_menu` open so tall File/Help menus are not dismissed on first open.
+- `FlyoutManager`: anchor-dismiss sets only one suppress flag (`_suppress_next_context_menu` for context menus, `_suppress_next_click` otherwise). Setting both poisoned the next open (second click required).
+- `Button._emit_click_signals`: clearing `_suppress_next_click` also clears a paired `_suppress_next_context_menu` left from older dual-flag dismiss paths.
+- `tr(..., language=...)`: always resolve an explicit language from that pack instead of assuming the live translation buffer matches `_current_lang`.
+
 ## 3.1.1
 
 ### Fixed

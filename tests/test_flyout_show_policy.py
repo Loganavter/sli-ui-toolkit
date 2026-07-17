@@ -100,6 +100,8 @@ def test_anchor_dismiss_suppresses_button_click(qapp):
         manager.eventFilter(host, press)
         assert not flyout.isVisible()
         assert getattr(anchor, "_suppress_next_click", False) is True
+        # Non-context flyouts must not also arm the context-menu suppress flag.
+        assert getattr(anchor, "_suppress_next_context_menu", False) is False
 
         anchor._emit_click_signals()
         assert clicks == []
@@ -110,6 +112,79 @@ def test_anchor_dismiss_suppresses_button_click(qapp):
         host.deleteLater()
     finally:
         manager.set_show_policy(previous)
+
+
+def test_context_menu_anchor_dismiss_uses_menu_suppress_only(qapp):
+    """Context menus arm ``_suppress_next_context_menu``, not ``_suppress_next_click``."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtWidgets import QWidget
+
+    from sli_ui_toolkit.managers import FlyoutManager
+    from sli_ui_toolkit.ui.widgets.buttons import Button
+    from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
+
+    manager = FlyoutManager.get_instance()
+    previous = manager.show_policy()
+    try:
+        manager.set_show_policy(None)
+        host = QWidget()
+        host.resize(400, 300)
+        host.show()
+
+        anchor = Button("File", parent=host)
+        anchor.setGeometry(10, 10, 80, 32)
+        anchor.show()
+
+        flyout = BaseFlyout(host)
+        flyout.flyout_group = "context_menu"
+        flyout._anchor_widget = anchor
+        flyout.setGeometry(10, 50, 120, 80)
+        flyout.show()
+
+        center = anchor.mapToGlobal(anchor.rect().center())
+        press = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(anchor.rect().center()),
+            center,
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        manager.eventFilter(host, press)
+        assert not flyout.isVisible()
+        assert getattr(anchor, "_suppress_next_context_menu", False) is True
+        assert getattr(anchor, "_suppress_next_click", False) is False
+
+        flyout.deleteLater()
+        anchor.deleteLater()
+        host.deleteLater()
+    finally:
+        manager.set_show_policy(previous)
+
+
+def test_emit_click_signals_clears_paired_context_menu_suppress(qapp):
+    from PySide6.QtWidgets import QWidget
+
+    from sli_ui_toolkit.ui.widgets.buttons import Button
+
+    host = QWidget()
+    anchor = Button("File", parent=host)
+    anchor._suppress_next_click = True
+    anchor._suppress_next_context_menu = True
+    clicks: list[int] = []
+    anchor.clicked.connect(lambda: clicks.append(1))
+
+    anchor._emit_click_signals()
+    assert clicks == []
+    assert getattr(anchor, "_suppress_next_click", False) is False
+    assert getattr(anchor, "_suppress_next_context_menu", False) is False
+
+    anchor._emit_click_signals()
+    assert clicks == [1]
+
+    anchor.deleteLater()
+    host.deleteLater()
 
 
 def test_label_follows_application_font_family(qapp):

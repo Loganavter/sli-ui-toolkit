@@ -282,8 +282,12 @@ def tr(key: str, language: str | None = None, default: str | None = None, *args:
     """Pure translation lookup. When ``language`` is given, the pack is loaded
     into the cache **without** mutating the global current language or emitting
     ``language_changed``. Use ``emit_language_changed(lang)`` for that.
+
+    Always resolve an explicit ``language`` from that pack — do not assume the
+    live ``_translations`` buffer matches ``_current_lang`` (tests and hosts
+    may restore one without the other).
     """
-    if language is None or language == _manager._current_lang:
+    if language is None:
         result = _manager.get(key, *args, **kwargs)
     else:
         pack = _manager.ensure_loaded(language)
