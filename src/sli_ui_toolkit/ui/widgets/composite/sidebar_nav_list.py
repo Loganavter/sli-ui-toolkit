@@ -11,6 +11,7 @@ no-indicator). Это даёт «бесплатный» ripple-эффект (ove
     set_items(iterable), add_item(text, icon=None, data=None, selected_icon=None),
     clear(), count(), currentRow(), setCurrentRow(int),
     item(idx) -> _ListItem (proxy с text/icon/data/sizeHint),
+    row_button(idx) -> Button | None,
     setIconSize(QSize), iconSize(), setSelectedIconMode(str),
     selectedIconMode(), enable_minimal_scrollbar(),
     refresh_icons(),
@@ -360,6 +361,16 @@ class IconListWidget(QWidget):
     def item(self, idx: int) -> _ListItem | None:
         if 0 <= idx < len(self._rows):
             return _ListItem(self, idx)
+        return None
+
+    def row_button(self, idx: int) -> QWidget | None:
+        """Nav-row Button for ``idx``, or ``None`` if out of range.
+
+        Host Find Action reveal uses this instead of poking ``_rows`` /
+        ``_ListItem._spec``.
+        """
+        if 0 <= idx < len(self._rows):
+            return self._rows[idx].button
         return None
 
     # -------- public: selection --------

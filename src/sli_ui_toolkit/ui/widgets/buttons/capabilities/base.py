@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QWidget
 class ButtonCapability(ABC):
     """Abstract base for composable button behaviors.
 
-    Each capability handles one concern (scroll, long-press, menu, etc.) and is
+    Each capability handles one concern (scroll, long-press, etc.) and is
     independent of other capabilities. Button attaches capabilities and dispatches
     events to them via handle_* methods.
     """

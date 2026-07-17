@@ -50,7 +50,8 @@ def setup_logging(
         "%(asctime)s - [%(levelname)s] - (%(filename)s:%(lineno)d) - %(message)s"
     )
 
-    stream_handler = logging.StreamHandler(sys.stdout)
+    # stderr: desktop/Qt launchers often capture or discard stdout; stderr stays visible
+    stream_handler = logging.StreamHandler(sys.stderr)
     stream_handler.setFormatter(formatter)
     stream_handler.setLevel(level)
     logger.addHandler(stream_handler)

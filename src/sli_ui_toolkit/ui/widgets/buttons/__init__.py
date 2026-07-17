@@ -15,7 +15,6 @@ from sli_ui_toolkit.ui.widgets.buttons.specs import (
     ButtonSpec,
     ClickBehavior,
     LongPressBehavior,
-    MenuBehavior,
     ShapeSpec,
     ToggleBehavior,
 )
@@ -46,7 +45,6 @@ __all__ = [
     "ButtonSpec",
     "ClickBehavior",
     "LongPressBehavior",
-    "MenuBehavior",
     "ShapeSpec",
     "ToggleBehavior",
 ]

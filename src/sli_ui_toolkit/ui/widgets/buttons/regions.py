@@ -30,18 +30,24 @@ class ButtonRegion:
     toggle: bool = False
     long_press: bool = False
     long_press_ms: int = 600
-    menu: list[tuple[str, Any]] | None = None
     # Dispatched via Button.actionTriggered on a plain click, in addition to
-    # regionClicked — the same mechanism ButtonSpec/RegionSpec used to offer
-    # only when built through the declarative spec= path.
+    # regionClicked (same for regions= and spec=/from_spec construction).
     action: str | None = None
     action_data: Any = None
     action_callback: ActionCallback | None = None
     badge: int | str | None = None
     variant: str | None = None
     custom_bg_color: QColor | None = None
+    # Exact base fill (pixel-accurate). Does NOT freeze interaction — use
+    # bg_locked=True when hover/pressed overlays must be suppressed.
     override_bg_color: QColor | None = None
     override_border_color: QColor | None = None
+    # Local hover overlay under the cursor. None → standard variant/custom hover.
+    hover_color: QColor | None = None
+    # "replace" = one hover layer (BC). "stack" = ambient group hover + local.
+    hover_compose: str = "replace"
+    # When True, paint base only (no hover/pressed/hover_color overlays).
+    bg_locked: bool = False
     show_underline: bool | None = None
     underline_color: Any = None
     underline_thickness: float | None = None
@@ -73,17 +79,24 @@ class SingleRegionSplit:
 
 
 class HorizontalSplit:
+    def __init__(self, *, gap: float = 0.0) -> None:
+        self.gap = max(0.0, float(gap))
+
     def compute(self, rect: QRectF, regions: list[ButtonRegion]) -> list[QRectF]:
-        total = sum(max(0.0, region.weight) for region in regions) or len(regions) or 1
+        n = len(regions)
+        if n == 0:
+            return []
+        usable = max(0.0, rect.width() - self.gap * max(0, n - 1))
+        total = sum(max(0.0, region.weight) for region in regions) or n
         x = rect.left()
         out: list[QRectF] = []
         for index, region in enumerate(regions):
-            if index == len(regions) - 1:
+            if index == n - 1:
                 w = rect.right() - x + 1.0
             else:
-                w = rect.width() * (max(0.0, region.weight) / total)
+                w = usable * (max(0.0, region.weight) / total)
             out.append(QRectF(x, rect.top(), w, rect.height()))
-            x += w
+            x += w + (self.gap if index < n - 1 else 0.0)
         return out
 
     def dividers(self, rects: list[QRectF]) -> list[QLineF]:

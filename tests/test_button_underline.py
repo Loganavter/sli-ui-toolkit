@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QRect
+from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 
 from sli_ui_toolkit import FLUENT_DARK, FLUENT_LIGHT, ThemeManager
 from sli_ui_toolkit.ui.widgets.buttons.context import DrawContext
@@ -142,3 +143,36 @@ def test_explicit_underline_color_keeps_alpha(qapp, monkeypatch):
         button.deleteLater()
 
     assert seen["alpha"] == 230
+
+
+def test_underline_painter_draws_for_buttons_in_dark_theme(qapp):
+    tm = ThemeManager.get_instance()
+    tm.register_palettes(FLUENT_LIGHT, FLUENT_DARK)
+    tm.set_theme("dark")
+
+    image = QImage(36, 36, QImage.Format.Format_ARGB32)
+    image.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(image)
+    try:
+        underline_painter.draw_bottom_underline(
+            painter,
+            QRect(0, 0, 36, 36),
+            tm,
+            underline_painter.UnderlineConfig(
+                color=QColor(255, 0, 0, 255),
+                thickness=1.0,
+                vertical_offset=0.0,
+                arc_radius=6.0,
+            ),
+        )
+    finally:
+        painter.end()
+
+    red_pixels = [
+        image.pixelColor(x, y)
+        for y in range(28, 36)
+        for x in range(36)
+        if image.pixelColor(x, y).red() > 180
+        and image.pixelColor(x, y).alpha() > 0
+    ]
+    assert red_pixels

@@ -17,7 +17,6 @@ from sli_ui_toolkit.ui.widgets.composite.unified_flyout.session import (
 )
 
 class _UnifiedFlyoutBootstrapMixin(_UnifiedFlyoutSessionMixin):
-    _move_duration_ms = get_flyout_timings().flyout_animation_duration_ms
 
     def _initialize_runtime_state(self):
         self.mode = FlyoutMode.HIDDEN
@@ -31,11 +30,17 @@ class _UnifiedFlyoutBootstrapMixin(_UnifiedFlyoutSessionMixin):
         self._is_simple_mode = False
         self._is_refreshing = False
         self._structure_sync_scheduled = False
+        self._drag_enabled = True
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.timeout.connect(self._do_refresh_geometry)
         self.flyout_manager = FlyoutManager.get_instance()
         self.flyout_manager.register_flyout(self)
+        self._anchor_left: QWidget | None = None
+        self._anchor_right: QWidget | None = None
+        timings = get_flyout_timings()
+        self._move_duration_ms = timings.flyout_animation_duration_ms
+        self._drop_offset_px = timings.dropdown_drop_offset_px
 
     def _initialize_widget(self):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -145,13 +150,29 @@ class _UnifiedFlyoutBootstrapMixin(_UnifiedFlyoutSessionMixin):
                 continue
         return False
 
+    def set_list_anchors(
+        self,
+        left: QWidget | None,
+        right: QWidget | None,
+    ) -> None:
+        """Register the two list anchor widgets used for geometry and open state."""
+        self._anchor_left = left
+        self._anchor_right = right
+
+    def anchor_for_list(self, list_num: int) -> QWidget | None:
+        if list_num == 1:
+            return self._anchor_left
+        if list_num == 2:
+            return self._anchor_right
+        return getattr(self, "_anchor_widget", None)
+
     def anchor_widgets(self) -> tuple[QWidget, ...]:
-        try:
-            anchors = (
-                self.main_window.ui.combo_image1,
-                self.main_window.ui.combo_image2,
-            )
-        except Exception:
-            anchor = getattr(self, "_anchor_widget", None)
-            return (anchor,) if isinstance(anchor, QWidget) else ()
-        return tuple(anchor for anchor in anchors if isinstance(anchor, QWidget))
+        anchors = tuple(
+            anchor
+            for anchor in (self._anchor_left, self._anchor_right)
+            if isinstance(anchor, QWidget)
+        )
+        if anchors:
+            return anchors
+        anchor = getattr(self, "_anchor_widget", None)
+        return (anchor,) if isinstance(anchor, QWidget) else ()

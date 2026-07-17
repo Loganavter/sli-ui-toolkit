@@ -6,11 +6,11 @@ from sli_ui_toolkit.ui.in_window_surface import (
     surface_anchor_rect,
     surface_available_rect,
 )
+from sli_ui_toolkit.ui.managers.ui_font import paint_font, rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode
 
 class _UnifiedFlyoutLayoutMixin:
     _move_easing = QEasingCurve.Type.OutQuad
-    _drop_offset_px = 80
 
     def showAsSingle(
         self,
@@ -42,9 +42,9 @@ class _UnifiedFlyoutLayoutMixin:
         self._set_single_mode(list_num)
         self._apply_style()
         self.item_height = getattr(anchor_widget, "getItemHeight", lambda: 34)()
-        self.item_font = getattr(
-            anchor_widget, "getItemFont", lambda: QApplication.font()
-        )()
+        getter = getattr(anchor_widget, "getItemFont", None)
+        raw = getter() if callable(getter) else None
+        self.item_font = rebase_font(raw) if raw is not None else paint_font(anchor_widget)
         active_list_num = self._populate_for_single_mode(
             list_num, simple_items, simple_current_index
         )
@@ -61,15 +61,9 @@ class _UnifiedFlyoutLayoutMixin:
         self._start_show_animation(start_pos, end_pos)
 
     def _sync_anchor_open_state(self, open_list_num: int | None) -> None:
-        try:
-            anchors = (
-                (1, self.main_window.ui.combo_image1),
-                (2, self.main_window.ui.combo_image2),
-            )
-        except Exception:
-            return
-        for list_num, anchor in anchors:
-            if hasattr(anchor, "setFlyoutOpen"):
+        for list_num in (1, 2):
+            anchor = self.anchor_for_list(list_num)
+            if anchor is not None and hasattr(anchor, "setFlyoutOpen"):
                 anchor.setFlyoutOpen(
                     open_list_num is not None and list_num == open_list_num
                 )
@@ -104,7 +98,7 @@ class _UnifiedFlyoutLayoutMixin:
         active_panel = self.panel_left if active_list_num == 1 else self.panel_right
         panel_size = self._calc_panel_total_size(active_list_num)
         content_rect = self._calculate_ideal_content_geometry(
-            anchor_widget, panel_size, extra_y=self.SINGLE_APPEAR_EXTRA_Y
+            anchor_widget, panel_size
         )
         content_rect = self._fit_single_panel_content_rect(
             anchor_widget,
@@ -189,10 +183,10 @@ class _UnifiedFlyoutLayoutMixin:
         if below_space >= min_scroll_height:
             return below_y, min(natural_height, max(1, below_space))
 
-        above_space = anchor_rect.top() - self.SINGLE_APPEAR_EXTRA_Y - available.top()
+        above_space = anchor_rect.top() - self.SINGLE_PANEL_GAP_Y - available.top()
         if above_space >= min_scroll_height:
             height = min(natural_height, max(1, above_space))
-            return anchor_rect.top() - self.SINGLE_APPEAR_EXTRA_Y - height, height
+            return anchor_rect.top() - self.SINGLE_PANEL_GAP_Y - height, height
 
         height = min(natural_height, max(1, available.height()))
         y = preferred_y
@@ -280,11 +274,7 @@ class _UnifiedFlyoutLayoutMixin:
 
     def _calc_panel_total_size(self, list_num: int) -> QSize:
         panel = self.panel_left if list_num == 1 else self.panel_right
-        related_button = (
-            self.main_window.ui.combo_image1
-            if list_num == 1
-            else self.main_window.ui.combo_image2
-        )
+        related_button = self.anchor_for_list(list_num)
         try:
             panel.adjustSize()
         except Exception:
@@ -292,7 +282,7 @@ class _UnifiedFlyoutLayoutMixin:
         # Match the anchor button width exactly so the panel never extends past
         # its anchor. Fall back to a 200 px floor only if the button has not
         # been sized yet.
-        width = related_button.width() if related_button.width() > 0 else 200
+        width = related_button.width() if related_button is not None and related_button.width() > 0 else 200
         return QSize(width, panel._container_height)
 
     def _calculate_ideal_geometry(
@@ -301,7 +291,7 @@ class _UnifiedFlyoutLayoutMixin:
         anchor_rect = surface_anchor_rect(self, anchor_widget, self.overlay_layer)
         content_rect = QRect(
             anchor_rect.x(),
-            anchor_rect.y() + anchor_rect.height() - 4,
+            anchor_rect.y() + anchor_rect.height() + self.SINGLE_PANEL_GAP_Y,
             panel_size.width(),
             panel_size.height(),
         )
@@ -320,8 +310,10 @@ class _UnifiedFlyoutLayoutMixin:
         return rect
 
     def _update_geometry_in_double_mode_internal(self):
-        button1 = self.main_window.ui.combo_image1
-        button2 = self.main_window.ui.combo_image2
+        button1 = self._anchor_left
+        button2 = self._anchor_right
+        if button1 is None or button2 is None:
+            return
         self._sync_double_mode_button_state(button1, button2)
         panel1_local, panel2_local, final_unified_geom = (
             self._compute_double_mode_geometry(button1, button2)
@@ -350,10 +342,10 @@ class _UnifiedFlyoutLayoutMixin:
         right_size = self._calc_panel_total_size(2)
         geom1_content = self._calculate_ideal_geometry(
             button1, left_size, content_only=True
-        ).translated(0, self.DOUBLE_CONTENT_EXTRA_Y)
+        )
         geom2_content = self._calculate_ideal_geometry(
             button2, right_size, content_only=True
-        ).translated(0, self.DOUBLE_CONTENT_EXTRA_Y)
+        )
         source_anchor = button1 if self.source_list_num == 1 else button2
         source_panel = self.panel_left if self.source_list_num == 1 else self.panel_right
         source_rect = geom1_content if self.source_list_num == 1 else geom2_content
@@ -373,10 +365,10 @@ class _UnifiedFlyoutLayoutMixin:
             right_size = self._calc_panel_total_size(2)
             geom1_content = self._calculate_ideal_geometry(
                 button1, left_size, content_only=True
-            ).translated(0, self.DOUBLE_CONTENT_EXTRA_Y)
+            )
             geom2_content = self._calculate_ideal_geometry(
                 button2, right_size, content_only=True
-            ).translated(0, self.DOUBLE_CONTENT_EXTRA_Y)
+            )
             source_panel = self.panel_left if self.source_list_num == 1 else self.panel_right
             source_rect = geom1_content if self.source_list_num == 1 else geom2_content
             _source_y, shared_height = self._resolve_content_y_and_height(

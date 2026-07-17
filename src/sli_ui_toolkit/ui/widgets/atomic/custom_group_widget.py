@@ -3,6 +3,7 @@ from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
 
 class CustomGroupWidget(QWidget):
     def __init__(self, title_text: str = "", parent=None):
@@ -22,8 +23,7 @@ class CustomGroupWidget(QWidget):
     def _get_title_metrics(self):
         if not self._title_text:
             return 0, 0
-        font = self.font()
-        font.setBold(True)
+        font = paint_font(self, bold=True)
         fm = QFontMetrics(font)
         return fm.horizontalAdvance(self._title_text), fm.height()
 
@@ -83,8 +83,7 @@ class CustomGroupWidget(QWidget):
             bg_color = self.theme_manager.get_color("dialog.background")
             painter.fillRect(clear_rect, bg_color)
 
-            font = self.font()
-            font.setBold(True)
+            font = paint_font(self, bold=True)
             painter.setFont(font)
 
             text_color = self.theme_manager.get_color("dialog.text")

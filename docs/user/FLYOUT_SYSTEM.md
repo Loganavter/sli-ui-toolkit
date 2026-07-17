@@ -46,14 +46,71 @@ makes the flyout visually "float" while remaining a child of the window.
 `FlyoutManager` is a singleton (`FlyoutManager.get_instance()`) that:
 
 - tracks all live flyouts (`register_flyout` / `unregister_flyout`)
-- enforces single-active: when `request_show(f)` runs, every other registered
-  flyout is hidden
+- applies a pluggable **show policy** on `request_show(f)` (default:
+  exclusive — hide every other registered flyout and claim active). Hosts
+  install `GroupShowPolicy` / a custom `FlyoutShowPolicy` via
+  `FlyoutManager.set_show_policy(...)` so app groups can coexist without
+  editing toolkit widgets. Widgets may expose an identity tag
+  `flyout_group` (e.g. `ContextMenu` → `"context_menu"`, `UnifiedFlyout` →
+  `"unified_list"`); the policy decides what that tag means.
 - installs a global event filter that closes the active flyout on outside
   mouse press, window deactivate, and when the anchor widget moves
 - snapshots anchor geometry so we can detect anchor movement reliably
 
 Most callers never touch the manager directly — `BaseFlyout` plugs in
 automatically.
+
+#### Show policy (host-owned)
+
+```python
+from sli_ui_toolkit.managers import FlyoutManager, GroupShowPolicy
+
+policy = GroupShowPolicy()
+# Opening a context menu must not close the dual list.
+policy.configure_group(
+    "context_menu",
+    dismisses=(),
+    claim_active=False,
+)
+# Optional: one-off rule for a specific instance.
+# policy.configure_flyout(special_flyout, dismisses=("unified_list",))
+
+FlyoutManager.get_instance().set_show_policy(policy)
+```
+
+Stable toolkit ``flyout_group`` tags (identity only — hosts decide the rules):
+
+| Widget | ``flyout_group`` |
+| --- | --- |
+| `ContextMenu` | `context_menu` |
+| `UnifiedFlyout` | `unified_list` |
+| `SimpleOptionsFlyout` | `options` |
+| `IndexedToggleFlyout` | `toggle` |
+| `IconActionFlyout` | `actions` |
+| App `FontSettingsFlyout` | `font_settings` |
+
+Unconfigured groups keep exclusive defaults. Pass `set_show_policy(None)` to
+reset. A bare `(showing, other) -> bool` callable is also accepted.
+
+### ContextMenu: in-window vs popup
+
+Most flyouts stay in-window. `ContextMenu` also supports a per-instance
+popup surface via ``ContextMenu(..., surface="popup")`` (or
+`configure_toolkit(context_menu_surface="popup")` for a process-wide default):
+
+| Surface | Rendering | Typical use |
+| --- | --- | --- |
+| `in_window` (default) | Overlay child on the host window | Button-anchored `show_aligned` / `popup_context_menu_for_anchor` |
+| `popup` | Frameless `Qt.Popup` top-level (`popup_surface.py`) | Right-click `popup_at` (must stack above `UnifiedFlyout`) |
+
+Popup menus skip OverlayLayer attach entirely (attach+detach reorders overlay
+children and can shove open flyouts). They keep a QWidget parent / transient
+parent so Wayland can place them at the cursor instead of screen-center. They
+are not registered with `FlyoutManager`. Submenus inherit the parent menu's
+surface.
+
+Improve-ImgSLI opts into popup only in `ContextMenuManager` (canvas / help
+ПКМ). Mode-picker and title-bar menus stay in-window.
 
 ---
 
@@ -90,8 +147,8 @@ sits directly under the anchor, horizontally centered.
 flyout edge along the natural axis between the two points (the shadow radius is
 subtracted internally so the visual gap matches what you ask for).
 
-Legacy `position=` is still accepted: `"top"`, `"bottom"`, `"left"`, `"right"`,
-plus the corner variants.
+Shorter `position=` forms are also accepted: `"top"`, `"bottom"`, `"left"`,
+`"right"`, plus the corner variants (deprecated alias of the point API).
 
 Animations:
 
@@ -203,10 +260,25 @@ flyout = UnifiedFlyout.create_double_list(
     current_right=1,
 )
 flyout.item_chosen.connect(lambda side, idx: ...)
+# create_double_list wires right-click → remove. Full hosts should connect
+# item_context_menu_requested themselves and show a ContextMenu instead.
 ```
 
-For full integration you'd implement a store/controller pair conforming to its
+For full integration implement a store/controller pair conforming to its
 protocols — see `unified_flyout/simple_adapter.py` for the minimal contract.
+Right-click emits ``item_context_menu_requested(list_num, index)``; the host
+owns the menu (copy path / properties / remove, etc.).
+When constructing via `UnifiedFlyout(store, controller, main_window)` directly,
+register the two list anchor widgets explicitly:
+
+```python
+flyout = UnifiedFlyout(store, controller, parent_window)
+flyout.set_list_anchors(btn_image_a, btn_image_b)
+```
+
+Geometry, open-state sync, and double-mode layout all read from those anchors —
+the flyout does not reach into application-specific `Ui_*` classes or widget
+names.
 
 ---
 

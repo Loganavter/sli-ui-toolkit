@@ -117,6 +117,7 @@ class _AdaptiveTabBar(QWidget):
     _TEXT_HEIGHT_PADDING = 16
 
     currentChanged = Signal(int)
+    tabContextMenuRequested = Signal(int, QPoint)
 
     def __init__(self, *, close_button_width: int, parent=None):
         super().__init__(parent)
@@ -352,6 +353,26 @@ class _AdaptiveTabBar(QWidget):
                 self.setCurrentIndex(index)
         super().mousePressEvent(event)
 
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.RightButton:
+            pos = event.position().toPoint()
+            index = self.tabAt(pos)
+            if index >= 0 and not self._close_slot_contains(index, pos):
+                if hasattr(event, "globalPosition"):
+                    global_pos = event.globalPosition().toPoint()
+                else:
+                    global_pos = self.mapToGlobal(pos)
+                self.tabContextMenuRequested.emit(index, global_pos)
+                event.accept()
+                return
+        super().mouseReleaseEvent(event)
+
+    def _close_slot_contains(self, index: int, pos: QPoint) -> bool:
+        slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+        if slot is None or not slot.isVisible():
+            return False
+        return slot.geometry().contains(pos)
+
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         self._set_hover_index(self.tabAt(event.position().toPoint()))
         super().mouseMoveEvent(event)
@@ -521,6 +542,7 @@ class _AdaptiveTabBar(QWidget):
 class AdaptiveTabStrip(QWidget):
     currentChanged = Signal(int)
     tabCloseRequested = Signal(int)
+    tabContextMenuRequested = Signal(int, QPoint)
     addRequested = Signal()
 
     def __init__(
@@ -530,7 +552,6 @@ class AdaptiveTabStrip(QWidget):
         close_icon: Any,
         close_policy: CloseButtonPolicy = CloseButtonPolicy.ALL_WHEN_FIT_ELSE_CURRENT,
         single_tab_closable: bool = True,
-        add_button_menu: list[tuple[str, Any]] | None = None,
         close_button_size: int = 28,
         close_icon_size: int = 16,
         close_button_vertical_offset: int = 1,
@@ -551,7 +572,7 @@ class AdaptiveTabStrip(QWidget):
             close_button_width=self._close_button_size,
             parent=self,
         )
-        self.add_button = Button(add_icon, menu=add_button_menu, parent=self)
+        self.add_button = Button(add_icon, parent=self)
         plus_height = max(
             self.add_button.sizeHint().height(),
             self.add_button.minimumHeight(),
@@ -574,6 +595,7 @@ class AdaptiveTabStrip(QWidget):
         layout.addStretch(1)
 
         self.tab_bar.currentChanged.connect(self._on_current_changed)
+        self.tab_bar.tabContextMenuRequested.connect(self.tabContextMenuRequested)
         self.add_button.clicked.connect(self.addRequested)
 
     def _on_current_changed(self, index: int) -> None:

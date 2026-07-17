@@ -12,8 +12,11 @@ from sli_ui_toolkit.ui.widgets.helpers import (
 
 class CustomLineEdit(QLineEdit):
     RADIUS = 6
+    # Horizontal inset only — vertical room comes from HEIGHT so descenders
+    # (у, р, g, y) are not clipped. Do not also pad via QSS.
     H_PADDING = 8
-    V_PADDING = 4
+    V_PADDING = 0
+    HEIGHT = 32
 
     def __init__(
         self,
@@ -43,7 +46,7 @@ class CustomLineEdit(QLineEdit):
             self.V_PADDING,
         )
         self.setTextAlignment(alignment)
-        self.setFixedHeight(32)
+        self.setFixedHeight(self.HEIGHT)
         self.setProperty("custom-line-edit", True)
         self.setProperty("class", "primary")
         apply_editable_text_behavior(self)
@@ -149,10 +152,14 @@ class CustomLineEdit(QLineEdit):
     def _apply_theme_style(self):
         text = self.theme_manager.get_color("dialog.text").name(QColor.NameFormat.HexArgb)
         accent = self.theme_manager.get_color("accent").name(QColor.NameFormat.HexArgb)
+        # padding:0 is mandatory — app QSS often stacks padding on top of
+        # setTextMargins and clips descenders / doubles the left inset.
         self.setStyleSheet(
             "QLineEdit {"
             "background: transparent;"
             "border: none;"
+            "padding: 0;"
+            "margin: 0;"
             f"color: {text};"
             "}"
             "QLineEdit::placeholder {"

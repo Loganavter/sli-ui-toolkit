@@ -41,6 +41,30 @@ def default_layers() -> list[Layer]:
     ]
 
 
+def _cluster_scoped_regions(scoped_list: list[DrawContext]) -> list[list[DrawContext]]:
+    """Group ``group=`` siblings into one paint cluster; leave others alone.
+
+    Within a cluster, layers run outer-major (all backgrounds, then ripple,
+    then content) so a shared group ripple is not covered by a sibling's
+    BackgroundLayer. Ungrouped / stacked ``z_index`` regions stay
+    region-major via singleton clusters, preserving overlay stacking.
+    """
+    clusters: list[list[DrawContext]] = []
+    assigned_groups: set[str] = set()
+    for scoped in scoped_list:
+        group = scoped.region_group
+        if group:
+            if group in assigned_groups:
+                continue
+            assigned_groups.add(group)
+            clusters.append(
+                [s for s in scoped_list if s.region_group == group]
+            )
+        else:
+            clusters.append([scoped])
+    return clusters
+
+
 class Painter:
     def __init__(self, tm: ThemeManager, layers: list[Layer] | None = None):
         self._tm = tm
@@ -58,12 +82,16 @@ class Painter:
                     layer.draw(ctx, self._tm)
             return
 
-        for scoped_ctx in iter_regions(ctx):
-            for layer in self._layers:
-                if getattr(layer, "scope", "region") != "region":
-                    continue
-                if layer.applies(scoped_ctx):
-                    layer.draw(scoped_ctx, self._tm)
+        region_layers = [
+            layer
+            for layer in self._layers
+            if getattr(layer, "scope", "region") == "region"
+        ]
+        for cluster in _cluster_scoped_regions(list(iter_regions(ctx))):
+            for layer in region_layers:
+                for scoped_ctx in cluster:
+                    if layer.applies(scoped_ctx):
+                        layer.draw(scoped_ctx, self._tm)
 
         for layer in self._layers:
             if getattr(layer, "scope", "region") != "widget":

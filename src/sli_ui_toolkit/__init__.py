@@ -29,6 +29,7 @@ from sli_ui_toolkit.widgets import (
     application_tooltips_enabled,
     get_label_variant,
     install_application_tooltips,
+    popup_context_menu_for_anchor,
     register_label_variant,
     set_application_tooltips_enabled,
 )
@@ -39,10 +40,17 @@ from sli_ui_toolkit.style import (
 )
 from sli_ui_toolkit.ui.windows import (
     CustomTitleBar,
+    TitleBarMenu,
+    TitleBarMenuStrip,
+    TitleBarPresets,
+    WindowChrome,
+    WindowChromeConfig,
+    WindowControlsConfig,
     apply_frameless,
     decorate_dialog,
     remove_frameless,
     set_frameless_runtime,
+    set_window_bg_color,
 )
 
 __all__ = [
@@ -79,8 +87,16 @@ __all__ = [
     "FLUENT_LIGHT",
     "FLUENT_DARK",
     "CustomTitleBar",
+    "TitleBarMenu",
+    "TitleBarMenuStrip",
+    "TitleBarPresets",
+    "WindowChrome",
+    "WindowChromeConfig",
+    "WindowControlsConfig",
     "apply_frameless",
     "remove_frameless",
     "set_frameless_runtime",
     "decorate_dialog",
+    "popup_context_menu_for_anchor",
+    "set_window_bg_color",
 ]

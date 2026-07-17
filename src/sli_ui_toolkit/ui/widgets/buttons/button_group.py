@@ -10,6 +10,7 @@ from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import ui_font
 
 class ButtonGroup(QWidget):
     def __init__(self, buttons: list, label: str = "", parent=None):
@@ -49,7 +50,7 @@ class ButtonGroup(QWidget):
         text_color = self.theme_manager.get_color("WindowText")
 
         rect = self.rect()
-        font = painter.font()
+        font = ui_font()
         font.setPointSize(max(8, font.pointSize() - 2))
         painter.setFont(font)
         fm = QFontMetrics(font)

@@ -2,6 +2,7 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.widgets.overlays.in_window_overlay import TopLevelInWindowOverlay
 
 
@@ -62,9 +63,7 @@ class DragDropOverlay(TopLevelInWindowOverlay):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
-        font = QFont(self.font())
-        font.setPixelSize(20)
-        font.setBold(True)
+        font = paint_font(self, pixel_size=20, bold=True)
         painter.setFont(font)
 
         margin = 10.0

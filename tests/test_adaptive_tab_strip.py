@@ -1,5 +1,6 @@
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QTabBar
+from PySide6.QtTest import QTest
 
 from sli_ui_toolkit.widgets import AdaptiveTabStrip, CloseButtonPolicy
 
@@ -151,3 +152,77 @@ def test_close_button_paints_tab_background_inside_button_pipeline(qapp):
     slot = strip.tabButton(1, QTabBar.ButtonPosition.RightSide)
 
     assert type(slot.button._painter.layers[0]).__name__ == "_CloseButtonTabBackgroundLayer"
+
+
+def test_current_tab_close_idle_background_is_transparent(qapp):
+    """Close X must not paint toggle.normal over the selected tab until hover."""
+    from sli_ui_toolkit.theme import ThemeManager
+    from sli_ui_toolkit.ui.widgets.buttons.layers.background import (
+        BgResolveParams,
+        resolve_button_background,
+    )
+    from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+    from sli_ui_toolkit.ui.widgets.buttons.variants import get_variant
+
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    strip.addTab("First")
+    strip.addTab("Second")
+    strip.setCurrentIndex(0)
+    strip.resize(500, strip.sizeHint().height())
+    strip.show()
+    qapp.processEvents()
+
+    slot = strip.tabButton(0, QTabBar.ButtonPosition.RightSide)
+    button = slot.button
+    states = frozenset(button.region_states("_main"))
+    assert ButtonState.HOVERED not in states
+
+    layers, _ = resolve_button_background(
+        BgResolveParams(states=states, variant=get_variant("ghost")),
+        ThemeManager.get_instance(),
+    )
+    assert layers == []
+
+
+def test_right_click_on_tab_emits_context_menu_requested(qapp):
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    strip.addTab("First")
+    strip.addTab("Second")
+    strip.resize(600, strip.sizeHint().height())
+    strip.show()
+    qapp.processEvents()
+
+    requested = []
+    strip.tabContextMenuRequested.connect(lambda idx, _pos: requested.append(idx))
+
+    rect = strip.tab_bar.tabRect(0)
+    # Pick a point away from the close-slot (right side).
+    pos = rect.center()
+    pos.setX(rect.left() + rect.width() // 4)
+
+    QTest.mouseClick(strip.tab_bar, Qt.MouseButton.RightButton, pos=pos)
+    qapp.processEvents()
+
+    assert requested == [0]
+
+
+def test_right_click_on_close_button_does_not_emit_context_menu(qapp):
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    strip.addTab("First")
+    strip.resize(300, strip.sizeHint().height())
+    strip.show()
+    qapp.processEvents()
+
+    requested = []
+    strip.tabContextMenuRequested.connect(lambda idx, _pos: requested.append(idx))
+
+    slot = strip.tabButton(0, QTabBar.ButtonPosition.RightSide)
+    assert slot is not None
+
+    # Right click on the actual close button; parent tab-bar should not
+    # produce a context menu request.
+    pos = slot.button.rect().center()
+    QTest.mouseClick(slot.button, Qt.MouseButton.RightButton, pos=pos)
+    qapp.processEvents()
+
+    assert requested == []

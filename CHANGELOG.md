@@ -1,5 +1,50 @@
 # Changelog
 
+## 3.1.0
+
+### Removed (breaking)
+- `Button(menu=...)`, `ButtonConfig.menu`, `ButtonRegion.menu`, and all built-in dropdown menu APIs: `MenuCapability`, `DropdownMenu`, `set_menu_items` / `set_actions`, `show_menu`, `set_menu_animation`, `set_current_by_data`, `menuTriggered`, `regionMenuTriggered`, and deprecated `Button.triggered`.
+- `MenuBehavior` from the declarative button spec surface.
+- `AdaptiveTabStrip(add_button_menu=...)` — use `add_button.clicked` + `ContextMenu` in app code when a plus-button menu is needed.
+- `TitleBarMenuMode.dropdown` — tuple menu entries now open via `ContextMenu` like other command menus.
+
+### Added
+- `ToastProgressBar`: painted progress track for toasts (accent fill, rounded ends, `toast.progress.background` / `toast.progress.fill`). `ToastNotification` no longer shrinks width when the label shortens; omitting `progress=` in `update_toast(...)` keeps the current bar.
+- Composable `CustomTitleBar` zones (`leading` / `center` / `trailing`), drag exclusions, and `titlebar.*` theme tokens.
+- `TitleBarMenu`, `TitleBarMenuStrip`, and `popup_context_menu_for_anchor` — IDE-style menu strip with Button dropdown, `ContextMenu`, and flyout anchor support.
+- `TitleBarPresets.dialog` / `TitleBarPresets.app_shell` presets.
+- `WindowChrome.install`, `WindowChromeConfig`, `WindowControlsConfig`, shared `RoundedWindowBody` painting, and `set_window_bg_color(...)`.
+- `docs/user/WINDOW_CHROME_API.md` and API catalog section for window chrome.
+- `HelpDocumentView` — native widget-tree help renderer (controlled markdown subset, figures with `side=left|center|right|block`, kbd, links).
+- `TopTabBar` / `TopTabItem` / `TopTabHost` — horizontal content-section tabs.
+- `ThemedWidget` mixin for theme-repaint subscription.
+- `UiFont` / `ui_font(...)` / `apply_ui_font` / `paint_font` / `rebase_font` / `apply_text_color` — pinned UI typeface (no `QFont()` / color-only QSS for toolkit text).
+- `SettleGate` — restartable quiet-period gate for resize/pulse work.
+- Pluggable flyout show policies on the managers surface: `ExclusiveShowPolicy`, `GroupShowPolicy`, `CallableShowPolicy`, `flyout_group_of`, `DISMISS_ALL`.
+- `entries_from_labeled_data(...)` and `entries_from_callbacks(...)` helpers for building `ContextMenu` entries from `[(label, data), ...]` tuples.
+- `popup_context_menu_for_anchor(..., animation_distance=..., animation_duration_ms=...)` animation tuning.
+- Button background controls: `set_bg_locked(...)`, `set_hover_color(...)`, `set_hover_compose("replace"|"stack")`.
+
+### Changed
+- `decorate_dialog` delegates to `WindowChrome.install` and accepts an optional pre-built `title_bar`.
+- `CustomTitleBar` title label uses toolkit `Label` with theme-driven background paint.
+- `ContextMenu` lives under `ui/widgets/composite/context_menu/` (folder package).
+- Docs describe current APIs without migration-diary framing (`ARCHITECTURE`, `ROADMAP`, `BUTTON_REGION_ARCHITECTURE`, catalog/BUTTON/FLYOUT/WINDOW docs).
+
+### Fixed
+- Grouped multi-region ripple (`group=`) again covers the full capsule: sibling `BackgroundLayer` fills no longer overpaint the shared wave (session-picker cards and similar). Painter clusters `group=` siblings and paints layer-major within the cluster.
+- `Button.click()` restored (QAbstractButton parity) so programmatic / shortcut activation emits the normal press→click sequence.
+- Frameless resize hit-testing and rounded window body mask edge cases.
+- Combo overlay focus/reveal when the popup must stay above in-window chrome.
+- Rating-item `+` control no longer selects the list row as a side effect.
+
+### Migration
+- `popup_context_menu_for_anchor(...)` lives in `widgets` (`context_menu/`), not in `buttons/` or `windows/`.
+- Replace `Button(..., menu=items)` with `button.clicked` → `popup_context_menu_for_anchor(...)` or `ContextMenu.show_aligned(...)`.
+- Replace `button.menuTriggered` / `button.triggered` handlers with `ContextMenu.on_triggered` or `actionTriggered`.
+- Replace `set_actions` / `set_current_by_data` with app-owned picker state + `entries_from_labeled_data(..., current=...)`.
+- Host apps that customize flyout exclusivity should install a `GroupShowPolicy` (or `CallableShowPolicy`) instead of patching widget classes.
+
 ## 0.3.0
 
 ### Added
@@ -13,6 +58,7 @@
 - `ButtonCapability.handle_wheel_event(event)` — an optional hook (default no-op) that any attached capability can override to receive wheel events routed to its region. `Button.wheelEvent` dispatches to it duck-typed, with no hardcoded capability type.
 - `Button.update_region(region_id, **changes)` and `Button.setRegionChecked(region_id, checked, emit=True)` — programmatic per-region updates that reconcile through `set_regions()` by id, leaving other regions' and the target region's own runtime state (hover/ripple/capabilities) untouched. Previously the only way to change one region's static fields or checked state was to rebuild and pass the whole region list, and `setChecked()` only ever addressed the implicit `"_main"` region.
 - `Button.region(region_id)` returns a `RegionHandle` — a live view exposing both static `ButtonRegion` fields and runtime state (`checked`, read-only `hovered`/`pressed`) as plain attributes, e.g. `button.region("copy").checked = True`, so callers don't need to know which of the two internal stores a given field lives in.
+- `Button.set_menu_animation(drop_offset_px=..., move_duration_ms=...)` for tuning dropdown menu opening distance and duration without reaching into private `MenuCapability` / `DropdownMenu` internals.
 - `ButtonRegion.action` / `.action_data` / `.action_callback` — `Button.actionTriggered` dispatch is now reachable from the imperative `Button(regions=[...])`/`update_region()` API, not only from `Button.from_spec(ButtonSpec(...))`. Previously a region built through `regions=` could never trigger `actionTriggered`, because the underlying `ClickBehavior(action=..., callback=...)` was only ever populated from the (now-removed) `RegionSpec`.
 
 ### Changed

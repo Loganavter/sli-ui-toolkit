@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
@@ -197,7 +198,9 @@ class RatingListItem(Button):
         # Row click → external selection. Button.clicked не срабатывает, если
         # release пришёл по child-Button'у (Qt потребит event на ребёнке) или
         # если start drag отменил его (см. mouseReleaseEvent).
-        self.clicked.connect(lambda: self.itemSelected.emit(self.index))
+        # Guard: nested +/- must never select/close the flyout even if a press
+        # still bubbles (pre-accept Button handlers).
+        self.clicked.connect(self._emit_item_selected_from_row)
         self.rightClicked.connect(lambda: self.itemRightClicked.emit(self.index))
 
         self.layout = QHBoxLayout(self)
@@ -222,7 +225,7 @@ class RatingListItem(Button):
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
         )
 
-        base_font = item_font if item_font else QApplication.font(self)
+        base_font = rebase_font(item_font) if item_font else ui_font()
         self.name_label.setFont(base_font)
 
         if self.item_type == "image":
@@ -230,8 +233,7 @@ class RatingListItem(Button):
             base_px = base_font.pixelSize()
             if base_px <= 0:
                 base_px = QFontMetrics(base_font).height()
-            rating_font = QFont(base_font)
-            rating_font.setPixelSize(max(8, base_px - 3))
+            rating_font = rebase_font(base_font, pixel_size=max(8, base_px - 3))
             self.rating_label.setFont(rating_font)
 
             self.btn_minus = Button(
@@ -322,7 +324,12 @@ class RatingListItem(Button):
             event.ignore()
 
     def update_styles(self):
+        tm = self.theme_manager
+        apply_text_color(self.name_label, tm.get_color("list_item.text.normal"))
         if self.item_type == "image":
+            apply_text_color(
+                self.rating_label, tm.get_color("list_item.text.rating")
+            )
             self.btn_minus.setIcon(resolve_icon(DEFAULT_MINUS_ICON))
             self.btn_plus.setIcon(resolve_icon(DEFAULT_PLUS_ICON))
         self.update()
@@ -351,6 +358,8 @@ class RatingListItem(Button):
             return
         if self._is_drag_initiated:
             return
+        if not self._drag_allowed():
+            return
 
         current_global_pos = self.mapToGlobal(event.pos())
         start_global_pos = self.mapToGlobal(self.drag_start_pos)
@@ -376,6 +385,15 @@ class RatingListItem(Button):
                 service.start_drag(self, event)
             self._notify_flyout_drop_indicator(event.globalPosition())
 
+    def _drag_allowed(self) -> bool:
+        widget = self.parentWidget()
+        while widget is not None:
+            getter = getattr(widget, "is_drag_enabled", None)
+            if callable(getter):
+                return bool(getter())
+            widget = widget.parentWidget()
+        return True
+
     def mouseReleaseEvent(self, event: QMouseEvent):
         if self._is_drag_initiated:
             # Drag swallowed the click — clear PRESSED state without firing
@@ -398,6 +416,19 @@ class RatingListItem(Button):
         self._is_drag_initiated = False
         self._active_button = None
         self._notify_flyout_clear_indicator()
+
+    def _emit_item_selected_from_row(self) -> None:
+        if self.item_type == "image":
+            # Nested +/- previously bubbled an unaccepted press to this row,
+            # which selected the item and closed UnifiedFlyout.
+            under = self.childAt(self.mapFromGlobal(QCursor.pos()))
+            if under is self.btn_plus or under is self.btn_minus:
+                return
+            if under is not None and (
+                self.btn_plus.isAncestorOf(under) or self.btn_minus.isAncestorOf(under)
+            ):
+                return
+        self.itemSelected.emit(self.index)
 
     def _on_plus_clicked(self):
         if self._is_drag_initiated or self._active_button not in (None, self.btn_plus):

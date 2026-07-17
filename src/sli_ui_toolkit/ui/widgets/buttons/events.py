@@ -13,10 +13,10 @@ attach_capability) получают wheel-события без хардкода
 from __future__ import annotations
 
 import shiboken6 as sip
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QMouseEvent, QWheelEvent
 
-from .capabilities import LongPressCapability, MenuCapability
+from .capabilities import LongPressCapability
 from .state import ButtonState
 
 
@@ -27,7 +27,14 @@ class _ButtonEvents:
 
     def enterEvent(self, event):
         if not self._flyout_open:
-            self.setHoverActive(True)
+            # enterEvent alone used to only flip a boolean; without seeding
+            # the region from the cursor, the first paint could miss HOVERED
+            # until the next mouseMove.
+            pos = event.position() if hasattr(event, "position") else None
+            if pos is not None:
+                self._update_hover_region(pos)
+            else:
+                self.setHoverActive(True)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
@@ -38,7 +45,12 @@ class _ButtonEvents:
         super().leaveEvent(event)
 
     def hoverHitTest(self, pos) -> bool:
-        return self._region_at(pos) is not None
+        # Region gaps (split.gap between different click targets) are still
+        # "over this button". Returning False here makes HoverCoordinator call
+        # setHoverActive(False) for one mouse pixel and flicker the shared wash.
+        if self._region_at(pos) is not None:
+            return True
+        return QRectF(self.rect()).contains(QPointF(pos))
 
     def setHoverActive(self, active: bool) -> None:
         if self._flyout_open:
@@ -90,6 +102,18 @@ class _ButtonEvents:
                 self.regionPressed.emit(region_id)
                 if region_id == "_main":
                     self.pressed.emit()
+                # Accept so nested Buttons (e.g. rating +/- on RatingListItem)
+                # do not propagate to the parent row and trigger itemSelected.
+                event.accept()
+                return
+        elif event.button() == Qt.MouseButton.RightButton:
+            if self._region_at(event.position()) is not None:
+                event.accept()
+                return
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            if self._region_at(event.position()) is not None:
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
@@ -110,19 +134,16 @@ class _ButtonEvents:
                 release_region == region_id
                 or release_region in self._linked_region_ids(region_id or "")
             )
+            handled = region_id is not None
             if same_target and not lp_triggered:
                 region = self._region_by_id(region_id)
-                has_menu = bool(region.menu) if region is not None else self._has_menu
                 has_toggle = bool(region.toggle) if region is not None else self._has_toggle
-                if has_menu:
-                    menu_cap = self.get_capability(MenuCapability, region_id=region_id)
-                    if menu_cap:
-                        menu_cap.show_menu()
-                elif has_toggle:
+                if has_toggle:
                     checked = ButtonState.CHECKED not in self._controller.states(region_id)
                     self._set_region_state(region_id, ButtonState.CHECKED, checked)
                     self.regionToggled.emit(region_id, checked)
-                    if region_id == "_main":
+                    linked = self._linked_region_ids(region_id)
+                    if region_id == "_main" or "_main" in linked:
                         self._checked = checked
                         self.toggled.emit(checked)
                 if self._defer_click and region_id == "_main":
@@ -135,18 +156,25 @@ class _ButtonEvents:
                         if not sip.isValid(self):
                             return
             self._pressed_region = None
+            if handled:
+                event.accept()
+                return
 
         elif event.button() == Qt.MouseButton.RightButton:
             if self._region_at(event.position()) is not None:
                 self.rightClicked.emit()
                 if not sip.isValid(self):
                     return
+                event.accept()
+                return
 
         elif event.button() == Qt.MouseButton.MiddleButton:
             if self._region_at(event.position()) is not None:
                 self.middleClicked.emit()
                 if not sip.isValid(self):
                     return
+                event.accept()
+                return
 
         super().mouseReleaseEvent(event)
 
@@ -190,6 +218,17 @@ class _ButtonEvents:
 
     # -------- click flow --------
 
+    def click(self) -> None:
+        """Programmatic activation (QAbstractButton.click parity).
+
+        Used by host shortcut binders and tests. Prefer this over emitting
+        ``clicked`` alone so toggles and ``defer_click`` stay consistent with
+        keyboard Space/Enter.
+        """
+        if not self.isEnabled():
+            return
+        self._activate_via_keyboard()
+
     def _activate_via_keyboard(self):
         self.pressed.emit()
         if not sip.isValid(self):
@@ -197,11 +236,7 @@ class _ButtonEvents:
         self.released.emit()
         if not sip.isValid(self):
             return
-        if self._has_menu:
-            menu_cap = self.get_capability(MenuCapability)
-            if menu_cap:
-                menu_cap.show_menu()
-        elif self._has_toggle:
+        if self._has_toggle:
             self.setChecked(not self._checked)
         if self._defer_click:
             QTimer.singleShot(0, self._emit_click_signals)
@@ -210,6 +245,9 @@ class _ButtonEvents:
 
     def _emit_click_signals(self) -> None:
         if not sip.isValid(self):
+            return
+        if getattr(self, "_suppress_next_click", False):
+            self._suppress_next_click = False
             return
         self.clicked.emit()
         if not sip.isValid(self):
@@ -251,18 +289,23 @@ class _ButtonEvents:
         region_id: str | None,
         state: ButtonState,
         active: bool,
+        *,
+        schedule_update: bool = True,
     ) -> None:
         if region_id is None:
             return
         targets = [region_id]
-        if state in (ButtonState.HOVERED, ButtonState.PRESSED):
+        if state in (ButtonState.HOVERED, ButtonState.PRESSED, ButtonState.CHECKED):
             targets = self._linked_region_ids(region_id)
         for target_id in targets:
             self._controller.set_state(target_id, state, active)
         self._sync_region_aliases()
-        self.update()
+        if schedule_update:
+            self.update()
 
-    def _linked_region_ids(self, region_id: str) -> list[str]:
+    def _linked_region_ids(self, region_id: str | None) -> list[str]:
+        if not region_id:
+            return []
         region = self._region_by_id(region_id)
         group = getattr(region, "group", None) if region is not None else None
         if not group:
@@ -275,10 +318,34 @@ class _ButtonEvents:
 
     def _update_hover_region(self, pos) -> None:
         region_id = self._region_at(pos)
+        if region_id is None and self._hovered_region is not None:
+            # Pointer is still inside the widget but landed in a split gap
+            # (or outer inset). Clearing HOVERED here is the classic
+            # shared-capsule flicker when crossing region groups.
+            if QRectF(self.rect()).contains(QPointF(pos)):
+                return
+
         if region_id == self._hovered_region:
             return
-        if self._hovered_region is not None:
-            self._set_region_state(self._hovered_region, ButtonState.HOVERED, False)
+
+        old_id = self._hovered_region
+        old_linked = set(self._linked_region_ids(old_id))
+        new_linked = set(self._linked_region_ids(region_id))
+
+        # Same group (or identical link set): HOVERED membership is unchanged —
+        # only the pointer region moves. A clear→set pair would paint one frame
+        # with no hover and look like a flicker of the shared capsule.
+        if old_linked and old_linked == new_linked:
+            self._hovered_region = region_id
+            self.update()
+            return
+
+        to_clear = old_linked - new_linked
+        to_set = new_linked - old_linked
         self._hovered_region = region_id
-        if region_id is not None:
-            self._set_region_state(region_id, ButtonState.HOVERED, True)
+        for target_id in to_clear:
+            self._controller.set_state(target_id, ButtonState.HOVERED, False)
+        for target_id in to_set:
+            self._controller.set_state(target_id, ButtonState.HOVERED, True)
+        self._sync_region_aliases()
+        self.update()

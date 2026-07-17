@@ -81,15 +81,13 @@ class _UnifiedFlyoutRefreshMixin:
         if list_num == 2:
             self.panel_left.hide()
             self.panel_right.show()
-            if self.main_window:
-                _safe_set(self.main_window.ui.combo_image1, False)
-                _safe_set(self.main_window.ui.combo_image2, True)
+            _safe_set(self.anchor_for_list(1), False)
+            _safe_set(self.anchor_for_list(2), True)
         else:
             self.panel_right.hide()
             self.panel_left.show()
-            if self.main_window:
-                _safe_set(self.main_window.ui.combo_image2, False)
-                _safe_set(self.main_window.ui.combo_image1, True)
+            _safe_set(self.anchor_for_list(2), False)
+            _safe_set(self.anchor_for_list(1), True)
 
     def _apply_refreshed_geometry(self):
         if self.mode == FlyoutMode.DOUBLE:
@@ -102,11 +100,9 @@ class _UnifiedFlyoutRefreshMixin:
     def _apply_single_mode_refresh_geometry(self):
         is_left = self.mode in (FlyoutMode.SINGLE_LEFT, FlyoutMode.SINGLE_SIMPLE)
         active_panel = self.panel_left if is_left else self.panel_right
-        anchor = (
-            self.main_window.ui.combo_image1
-            if is_left
-            else self.main_window.ui.combo_image2
-        )
+        anchor = self.anchor_for_list(1 if is_left else 2)
+        if anchor is None:
+            return
         active_list_num = 1 if is_left else 2
         active_panel.show()
         (self.panel_right if is_left else self.panel_left).hide()

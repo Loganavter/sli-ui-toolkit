@@ -28,14 +28,16 @@ btn.toggled.connect(on_toggled)  # Emitted when toggled
 btn = Button(icon='delete', long_press=True, long_press_ms=600)
 btn.longPressed.connect(on_long_press)
 
-# Menu button
-menu_items = [
-    ('Copy', copy_action),
-    ('Paste', paste_action),
-    ('Delete', delete_action),
-]
-btn = Button(icon='menu', menu=menu_items)
-btn.menuTriggered.connect(on_menu_item)
+# Popup menu (app-owned — Button has no built-in menu)
+from sli_ui_toolkit.widgets import entries_from_callbacks, popup_context_menu_for_anchor
+
+menu_items = [('Copy', copy_action), ('Paste', paste_action)]
+btn = Button(icon='menu', size=(36, 36))
+btn.clicked.connect(
+    lambda: popup_context_menu_for_anchor(
+        btn.window(), btn, entries_from_callbacks(menu_items)
+    )
+)
 
 # Multi-row text button
 rows = [
@@ -67,12 +69,33 @@ btn.regionClicked.connect(handle_region)
 
 #### Linking regions into one visual capsule
 
-By default each region tracks its own hover/press state and paints
+By default each region tracks its own hover/press/checked state and paints
 independently. Pass `group=` on regions that should react as a single capsule:
-hover/press on any grouped region mirrors the state to every region sharing the
-same group, so they highlight together. Release on a sibling region of the same
-group still fires the press region's click. `regionClicked` keeps emitting the
+hover, press, and checked on any grouped region mirror the state to every
+region sharing the same group, so they highlight together. Release on a
+sibling region of the same group still fires the press region's click. `regionClicked` keeps emitting the
 actually-clicked region id; connect once and handle either.
+
+Do **not** put a real layout gap (`HorizontalSplit(gap=…)` or a custom split
+that inserts pixels) *between* siblings that share `group=` if you also rely
+on the default per-region `BackgroundLayer` fill — hover/press fills still
+clip per region, so a gap can show as a dead strip in the capsule color.
+Ripple is different: grouped regions share one wave painted once over the
+united group rect, so a layout gap inside the group does not punch a hole
+in the ripple. Prefer `gap=0` (and abutting rects) for a solid capsule; the
+controller already expands each grouped region's fill path by a half-pixel
+hairline so antialiased seams stay closed when rects abut. Apps that need
+extra insurance sometimes nudge contiguous rects to overlap by 1 px (see
+session-picker `_SeamlessHorizontalSplit` in Improve-ImgSLI).
+
+Pointer moves *inside* a group do not clear and re-set `HOVERED` — the link
+set stays hovered and only `_hovered_region` changes (needed for
+`hover_compose="stack"` and to avoid a one-frame flicker of the shared wash).
+
+Pointer over a **layout gap** between regions (or outer inset still inside the
+widget) keeps the previous hover sticky: clearing would flash the shared row
+wash. `hoverHitTest` likewise treats the full widget rect as hovered so
+`HoverCoordinator` does not deactivate mid-gap.
 
 ```python
 from sli_ui_toolkit.widgets import Button, ButtonRegion, HorizontalSplit
@@ -166,6 +189,32 @@ Background, content, ripple, and hit-testing are clipped to the path. Dividers
 are still layout-line based; custom path-shaped separators should be rendered
 as a dedicated layer.
 
+#### Custom `layers=` and paint order
+
+`Button(..., layers=[...])` replaces the default painter pipeline. Each layer
+declares a `scope`:
+
+| `scope` | When it runs |
+|---------|----------------|
+| `"region"` (default) | Once per region, **before** any widget-scoped layer — same pass as `BackgroundLayer`, `RippleLayer`, `ContentLayer`. Regions that share `group=` are painted as one cluster with **layer-major** order (all backgrounds in the group, then ripple, then content) so a shared ripple is not covered by a sibling fill. Ungrouped regions stay region-major (needed for `z_index` overlays). |
+| `"widget"` | Once for the whole button, **after** every region pass — used by badge, underline, divider, strikethrough |
+
+Paint order matters when you supply a custom fill for a multi-region row (e.g.
+one rounded list-item background behind several clickable zones):
+
+- A **fill** that must sit *under* text/icons must use `scope = "region"`
+  (draw once from a chosen region id such as `"_main"`, using `ctx.rect` for
+  the full button bounds — `scoped_to` only sets `region_rect`).
+- If that fill uses `scope = "widget"`, it paints **after** `ContentLayer` and
+  will cover region content. Rows look empty even though `ButtonRegion` data is
+  correct.
+- Overlays that should sit *on top* of content (selection indicator, badge)
+  can stay `scope = "widget"`.
+
+When replacing `layers=`, include `ContentLayer()` (and usually `RippleLayer()`)
+if the button still has icon/text/`rows` content — omitting them is another
+way to get blank capsules.
+
 #### ButtonRegion fields
 
 `ButtonRegion` mirrors most of `Button`'s own constructor parameters, plus a
@@ -191,8 +240,11 @@ or `parent` — those apply to the whole `Button`, not one region.
 | `badge` | `int \| str \| None` | `None` |
 | `variant` | `str \| None` | `None` |
 | `custom_bg_color` | `QColor \| None` | `None` |
-| `override_bg_color` | `QColor \| None` | `None` |
+| `override_bg_color` | `QColor \| None` | `None` — **exact base** fill (not a freeze); see Background sources |
 | `override_border_color` | `QColor \| None` | `None` |
+| `hover_color` | `QColor \| None` | `None` — local hover overlay; `None` → standard theme/custom hover |
+| `hover_compose` | `"replace" \| "stack"` | `"replace"` — one hover layer; `"stack"` → ambient + local under `group=` |
+| `bg_locked` | `bool` | `False` — when `True`, base only (no hover/pressed/`hover_color`) |
 | `icon_size_px` | `int \| None` | `None` |
 | `show_strike_through` | `bool` | `False` |
 | `enabled` | `bool` | `True` |
@@ -205,6 +257,62 @@ or `parent` — those apply to the whole `Button`, not one region.
 
 Note that `checked` is **not** a `ButtonRegion` field — a region's checked
 state is runtime-only (see below), not part of its static config.
+
+#### Background sources
+
+Three ways to pick the **base** fill (first paint layer), then optional state
+overlays:
+
+| Mechanism | Base | Hover / pressed |
+|-----------|------|-----------------|
+| `variant=` | Theme tokens | Theme hover/pressed (or `hover_color` if set) |
+| `custom_bg_color=` | Derived tint palette normal | Derived hover/pressed, or `hover_color` |
+| `override_bg_color=` | **Exact** pixel color | Same as variant overlays (unlocked), unless locked |
+
+`set_override_bg_color(color)` matches `override_bg_color`: it is an exact
+**base**, not a kill-switch. Interactive overlays remain unless you call
+`set_bg_locked(True)` / set region `bg_locked=True` (calendar selected /
+disabled-export days do this).
+
+When both `override_bg_color` and `custom_bg_color` are set, override wins as
+base; custom is ignored for fill.
+
+#### Hover compose & conflicts
+
+`hover_compose` (default `"replace"`):
+
+```python
+Button(
+    regions=[
+        ButtonRegion(id="plate", rows=[...], group="row", hover_compose="stack"),
+        ButtonRegion(
+            id="run",
+            icon="enter",
+            group="row",
+            hover_compose="stack",
+            hover_color=QColor(0, 120, 215, 80),
+        ),
+    ],
+    split=HorizontalSplit(),
+)
+```
+
+- **`replace`** (BC): every HOVERED region (including group-mirrored siblings)
+  paints one hover overlay = `hover_color` or standard.
+- **`stack`**: only meaningful with `group=`. All siblings get a reduced-alpha
+  **ambient** standard hover; the pointer region (`_hovered_region`) then paints
+  a full **local** overlay (`hover_color` or standard). Without `group=`,
+  `stack` behaves as `replace`.
+
+Precedence:
+
+1. `bg_locked` → base only.
+2. Base = override → custom normal → variant normal.
+3. Hover overlays (if unlocked + HOVERED) per compose rules above.
+4. Pressed overlay on top when PRESSED (no `pressed_color` yet).
+
+Custom `layers=` that omit `BackgroundLayer` ignore these fields unless your
+layer reads them.
 
 #### Reading region state: `region_states`, `iter_regions`, `regions()`
 
@@ -303,6 +411,26 @@ btn.actionTriggered.connect(handle_action)
 `action`/`action_data`/`action_callback` on `ButtonRegion` work identically
 whether the button was built via `regions=[...]` or `spec=`/`from_spec(...)`.
 
+### Popup menus (app-owned)
+
+`Button` does not embed dropdown menus (removed in 3.1.0). Open a
+`ContextMenu` from `clicked`; slide distance and duration come from
+`FlyoutTimingConfig` (`dropdown_drop_offset_px`, `flyout_animation_duration_ms`)
+unless you pass `animation_distance` / `animation_duration_ms`:
+
+```python
+from sli_ui_toolkit.widgets import entries_from_labeled_data, popup_context_menu_for_anchor
+
+button = Button(icon="mode")
+button.clicked.connect(
+    lambda: popup_context_menu_for_anchor(
+        button.window(),
+        button,
+        entries_from_labeled_data([("RGB", "rgb"), ("SSIM", "ssim")], current="rgb"),
+    )
+)
+```
+
 Need scroll-wheel-driven behavior on a region? Attach a custom
 `ButtonCapability` that implements `handle_wheel_event()` — see
 [Capability Management](#capability-management) below and the
@@ -354,10 +482,10 @@ Button(
 | `icon_size` | `int` | `22` | Icon pixel size |
 | `content_padding` | `float \| tuple[float, float, float, float]` | `0.0` | Inset (px) applied to the content draw rect only (icon/text/rows), from the edges of the whole button — or of each region's rect when `regions=` is used. A single float applies uniformly to all four sides (CSS-margin-style); a 4-tuple gives independent `(left, top, right, bottom)` insets — needed for e.g. a bottom-only reserve, since a uniform inset has no visible effect on already-centered content. Background, capsule, and hit-test rect are unaffected. |
 | `corner_radius` | `int` | `None` | Corner radius (auto-calculated if None) |
-| `variant` | `str` | `"default"` | Color variant: "default", "surface", "ghost". Deprecated compatibility values warn. |
+| `variant` | `str` | `"default"` | Color variant: "default", "surface", "ghost". Deprecated aliases warn. |
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
 | `defer_click` | `bool` | `False` | Emit `clicked`/`shortClicked` on the next event-loop tick (see [Press animations & blocking handlers](#press-animations--blocking-handlers)) |
-| `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the legacy parameters. |
+| `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the flat constructor params. |
 | `split` | `SplitLayout` | `None` | Geometry strategy for regions: `HorizontalSplit`, `VerticalSplit`, `GridSplit`, or `CustomSplit`. |
 | `divider` | `Divider` | `None` | Optional whole-widget divider between regions. |
 | `spec` | `ButtonSpec` | `None` | Declarative control description. Prefer `Button.from_spec(spec)` for new complex controls. |
@@ -390,9 +518,6 @@ button.rightClicked.connect(on_right_click)
 # Emitted on middle click
 button.middleClicked.connect(on_middle_click)
 
-# Emitted when menu item selected (menu=items only)
-button.menuTriggered.connect(on_menu_item)
-
 # Emitted immediately after clicked (useful for rapid click detection)
 button.shortClicked.connect(on_short_click)
 
@@ -402,7 +527,6 @@ button.regionPressed.connect(lambda region_id: ...)
 button.regionReleased.connect(lambda region_id: ...)
 button.regionToggled.connect(lambda region_id, checked: ...)
 button.regionLongPressed.connect(lambda region_id: ...)
-button.regionMenuTriggered.connect(lambda region_id, data: ...)
 button.actionTriggered.connect(lambda action_id, data: ...)
 ```
 
@@ -450,7 +574,10 @@ button.setRows(rows, compact=False)  # compact=True centers block vertically
 button.setIcon('new_icon_name')
 
 # Colors
-button.set_override_bg_color(QColor('blue'))  # Override background
+button.set_override_bg_color(QColor('blue'))  # Exact base fill (hover still applies)
+button.set_bg_locked(True)                    # Optional: freeze to base only
+button.set_hover_color(QColor(0, 120, 215, 80))
+button.set_hover_compose("stack")             # ambient + local under group=
 
 # Underline
 button.setShowUnderline(True)
@@ -486,27 +613,27 @@ button.set_footer_mode(True)
 
 ```python
 from sli_ui_toolkit.ui.widgets.buttons.capabilities import (
-    ButtonCapability, LongPressCapability, MenuCapability
+    ButtonCapability, LongPressCapability,
 )
 
 # Attach a capability
-button.attach_capability(MenuCapability([("Open", "open")]), region_id="menu")
+button.attach_capability(LongPressCapability(delay_ms=800), region_id="main")
 
 # Get attached capability
-menu_cap = button.get_capability(MenuCapability, region_id="menu")
-if menu_cap:
+lp_cap = button.get_capability(LongPressCapability, region_id="main")
+if lp_cap:
     # ... use capability
 
 # Detach capability
-button.detach_capability(MenuCapability, region_id="menu")
+button.detach_capability(LongPressCapability, region_id="main")
 ```
 
 New controls should usually describe behavior with `ButtonSpec` instead of
-attaching capabilities manually. Direct capability attachment remains supported
-for compatibility and specialized toolkit internals.
+attaching capabilities manually. Direct capability attachment remains available
+for specialized toolkit internals.
 
 `BehaviorSpec` subclasses (`ClickBehavior`, `ToggleBehavior`,
-`LongPressBehavior`, `MenuBehavior`) may carry `action=`, `data=`, and
+`LongPressBehavior`) may carry `action=`, `data=`, and
 `callback=`. When a behavior is triggered, `Button` emits
 `actionTriggered(action_id, data)` and calls the callback if one was supplied.
 
@@ -516,17 +643,6 @@ wheel input on a region — `Button`'s `wheelEvent` duck-types over every
 capability attached to the target region and calls the hook automatically. See
 the "Wheel counter (app-level recipe)" card in `demo/pages/buttons_page.py` for
 a full example (custom capability + custom `Layer` for value rendering).
-
-### Menu Management
-
-```python
-# Set/update menu items
-menu_items = [('Item 1', action1), ('Item 2', action2)]
-button.set_menu_items(menu_items)
-
-# Show menu programmatically
-button.show_menu()
-```
 
 ## ButtonRow API
 
@@ -557,7 +673,6 @@ config = ButtonConfig(
     long_press_ms=600,
     badge=None,
     show_underline=False,
-    menu=None,
     size=(36, 36),
     icon_size=22,
     corner_radius=None,
@@ -580,10 +695,10 @@ Predefined color schemes (use `setVariant()` or `variant=` param):
 "ghost"      # Transparent until hovered
 ```
 
-`"primary"` is a deprecated compatibility alias for `"surface"` and emits
-`DeprecationWarning`. Legacy button widget names such as `AutoRepeatButton`,
-`IconButton`, `ToolButton`, and `ButtonGroupContainer` are compatibility
-lookups only and will be removed in `0.3.0`.
+`"primary"` is a deprecated alias for `"surface"` and emits
+`DeprecationWarning`. Old button widget names such as `AutoRepeatButton`,
+`IconButton`, `ToolButton`, and `ButtonGroupContainer` are lookups only and
+will be removed in `0.3.0`.
 
 ## Density
 
@@ -608,24 +723,26 @@ btn = Button(
 btn.toggled.connect(lambda checked: print(f"Visible: {checked}"))
 ```
 
-### Menu Button
+### Menu Button (ContextMenu)
 
 ```python
+from sli_ui_toolkit.widgets import entries_from_callbacks, popup_context_menu_for_anchor
+
 def on_copy():
     print("Copied!")
 
-def on_paste():
-    print("Pasted!")
-
-btn = Button(
-    icon='edit',
-    menu=[
-        ('Copy', on_copy),
-        ('Paste', on_paste),
-        ('Delete', lambda: print("Deleted!")),
-    ],
+btn = Button(icon='edit')
+btn.clicked.connect(
+    lambda: popup_context_menu_for_anchor(
+        btn.window(),
+        btn,
+        entries_from_callbacks([
+            ('Copy', on_copy),
+            ('Paste', on_paste),
+            ('Delete', lambda: print("Deleted!")),
+        ]),
+    )
 )
-btn.menuTriggered.connect(lambda action: action())
 ```
 
 ### Multi-row Calendar Button
@@ -655,8 +772,9 @@ btn = Button(
     variant='surface',
 )
 
-# Override colors
-btn.set_override_bg_color(QColor('#0066cc'))      # Background
+# Exact brand base; hover overlays stay unless locked
+btn.set_override_bg_color(QColor('#0066cc'))
+# btn.set_bg_locked(True)  # flat chip, no hover
 
 # Add underline
 btn.setShowUnderline(True)
@@ -683,13 +801,11 @@ btn.clicked.connect(lambda: print("Short click"))
 btn.longPressed.connect(on_delete)
 ```
 
-## Backwards Compatibility
-
-Old code still works:
+## Internal timers (advanced)
 
 ```python
-# These still work from button.py attributes
-_lp_timer = btn._lp_timer               # Returns LongPressCapability's timer
+# Long-press timer is owned by LongPressCapability
+_lp_timer = btn._lp_timer
 ```
 
 ## Integration with CalendarDayButton
@@ -701,18 +817,19 @@ day_btn = CalendarDayButton()
 day_btn.set_date(QDate(2026, 6, 1))
 day_btn.set_weekend(True, QColor(100, 150, 255))  # Light blue
 day_btn.set_data(True, QColor(0, 200, 0))        # Has data, green
-
-# New painter architecture handles rendering
 ```
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| Menu not showing | Verify `menu=[(label, action), ...]` param |
+| Popup menu not showing | Wire `button.clicked` → `popup_context_menu_for_anchor` with non-empty entries |
 | Long press not triggering | Increase `long_press_ms` (default 600) |
-| Colors not applying | Use `set_override_bg_color()` or variant |
+| Colors not applying | Prefer `variant=` / `custom_bg_color=` for themed fills; `set_override_bg_color()` for an exact base (add `set_bg_locked(True)` only when you need a flat locked chip) |
+| Unlocked override still shows hover | Call `set_bg_locked(True)` when you need a flat locked chip — unlocked override is exact **base** fill only |
 | Underline not visible | Call `setShowUnderline(True)` |
+| Multi-region button looks empty (no text/icons) | Custom fill with `scope="widget"` paints after `ContentLayer` and covers content — use `scope="region"` for under-content fills (see [Custom layers and paint order](#custom-layers-and-paint-order)); also ensure `layers=` still includes `ContentLayer()` |
+| Dead strip / gap in ripple between regions | Prefer `gap=0` between siblings that share `group=` (best for BackgroundLayer fills). Grouped ripple is painted once over the united group rect, so layout gaps do not punch a hole in the wave (see [Linking regions](#linking-regions-into-one-visual-capsule)) |
 
 ## Press animations & blocking handlers
 

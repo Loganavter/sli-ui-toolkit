@@ -106,8 +106,19 @@ class TranslationManager:
         self._translations = {}
 
     def add_i18n_root(self, path: str | Path) -> None:
-        self._extra_roots.append(Path(path))
-        self._cache.clear()
+        root = Path(path)
+        if root in self._extra_roots:
+            self._cache.clear()
+        else:
+            self._extra_roots.append(root)
+            self._cache.clear()
+        # ``tr(key)`` / ``tr(key, language=current)`` read ``_translations``,
+        # not the cache. Rebuild the live pack so deferred plugin roots
+        # (e.g. export.*) are visible immediately after registration.
+        if self._current_lang:
+            self._translations = self.ensure_loaded(self._current_lang)
+        else:
+            self._translations = {}
 
     def _load_tree(self, lang_dir: Path) -> dict[str, Any]:
         translations: dict[str, Any] = {}

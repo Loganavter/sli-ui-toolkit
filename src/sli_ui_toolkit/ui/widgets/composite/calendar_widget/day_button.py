@@ -62,17 +62,22 @@ class CalendarDayButton(Button):
         if self._is_disabled_export and self._disabled_export_color:
             self.set_background_color(None)
             self.set_override_bg_color(QColor(self._disabled_export_color))
+            self.set_bg_locked(True)
         elif self._checked:
             self.set_background_color(None)
             self.set_override_bg_color(self._theme_manager.get_color("accent"))
+            self.set_bg_locked(True)
         elif self._is_weekend and self._weekend_color:
             self.set_override_bg_color(None)
+            self.set_bg_locked(False)
             self.set_background_color(QColor(self._weekend_color))
         elif self._has_data and self._data_color:
             self.set_override_bg_color(None)
+            self.set_bg_locked(False)
             self.set_background_color(QColor(self._data_color))
         else:
             self.set_override_bg_color(None)
+            self.set_bg_locked(False)
             self.set_background_color(None)
 
     def _on_click(self):

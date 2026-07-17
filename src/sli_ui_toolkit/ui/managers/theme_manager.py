@@ -191,7 +191,6 @@ class ThemeManager(QObject):
             )
             return
 
-        q_palette = dialog.palette()
         color_roles = {
             "Window": QPalette.ColorRole.Window,
             "WindowText": QPalette.ColorRole.WindowText,
@@ -207,14 +206,20 @@ class ThemeManager(QObject):
             "HighlightedText": QPalette.ColorRole.HighlightedText,
         }
 
+        # Re-polish QSS first. unpolish/polish after setPalette() resets the
+        # widget palette back to the pre-theme colors when an application
+        # stylesheet is active (plain QLabel / dialog text then stay light).
+        dialog.style().unpolish(dialog)
+        dialog.style().polish(dialog)
+
+        app = QApplication.instance()
+        q_palette = QPalette(app.palette()) if app is not None else QPalette()
         for name, role in color_roles.items():
             if name in palette_data:
                 color = QColor(palette_data[name])
                 q_palette.setColor(role, color)
 
         dialog.setPalette(q_palette)
-        dialog.style().unpolish(dialog)
-        dialog.style().polish(dialog)
         dialog.updateGeometry()
         dialog.update()
 

@@ -12,6 +12,9 @@ from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 logger = logging.getLogger(__name__)
 
 class IndexedToggleFlyout(BaseFlyout):
+    # Identity for host ``GroupShowPolicy``.
+    flyout_group = "toggle"
+
     def __init__(
         self,
         parent_widget: QWidget,

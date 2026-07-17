@@ -166,19 +166,16 @@ class SunburstChartWidget(QWidget):
 
     @staticmethod
     def _fit_font(text: str, base_size: int, *, bold: bool, max_width: float) -> QFont:
+        from sli_ui_toolkit.ui.managers.ui_font import ui_font
+
         size = base_size
         floor = 6
         while size >= floor:
-            font = QFont()
-            font.setPointSize(size)
-            font.setBold(bold)
+            font = ui_font(point_size=size, bold=bold)
             if QFontMetricsF(font).horizontalAdvance(text) <= max_width:
                 return font
             size -= 1
-        font = QFont()
-        font.setPointSize(floor)
-        font.setBold(bold)
-        return font
+        return ui_font(point_size=floor, bold=bold)
 
     @staticmethod
     def _elide(text: str, font: QFont, max_width: float) -> str:

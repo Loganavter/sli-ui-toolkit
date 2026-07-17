@@ -10,6 +10,9 @@ from sli_ui_toolkit.ui.widgets.composite.context_menu import (
     ContextMenuEntry,
     ContextMenuSection,
     ContextMenuSeparator,
+    entries_from_callbacks,
+    entries_from_labeled_data,
+    popup_context_menu_for_anchor,
     show_context_menu,
 )
 from sli_ui_toolkit.ui.widgets.composite.icon_action_flyout import (
@@ -25,6 +28,7 @@ from sli_ui_toolkit.ui.widgets.composite.log_console_widget import (
     LogConsoleEntry,
     LogConsoleWidget,
 )
+from sli_ui_toolkit.ui.widgets.composite.help_document import HelpDocumentView
 from sli_ui_toolkit.ui.widgets.composite.markdown_help_dialog import (
     MarkdownHelpDialog,
     MarkdownHelpSection,
@@ -46,9 +50,15 @@ from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import (
     IconListItem,
     IconListWidget,
 )
+from sli_ui_toolkit.ui.widgets.composite.top_tab_bar import (
+    TopTabBar,
+    TopTabHost,
+    TopTabItem,
+)
 from sli_ui_toolkit.ui.widgets.composite.toast import ToastAction
 from sli_ui_toolkit.ui.widgets.composite.toast import ToastNotification
 from sli_ui_toolkit.ui.widgets.composite.toast import ToastManager
+from sli_ui_toolkit.ui.widgets.composite.toast import ToastProgressBar
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout import (
     FlyoutMode,
     SimpleUnifiedFlyoutController,
@@ -84,14 +94,21 @@ __all__ = [
     "ContextMenuEntry",
     "ContextMenuSection",
     "ContextMenuSeparator",
+    "entries_from_callbacks",
+    "entries_from_labeled_data",
+    "popup_context_menu_for_anchor",
     "IconAction",
     "IconActionFlyout",
     "DragGhostWidget",
     "IconListItem",
     "IconListWidget",
+    "TopTabBar",
+    "TopTabHost",
+    "TopTabItem",
     "IndexedToggleFlyout",
     "LogConsoleEntry",
     "LogConsoleWidget",
+    "HelpDocumentView",
     "MarkdownHelpDialog",
     "MarkdownHelpSection",
     "NonPropagatingTextEdit",
@@ -104,6 +121,7 @@ __all__ = [
     "ToastAction",
     "ToastNotification",
     "ToastManager",
+    "ToastProgressBar",
     "UnifiedFlyout",
     "UnifiedFlyoutItem",
     "SimpleUnifiedFlyoutStore",

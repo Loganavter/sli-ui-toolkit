@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QPen
+from PySide6.QtGui import QColor, QPen
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import ui_font
 from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 
 from ..context import DrawContext
@@ -23,9 +24,7 @@ class BadgeLayer(Layer):
         widget = ctx.widget
         p = ctx.painter
 
-        f = QFont()
-        f.setBold(True)
-        f.setPixelSize(9)
+        f = ui_font(pixel_size=9, bold=True)
         p.setFont(f)
 
         if not self._has_custom_badge_style(widget):

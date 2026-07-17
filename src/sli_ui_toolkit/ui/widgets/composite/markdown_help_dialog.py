@@ -383,6 +383,10 @@ class MarkdownHelpDialog(QDialog):
                 return index
         return -1
 
+    def navigate_to(self, slug: str, anchor: str | None = None) -> None:
+        """Open a help section by slug and optionally scroll to an in-page anchor."""
+        self._navigate_to_help_target(slug, anchor)
+
     def _navigate_to_help_target(self, slug: str, anchor: str | None = None) -> None:
         index = self._find_section_index(slug)
         if index < 0:

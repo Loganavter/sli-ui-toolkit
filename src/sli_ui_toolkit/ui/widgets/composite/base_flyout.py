@@ -1,11 +1,12 @@
 import math
-from typing import Any
+from typing import Any, Literal
 
 from PySide6.QtCore import (
     QEasingCurve,
     QPoint,
     QPropertyAnimation,
     QRect,
+    QRectF,
     QSize,
     Qt,
 )
@@ -26,6 +27,10 @@ from sli_ui_toolkit.managers import FlyoutManager
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+from sli_ui_toolkit.ui.widgets.buttons.layers.background import rounded_rect_path
+from sli_ui_toolkit.ui.widgets.helpers.rounded_clip import RoundedClipEffect
+
+AnimationAxis = Literal["auto", "vertical", "horizontal"]
 
 
 _H_AXIS = {"left": 0.0, "center": 0.5, "right": 1.0}
@@ -53,7 +58,7 @@ class BaseFlyout(QWidget):
     SHADOW_RADIUS = 8
     CONTENT_RADIUS = 8
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, attach_overlay: bool = True):
         if parent is None:
             raise ValueError("BaseFlyout requires an in-window parent widget")
         super().__init__(parent)
@@ -68,7 +73,9 @@ class BaseFlyout(QWidget):
         # QWidget.hide() here (not self.hide()) to avoid the overridden
         # hide()'s activateWindow()/setFocus() side effects during __init__.
         QWidget.hide(self)
-        self.overlay_layer = attach_in_window_widget(self, parent)
+        self.overlay_layer = (
+            attach_in_window_widget(self, parent) if attach_overlay else None
+        )
         self._anchor_widget: QWidget | None = None
 
         self._main_layout, self.container, self.content_layout = create_shadow_surface(
@@ -76,14 +83,20 @@ class BaseFlyout(QWidget):
             shadow_radius=self.SHADOW_RADIUS,
             container_object_name="FlyoutContainer",
         )
+        # Background + border are painted on the flyout shell; children are clipped
+        # to the same corner radius so row hovers/ripples do not bleed past corners.
+        self.container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        self._container_clip = RoundedClipEffect(self.CONTENT_RADIUS, self.container)
+        self.container.setGraphicsEffect(self._container_clip)
 
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._apply_base_style)
         self._apply_base_style()
 
         self.flyout_manager = FlyoutManager.get_instance()
-        self.flyout_manager.register_flyout(self)
-        self.destroyed.connect(lambda: self.flyout_manager.unregister_flyout(self))
+        if attach_overlay:
+            self.flyout_manager.register_flyout(self)
+            self.destroyed.connect(lambda: self.flyout_manager.unregister_flyout(self))
 
         self._show_animation: QPropertyAnimation | None = None
 
@@ -188,16 +201,20 @@ class BaseFlyout(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         paint_shadowed_surface(
             painter,
             self.container.geometry(),
             shadow_radius=self.SHADOW_RADIUS,
             corner_radius=self.CONTENT_RADIUS,
         )
-        rect = self.container.geometry()
+        rect = QRectF(self.container.geometry())
+        stroke_rect = rect.adjusted(0.5, 0.5, -0.5, -0.5)
+        r = self.CONTENT_RADIUS
+        path = rounded_rect_path(stroke_rect, (r, r, r, r))
         painter.setBrush(QBrush(self.theme_manager.get_color("flyout.background")))
         painter.setPen(QPen(self.theme_manager.get_color("flyout.border"), 1))
-        painter.drawRoundedRect(rect, self.CONTENT_RADIUS, self.CONTENT_RADIUS)
+        painter.drawPath(path)
         painter.end()
 
     def show_aligned(
@@ -210,7 +227,8 @@ class BaseFlyout(QWidget):
         offset: int = 5,
         animation: str = "none",
         animation_duration_ms: int | None = None,
-        animation_distance: int = 24,
+        animation_distance: int | None = None,
+        animation_axis: AnimationAxis = "auto",
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
     ):
         """Align a point on the flyout to a point on ``anchor_widget``.
@@ -232,6 +250,11 @@ class BaseFlyout(QWidget):
         Supported ``animation`` modes:
             * ``"none"`` (default) — appears in place.
             * ``"slide"`` — slides in from the direction opposite to its offset.
+
+        ``animation_axis``:
+            * ``"auto"`` — slide along the anchor→flyout vector (default).
+            * ``"vertical"`` — slide only on Y (dropdown under a toolbar button).
+            * ``"horizontal"`` — slide only on X.
         """
         self._anchor_widget = anchor_widget
         self._ensure_overlay_parent(anchor_widget)
@@ -304,10 +327,16 @@ class BaseFlyout(QWidget):
             self.raise_()
             return
 
+        timings = get_flyout_timings()
         duration = (
             animation_duration_ms
             if animation_duration_ms is not None
-            else get_flyout_timings().flyout_animation_duration_ms
+            else timings.flyout_animation_duration_ms
+        )
+        distance = (
+            animation_distance
+            if animation_distance is not None
+            else timings.dropdown_drop_offset_px
         )
         if self._show_animation is not None:
             self._show_animation.stop()
@@ -315,8 +344,23 @@ class BaseFlyout(QWidget):
             self._show_animation = None
 
         # Slide starts toward the anchor (opposite of push direction).
-        slide_dx = -ux * animation_distance if length > 0 else 0
-        slide_dy = -uy * animation_distance if length > 0 else 0
+        if animation_axis == "vertical":
+            slide_dx = 0
+            slide_dy = (
+                -distance
+                if flyout_center.y() >= anchor_rect.center().y()
+                else distance
+            )
+        elif animation_axis == "horizontal":
+            slide_dy = 0
+            slide_dx = (
+                -distance
+                if flyout_center.x() >= anchor_rect.center().x()
+                else distance
+            )
+        else:
+            slide_dx = -ux * distance if length > 0 else 0
+            slide_dy = -uy * distance if length > 0 else 0
         start_pos = QPoint(
             final_rect.x() + int(round(slide_dx)),
             final_rect.y() + int(round(slide_dy)),
@@ -399,12 +443,22 @@ class BaseFlyout(QWidget):
         anchor = getattr(self, "_anchor_widget", None)
         return (anchor,) if isinstance(anchor, QWidget) else ()
 
+    def restore_focus_on_hide(self) -> bool:
+        """Whether hide() should shove focus back onto the host window.
+
+        Context menus return False: activateWindow/setFocus on Wayland can
+        re-enter focusChanged handlers and visually jerk QRhi canvases.
+        """
+        return True
+
     def hide(self):
         fm = getattr(self, "flyout_manager", None)
         if fm is not None:
             fm.request_hide(self)
         super().hide()
 
+        if not self.restore_focus_on_hide():
+            return
         if self.parent() and self.parent().window():
             self.parent().window().activateWindow()
             self.parent().window().setFocus()
@@ -414,3 +468,15 @@ class BaseFlyout(QWidget):
         if fm is not None:
             fm.request_show(self)
         super().show()
+
+    def raise_(self) -> None:  # noqa: N802 — Qt API
+        super().raise_()
+        fm = getattr(self, "flyout_manager", None)
+        if fm is not None and hasattr(fm, "ensure_overlay_stacking"):
+            # Skip re-entry when we are the context menu being raised by stacking.
+            if getattr(type(self), "flyout_group", None) == "context_menu":
+                return
+            try:
+                fm.ensure_overlay_stacking(raised=self)
+            except Exception:
+                pass

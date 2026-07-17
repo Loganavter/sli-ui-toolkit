@@ -29,8 +29,7 @@ class ColorSwatch(Button):
             parent=parent,
         )
         self._color = initial
-        # Use override_bg_color so the swatch shows the *exact* chosen color
-        # instead of the 18%-alpha tint that derive_custom_palette would apply.
+        # Exact chip color as base; hover overlays remain enabled (bg unlocked).
         self.set_override_bg_color(initial)
         self._dialog: QColorDialog | None = None
         self._alpha = bool(alpha)
