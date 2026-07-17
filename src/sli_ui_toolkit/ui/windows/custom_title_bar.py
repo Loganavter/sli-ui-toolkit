@@ -521,7 +521,35 @@ class CustomTitleBar(QWidget):
 
     def _hide_active_flyouts(self) -> None:
         try:
-            FlyoutManager.get_instance().close_all()
+            from sli_ui_toolkit.managers import FlyoutManager
+
+            mgr = FlyoutManager.get_instance()
+            # Opening a tall in-window context menu (e.g. File with Open/Save
+            # Project) can trigger a host Resize/Move while the menu is being
+            # attached. Closing *all* flyouts here makes the first File/Help
+            # click look like a no-op; keep context menus open.
+            for flyout in list(getattr(mgr, "_registered_flyouts", ())):
+                try:
+                    if not flyout.isVisible():
+                        continue
+                    if getattr(flyout, "flyout_group", None) == "context_menu":
+                        continue
+                    flyout.hide()
+                except RuntimeError:
+                    mgr._registered_flyouts.discard(flyout)
+                except Exception:
+                    continue
+            # Drop active pointer only if it was not a preserved context menu.
+            active = getattr(mgr, "_active_flyout", None)
+            if active is not None:
+                try:
+                    if (
+                        not active.isVisible()
+                        or getattr(active, "flyout_group", None) != "context_menu"
+                    ):
+                        mgr._active_flyout = None
+                except Exception:
+                    mgr._active_flyout = None
         except Exception:
             pass
 

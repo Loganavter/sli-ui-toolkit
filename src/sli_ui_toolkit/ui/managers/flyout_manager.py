@@ -281,17 +281,21 @@ class FlyoutManager(QObject):
                     on_anchor = False
                 # Click on the trigger while the menu is open: dismiss, and
                 # suppress the trigger's ensuing clicked→reopen for this gesture.
+                # Use ONE suppress flag only. Setting both poisons the next
+                # open: release consumes ``_suppress_next_click`` without
+                # clearing ``_suppress_next_context_menu``, so the following
+                # click is a no-op (File/Help CSD menus need two clicks).
                 if on_anchor and not on_body:
+                    is_context_menu = (
+                        getattr(active, "flyout_group", None) == "context_menu"
+                    )
                     for anchor in self._anchor_widgets(active):
                         try:
-                            setattr(anchor, "_suppress_next_context_menu", True)
-                        except Exception:
-                            pass
-                        try:
-                            # Toggle buttons (font settings, interp combo, …)
-                            # emit clicked on release after this press closed
-                            # the flyout — without this they immediately reopen.
-                            setattr(anchor, "_suppress_next_click", True)
+                            if is_context_menu:
+                                setattr(anchor, "_suppress_next_context_menu", True)
+                            else:
+                                # Toggle buttons (font settings, interp combo, …)
+                                setattr(anchor, "_suppress_next_click", True)
                         except Exception:
                             pass
                     try:

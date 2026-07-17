@@ -248,6 +248,11 @@ class _ButtonEvents:
             return
         if getattr(self, "_suppress_next_click", False):
             self._suppress_next_click = False
+            # If a host also armed ``_suppress_next_context_menu`` for the
+            # same gesture, clear it here — otherwise the next click is eaten
+            # by context-menu builders that never saw this suppressed emit.
+            if getattr(self, "_suppress_next_context_menu", False):
+                self._suppress_next_context_menu = False
             return
         self.clicked.emit()
         if not sip.isValid(self):
