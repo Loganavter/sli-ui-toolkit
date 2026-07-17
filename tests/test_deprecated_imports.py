@@ -87,9 +87,9 @@ def test_legacy_button_instance_api_warns(qapp):
 
     button = Button(toggle=True)
 
-    with pytest.warns(DeprecationWarning, match="Button.triggered is deprecated"):
-        legacy_signal = button.triggered
-    assert hasattr(legacy_signal, "connect")
+    # Button.triggered was removed in 3.1.0 with the built-in menu API.
+    with pytest.raises(AttributeError, match="triggered"):
+        _ = button.triggered
     with pytest.warns(DeprecationWarning, match="emit_signal=.*deprecated"):
         button.setChecked(True, emit_signal=False)
     with pytest.warns(DeprecationWarning, match="variant 'primary' is deprecated"):

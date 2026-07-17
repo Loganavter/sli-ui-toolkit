@@ -37,6 +37,9 @@ def test_top_level_in_window_overlay_hosts_arbitrary_widget(qapp, qtbot):
     assert abs(actual_center.x() - expected_center.x()) <= 1
     assert abs(actual_center.y() - expected_center.y()) <= 1
 
+    overlay.dismiss()
+    qtbot.waitUntil(lambda: not overlay.isVisible(), timeout=1000)
+
 
 def test_choice_overlay_stays_as_button_choice_helper(qapp, qtbot):
     host = QWidget()

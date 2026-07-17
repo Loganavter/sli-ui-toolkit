@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from PySide6.QtCore import QPoint
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QSizePolicy
 
@@ -74,7 +75,8 @@ def test_icon_list_widget_paints_icon_pixels(qtbot):
     image = QImage(row.button.size(), QImage.Format.Format_ARGB32)
     image.fill(0)
     painter = QPainter(image)
-    row.button.render(painter)
+    # PySide6 requires targetOffset when rendering into a QPainter.
+    row.button.render(painter, QPoint())
     painter.end()
 
     icon_pixels = 0
