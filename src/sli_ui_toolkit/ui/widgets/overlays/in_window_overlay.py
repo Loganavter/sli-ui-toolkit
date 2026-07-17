@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QWidget
 
 
@@ -75,6 +75,7 @@ class TopLevelInWindowOverlay(QWidget):
         self._filters_installed = False
         self._filter_parent: QWidget | None = None
         self._filter_window: QWidget | None = None
+        self._dismissing = False
         self.hide()
 
     def set_anchor(self, anchor: QWidget | None) -> None:
@@ -147,9 +148,18 @@ class TopLevelInWindowOverlay(QWidget):
         self._install_filters()
 
     def dismiss(self, *, emit_signal: bool = True) -> None:
-        if emit_signal:
-            self.dismissed.emit()
-        self.hide()
+        if self._dismissing:
+            return
+        self._dismissing = True
+        try:
+            # Drop filters before hide so deactivate delivery cannot re-enter.
+            self._remove_filters()
+            if emit_signal:
+                self.dismissed.emit()
+            if self.isVisible():
+                self.hide()
+        finally:
+            self._dismissing = False
 
     def hideEvent(self, event):
         self._remove_filters()
@@ -236,6 +246,29 @@ class TopLevelInWindowOverlay(QWidget):
         self._filter_window = None
         self._filters_installed = False
 
+    def _schedule_dismiss_from_deactivate(self) -> None:
+        """Hide after the current deactivate/focus delivery finishes.
+
+        Calling ``hide()`` synchronously from ``WindowDeactivate`` segfaults in
+        Qt's ``hideChildren`` under PySide6 + offscreen. Drop filters immediately
+        so teardown cannot re-enter ``eventFilter`` on a dying widget.
+        """
+        if self._dismissing or not self.isVisible():
+            return
+        self._remove_filters()
+        QTimer.singleShot(0, self._dismiss_after_deactivate)
+
+    def _dismiss_after_deactivate(self) -> None:
+        try:
+            from shiboken6 import isValid
+        except ImportError:  # pragma: no cover
+            isValid = None  # type: ignore[assignment]
+        if isValid is not None and not isValid(self):
+            return
+        if self._dismissing or not self.isVisible():
+            return
+        self.dismiss()
+
     def keyPressEvent(self, event):
         if self._close_on_escape and event.key() == Qt.Key.Key_Escape:
             self.dismiss()
@@ -251,15 +284,22 @@ class TopLevelInWindowOverlay(QWidget):
         super().mousePressEvent(event)
 
     def eventFilter(self, watched, event):
+        if not self._filters_installed or self._dismissing:
+            return False
         et = event.type()
         if self._close_on_deactivate and et in (
             QEvent.Type.WindowDeactivate,
             QEvent.Type.ApplicationDeactivate,
         ):
-            self.dismiss()
+            # App-wide filter sees every window's deactivate; only our window.
+            if et == QEvent.Type.WindowDeactivate:
+                window = self._filter_window
+                if window is not None and watched is not window:
+                    return False
+            self._schedule_dismiss_from_deactivate()
             return False
         parent = self.parentWidget()
         if parent is not None and watched is parent and et == QEvent.Type.Resize:
             self.setGeometry(parent.rect())
             self.reposition()
-        return super().eventFilter(watched, event)
+        return False

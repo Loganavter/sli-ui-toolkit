@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.1
+
+### Fixed
+- `TopLevelInWindowOverlay`: defer dismiss on window/app deactivate and drop event filters first so PySide6 + offscreen no longer segfaults in `hideChildren` during focus delivery / test teardown.
+- Tests: `Button.triggered` removal assertions for 3.1.0; `IconListWidget` render uses `QPainter` + `QPoint()` for current PySide6 signatures.
+
 ## 3.1.0
 
 ### Removed (breaking)
