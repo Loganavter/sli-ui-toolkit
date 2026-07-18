@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.4
+
+### Added
+- `SimpleOptionsFlyout.row_widget(index)` for Find Action / pulse targeting.
+
+### Fixed
+- `bind_popup_transient_parent`: on Windows, skip `winId()` /
+  `QWindow.setTransientParent` when the host uses `WA_TranslucentBackground`
+  (frameless CSD). Forcing that native link permanently broke DWM alpha for
+  in-window siblings (soft shadows painted as solid black until restart).
+  Wayland still gets an explicit transient parent for xdg_popup placement;
+  Windows relies on `place_popup_at_global` alone.
+
 ## 3.1.3
 
 ### Added

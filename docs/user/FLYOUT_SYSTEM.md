@@ -109,8 +109,13 @@ parent so Wayland can place them at the cursor instead of screen-center. They
 are not registered with `FlyoutManager`. Submenus inherit the parent menu's
 surface.
 
-Improve-ImgSLI opts into popup only in `ContextMenuManager` (canvas / help
-ПКМ). Mode-picker and title-bar menus stay in-window.
+On **Windows**, `bind_popup_transient_parent` does **not** call `winId()` /
+`setTransientParent` when the host is translucent (`WA_TranslucentBackground`,
+typical frameless CSD). That native link poisons DWM alpha for in-window
+siblings of the host. Placement still uses `place_popup_at_global`.
+
+Improve-ImgSLI opts into popup in `ContextMenuManager` (canvas / help ПКМ).
+Mode-picker and title-bar menus stay in-window.
 
 ---
 
@@ -213,6 +218,7 @@ flyout.show_below(combo_anchor, exact_width_match=True)
 | Method | Purpose |
 | --- | --- |
 | `populate(labels, current_index=-1)` | Set items and selection. |
+| `row_widget(index)` | Live row button for Find Action / pulse (or `None`). |
 | `set_max_visible_items(n)` | Cap visible rows before scrolling kicks in. |
 | `set_row_height(h)` | Fixed row height in px. |
 | `set_row_font(f)` | Override row font (use this to fix tiny text on dense parents). |

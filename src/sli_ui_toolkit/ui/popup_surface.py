@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QWidget
@@ -21,12 +23,28 @@ def configure_popup_widget(widget: QWidget) -> None:
     widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
 
+def _ensure_window_handle(widget: QWidget):
+    handle = widget.windowHandle()
+    if handle is not None:
+        return handle
+    # Creating a native window is required on Wayland before transientParent
+    # can be set. Prefer an existing handle when Qt already mapped the widget.
+    widget.winId()
+    return widget.windowHandle()
+
+
 def bind_popup_transient_parent(widget: QWidget, anchor: QWidget | None) -> None:
     """Associate *widget* with *anchor*'s top-level window for Wayland xdg_popup.
 
     Parentless popups are placed by the compositor (often screen-center). Keep
     the QWidget parent and set ``QWindow.transientParent`` explicitly once the
     native handles exist.
+
+    On Windows, do **not** force ``winId()`` / ``setTransientParent`` against a
+    translucent frameless host: that combination permanently breaks DWM alpha
+    compositing for in-window siblings of the host (soft shadows paint as
+    solid black until process restart). Global geometry from
+    ``place_popup_at_global`` is enough there.
     """
     if anchor is None:
         return
@@ -36,12 +54,15 @@ def bind_popup_transient_parent(widget: QWidget, anchor: QWidget | None) -> None
         return
     if host is None or host is widget:
         return
-    # Ensure native windows exist before linking transient parent.
-    host.winId()
-    widget.winId()
+
+    if sys.platform.startswith("win") and host.testAttribute(
+        Qt.WidgetAttribute.WA_TranslucentBackground
+    ):
+        return
+
     try:
-        host_handle = host.windowHandle()
-        popup_handle = widget.windowHandle()
+        host_handle = _ensure_window_handle(host)
+        popup_handle = _ensure_window_handle(widget)
     except RuntimeError:
         return
     if host_handle is None or popup_handle is None:
