@@ -1,4 +1,5 @@
 from sli_ui_toolkit.ui.widgets.buttons.button import Button, ButtonConfig, ButtonRow
+from sli_ui_toolkit.ui.widgets.buttons.content import PixmapContent
 from sli_ui_toolkit.ui.widgets.buttons.button_group import ButtonGroup
 from sli_ui_toolkit.ui.widgets.buttons.regions import (
     ButtonRegion,
@@ -38,6 +39,7 @@ __all__ = [
     "Divider",
     "GridSplit",
     "HorizontalSplit",
+    "PixmapContent",
     "RegionHandle",
     "SingleRegionSplit",
     "VerticalSplit",

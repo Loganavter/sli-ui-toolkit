@@ -112,6 +112,92 @@ def test_custom_title_bar_centers_title_with_asymmetric_leading(qapp):
     bar.deleteLater()
 
 
+def test_custom_title_bar_leading_stays_left_when_balance_grows(qapp):
+    """Language/menu width changes must not shove File/Help inward via left pad."""
+    _register_palettes(qapp)
+    bar = CustomTitleBar(
+        title="Improve ImgSLI",
+        show_minimize=True,
+        show_maximize=True,
+        show_close=True,
+    )
+    narrow = QWidget()
+    narrow.setFixedWidth(40)
+    bar.set_leading(narrow)
+    bar.resize(1000, CustomTitleBar.HEIGHT)
+    bar.show()
+    qapp.processEvents()
+    bar._sync_balance_spacer()
+    qapp.processEvents()
+    assert bar._left_balance.width() > 0
+    assert bar._leading_host.geometry().x() == 0
+
+    wide = QWidget()
+    wide.setFixedWidth(200)
+    bar.set_leading(wide)
+    qapp.processEvents()
+    bar._sync_balance_spacer()
+    qapp.processEvents()
+    assert bar._leading_host.geometry().x() == 0
+    mid = bar._center_host.geometry().center().x()
+    assert abs(mid - bar.width() // 2) <= 1
+    bar.deleteLater()
+
+
+def test_custom_title_bar_recenters_after_menu_strip_relabel(qapp):
+    """Language rebuild used to sync while leading sizeHint was still 0."""
+    _register_palettes(qapp)
+    bar = CustomTitleBar(
+        title="Improve ImgSLI",
+        show_minimize=True,
+        show_maximize=True,
+        show_close=True,
+    )
+    bar.resize(1000, CustomTitleBar.HEIGHT)
+    bar.show()
+    qapp.processEvents()
+
+    bar.set_menu_strip(
+        TitleBarMenuStrip(
+            [
+                TitleBarMenu(
+                    label="File",
+                    icon=_solid_icon("#00ff00"),
+                    entries=[ContextMenuAction("a", "A")],
+                ),
+                TitleBarMenu(
+                    label="Help",
+                    entries=[ContextMenuAction("b", "B")],
+                ),
+            ]
+        )
+    )
+    qapp.processEvents()
+    mid_en = bar._center_host.geometry().center().x()
+    assert abs(mid_en - bar.width() // 2) <= 1
+
+    bar.set_menu_strip(
+        TitleBarMenuStrip(
+            [
+                TitleBarMenu(
+                    label="Файл",
+                    icon=_solid_icon("#00ff00"),
+                    entries=[ContextMenuAction("a", "A")],
+                ),
+                TitleBarMenu(
+                    label="Справка",
+                    entries=[ContextMenuAction("b", "B")],
+                ),
+            ]
+        )
+    )
+    # Deferred balance resync must run with the laid-out strip width.
+    qapp.processEvents()
+    mid_ru = bar._center_host.geometry().center().x()
+    assert abs(mid_ru - bar.width() // 2) <= 1
+    bar.deleteLater()
+
+
 def test_custom_title_bar_title_uses_titlebar_pixel_size(qapp):
     """Regression: titlebar variant must register; get_label_variant used to
     silently fall back to body (12px), so size tweaks never applied."""

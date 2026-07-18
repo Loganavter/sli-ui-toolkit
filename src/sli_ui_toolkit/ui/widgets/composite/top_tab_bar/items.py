@@ -48,7 +48,6 @@ class TabItem:
             return
         spec.text = text
         spec.button.setText(text)
-        spec.button.setToolTip(text)
         spec.button.updateGeometry()
 
     def data(self, role: int = Qt.ItemDataRole.UserRole) -> object | None:

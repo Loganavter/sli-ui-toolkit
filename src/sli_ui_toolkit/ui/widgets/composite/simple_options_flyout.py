@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QRect, QSize, Qt, Signal
 from PySide6.QtGui import QBrush, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
@@ -23,7 +23,7 @@ from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
-from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
+from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout, slide_start_delta
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +88,10 @@ class _SimpleRow(Button):
         self.index = index
         self.text = text
         self.is_current = is_current
+        self._item_height = item_height
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 10, 0)
+        # Accent indicator draws inside the left pad; keep pad tight to the label.
+        layout.setContentsMargins(8, 0, 8, 0)
         self.label = QLabel(text)
         self.label.setFont(item_font)
         self.label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -100,6 +102,19 @@ class _SimpleRow(Button):
             pass
         self._apply_label_style()
         self.clicked.connect(lambda: self.rowClicked.emit(self.index))
+
+    def sizeHint(self) -> QSize:
+        margins = self.layout().contentsMargins() if self.layout() is not None else None
+        pad = (
+            (margins.left() + margins.right())
+            if margins is not None
+            else 16
+        )
+        label_w = self.label.sizeHint().width() if self.label is not None else 0
+        return QSize(max(1, label_w + pad), self._item_height)
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
 
     def _apply_label_style(self):
         font = rebase_font(self.label.font())
@@ -139,7 +154,7 @@ class SimpleOptionsFlyout(BaseFlyout):
         )
 
         self.content_layout.setSpacing(0)
-        self.content_layout.setContentsMargins(4, 4, 4, 4)
+        self.content_layout.setContentsMargins(2, 2, 2, 2)
 
         self._scroll_area = QScrollArea(self.container)
         self._scroll_area.setWidgetResizable(True)
@@ -212,10 +227,17 @@ class SimpleOptionsFlyout(BaseFlyout):
         exact_match: bool = False,
         available_height: int | None = None,
     ):
+        """Size the panel to the longest row, optionally at least ``match_width``.
+
+        ``exact_match`` is kept for ``show_below`` call-site compatibility; when
+        ``match_width`` is set, width is ``max(content, anchor)`` (no 180px floor).
+        """
+        del exact_match
         num = len(self._options)
         spacing = self._rows_layout.spacing()
         outer_margins = self.content_layout.contentsMargins()
         margins_v = outer_margins.top() + outer_margins.bottom()
+        margins_h = outer_margins.left() + outer_margins.right()
 
         if num == 0:
             visible = 1
@@ -235,28 +257,38 @@ class SimpleOptionsFlyout(BaseFlyout):
 
         container_h = content_h + margins_v
 
-        fm = QFontMetrics(self._item_font)
-        max_text_width = 0
-        for text in self._options:
-            w = fm.horizontalAdvance(text)
-            if w > max_text_width:
-                max_text_width = w
+        # Prefer live row sizeHints (label + row pad). Font metrics are a
+        # fallback before rows exist / while updates are disabled mid-populate.
+        content_w = 0
+        for index in range(max(0, self._rows_layout.count() - 1)):
+            row = self._rows_layout.itemAt(index).widget()
+            if row is None:
+                continue
+            content_w = max(content_w, int(row.sizeHint().width()))
+        if content_w <= 0:
+            fm = QFontMetrics(self._item_font)
+            text_w = max(
+                (fm.boundingRect(text).width() for text in self._options),
+                default=0,
+            )
+            content_w = text_w + 16
+        content_w = content_w + margins_h
 
-        final_w = max_text_width + 50
-
-        if exact_match and match_width > 0:
+        if match_width > 0:
             target_container_width = max(1, match_width - (self.MARGIN * 2))
-            width = max(final_w, target_container_width)
-        elif match_width > 0:
-            target_container_width = match_width - (self.MARGIN * 2)
-            min_container_width = max(180, target_container_width)
-            width = max(final_w, min_container_width)
+            width = max(content_w, target_container_width)
         else:
-            width = max(final_w, 180)
+            width = max(1, content_w)
 
         self.container.setFixedSize(width, container_h)
         total_width = width + self.MARGIN * 2
         self.setFixedSize(total_width, container_h + self.MARGIN * 2)
+
+    def show_aligned(self, *args, **kwargs):
+        # Re-fit after populate so BaseFlyout.adjustSize cannot keep a stale
+        # oversized hint from an earlier open.
+        self._update_size()
+        return super().show_aligned(*args, **kwargs)
 
     def show_below(self, anchor_widget: QWidget, exact_width_match: bool = True):
         if self.isVisible() and self._anchor_widget is anchor_widget:
@@ -293,8 +325,11 @@ class SimpleOptionsFlyout(BaseFlyout):
                 else None
             )
             if avail is not None and anchor_rect is not None:
-                space_below = avail.bottom() - anchor_rect.bottom() - offset - gap
-                space_above = anchor_rect.top() - avail.top() - offset - gap
+                # size-based edges (not QRect.bottom()/top() inclusive pixels)
+                anchor_top_edge = anchor_rect.y()
+                anchor_bottom_edge = anchor_rect.y() + anchor_rect.height()
+                space_below = avail.bottom() - anchor_bottom_edge - offset - gap
+                space_above = anchor_top_edge - avail.top() - offset - gap
                 budget = max(space_below, space_above)
                 self._update_size(
                     match_width=anchor_width,
@@ -306,8 +341,10 @@ class SimpleOptionsFlyout(BaseFlyout):
 
             position = "bottom"
             if avail is not None and anchor_rect is not None:
-                if (anchor_rect.bottom() + offset + self.height()) > avail.bottom() - gap \
-                        and (anchor_rect.top() - offset - self.height()) >= avail.top() + gap:
+                anchor_top_edge = anchor_rect.y()
+                anchor_bottom_edge = anchor_rect.y() + anchor_rect.height()
+                if (anchor_bottom_edge + offset + self.height()) > avail.bottom() - gap \
+                        and (anchor_top_edge - offset - self.height()) >= avail.top() + gap:
                     position = "top"
             rect = self._overlay_rect_relative_to_anchor(
                 anchor_widget,
@@ -316,38 +353,46 @@ class SimpleOptionsFlyout(BaseFlyout):
                 offset=offset,
             )
             final_x = rect.x()
-            final_y = rect.y()
             total_width, total_height = self.width(), self.height()
+            # Recompute Y with size-based edges — place_surface_rect still uses
+            # inclusive QRect.bottom()/top() and lands 1px into the anchor.
+            if anchor_rect is not None:
+                if position == "bottom":
+                    final_y = anchor_rect.y() + anchor_rect.height() + offset
+                else:
+                    final_y = anchor_rect.y() - offset - total_height
+            else:
+                final_y = rect.y()
         else:
             parent_widget = self.parentWidget()
             use_parent_coords = parent_widget is not None and not self.isWindow()
-            anchor_top_pos = (
-                anchor_widget.mapTo(parent_widget, anchor_widget.rect().topLeft())
-                if use_parent_coords
-                else anchor_widget.mapToGlobal(anchor_widget.rect().topLeft())
-            )
-            anchor_bottom_pos = (
-                anchor_widget.mapTo(parent_widget, anchor_widget.rect().bottomLeft())
-                if use_parent_coords
-                else anchor_widget.mapToGlobal(anchor_widget.rect().bottomLeft())
-            )
-            anchor_center_x = (
-                anchor_widget.mapTo(parent_widget, anchor_widget.rect().center()).x()
-                if use_parent_coords
-                else anchor_widget.mapToGlobal(anchor_widget.rect().center()).x()
-            )
+
+            def _map(point: QPoint) -> QPoint:
+                if use_parent_coords:
+                    return anchor_widget.mapTo(parent_widget, point)
+                return anchor_widget.mapToGlobal(point)
+
+            # Prefer size-based edges. QRect.bottomLeft() is the inclusive
+            # last pixel (height-1) and short-changes clearance by 1px.
+            anchor_top_left = _map(QPoint(0, 0))
+            anchor_size = anchor_widget.size()
+            anchor_bottom_y = anchor_top_left.y() + max(1, anchor_size.height())
+            anchor_top_y = anchor_top_left.y()
+            anchor_center_x = _map(anchor_widget.rect().center()).x()
 
             if use_parent_coords:
                 avail = parent_widget.rect()
             else:
                 try:
-                    screen = anchor_widget.screen() or QGuiApplication.screenAt(anchor_bottom_pos)
+                    screen = anchor_widget.screen() or QGuiApplication.screenAt(
+                        QPoint(anchor_top_left.x(), anchor_bottom_y)
+                    )
                     avail = screen.availableGeometry()
                 except Exception:
                     avail = QGuiApplication.primaryScreen().availableGeometry()
 
-            space_below = avail.bottom() - anchor_bottom_pos.y() - offset - gap
-            space_above = anchor_top_pos.y() - avail.top() - offset - gap
+            space_below = avail.bottom() - anchor_bottom_y - offset - gap
+            space_above = anchor_top_y - avail.top() - offset - gap
             budget = max(space_below, space_above)
             self._update_size(
                 match_width=anchor_width,
@@ -357,17 +402,32 @@ class SimpleOptionsFlyout(BaseFlyout):
             total_width, total_height = self.width(), self.height()
 
             if space_below >= total_height or space_below >= space_above:
-                final_y = anchor_bottom_pos.y() + offset
+                final_y = anchor_bottom_y + offset
             else:
-                final_y = anchor_top_pos.y() - offset - total_height
+                final_y = anchor_top_y - offset - total_height
             final_x = int(anchor_center_x - total_width / 2) + 2
 
             final_x = max(avail.left(), min(final_x, avail.right() - total_width))
             final_y = max(avail.top(), min(final_y, avail.bottom() - total_height))
+            anchor_rect = QRect(anchor_top_left, anchor_size)
 
-        start_pos, end_pos = QPoint(final_x, final_y - self._drop_offset_px), QPoint(
-            final_x, final_y
-        )
+        end_pos = QPoint(final_x, final_y)
+        final_rect = QRect(end_pos, QSize(total_width, total_height))
+        if anchor_rect is None:
+            # Overlay path without geometry — fall back to unclamped drop.
+            start_pos = QPoint(final_x, final_y - self._drop_offset_px)
+        else:
+            dx, dy = slide_start_delta(
+                final_rect,
+                anchor_rect,
+                distance=self._drop_offset_px,
+                animation_axis="vertical",
+                shadow_radius=self.SHADOW_RADIUS,
+                ux=0.0,
+                uy=1.0,
+                length=1.0,
+            )
+            start_pos = QPoint(final_x + dx, final_y + dy)
 
         self.move(start_pos)
 

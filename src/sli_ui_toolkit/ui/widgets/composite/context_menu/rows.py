@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QBrush, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -75,6 +75,7 @@ class _RowBgLayer(Layer):
         states = ctx.effective_states
         return (
             widget._submenu_open
+            or widget.isChecked()
             or ButtonState.HOVERED in states
             or ButtonState.PRESSED in states
         )
@@ -97,8 +98,30 @@ class _RowBgLayer(Layer):
         p.drawPath(rounded_rect_path(rect, (tl, tr, br, bl)))
 
 
+class _CurrentIndicatorLayer(Layer):
+    """Left accent bar for the current (checked) picker row — matches SimpleOptionsFlyout."""
+
+    def applies(self, ctx) -> bool:
+        widget = ctx.widget
+        return bool(widget.isEnabled() and widget.isChecked())
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        rect = ctx.rect.toRect()
+        pen = QPen(tm.get_color("accent"))
+        pen.setWidth(3)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p = ctx.painter
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(pen)
+        x = rect.left() + pen.width()
+        p.drawLine(x, rect.top() + 7, x, rect.bottom() - 7)
+
+
 class _RowContentLayer(Layer):
     _DISABLED_OPACITY = 0.4
+    # Match combobox secondary/hint text: readable but clearly subordinate.
+    _SHORTCUT_ALPHA_DARK = 140
+    _SHORTCUT_ALPHA_LIGHT = 120
 
     def draw(self, ctx, tm: ThemeManager) -> None:
         widget = ctx.widget
@@ -116,10 +139,6 @@ class _RowContentLayer(Layer):
             p.setOpacity(self._DISABLED_OPACITY)
 
         x = widget._check_gutter
-        if widget._check_icon is not None:
-            icon_rect = QRect(10, (rect.height() - 16) // 2, 16, 16)
-            p.drawPixmap(icon_rect, widget._check_icon)
-
         if widget._icon_pixmap is not None:
             icon_rect = QRect(x, (rect.height() - widget.ICON_SIZE) // 2, widget.ICON_SIZE, widget.ICON_SIZE)
             p.drawPixmap(icon_rect, widget._icon_pixmap)
@@ -140,7 +159,12 @@ class _RowContentLayer(Layer):
         p.drawText(x, text_y, display_text)
 
         if widget._shortcut_text:
-            shortcut_color = tm.get_color("ButtonText")
+            shortcut_color = QColor(text_color)
+            shortcut_color.setAlpha(
+                self._SHORTCUT_ALPHA_DARK
+                if tm.is_dark()
+                else self._SHORTCUT_ALPHA_LIGHT
+            )
             p.setPen(QPen(shortcut_color))
             sc_width = fm.horizontalAdvance(widget._shortcut_text)
             p.drawText(rect.width() - _ROW_H_PADDING - sc_width, text_y, widget._shortcut_text)
@@ -166,17 +190,17 @@ class ContextMenuRow(Button):
             text="",
             size=(0, self.ROW_HEIGHT),
             corner_radius=5,
-            layers=[_RowBgLayer(), RippleLayer(), _RowContentLayer()],
+            toggle=bool(action.checkable),
+            layers=[_RowBgLayer(), RippleLayer(), _CurrentIndicatorLayer(), _RowContentLayer()],
             parent=parent,
         )
         self._text = action.text
         self._danger = action.danger
         self._has_children = bool(action.children)
         self._check_gutter = check_gutter
-        self._check_icon = (
-            normalized_icon_pixmap("check", 16) if action.checkable and action.checked else None
+        self._icon_pixmap = (
+            normalized_icon_pixmap(action.icon, self.ICON_SIZE) if action.icon else None
         )
-        self._icon_pixmap = normalized_icon_pixmap(action.icon, self.ICON_SIZE) if action.icon else None
         self._shortcut_text = "" if action.children else _shortcut_display_text(action.shortcut)
         self._trailing_width = 0
         if self._shortcut_text:
@@ -188,6 +212,8 @@ class ContextMenuRow(Button):
         self.position = "only"
         self.action_id = action.action_id
         self.setEnabled(action.enabled)
+        if action.checkable:
+            self.setChecked(bool(action.checked), emit=False)
         if action.tooltip:
             self.setToolTip(action.tooltip)
         self.refresh_metrics()

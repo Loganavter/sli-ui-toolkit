@@ -230,6 +230,8 @@ or `parent` — those apply to the whole `Button`, not one region.
 | `icon` | `Any` | `None` |
 | `text` | `str` | `""` |
 | `rows` | `list[ButtonRow] \| None` | `None` |
+| `pixmap` | `QPixmap \| QImage \| path \| None` | `None` — photographic cover for the region (preferred over `icon=` for photos) |
+| `image_fill` | `"cover" \| "contain" \| "stretch"` | `"cover"` — how `pixmap` scales into the region rect |
 | `toggle` | `bool` | `False` |
 | `long_press` | `bool` | `False` |
 | `long_press_ms` | `int` | `600` |
@@ -239,8 +241,8 @@ or `parent` — those apply to the whole `Button`, not one region.
 | `action_callback` | `Callable[[str, Any], None] \| None` | `None` |
 | `badge` | `int \| str \| None` | `None` |
 | `variant` | `str \| None` | `None` |
-| `custom_bg_color` | `QColor \| None` | `None` |
-| `override_bg_color` | `QColor \| None` | `None` — **exact base** fill (not a freeze); see Background sources |
+| `custom_bg_color` | `QColor \| None` | `None` — **tint seed**, not an opaque fill; see [Background sources](#background-sources) |
+| `override_bg_color` | `QColor \| None` | `None` — **exact opaque base** fill (not a freeze); see [Background sources](#background-sources) |
 | `override_border_color` | `QColor \| None` | `None` |
 | `hover_color` | `QColor \| None` | `None` — local hover overlay; `None` → standard theme/custom hover |
 | `hover_compose` | `"replace" \| "stack"` | `"replace"` — one hover layer; `"stack"` → ambient + local under `group=` |
@@ -252,11 +254,54 @@ or `parent` — those apply to the whole `Button`, not one region.
 | `rect_fn` | `RectFn \| None` | `None` |
 | `path_fn` | `PathFn \| None` | `None` |
 | `z_index` | `int` | `0` |
-| `corner_radii` | `tuple[int, int, int, int] \| None` | `None` |
+| `corner_radii` | `tuple[int, int, int, int] \| None` | `None` — rounds the region **background**; when `pixmap=` is set, also **clips** the image (crop radii) |
 | `group` | `str \| None` | `None` |
 
 Note that `checked` is **not** a `ButtonRegion` field — a region's checked
 state is runtime-only (see below), not part of its static config.
+
+#### Cover / thumbnail images
+
+Use `pixmap=` + `image_fill=` for scene previews and other photos. Do **not**
+stuff a `QPixmap` into `icon=` — `IconContent` always draws a centered square
+glyph at `icon_size`.
+
+```python
+from PySide6.QtGui import QPixmap
+from sli_ui_toolkit.widgets import Button, ButtonRegion, ButtonRow, VerticalSplit
+
+thumb = QPixmap("preview.jpg")
+card = Button(
+    regions=[
+        ButtonRegion(
+            id="cover",
+            pixmap=thumb,
+            image_fill="cover",
+            corner_radii=(10, 10, 0, 0),  # fill + image crop
+            weight=2.0,
+            group="card",
+        ),
+        ButtonRegion(
+            id="text",
+            rows=[
+                ButtonRow(text="Project", size=13, weight="bold"),
+                ButtonRow(text="2h ago", size=11),
+            ],
+            weight=1.0,
+            group="card",
+            corner_radii=(0, 0, 10, 10),
+        ),
+    ],
+    split=VerticalSplit(),
+    size=(168, 120),
+    corner_radius=10,
+)
+# Spec-editable at runtime:
+card.update_region("cover", pixmap=new_thumb, corner_radii=(12, 12, 0, 0))
+```
+
+`pixmap` content fills the **full region rect** (ignores button
+`content_padding`). Glyph `icon`/`rows` still respect padding.
 
 #### Background sources
 
@@ -266,8 +311,44 @@ overlays:
 | Mechanism | Base | Hover / pressed |
 |-----------|------|-----------------|
 | `variant=` | Theme tokens | Theme hover/pressed (or `hover_color` if set) |
-| `custom_bg_color=` | Derived tint palette normal | Derived hover/pressed, or `hover_color` |
-| `override_bg_color=` | **Exact** pixel color | Same as variant overlays (unlocked), unless locked |
+| `custom_bg_color=` / `set_background_color()` | Derived **tint** palette normal | Derived hover/pressed, or `hover_color` |
+| `override_bg_color=` / `set_override_bg_color()` | **Exact** pixel color (opaque if you pass opaque) | Same as variant overlays (unlocked), unless locked |
+
+##### `custom_bg_color` is a tint, not a solid chip
+
+Passing a color into `custom_bg_color=` (ctor / region) or
+`set_background_color()` does **not** paint that RGB as an opaque fill.
+`derive_custom_palette()` turns it into a low-alpha tint over whatever shows
+through the button:
+
+| Variant | Idle (`normal`) alpha | Notes |
+|---------|----------------------|--------|
+| `default` | ~18% of the seed color | No own border |
+| `surface` | ~18% + ~40% tint border | Card-like separation |
+| `ghost` | idle transparent; hover/pressed tint | |
+
+So the seed is a **hue/value hint for a translucent wash**, composited over the
+host surface (page, shelf, dialog body). Consequences that surprise people:
+
+- A **darker** seed darkens the host — usually readable.
+- A **lighter** seed barely lightens the host — often looks like “color did
+  nothing”, especially on an already light shelf.
+- Matching the parent’s lightness and expecting a raised/lowered chip will
+  fail; you only get a faint wash.
+
+**When you need an opaque chip** that is literally lighter or darker than the
+parent (toolbar on a tinted panel, header controls on a rounded shelf, etc.),
+use `override_bg_color=` / `set_override_bg_color(color)` with the exact
+`QColor` you want. That path skips tint derivation and paints the color as the
+base layer.
+
+```python
+# Wrong for “lighter than shelf”: becomes ~18% alpha wash → almost invisible
+button.set_background_color(shelf.lighter(108))
+
+# Right: opaque base; hover/pressed overlays still apply unless bg_locked
+button.set_override_bg_color(shelf.lighter(108))
+```
 
 `set_override_bg_color(color)` matches `override_bg_color`: it is an exact
 **base**, not a kill-switch. Interactive overlays remain unless you call
@@ -574,7 +655,8 @@ button.setRows(rows, compact=False)  # compact=True centers block vertically
 button.setIcon('new_icon_name')
 
 # Colors
-button.set_override_bg_color(QColor('blue'))  # Exact base fill (hover still applies)
+button.set_background_color(QColor('#4488ff'))  # Tint seed (~18% wash), not opaque
+button.set_override_bg_color(QColor('blue'))  # Exact opaque base (hover still applies)
 button.set_bg_locked(True)                    # Optional: freeze to base only
 button.set_hover_color(QColor(0, 120, 215, 80))
 button.set_hover_compose("stack")             # ambient + local under group=
@@ -656,7 +738,28 @@ row = ButtonRow(
     color=QColor('blue'),                       # Text color (optional)
     ratio=0.5,                                  # Height fraction of button
     h_align=Qt.AlignmentFlag.AlignHCenter,     # Horizontal alignment
+    marquee=False,                              # Loop left→right when text overflows
 )
+```
+
+When ``marquee=True`` and the painted text is wider than the row, `Button`
+scrolls that **single** row left→right via the shared
+[`marquee_text`](../helpers) helper (default **30 logical px/s**, matching
+Android `TextView` `MARQUEE_DP_PER_SECOND`; HTML ``<marquee>`` default is ~70
+px/s and feels too fast for titles). Active marquee rows ignore horizontal
+``content_padding`` and crawl edge-to-edge in the region (static rows still
+respect padding). Do **not** marquee composite status lines such as
+``"just now · Image Compare"`` — put the overflowing label on its own row
+instead. Short text is unchanged (no animation).
+
+For ``QLabel`` / toolkit ``Label`` use the same helper:
+
+```python
+from sli_ui_toolkit.widgets import Label, apply_marquee
+
+Label("Long title…", marquee=True, elide=False)
+# or later:
+apply_marquee(any_qlabel)
 ```
 
 ## ButtonConfig API
@@ -825,7 +928,8 @@ day_btn.set_data(True, QColor(0, 200, 0))        # Has data, green
 |-------|----------|
 | Popup menu not showing | Wire `button.clicked` → `popup_context_menu_for_anchor` with non-empty entries |
 | Long press not triggering | Increase `long_press_ms` (default 600) |
-| Colors not applying | Prefer `variant=` / `custom_bg_color=` for themed fills; `set_override_bg_color()` for an exact base (add `set_bg_locked(True)` only when you need a flat locked chip) |
+| Colors not applying | Prefer `variant=` / `custom_bg_color=` for themed **tints**; `set_override_bg_color()` for an exact opaque base (add `set_bg_locked(True)` only when you need a flat locked chip) |
+| Chip won’t go lighter than parent | `set_background_color` / `custom_bg_color` is a ~18% alpha tint — it darkens hosts but barely lightens them. Use `set_override_bg_color()` for an opaque lighter/darker chip (see [Background sources](#background-sources)) |
 | Unlocked override still shows hover | Call `set_bg_locked(True)` when you need a flat locked chip — unlocked override is exact **base** fill only |
 | Underline not visible | Call `setShowUnderline(True)` |
 | Multi-region button looks empty (no text/icons) | Custom fill with `scope="widget"` paints after `ContentLayer` and covers content — use `scope="region"` for under-content fills (see [Custom layers and paint order](#custom-layers-and-paint-order)); also ensure `layers=` still includes `ContentLayer()` |

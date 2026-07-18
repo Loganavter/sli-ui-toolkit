@@ -247,6 +247,131 @@ def test_help_document_double_click_selects_word(qapp, qtbot):
     view.deleteLater()
 
 
+def test_help_document_double_click_drag_extends_by_words(qapp, qtbot):
+    """After double-click, holding and dragging grows selection word-by-word."""
+    from PySide6.QtCore import QPointF
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(640, 200)
+    view.show()
+    view.set_markdown("Hello world paragraph more.\n")
+    qapp.processEvents()
+    canvas = _canvas(view)
+    text = canvas.plain_text()
+    hello = text.index("Hello")
+    hello_end = hello + len("Hello")
+    world_end = text.index("world") + len("world")
+    more_end = text.index("more") + len("more")
+
+    canvas._sel_anchor = hello
+    canvas._sel_focus = hello_end
+    canvas._word_anchor = (hello, hello_end)
+    canvas._word_selecting = True
+    canvas._press_pos = QPointF(40.0, 20.0)
+    canvas._dragging = True
+
+    canvas._extend_word_selection(world_end - 1)
+    selected = canvas.selected_plain_text()
+    assert selected.startswith("Hello")
+    assert "world" in selected
+
+    canvas._extend_word_selection(more_end - 1)
+    selected = canvas.selected_plain_text()
+    assert "Hello" in selected and "world" in selected
+    assert "paragraph" in selected and "more" in selected
+    view.deleteLater()
+
+
+def test_segment_bounds_at_offset_selects_paragraph():
+    from sli_ui_toolkit.ui.widgets.composite.help_document.text_index import (
+        segment_bounds_at_offset,
+    )
+
+    blocks = parse_help_blocks(
+        "First paragraph here.\n\nSecond paragraph there.\n"
+    )
+    index = build_text_index(blocks)
+    first = index.text.index("First")
+    second = index.text.index("Second")
+    a, b = segment_bounds_at_offset(index, first + 3)
+    assert index.text[a:b] == "First paragraph here."
+    c, d = segment_bounds_at_offset(index, second + 2)
+    assert index.text[c:d] == "Second paragraph there."
+
+
+def test_help_document_triple_click_selects_paragraph(qapp, qtbot):
+    from PySide6.QtCore import QPoint, Qt
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(640, 240)
+    view.show()
+    view.set_markdown("Hello world paragraph.\n\nAnother block.\n")
+    qapp.processEvents()
+    canvas = _canvas(view)
+    pos = QPoint(40, 20)
+    # Three rapid clicks (QTest.mouseDClick skips intermediate presses).
+    for _ in range(3):
+        qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
+    qapp.processEvents()
+    selected = canvas.selected_plain_text()
+    assert selected == "Hello world paragraph."
+    view.deleteLater()
+
+
+def test_help_document_triple_click_after_double_click_window(qapp, qtbot):
+    """Third click still selects paragraph when armed from double-click."""
+    from PySide6.QtCore import QPoint, Qt
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(640, 240)
+    view.show()
+    view.set_markdown("Hello world paragraph.\n\nAnother block.\n")
+    qapp.processEvents()
+    canvas = _canvas(view)
+    pos = QPoint(40, 20)
+    qtbot.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
+    qapp.processEvents()
+    assert canvas.selected_plain_text() in ("Hello", "world", "paragraph.")
+    # Double-click arms count=2; one more click within the generous window.
+    qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
+    qapp.processEvents()
+    assert canvas.selected_plain_text() == "Hello world paragraph."
+    view.deleteLater()
+
+
+def test_help_document_triple_click_drag_extends_by_paragraphs(qapp, qtbot):
+    """After triple-click, holding and dragging grows selection by segment."""
+    from PySide6.QtCore import QPointF
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(640, 320)
+    view.show()
+    view.set_markdown("First paragraph here.\n\nSecond paragraph there.\n")
+    qapp.processEvents()
+    canvas = _canvas(view)
+    text = canvas.plain_text()
+    first_start = text.index("First")
+    first_end = first_start + len("First paragraph here.")
+    second_end = text.index("there.") + len("there.")
+
+    canvas._sel_anchor = first_start
+    canvas._sel_focus = first_end
+    canvas._paragraph_anchor = (first_start, first_end)
+    canvas._paragraph_selecting = True
+    canvas._press_pos = QPointF(40.0, 20.0)
+    canvas._dragging = True
+
+    canvas._extend_paragraph_selection(second_end - 1)
+    selected = canvas.selected_plain_text()
+    assert "First paragraph here." in selected
+    assert "Second paragraph there." in selected
+    view.deleteLater()
+
+
 def test_help_document_single_click_does_not_select_word(qapp, qtbot):
     from PySide6.QtCore import QPoint, Qt
 
@@ -446,3 +571,171 @@ def test_help_document_figure_left_floats_with_text(qapp, qtbot):
     assert canvas._layout.pixmaps
     assert canvas._layout.text_fragments
     view.deleteLater()
+
+
+def test_help_document_figure_width_percent_scales_to_column(qapp, qtbot, tmp_path):
+    from PySide6.QtGui import QColor, QImage
+
+    img_path = tmp_path / "shot.png"
+    image = QImage(40, 20, QImage.Format.Format_RGBA8888)
+    image.fill(QColor(20, 40, 60))
+    assert image.save(str(img_path))
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.show()
+    view.resize(400, 480)
+    qapp.processEvents()
+    view.set_markdown(
+        ":::figure{side=block width=75%}\n"
+        f"![x]({img_path.as_posix()})\n"
+        "Cap\n"
+        ":::\n"
+    )
+    qapp.processEvents()
+    canvas = _canvas(view)
+    # Force a known content width after the widget is visible.
+    canvas.resize(400, 480)
+    canvas._relayout()
+    qapp.processEvents()
+    assert canvas._layout.pixmaps
+    frag = canvas._layout.pixmaps[0]
+    expected_w = int(round(canvas._layout.width * 0.75))
+    assert frag.rect.width() == pytest.approx(expected_w, abs=2)
+    assert frag.rect.height() == pytest.approx(expected_w / 2.0, abs=2)
+    assert frag.rect.x() == pytest.approx(0.0, abs=1.0)
+    view.deleteLater()
+
+
+def test_help_document_figure_height_px_keeps_aspect(qapp, qtbot, tmp_path):
+    from PySide6.QtGui import QColor, QImage
+
+    img_path = tmp_path / "shot.png"
+    image = QImage(320, 180, QImage.Format.Format_RGBA8888)
+    image.fill(QColor(20, 40, 60))
+    assert image.save(str(img_path))
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.show()
+    view.resize(500, 480)
+    qapp.processEvents()
+    view.set_markdown(
+        ":::figure{side=block height=90}\n"
+        f"![x]({img_path.as_posix()})\n"
+        "Cap\n"
+        ":::\n"
+    )
+    qapp.processEvents()
+    canvas = _canvas(view)
+    canvas.resize(500, 480)
+    canvas._relayout()
+    qapp.processEvents()
+    frag = canvas._layout.pixmaps[0]
+    assert frag.rect.height() == pytest.approx(90, abs=2)
+    assert frag.rect.width() == pytest.approx(160, abs=2)
+    assert frag.rect.x() == pytest.approx(0.0, abs=1.0)
+    view.deleteLater()
+
+
+def test_help_document_figure_click_opens_lightbox(qapp, qtbot, tmp_path):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QColor, QImage
+    from PySide6.QtTest import QTest
+
+    from sli_ui_toolkit.ui.widgets.composite.help_document.image_lightbox import (
+        HelpImageLightbox,
+    )
+
+    img_path = tmp_path / "shot.png"
+    image = QImage(120, 80, QImage.Format.Format_RGBA8888)
+    image.fill(QColor(10, 20, 30))
+    assert image.save(str(img_path))
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(480, 400)
+    view.show()
+    qapp.processEvents()
+    view.set_markdown(
+        ":::figure{side=block height=80}\n"
+        f"![x]({img_path.as_posix()})\n"
+        "Cap\n"
+        ":::\n"
+    )
+    qapp.processEvents()
+    canvas = _canvas(view)
+    canvas.resize(480, 360)
+    canvas._relayout()
+    qapp.processEvents()
+    assert canvas._layout.pixmaps
+    frag = canvas._layout.pixmaps[0]
+    click = frag.rect.center().toPoint()
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, click)
+    qapp.processEvents()
+
+    host = view.window()
+    lightbox = host.findChild(HelpImageLightbox)
+    assert lightbox is not None
+    assert lightbox.isVisible()
+    # Without CSD chrome the overlay fills the host content rect.
+    assert lightbox.y() == 0
+    assert lightbox.height() == host.height()
+
+    # Middle-mouse drag pans without dismissing.
+    before = lightbox._pan
+    QTest.mousePress(
+        lightbox, Qt.MouseButton.MiddleButton, Qt.KeyboardModifier.NoModifier, QPoint(40, 40)
+    )
+    QTest.mouseMove(lightbox, QPoint(70, 55))
+    QTest.mouseRelease(
+        lightbox, Qt.MouseButton.MiddleButton, Qt.KeyboardModifier.NoModifier, QPoint(70, 55)
+    )
+    qapp.processEvents()
+    assert lightbox.isVisible()
+    assert lightbox._pan != before
+
+    QTest.mouseClick(lightbox, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(8, 8))
+    qapp.processEvents()
+    assert not lightbox.isVisible()
+    view.deleteLater()
+
+
+def test_help_image_lightbox_skips_csd_title_bar(qapp, qtbot, tmp_path):
+    from PySide6.QtGui import QColor, QImage
+    from PySide6.QtWidgets import QMainWindow
+    from PySide6.QtTest import QTest
+
+    from sli_ui_toolkit.ui.windows.custom_title_bar import CustomTitleBar
+    from sli_ui_toolkit.ui.widgets.composite.help_document.image_lightbox import (
+        HelpImageLightbox,
+    )
+
+    class _Host(QMainWindow):
+        pass
+
+    host = _Host()
+    qtbot.addWidget(host)
+    host.resize(640, 480)
+    title = CustomTitleBar(host)
+    title.setParent(host)
+    title.setGeometry(0, 0, 640, CustomTitleBar.HEIGHT)
+    title.show()
+    host._csd_title_bar = title
+    host.show()
+    qapp.processEvents()
+
+    img = QImage(64, 32, QImage.Format.Format_RGBA8888)
+    img.fill(QColor(1, 2, 3))
+    path = tmp_path / "a.png"
+    assert img.save(str(path))
+    pix = __import__("PySide6.QtGui", fromlist=["QPixmap"]).QPixmap(str(path))
+
+    box = HelpImageLightbox(host)
+    box.show_pixmap(pix)
+    qapp.processEvents()
+    assert box.y() == CustomTitleBar.HEIGHT
+    assert box.height() == host.height() - CustomTitleBar.HEIGHT
+    assert title.isVisible()
+    box.dismiss()
+    host.deleteLater()

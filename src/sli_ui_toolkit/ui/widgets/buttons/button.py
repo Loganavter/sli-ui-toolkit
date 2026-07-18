@@ -42,9 +42,11 @@ from .content import (
     ButtonRow,
     IconContent,
     IconTextContent,
+    PixmapContent,
     RowsContent,
     TextContent,
 )
+from sli_ui_toolkit.ui.widgets.helpers.marquee_text import ensure_marquee_driver
 from .controller import ButtonController
 from .context import DrawContext
 from .events import _ButtonEvents
@@ -160,7 +162,11 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         layers: list[Layer] | None = None,
         parent: QWidget | None = None,
     ):
-        super().__init__(parent)
+        # Call QWidget directly. Cooperative ``super()`` through the non-QObject
+        # mixins (WheelScrollPolicyMixin / style / events) can return NULL from
+        # the Shiboken ``__init__`` wrapper on Python 3.14+ (SystemError, then
+        # segfault when a ContextMenuRow is built for a title-bar menu).
+        QWidget.__init__(self, parent)
 
         if config is not None:
             icon = config.icon
@@ -304,6 +310,8 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         self._capabilities: list[ButtonCapability] = []
         self._capability_map: dict[tuple[type, str], ButtonCapability] = {}
         self._controller = ButtonController(self)
+        # Shared marquee phase/timer; activated by RowsContent when a row overflows.
+        ensure_marquee_driver(self)
 
         if long_press:
             self.attach_capability(LongPressCapability(delay_ms=long_press_ms))
@@ -581,6 +589,12 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         rows = region.rows or []
         if rows:
             return RowsContent(rows=rows, compact=self._rows_compact)
+        pixmap = getattr(region, "pixmap", None)
+        if pixmap is not None:
+            return PixmapContent(
+                pixmap=pixmap,
+                image_fill=getattr(region, "image_fill", "cover") or "cover",
+            )
         icon = region.icon
         if isinstance(icon, (tuple, list)) and len(icon) >= 2:
             icon_unchecked, icon_checked = icon[0], icon[1]
@@ -724,6 +738,12 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
                     changed = True
         if changed:
             self.update()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        driver = getattr(self, "_marquee_driver", None)
+        if driver is not None:
+            driver.set_active(False)
+        super().hideEvent(event)
 
     def paintEvent(self, event):
         painter = QPainter(self)

@@ -122,6 +122,23 @@ btn = Button(
     split=HorizontalSplit(),
 )
 
+# Photographic cover (scene thumbnails) — pixmap fills the region; corner_radii
+# also clips the image. Prefer this over icon=QIcon(pixmap).
+btn = Button(
+    regions=[
+        ButtonRegion(
+            id="cover",
+            pixmap=thumb_pixmap,
+            image_fill="cover",
+            corner_radii=(10, 10, 0, 0),
+            group="card",
+        ),
+        ButtonRegion(id="text", rows=[...], group="card"),
+    ],
+    split=VerticalSplit(),
+)
+btn.update_region("cover", pixmap=new_thumb, corner_radii=(12, 12, 0, 0))
+
 # Arbitrary path-shaped regions are supported through path_fn/z_index
 btn = Button(
     regions=[
@@ -268,7 +285,7 @@ Public names:
 | `ContextMenuSeparator` | Separator model. |
 | `ContextMenuSection` | Group of entries with optional disabled title. |
 | `ContextMenuBuilder` | Chainable builder for common menus. |
-| `entries_from_labeled_data(items, current=..., checkable=...)` | Build checkable picker entries from `[(label, data), ...]`. |
+| `entries_from_labeled_data(items, current=..., checkable=...)` | Build picker entries from `[(label, data), ...]`; current row is highlighted (no check glyph). |
 | `entries_from_callbacks(items)` | Build command entries from `[(label, callback_or_data), ...]`. |
 | `popup_context_menu_for_anchor(parent, anchor, entries, ...)` | Anchor-aligned dropdown (replaces removed `Button.menu` / `DropdownMenu`). |
 | `show_context_menu(parent, global_pos, entries, on_triggered=...)` | Convenience function that builds and pops up a menu. |
@@ -308,6 +325,7 @@ custom = Label(
 | `color` / `color_token` | Explicit `QColor` or `ThemeManager` token. |
 | `alignment` | Qt alignment flags. |
 | `elide` | Elide overflowing text with an ellipsis. |
+| `marquee` | Scroll overflowing text left→right in a loop (wins over `elide`). Also: `apply_marquee(qlabel)`. |
 | `minimum_width` | Minimum width used by size hints. |
 | `expanding` | Use an expanding horizontal size policy. |
 | `word_wrap` | Enable wrapped multiline text. |

@@ -143,6 +143,92 @@ def test_context_menu_submenu_and_trigger_signal(qtbot):
     assert not menu.isVisible()
 
 
+def test_context_menu_flips_above_when_below_does_not_fit(qtbot):
+    """Near the window bottom, flip above the anchor instead of sliding over it."""
+    from PySide6.QtCore import QPoint
+
+    from sli_ui_toolkit.config import configure_toolkit
+
+    configure_toolkit(context_menu_surface="in_window")
+    parent = QWidget()
+    parent.resize(480, 200)
+    qtbot.addWidget(parent)
+    parent.show()
+
+    anchor = QWidget(parent)
+    anchor.setGeometry(64, 150, 120, 28)
+    anchor.show()
+
+    menu = ContextMenu(
+        parent,
+        entries=(
+            ContextMenuAction("sort.date", "По дате"),
+            ContextMenuAction("sort.name", "По имени"),
+        ),
+    )
+    menu.show_aligned(
+        anchor,
+        anchor_point="bottom-left",
+        flyout_point="top-left",
+        offset=2,
+        animation="none",
+    )
+    qtbot.wait(10)
+
+    anchor_top = anchor.mapToGlobal(QPoint(0, 0)).y()
+    panel_bottom = menu.container.mapToGlobal(
+        QPoint(0, menu.container.height())
+    ).y()
+    # Opaque panel should sit above the button, not through its center.
+    assert panel_bottom <= anchor_top + 1
+    menu.hide()
+
+
+def test_context_menu_bottom_left_aligns_visible_panel(qtbot):
+    """Shadow halo must not shift the opaque panel right of the anchor."""
+    from PySide6.QtCore import QPoint
+
+    from sli_ui_toolkit.config import configure_toolkit
+
+    configure_toolkit(context_menu_surface="in_window")
+    parent = QWidget()
+    parent.resize(480, 360)
+    qtbot.addWidget(parent)
+    parent.show()
+
+    anchor = QWidget(parent)
+    anchor.setGeometry(64, 48, 120, 28)
+    anchor.show()
+
+    menu = ContextMenu(
+        parent,
+        entries=(
+            ContextMenuAction("sort.date", "По дате"),
+            ContextMenuAction("sort.name", "По имени"),
+        ),
+    )
+    menu.show_aligned(
+        anchor,
+        anchor_point="bottom-left",
+        flyout_point="top-left",
+        offset=2,
+        animation="none",
+    )
+    qtbot.wait(10)
+
+    anchor_left = anchor.mapToGlobal(QPoint(0, 0)).x()
+    panel_left = menu.container.mapToGlobal(QPoint(0, 0)).x()
+    assert abs(panel_left - anchor_left) <= 1
+
+    anchor_bottom = anchor.mapToGlobal(QPoint(0, anchor.height())).y()
+    panel_top = menu.container.mapToGlobal(QPoint(0, 0)).y()
+    # offset=2 + shadow=8 → opaque panel clears the button; outer top ≥ button bottom.
+    assert panel_top >= anchor_bottom + 2
+    assert panel_top <= anchor_bottom + 2 + menu.SHADOW_RADIUS + 1
+    assert menu.mapToGlobal(QPoint(0, 0)).y() >= anchor_bottom
+    menu.hide()
+
+
 def test_context_menu_relayout_after_font_change(qtbot):
     from PySide6.QtGui import QFont, QFontMetrics
     from PySide6.QtCore import Qt

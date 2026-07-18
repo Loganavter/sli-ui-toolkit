@@ -98,6 +98,8 @@ class TimelineWidget(QWidget):
         self.HEAD_LINE_WIDTH = 2
         self.HANDLE_WIDTH = 14
         self.HANDLE_HEIGHT = 10
+        # Hit slop for selection edge handles (help: «ручки выделения»).
+        self.SELECTION_EDGE_HIT_PX = 8
 
         self._zoom_level = 1.0
         self._last_min_zoom = 1.0
@@ -116,6 +118,12 @@ class TimelineWidget(QWidget):
         self._drag_index = 0
         self._is_selecting = False
         self._has_selection = False
+        # "resize_lo" | "resize_hi" | "move" | None — edit an existing range
+        # without recreating it via Shift+drag.
+        self._selection_edit_mode: str | None = None
+        self._selection_edit_origin_frame = 0
+        self._selection_edit_lo0 = 0
+        self._selection_edit_hi0 = 0
 
         self._mouse_down = False
         self._press_pos = None
@@ -297,6 +305,7 @@ class TimelineWidget(QWidget):
         self._drag_index = 0
         self._has_selection = False
         self._is_selecting = False
+        self._selection_edit_mode = None
         self._mouse_down = False
         self._press_pos = None
         self._press_frame = 0

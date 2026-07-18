@@ -75,8 +75,12 @@ def _resolve_tooltip_text(watched, event) -> str:
 
 class _TooltipInterceptor(QObject):
     def eventFilter(self, watched, event):
+        # App-level filters can see non-QObject watched (e.g. QRhi); never
+        # forward those to QObject.eventFilter — PySide rejects the call.
+        if not isinstance(watched, QObject):
+            return False
         if not _should_handle_tooltip_widget(watched):
-            return super().eventFilter(watched, event)
+            return False
         tooltip_text = _resolve_tooltip_text(watched, event)
 
         if event.type() == QEvent.Type.ToolTip and tooltip_text:
@@ -96,12 +100,14 @@ class _TooltipInterceptor(QObject):
             QEvent.Type.Wheel,
         ):
             PathTooltip.get_instance().hide_tooltip()
-        return super().eventFilter(watched, event)
+        return False
 
 class _ApplicationTooltipInterceptor(QObject):
     def eventFilter(self, watched, event):
+        if not isinstance(watched, QObject):
+            return False
         if not _should_handle_tooltip_widget(watched):
-            return super().eventFilter(watched, event)
+            return False
 
         tooltip_text = _resolve_tooltip_text(watched, event)
         if event.type() == QEvent.Type.ToolTip and tooltip_text:
@@ -123,7 +129,7 @@ class _ApplicationTooltipInterceptor(QObject):
             QEvent.Type.WindowDeactivate,
         ):
             PathTooltip.get_instance().hide_tooltip()
-        return super().eventFilter(watched, event)
+        return False
 
 def _should_handle_tooltip_widget(watched) -> bool:
     if not isinstance(watched, QWidget):

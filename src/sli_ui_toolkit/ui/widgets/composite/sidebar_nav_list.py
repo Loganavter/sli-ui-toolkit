@@ -227,7 +227,6 @@ class _ListItem:
             return
         spec.text = text
         spec.button.setText(text)
-        spec.button.setToolTip(text)
 
     def setIcon(self, icon: object) -> None:
         spec = self._spec
@@ -445,7 +444,6 @@ class IconListWidget(QWidget):
         )
         button.setMinimumWidth(0)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        button.setToolTip(spec.text)
         row = _RowSpec(
             text=spec.text,
             icon=icon,

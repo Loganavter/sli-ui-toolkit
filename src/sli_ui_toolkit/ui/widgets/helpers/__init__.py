@@ -1,3 +1,9 @@
+from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
+    MarqueeDriver,
+    apply_marquee,
+    draw_marquee_text,
+    ensure_marquee_driver,
+)
 from sli_ui_toolkit.ui.widgets.helpers.editable_text import (
     apply_editable_text_behavior,
 )
@@ -21,13 +27,17 @@ from sli_ui_toolkit.ui.widgets.helpers.wheel_scroll_policy import (
 )
 
 __all__ = [
+    "MarqueeDriver",
     "UnderlineConfig",
     "WheelScrollPolicyMixin",
     "apply_editable_text_behavior",
+    "apply_marquee",
     "calculate_anchored_dropdown_geometry",
     "calculate_centered_overlay_geometry",
     "draw_bottom_underline",
+    "draw_marquee_text",
     "draw_rounded_shadow",
+    "ensure_marquee_driver",
     "RoundedClipEffect",
     "hover_coordinator",
     "register_hover_widget",

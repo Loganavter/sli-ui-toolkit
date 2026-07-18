@@ -32,6 +32,7 @@ class PixmapFragment:
     rect: QRectF
     pixmap: QPixmap | None
     alt: str
+    source_path: str = ""
 
 
 @dataclass(frozen=True, slots=True)

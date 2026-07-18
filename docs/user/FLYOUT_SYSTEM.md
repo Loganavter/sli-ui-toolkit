@@ -135,17 +135,37 @@ flyout, or use one of the prebuilt composites below.
 
 ### Placement: `show_aligned`
 
-`show_aligned` aligns a point on the **flyout** to a point on the **anchor**.
-Both `anchor_point` and `flyout_point` are strings combining a vertical token
-(`top` / `center` / `bottom`) and a horizontal token (`left` / `center` /
-`right`); order doesn't matter, missing axis defaults to `center`.
+`show_aligned` aligns a point on the **visible flyout panel** to a point on
+the **anchor**. Both `anchor_point` and `flyout_point` are strings combining a
+vertical token (`top` / `center` / `bottom`) and a horizontal token (`left` /
+`center` / `right`); order doesn't matter, missing axis defaults to `center`.
+
+`flyout_point` is measured on the opaque container **inside** the drop-shadow
+halo (`SHADOW_RADIUS` on each side). Aligning the outer widget's `top-left`
+would leave the panel shifted right/down by the shadow margin — that is why
+`popup_context_menu_for_anchor(..., anchor_point="bottom-left",
+flyout_point="top-left")` lines the menu panel up with the button, not the
+shadow bitmap.
 
 Default `anchor_point="bottom-center"`, `flyout_point="top-center"` → flyout
 sits directly under the anchor, horizontally centered.
 
-`offset` is the visible gap in pixels between the anchor edge and the rendered
-flyout edge along the natural axis between the two points (the shadow radius is
-subtracted internally so the visual gap matches what you ask for).
+`offset` is the visible gap in pixels between the **anchor edge** and the
+**outer flyout bounds** (including the drop-shadow halo). Content-point
+alignment is then shifted by ``offset + SHADOW_RADIUS`` on the opening axis
+so the opaque panel clears the anchor and the shadow does not paint over the
+trigger button. The legacy `position=` path still subtracts `SHADOW_RADIUS`
+when placing the outer widget rect.
+
+Slide-in animation uses the same shadow inset: the start position is clamped
+so the **opaque panel** does not begin inside the anchor (a raw
+``final_y - dropdown_drop_offset_px`` start looks like a drop from the middle
+of a short toolbar button).
+
+If the preferred side does not fit (e.g. a dropdown near the bottom of the
+window), placement **flips** to the opposite vertical side — same policy as
+`place_surface_rect("bottom")` — instead of sliding the menu up over the
+anchor.
 
 Shorter `position=` forms are also accepted: `"top"`, `"bottom"`, `"left"`,
 `"right"`, plus the corner variants (deprecated alias of the point API).
@@ -196,7 +216,7 @@ flyout.show_below(combo_anchor, exact_width_match=True)
 | `set_max_visible_items(n)` | Cap visible rows before scrolling kicks in. |
 | `set_row_height(h)` | Fixed row height in px. |
 | `set_row_font(f)` | Override row font (use this to fix tiny text on dense parents). |
-| `show_below(anchor, exact_width_match=True)` | Convenience over `show_aligned`. |
+| `show_below(anchor, exact_width_match=True)` | Width at least the anchor (grows for long labels); centers under the combo. Prefer `show_aligned(..., bottom-left/top-left)` for narrow toolbar buttons. Content-only opens (`populate` + `show_aligned`) size to the longest label — no 180px floor. |
 
 ### IconActionFlyout
 

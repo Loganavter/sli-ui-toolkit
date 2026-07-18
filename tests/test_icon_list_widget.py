@@ -149,12 +149,12 @@ def test_icon_list_widget_rows_expand_without_text_minimum(qapp):
 
     assert row.button.minimumWidth() == 0
     assert row.button.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
-    assert row.button.toolTip() == long_text
+    assert row.button.toolTip() == ""
 
-    updated_text = "Updated long navigation entry that still needs a tooltip"
+    updated_text = "Updated long navigation entry without a duplicate tooltip"
     item.setText(updated_text)
 
-    assert row.button.toolTip() == updated_text
+    assert row.button.toolTip() == ""
 
 
 def test_nav_row_content_elides_text_to_available_width(qapp):

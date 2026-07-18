@@ -3,11 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QColor, QFontMetrics
+from PySide6.QtGui import QColor, QFontMetrics, QPainter
 from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
+from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
+    draw_marquee_text,
+    ensure_marquee_driver,
+    text_overflows,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,7 @@ class LabelConfig:
         Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
     )
     elide: bool | None = None
+    marquee: bool | None = None
     minimum_width: int | None = None
     expanding: bool | None = None
     word_wrap: bool | None = None
@@ -109,6 +115,7 @@ class Label(QLabel):
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
         ),
         elide: bool | None = None,
+        marquee: bool | None = None,
         minimum_width: int | None = None,
         expanding: bool | None = None,
         word_wrap: bool | None = None,
@@ -128,6 +135,7 @@ class Label(QLabel):
             color_token = config.color_token
             alignment = config.alignment
             elide = config.elide
+            marquee = config.marquee
             minimum_width = config.minimum_width
             expanding = config.expanding
             word_wrap = config.word_wrap
@@ -145,6 +153,7 @@ class Label(QLabel):
         self._color_override = QColor(color) if color is not None else None
         self._color_token_override = color_token
         self._elide_override = elide
+        self._marquee_enabled = bool(marquee) if marquee is not None else False
         self._minimum_width_override = minimum_width
         self._expanding_override = expanding
         self._word_wrap_override = word_wrap
@@ -225,6 +234,20 @@ class Label(QLabel):
         self._preferred_width_cache = None
         self.updateGeometry()
 
+    def setMarquee(self, enabled: bool) -> None:
+        self._marquee_enabled = bool(enabled)
+        if self._marquee_enabled:
+            ensure_marquee_driver(self)
+        else:
+            driver = getattr(self, "_marquee_driver", None)
+            if driver is not None:
+                driver.set_active(False)
+        self._update_elided_text()
+        self.update()
+
+    def marquee(self) -> bool:
+        return bool(getattr(self, "_marquee_enabled", False))
+
     def setText(self, text: str) -> None:
         self._original_text = text
         self._preferred_width_cache = None
@@ -242,6 +265,46 @@ class Label(QLabel):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._update_elided_text()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        driver = getattr(self, "_marquee_driver", None)
+        if driver is not None:
+            driver.set_active(False)
+        super().hideEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        if not self._marquee_enabled:
+            super().paintEvent(event)
+            return
+        text = self._original_text or ""
+        rect = self.contentsRect()
+        fm = QFontMetrics(self.font())
+        if not text_overflows(fm, text, rect.width()):
+            driver = getattr(self, "_marquee_driver", None)
+            if driver is not None:
+                driver.set_active(False)
+            super().paintEvent(event)
+            return
+
+        driver = ensure_marquee_driver(self)
+        driver.set_active(True)
+        # Keep full text in the QLabel buffer so style metrics stay honest,
+        # but paint the marquee ourselves.
+        if self.text() != text:
+            QLabel.setText(self, text)
+        painter = QPainter(self)
+        # Let the style draw the chrome/background first.
+        from PySide6.QtWidgets import QStyle, QStyleOption
+
+        opt = QStyleOption()
+        opt.initFrom(self)
+        self.style().drawPrimitive(
+            QStyle.PrimitiveElement.PE_Widget, opt, painter, self
+        )
+        painter.setFont(self.font())
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        draw_marquee_text(painter, rect, text, driver.phase)
+        painter.end()
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
@@ -346,6 +409,12 @@ class Label(QLabel):
         return get_label_variant(self._variant_name).elide
 
     def _update_elided_text(self) -> None:
+        # Marquee owns overflow presentation — never elide while it is on.
+        if self._marquee_enabled:
+            if self.text() != self._original_text:
+                super().setText(self._original_text)
+            return
+
         if not self._uses_elide() or not self._original_text:
             if self.text() != self._original_text:
                 super().setText(self._original_text)

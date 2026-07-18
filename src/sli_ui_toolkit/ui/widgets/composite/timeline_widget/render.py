@@ -691,6 +691,17 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
         fill = QColor(accent)
         fill.setAlpha(45)
         painter.fillRect(QRectF(x_start, 0, max(0.0, min(x_end, content_right) - x_start), footer_top), fill)
+        # Edge handles so the range can be resized / moved after Shift+drag.
+        handle = QColor(accent)
+        handle.setAlpha(220)
+        edge_w = 2.0
+        painter.fillRect(QRectF(x_start - edge_w * 0.5, 0, edge_w, footer_top), handle)
+        painter.fillRect(QRectF(x_end - edge_w * 0.5, 0, edge_w, footer_top), handle)
+        grip_h = 10.0
+        grip_w = 6.0
+        grip_y = max(2.0, (widget.STRIP_HEIGHT - grip_h) * 0.5)
+        painter.fillRect(QRectF(x_start - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
+        painter.fillRect(QRectF(x_end - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
     draw_footer_and_ruler(widget, painter, width=content_right, content_start_x=content_start_x, footer_height=footer_height_val, footer_top=footer_top, scrollbar_strip_top=scrollbar_strip_top, ruler_top=ruler_top, ruler_bottom=ruler_bottom, scroll_offset=scroll_offset, viewport_width=content_viewport_width, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x, is_dark=is_dark, footer_bg=footer_bg, sep_strong=sep_strong, sep_soft=sep_soft, grid_col=grid_col, text_col=text_col, sb_idle=sb_idle, sb_hover=sb_hover)
     x_head = timeline_viewport.visual_pos_from_index(widget, widget._scrub_visual_index if widget._scrub_visual_index is not None else widget._visual_index)
     timeline_primitives.draw_playhead(widget, painter, x_head=x_head, footer_top=footer_top, width=content_right)
