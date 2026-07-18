@@ -41,3 +41,11 @@ def hit_test_link(layout: LayoutResult, pos: QPointF) -> str | None:
             if link.rect.contains(local):
                 return link.href
     return None
+
+
+def hit_test_pixmap(layout: LayoutResult, pos: QPointF) -> str | None:
+    """Return the source asset path for a help figure under *pos*, if any."""
+    for frag in reversed(layout.pixmaps):
+        if frag.rect.contains(pos) and frag.source_path:
+            return frag.source_path
+    return None

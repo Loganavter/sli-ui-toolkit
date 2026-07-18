@@ -112,6 +112,11 @@ from sli_ui_toolkit.ui.widgets.overlays import (
     TopLevelInWindowOverlay,
 )
 from sli_ui_toolkit.ui.widgets.themed import ThemedWidget
+from sli_ui_toolkit.ui.widgets.helpers import (
+    apply_marquee,
+    draw_marquee_text,
+    MarqueeDriver,
+)
 from sli_ui_toolkit.style import (
     WidgetStyleTokens,
     read_widget_style,
@@ -170,6 +175,9 @@ __all__ = [
     "Label",
     "LabelConfig",
     "LabelVariantSpec",
+    "MarqueeDriver",
+    "apply_marquee",
+    "draw_marquee_text",
     "DragGhostWidget",
     "IconAction",
     "IconActionFlyout",

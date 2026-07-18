@@ -27,6 +27,11 @@ class ButtonRegion:
     icon: Any = None
     text: str = ""
     rows: list[ButtonRow] | None = None
+    # Photographic cover/contain image for the region (not a square glyph).
+    # When set, Button paints PixmapContent instead of IconContent. ``corner_radii``
+    # also clips this image (crop radii). Prefer over ``icon=QIcon(pixmap)``.
+    pixmap: Any = None
+    image_fill: str = "cover"  # "cover" | "contain" | "stretch"
     toggle: bool = False
     long_press: bool = False
     long_press_ms: int = 600

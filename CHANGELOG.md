@@ -1,8 +1,30 @@
 # Changelog
 
-## 3.1.2
+## 3.1.3
+
+### Added
+- Timeline selection edge handles (resize) and middle drag (move) for Shift+drag ranges.
+- `HelpDocumentView` image lightbox for figure clicks.
+- Button pixmap / marquee text content helpers for dense toolbar rows.
+- Flyout slide-start and `SimpleOptionsFlyout` width sizing improvements.
 
 ### Fixed
+- App-level tooltip interceptors: ignore non-`QObject` watched targets (e.g. `QRhi`) instead of calling `QObject.eventFilter` — prevents `TypeError` / `QWidget returned NULL` when opening dialogs over an RHI canvas.
+- `CustomTitleBar._clear_zone`: hide + detach widgets before `deleteLater` so a replaced `TitleBarMenuStrip` cannot paint on the first show frame (ghost menu labels).
+- `TitleBarMenuStrip.remasure()`: no deferred balance `singleShot` (that second layout after the first paint left a translucent ghost of «Справка» between File and Help); full title-bar `repaint()` after width changes.
+- `CustomTitleBar._schedule_balance_resync`: while hidden, sync immediately instead of deferring past first show.
+- `TitleBarMenuStrip.remasure()` + host call sites: recompute File/Help widths after the UI font is applied so Cyrillic labels are not sized with a fallback face.
+- `IconTextContent`: set the paint font before measuring text width (Cyrillic advances no longer collapse on the first paint).
+
+## 3.1.2
+
+### Changed
+- `IconListWidget`: navigation rows no longer set label text as a tooltip (labels still elide; hover no longer repeats the visible caption).
+
+### Fixed
+- `CustomTitleBar`: window-control cluster uses a fixed width so min/max/close no longer overlap when the bar is squeezed.
+- `TitleBarMenuStrip` / `CustomTitleBar`: remasure on `FontChange` as well as `ApplicationFontChange` (Qt delivers the former after `QApplication.setFont`); menu trigger width gets a small slack so labels like «Файл» do not clip.
+- `SimpleOptionsFlyout`: size from live row `sizeHint` (label + tight pad), not font-advance + 180px floor / extra clearance — ModePicker panels stay close to the longest label.
 - `CustomTitleBar`: host Resize/Move no longer calls `FlyoutManager.close_all()` — keep `flyout_group=context_menu` open so tall File/Help menus are not dismissed on first open.
 - `FlyoutManager`: anchor-dismiss sets only one suppress flag (`_suppress_next_context_menu` for context menus, `_suppress_next_click` otherwise). Setting both poisoned the next open (second click required).
 - `Button._emit_click_signals`: clearing `_suppress_next_click` also clears a paired `_suppress_next_context_menu` left from older dual-flag dismiss paths.

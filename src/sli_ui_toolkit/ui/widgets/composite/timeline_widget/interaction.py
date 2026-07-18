@@ -6,6 +6,80 @@ from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from . import layout as timeline_layout
 from . import viewport as timeline_viewport
 
+
+def _clamp_frame(widget, frame: int) -> int:
+    last = max(0, int(widget._total_frames) - 1)
+    return max(0, min(int(frame), last))
+
+
+def _selection_bounds(widget) -> tuple[int, int] | None:
+    if not widget._has_selection:
+        return None
+    lo = min(int(widget._anchor_index), int(widget._drag_index))
+    hi = max(int(widget._anchor_index), int(widget._drag_index))
+    return lo, hi
+
+
+def selection_hit_zone(widget, x: float) -> str | None:
+    """Return ``resize_lo``, ``resize_hi``, ``move``, or ``None`` for *x*."""
+    bounds = _selection_bounds(widget)
+    if bounds is None:
+        return None
+    lo, hi = bounds
+    x_lo = float(timeline_viewport.frame_to_pos(widget, lo))
+    x_hi = float(timeline_viewport.frame_to_pos(widget, hi))
+    if x_lo > x_hi:
+        x_lo, x_hi = x_hi, x_lo
+    hit = float(getattr(widget, "SELECTION_EDGE_HIT_PX", 8))
+    # Degenerate / tiny ranges: prefer edge hits over body move.
+    if abs(x_hi - x_lo) <= hit * 2:
+        mid = (x_lo + x_hi) * 0.5
+        return "resize_lo" if float(x) <= mid else "resize_hi"
+    if abs(float(x) - x_lo) <= hit:
+        return "resize_lo"
+    if abs(float(x) - x_hi) <= hit:
+        return "resize_hi"
+    if x_lo < float(x) < x_hi:
+        return "move"
+    return None
+
+
+def _apply_selection_edit(widget, frame: int) -> None:
+    mode = widget._selection_edit_mode
+    if mode is None:
+        return
+    frame = _clamp_frame(widget, frame)
+    lo0 = int(widget._selection_edit_lo0)
+    hi0 = int(widget._selection_edit_hi0)
+    last = max(0, int(widget._total_frames) - 1)
+
+    if mode == "resize_lo":
+        lo = min(frame, hi0)
+        hi = hi0
+    elif mode == "resize_hi":
+        lo = lo0
+        hi = max(frame, lo0)
+    elif mode == "move":
+        delta = frame - int(widget._selection_edit_origin_frame)
+        width = hi0 - lo0
+        lo = lo0 + delta
+        hi = hi0 + delta
+        if lo < 0:
+            hi -= lo
+            lo = 0
+        if hi > last:
+            lo -= hi - last
+            hi = last
+        lo = max(0, lo)
+        hi = min(last, max(lo, lo + width if width > 0 else lo))
+    else:
+        return
+
+    widget._anchor_index = int(lo)
+    widget._drag_index = int(hi)
+    widget._has_selection = True
+
+
 def mouse_press_event(widget, event):
     if event.button() != Qt.MouseButton.LeftButton:
         return
@@ -58,8 +132,32 @@ def mouse_press_event(widget, event):
     widget._mouse_down = True
     widget._press_pos = event.pos()
     widget._press_frame = frame
+    widget._selection_edit_mode = None
 
     shift_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+    edit_zone = None if shift_pressed else selection_hit_zone(widget, x)
+    if edit_zone is not None:
+        bounds = _selection_bounds(widget)
+        assert bounds is not None
+        lo, hi = bounds
+        widget._selection_edit_mode = edit_zone
+        widget._selection_edit_origin_frame = frame
+        widget._selection_edit_lo0 = lo
+        widget._selection_edit_hi0 = hi
+        widget._is_selecting = False
+        widget._has_selection = True
+        if edit_zone == "resize_lo":
+            widget.setCursor(Qt.CursorShape.SizeHorCursor)
+        elif edit_zone == "resize_hi":
+            widget.setCursor(Qt.CursorShape.SizeHorCursor)
+        else:
+            widget.setCursor(Qt.CursorShape.SizeAllCursor)
+        widget.set_current_frame(frame)
+        widget.headMoved.emit(widget._current_index)
+        widget.update()
+        event.accept()
+        return
+
     if shift_pressed:
         widget._is_selecting = True
         widget._has_selection = True
@@ -74,6 +172,7 @@ def mouse_press_event(widget, event):
     widget.set_current_frame(frame)
     widget.headMoved.emit(widget._current_index)
     widget.update()
+
 
 def mouse_move_event(widget, event):
     if widget._sb_dragging:
@@ -111,17 +210,36 @@ def mouse_move_event(widget, event):
         return
 
     timeline_viewport.update_hover_tooltip(widget, event.pos())
+    hover_x = max(widget.LEFT_GUTTER, event.pos().x())
     if timeline_layout.group_toggle_hit(widget, event.pos()) is not None:
         widget.setCursor(Qt.CursorShape.PointingHandCursor)
     elif timeline_viewport.is_on_gutter_handle(widget, event.pos().x()):
         widget.setCursor(Qt.CursorShape.SplitHCursor)
+    elif widget._selection_edit_mode in {"resize_lo", "resize_hi"}:
+        widget.setCursor(Qt.CursorShape.SizeHorCursor)
+    elif widget._selection_edit_mode == "move":
+        widget.setCursor(Qt.CursorShape.SizeAllCursor)
     else:
-        widget.unsetCursor()
+        zone = selection_hit_zone(widget, hover_x)
+        if zone in {"resize_lo", "resize_hi"}:
+            widget.setCursor(Qt.CursorShape.SizeHorCursor)
+        elif zone == "move":
+            widget.setCursor(Qt.CursorShape.SizeAllCursor)
+        else:
+            widget.unsetCursor()
 
     if event.buttons() & Qt.MouseButton.LeftButton:
         scrub_x = max(widget.LEFT_GUTTER, event.pos().x())
         frame = timeline_viewport.pos_to_frame(widget, scrub_x)
         widget._scrub_visual_index = float(frame)
+
+        if widget._selection_edit_mode is not None:
+            _apply_selection_edit(widget, frame)
+            widget.set_current_frame(frame)
+            widget.headMoved.emit(widget._current_index)
+            widget.update()
+            return
+
         shift_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if (
             shift_pressed
@@ -143,12 +261,14 @@ def mouse_move_event(widget, event):
         widget.headMoved.emit(widget._current_index)
         widget.update()
 
+
 def leave_event(widget, event):
     widget.unsetCursor()
     widget._tooltip_timer.stop()
     widget._hover_tooltip_text = None
     widget._hover_tooltip_pos = None
     PathTooltip.get_instance().hide_tooltip()
+
 
 def mouse_release_event(widget, event):
     if event.button() == Qt.MouseButton.LeftButton:
@@ -165,6 +285,7 @@ def mouse_release_event(widget, event):
         widget._scrub_visual_index = None
         widget._mouse_down = False
         widget._press_pos = None
+        widget._selection_edit_mode = None
     if widget._has_selection and widget._anchor_index == widget._drag_index:
         widget._has_selection = False
     widget._is_selecting = False

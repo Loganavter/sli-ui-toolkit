@@ -90,6 +90,36 @@ def word_bounds_at_offset(text: str, offset: int) -> tuple[int, int] | None:
     return start, end
 
 
+def segment_bounds_at_offset(
+    index: DocumentTextIndex,
+    offset: int,
+) -> tuple[int, int] | None:
+    """Return [start, end) for the text segment (paragraph/heading/item) at *offset*.
+
+    Clicks on inter-block separators resolve to the preceding segment when
+    possible (same idea as caret-at-end for word selection).
+    """
+    if not index.segments:
+        return None
+    n = len(index.text)
+    offset = max(0, min(offset, n))
+    if offset == n and offset > 0:
+        offset -= 1
+    for seg in index.segments:
+        if seg.start <= offset < seg.end:
+            return seg.start, seg.end
+    preceding: TextSegment | None = None
+    for seg in index.segments:
+        if seg.end <= offset:
+            preceding = seg
+        elif seg.start > offset:
+            break
+    if preceding is not None:
+        return preceding.start, preceding.end
+    first = index.segments[0]
+    return first.start, first.end
+
+
 class _TextIndexBuilder:
     def __init__(self) -> None:
         self._chars: list[str] = []

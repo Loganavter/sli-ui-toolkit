@@ -30,11 +30,13 @@ from sli_ui_toolkit.ui.popup_surface import (
     configure_popup_widget,
     place_popup_at_global,
     popup_contains_global,
+    screen_available_rect,
 )
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import (
     AnimationAxis,
     BaseFlyout,
-    _point_in_rect,
+    aligned_flyout_rect,
+    slide_start_delta,
 )
 from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
     ContextMenuAction,
@@ -121,21 +123,28 @@ class ContextMenu(BaseFlyout):
 
     def set_entries(self, entries: Iterable[ContextMenuEntry]) -> None:
         submenu_ops.close_submenu(self)
-        for row in self._rows:
-            row.setParent(None)
-            row.deleteLater()
-        self._rows.clear()
+        # Take widgets out of the layout once, then destroy. Calling
+        # deleteLater on both ``_rows`` and layout items double-schedules the
+        # same ContextMenuRow and races with immediate recreation under
+        # Python 3.14 / Shiboken (SystemError in Button/QWidget.__init__).
+        pending: list[QWidget] = []
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                widget.setParent(None)
-                widget.deleteLater()
+                pending.append(widget)
+        self._rows.clear()
+        for widget in pending:
+            widget.hide()
+            widget.setParent(None)
+            widget.deleteLater()
+        from PySide6.QtCore import QCoreApplication, QEvent
+
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
         flat = _trim_flat_separators(self._flatten(tuple(entries)))
-        check_gutter = 28 if any(
-            isinstance(item, ContextMenuAction) and item.checkable for item in flat
-        ) else 12
+        # No check-glyph gutter: current/checkable rows use background highlight only.
+        check_gutter = 12
         for item in flat:
             self.content_layout.addWidget(self._build_row(item, check_gutter))
         self._assign_row_positions()
@@ -397,34 +406,17 @@ class ContextMenu(BaseFlyout):
             )
             flyout_center = final_rect.center()
         else:
-            anchor_pt = _point_in_rect(anchor_rect, anchor_point)
-            flyout_pt_local = _point_in_rect(
-                QRect(QPoint(0, 0), flyout_size),
-                flyout_point,
+            available = screen_available_rect(self, margin=0)
+            final_rect = aligned_flyout_rect(
+                anchor_rect,
+                flyout_size,
+                anchor_point=anchor_point,
+                flyout_point=flyout_point,
+                offset=offset,
+                shadow_radius=self.SHADOW_RADIUS,
+                available=available,
             )
-            top_left = QPoint(
-                anchor_pt.x() - flyout_pt_local.x(),
-                anchor_pt.y() - flyout_pt_local.y(),
-            )
-            flyout_center = QPoint(
-                top_left.x() + flyout_size.width() // 2,
-                top_left.y() + flyout_size.height() // 2,
-            )
-            dir_x = flyout_center.x() - anchor_rect.center().x()
-            dir_y = flyout_center.y() - anchor_rect.center().y()
-            length = math.hypot(dir_x, dir_y)
-            push = offset - self.SHADOW_RADIUS
-            if length > 0 and push != 0:
-                ux, uy = dir_x / length, dir_y / length
-                top_left = QPoint(
-                    top_left.x() + int(round(push * ux)),
-                    top_left.y() + int(round(push * uy)),
-                )
-            final_rect = clamp_popup_rect(
-                QRect(top_left, flyout_size),
-                self,
-                margin=0,
-            )
+            # Popup coords are global; aligned_flyout_rect already clamped.
             flyout_center = final_rect.center()
 
         dir_x = flyout_center.x() - anchor_rect.center().x()
@@ -459,26 +451,19 @@ class ContextMenu(BaseFlyout):
             self._show_animation.deleteLater()
             self._show_animation = None
 
-        if animation_axis == "vertical":
-            slide_dx = 0
-            slide_dy = (
-                -distance
-                if flyout_center.y() >= anchor_rect.center().y()
-                else distance
-            )
-        elif animation_axis == "horizontal":
-            slide_dy = 0
-            slide_dx = (
-                -distance
-                if flyout_center.x() >= anchor_rect.center().x()
-                else distance
-            )
-        else:
-            slide_dx = -ux * distance if length > 0 else 0
-            slide_dy = -uy * distance if length > 0 else 0
+        slide_dx, slide_dy = slide_start_delta(
+            final_rect,
+            anchor_rect,
+            distance=distance,
+            animation_axis=animation_axis,
+            shadow_radius=self.SHADOW_RADIUS,
+            ux=ux,
+            uy=uy,
+            length=length,
+        )
         start_pos = QPoint(
-            final_rect.x() + int(round(slide_dx)),
-            final_rect.y() + int(round(slide_dy)),
+            final_rect.x() + slide_dx,
+            final_rect.y() + slide_dy,
         )
         self.setGeometry(QRect(start_pos, final_rect.size()))
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)

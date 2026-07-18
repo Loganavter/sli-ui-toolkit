@@ -162,6 +162,26 @@ def popup_context_menu_for_anchor(
         existing.hide()
         return existing
 
+    if existing is not None:
+        try:
+            from shiboken6 import isValid
+
+            alive = bool(isValid(existing))
+        except Exception:
+            try:
+                existing.objectName()
+                alive = True
+            except RuntimeError:
+                alive = False
+        if alive:
+            try:
+                existing.hide()
+                existing.setParent(None)
+                existing.deleteLater()
+            except RuntimeError:
+                pass
+        anchor._anchor_context_menu = None  # type: ignore[attr-defined]
+
     menu = ContextMenu(parent, entries=tuple(entries), on_triggered=on_triggered)
     anchor._anchor_context_menu = menu  # type: ignore[attr-defined]
     menu.show_aligned(

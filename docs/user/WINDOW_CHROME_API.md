@@ -71,6 +71,12 @@ Convenience helpers:
 
 Title alignment: `set_title(text, align="center"|"leading")`.
 
+Centered titles balance leading chrome (menus/icon) against trailing chrome
+(window buttons). After `set_menu_strip` / language rebuilds the bar schedules
+a deferred balance pass so measurement waits for the new strip's layout —
+syncing against a zero `sizeHint` would leave a stale left pad and shove the
+title off-center.
+
 `TitleBarMenuStrip` triggers use equal top/bottom insets (`V_INSET=4`) so File/Help
 buttons are not flush against the title-bar edges. Pass `icon=` on a `TitleBarMenu`
 to put an app icon inside the same trigger capsule; spacing uses `Button(gap=…)` /

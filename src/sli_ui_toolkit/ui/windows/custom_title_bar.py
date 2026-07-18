@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from PySide6.QtCore import QEvent, QPoint, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, QTimer, Qt, Signal
 from PySide6.QtGui import QIcon, QMouseEvent, QPainter, QColor
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -108,6 +108,7 @@ class CustomTitleBar(QWidget):
         self._drag_exclusions: set[int] = set()
         self._title_align: TitleAlign = "center"
         self._title_visible = True
+        self._balance_resync_scheduled = False
         self._theme_manager = ThemeManager.get_instance()
         self._theme_manager.theme_changed.connect(self._on_theme_changed)
 
@@ -115,17 +116,19 @@ class CustomTitleBar(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
 
-        # Spacers keep leading+left == trailing+right+buttons so equal stretches
-        # place the title at the true window center (not shifted toward chrome).
+        # Leading chrome stays flush-left. Balance spacers sit *inside* the
+        # stretch pair so title centering does not shove File/Help when the
+        # menu strip width changes (e.g. language switch).
+        # [leading][left_balance][stretch][center][stretch][trailing][right_balance][buttons]
+        self._leading_host = _zone_host(self)
+        self._layout.addWidget(self._leading_host)
+
         self._left_balance = QWidget(self)
         self._left_balance.setFixedWidth(0)
         self._left_balance.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
         )
         self._layout.addWidget(self._left_balance)
-
-        self._leading_host = _zone_host(self)
-        self._layout.addWidget(self._leading_host)
 
         self._layout.addStretch(1)
 
@@ -197,6 +200,17 @@ class CustomTitleBar(QWidget):
         else:
             self._close_btn = None
 
+        control_count = sum(
+            1 for btn in (self._min_btn, self._max_btn, self._close_btn) if btn is not None
+        )
+        if control_count:
+            cluster_w = control_count * self.BUTTON_WIDTH
+            self._buttons_container.setFixedWidth(cluster_w)
+            self._buttons_container.setMinimumWidth(cluster_w)
+            self._buttons_container.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+            )
+
         self._layout.addWidget(self._buttons_container)
         self._controls_handle = WindowControlsHandle(
             min_btn=self._min_btn,
@@ -216,6 +230,7 @@ class CustomTitleBar(QWidget):
             if self._app_icon_label is not None:
                 self._app_icon_label.hide()
                 self._sync_balance_spacer()
+                self._schedule_balance_resync()
             return
 
         if self._app_icon_label is None:
@@ -232,9 +247,10 @@ class CustomTitleBar(QWidget):
         self._app_icon_label.setPixmap(pixmap)
         self._app_icon_label.show()
         self._sync_balance_spacer()
+        self._schedule_balance_resync()
 
     def _stretch_indices(self) -> tuple[int, int]:
-        # [left_balance][leading][stretch][center][stretch][trailing][right_balance][buttons]
+        # [leading][left_balance][stretch][center][stretch][trailing][right_balance][buttons]
         return (2, 4)
 
     def _apply_title_alignment(self) -> None:
@@ -271,6 +287,11 @@ class CustomTitleBar(QWidget):
             if widget is None or widget in keep:
                 continue
             layout.takeAt(index)
+            # hide + detach immediately: deleteLater alone leaves the old
+            # TitleBarMenuStrip painting until the next event-loop turn
+            # (ghost «Справка» between File and Help on first show).
+            widget.hide()
+            widget.setParent(None)
             widget.deleteLater()
 
     def _set_zone_widget(self, zone: TitleBarZone, widget: QWidget | None) -> None:
@@ -298,10 +319,12 @@ class CustomTitleBar(QWidget):
     def set_leading(self, widget: QWidget | None) -> None:
         self._set_zone_widget("leading", widget)
         self._sync_balance_spacer()
+        self._schedule_balance_resync()
 
     def set_trailing(self, widget: QWidget | None) -> None:
         self._set_zone_widget("trailing", widget)
         self._sync_balance_spacer()
+        self._schedule_balance_resync()
 
     def set_center(self, widget: QWidget | None) -> None:
         self._set_zone_widget("center", widget)
@@ -312,11 +335,13 @@ class CustomTitleBar(QWidget):
             self.set_title_alignment(align)
         else:
             self._sync_balance_spacer()
+            self._schedule_balance_resync()
 
     def set_title_alignment(self, align: TitleAlign) -> None:
         self._title_align = align
         self._apply_title_alignment()
         self._sync_balance_spacer()
+        self._schedule_balance_resync()
 
     def set_title_visible(self, visible: bool) -> None:
         self._title_visible = visible
@@ -336,6 +361,7 @@ class CustomTitleBar(QWidget):
         layout.addWidget(widget)
         self.register_drag_exclusion(widget)
         self._sync_balance_spacer()
+        self._schedule_balance_resync()
         return widget
 
     def add_button(self, button: Button, *, zone: TitleBarZone = "leading") -> Button:
@@ -360,22 +386,78 @@ class CustomTitleBar(QWidget):
                 layout.addWidget(button)
             row.deleteLater()
         self._sync_balance_spacer()
+        self._schedule_balance_resync()
         return row
 
     def set_menu_strip(self, strip: QWidget) -> None:
         self.set_leading(strip)
 
     def _chrome_side_widths(self) -> tuple[int, int]:
-        leading = max(
-            self._leading_host.sizeHint().width(),
-            self._leading_host.minimumSizeHint().width(),
-        )
-        trailing = max(
-            self._trailing_host.sizeHint().width(),
-            self._trailing_host.minimumSizeHint().width(),
-        )
+        leading = self._zone_content_width(self._leading_host)
+        trailing = self._zone_content_width(self._trailing_host)
         buttons = self._controls_handle.size_hint_width()
         return leading, trailing + buttons
+
+    @staticmethod
+    def _zone_content_width(host: QWidget) -> int:
+        """Width of zone chrome, even before the host sizeHint catches up."""
+        hint = max(host.sizeHint().width(), host.minimumSizeHint().width())
+        if hint > 0:
+            return hint
+        layout = host.layout()
+        if layout is None:
+            return max(host.width(), 0)
+        total = layout.contentsMargins().left() + layout.contentsMargins().right()
+        visible = 0
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            child = item.widget() if item is not None else None
+            if child is None or child.isHidden():
+                continue
+            visible += 1
+            total += max(
+                child.sizeHint().width(),
+                child.minimumSizeHint().width(),
+                child.width(),
+            )
+        if visible > 1:
+            total += max(0, layout.spacing()) * (visible - 1)
+        return max(total, host.width(), 0)
+
+    def _schedule_balance_resync(self) -> None:
+        """Re-measure chrome after the next layout pass.
+
+        ``set_menu_strip`` / language rebuilds often sync while the new leading
+        strip still reports ``sizeHint().width() == 0``. A left pad matching
+        the window buttons then sticks after the strip lays out, shoving the
+        centered title off-center.
+
+        While the bar is still hidden, run sync immediately — a deferred pass
+        after the first show paint leaves a ghost of translucent menu labels.
+        """
+        if self._title_align != "center":
+            return
+        if not self.isVisible():
+            self._sync_balance_spacer()
+            return
+        if self._balance_resync_scheduled:
+            return
+        self._balance_resync_scheduled = True
+
+        def _run() -> None:
+            self._balance_resync_scheduled = False
+            try:
+                import shiboken6
+
+                if not shiboken6.isValid(self):
+                    return
+            except Exception:
+                pass
+            self._sync_balance_spacer()
+            # Translucent ghost triggers do not erase themselves on move.
+            self.repaint()
+
+        QTimer.singleShot(0, _run)
 
     def _sync_balance_spacer(self) -> None:
         if self._title_align != "center":
@@ -389,6 +471,13 @@ class CustomTitleBar(QWidget):
         else:
             self._left_balance.setFixedWidth(0)
             self._balance_spacer.setFixedWidth(left - right)
+        # setFixedWidth alone does not always reflow an already-laid-out
+        # title bar (deferred language resync); force the stretch pair to
+        # recompute so the title stays visually centered.
+        self._layout.invalidate()
+        self._layout.activate()
+        self.updateGeometry()
+        self.update()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -447,7 +536,10 @@ class CustomTitleBar(QWidget):
 
     def changeEvent(self, event) -> None:
         super().changeEvent(event)
-        if event.type() == QEvent.Type.ApplicationFontChange:
+        if event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.ApplicationFontChange,
+        ):
             # Title Label re-applies itself; menu triggers need a repaint so
             # TextContent picks up the new QApplication.font() family.
             self._title_label.update()
@@ -462,6 +554,9 @@ class CustomTitleBar(QWidget):
                 for child in zone.findChildren(QWidget):
                     child.update()
             self.update()
+            # Menu strip buttons re-measure on font change; balance must follow.
+            self._sync_balance_spacer()
+            self._schedule_balance_resync()
 
     def _mk_button(self, icon: Any, role: str) -> Button:
         corner_radii = (0, self.CORNER_RADIUS, 0, 0) if role == "close" else (0, 0, 0, 0)

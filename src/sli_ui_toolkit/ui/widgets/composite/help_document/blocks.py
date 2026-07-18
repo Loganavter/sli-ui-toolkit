@@ -13,8 +13,17 @@ Authoring contract (v1):
     Caption text
     :::
 
+    :::figure{side=block height=160}
+    ![alt](assets/foo.png)
+    Caption text
+    :::
+
   ``side``: ``right`` / ``left`` (float beside adjacent paragraphs),
   ``center`` / ``block`` (full-width row; ``center`` centers the image).
+  ``width``: absolute px (``320``) or percent of the content column (``75%``).
+  ``height``: absolute px (``160``). When both are set, the image fits inside
+  that box; with only one, the other axis follows aspect ratio (and never
+  exceeds the content column width).
 
 This is intentionally narrower than CommonMark — Help pages are authored for
 a widget-tree renderer, not a browser.
@@ -91,7 +100,9 @@ class FigureBlock:
     path: str
     caption: str = ""
     side: str = "block"  # block | center | left | right
-    width: int | None = None
+    width: int | None = None  # absolute px
+    width_percent: float | None = None  # 1..100 of content column
+    height: int | None = None  # absolute px
 
 
 HelpBlock = HeadingBlock | ParagraphBlock | ListBlock | ImageBlock | FigureBlock
@@ -283,18 +294,35 @@ def _figure_from_body(body_lines: Iterable[str], attrs: dict[str, str]) -> Figur
     if side not in {"block", "center", "left", "right"}:
         side = "block"
     width_raw = attrs.get("width")
-    width = None
+    width: int | None = None
+    width_percent: float | None = None
     if width_raw:
+        raw = width_raw.strip()
+        if raw.endswith("%"):
+            try:
+                width_percent = max(1.0, min(100.0, float(raw[:-1].strip())))
+            except ValueError:
+                width_percent = None
+        else:
+            try:
+                width = max(1, int(raw))
+            except ValueError:
+                width = None
+    height: int | None = None
+    height_raw = attrs.get("height")
+    if height_raw:
         try:
-            width = max(1, int(width_raw))
+            height = max(1, int(height_raw.strip()))
         except ValueError:
-            width = None
+            height = None
     return FigureBlock(
         alt=alt,
         path=path,
         caption=" ".join(caption_parts),
         side=side,
         width=width,
+        width_percent=width_percent,
+        height=height,
     )
 
 

@@ -106,6 +106,35 @@ def test_parse_figure_side_center_and_left():
     assert figures[1].side == "left"
 
 
+def test_parse_figure_width_percent():
+    blocks = parse_help_blocks(
+        ":::figure{side=block width=75%}\n"
+        "![a](a.png)\n"
+        "Wide\n"
+        ":::\n"
+    )
+    figures = [b for b in blocks if isinstance(b, FigureBlock)]
+    assert len(figures) == 1
+    assert figures[0].side == "block"
+    assert figures[0].width is None
+    assert figures[0].width_percent == 75.0
+    assert figures[0].height is None
+
+
+def test_parse_figure_height_px():
+    blocks = parse_help_blocks(
+        ":::figure{side=block height=160}\n"
+        "![a](a.png)\n"
+        "Tall\n"
+        ":::\n"
+    )
+    figures = [b for b in blocks if isinstance(b, FigureBlock)]
+    assert len(figures) == 1
+    assert figures[0].height == 160
+    assert figures[0].width is None
+    assert figures[0].width_percent is None
+
+
 def test_group_side_figures_ignores_center():
     from sli_ui_toolkit.ui.widgets.composite.help_document.structure import (
         SideFigureGroup,

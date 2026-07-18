@@ -99,7 +99,6 @@ class TopTabBar(QWidget):
         )
         button.set_show_indicator(self._show_indicator)
         button.setFixedHeight(self._tab_height)
-        button.setToolTip(text)
         if self._expand_tabs:
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             button.setMinimumWidth(TAB_MIN_WIDTH)

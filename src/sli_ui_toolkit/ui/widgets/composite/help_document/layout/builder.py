@@ -180,11 +180,31 @@ class _LayoutBuilder:
     def _finish_block(self) -> None:
         self.y += BLOCK_SPACING
 
-    def _fit_image_width(self, requested: int | None) -> int:
+    def _fit_image_width(
+        self,
+        *,
+        px: int | None = None,
+        percent: float | None = None,
+    ) -> int:
         content_w = max(1, int(self.width))
-        if requested is None:
+        if percent is not None:
+            frac = max(1.0, min(100.0, float(percent))) / 100.0
+            return max(1, min(content_w, int(round(content_w * frac))))
+        if px is None:
             return content_w
-        return max(1, min(int(requested), content_w))
+        return max(1, min(int(px), content_w))
+
+    def _figure_target_box(self, block: FigureBlock) -> tuple[int, int | None]:
+        """Return ``(max_w, max_h)`` for KeepAspectRatio fitting."""
+        content_w = max(1, int(self.width))
+        has_w = block.width is not None or block.width_percent is not None
+        max_w = (
+            self._fit_image_width(px=block.width, percent=block.width_percent)
+            if has_w
+            else content_w
+        )
+        max_h = max(1, int(block.height)) if block.height is not None else None
+        return max_w, max_h
 
     def layout_items(self, items: list[LayoutItem]) -> None:
         for item in items:
@@ -242,11 +262,11 @@ class _LayoutBuilder:
             self._advance(h)
 
     def _layout_image(self, block: ImageBlock) -> None:
-        img_w = self._fit_image_width(None)
         pix_h = self._place_pixmap(
             block.path,
             block.alt,
-            width=img_w,
+            max_w=self._fit_image_width(),
+            max_h=None,
             x=0.0,
             center=False,
         )
@@ -255,11 +275,12 @@ class _LayoutBuilder:
 
     def _layout_figure(self, block: FigureBlock) -> None:
         center = block.side == "center"
-        img_w = self._fit_image_width(block.width)
-        pix_h = self._place_pixmap(
+        max_w, max_h = self._figure_target_box(block)
+        pix_w, pix_h = self._place_pixmap_sized(
             block.path,
             block.alt,
-            width=img_w,
+            max_w=max_w,
+            max_h=max_h,
             x=0.0,
             center=center,
         )
@@ -270,8 +291,8 @@ class _LayoutBuilder:
             cap_x = 0.0
             cap_w = float(self.width)
             if center:
-                cap_x = max(0.0, (self.width - img_w) / 2.0)
-                cap_w = float(img_w)
+                cap_x = max(0.0, (self.width - pix_w) / 2.0)
+                cap_w = float(pix_w)
             cap_h = self._layout_segment(
                 segment,
                 x=cap_x,
@@ -284,11 +305,15 @@ class _LayoutBuilder:
         self._finish_block()
 
     def _layout_side_figure(self, group: SideFigureGroup) -> None:
-        figure_w = self._fit_image_width(group.figure.width)
+        max_w, max_h = self._figure_target_box(group.figure)
+        # Probe scaled size for column split (same rules as paint).
+        _probe, figure_w, _figure_h = self._scaled_pixmap(
+            group.figure.path, max_w=max_w, max_h=max_h
+        )
         min_text_w = max(80.0, self.width * 0.35)
         side_by_side = figure_w + SIDE_FIGURE_SPACING + min_text_w <= self.width
         if not side_by_side:
-            self._layout_side_figure_stacked(group, figure_w)
+            self._layout_side_figure_stacked(group, max_w, max_h)
             return
 
         self.y += SIDE_FIGURE_V_MARGIN
@@ -320,10 +345,11 @@ class _LayoutBuilder:
         text_end_y = self.y
 
         self.y = row_y
-        fig_h = self._place_pixmap(
+        _pix_w, fig_h = self._place_pixmap_sized(
             group.figure.path,
             group.figure.alt,
-            width=figure_w,
+            max_w=max_w,
+            max_h=max_h,
             x=fig_x,
             center=False,
         )
@@ -347,7 +373,12 @@ class _LayoutBuilder:
         row_h = max(fig_h, text_end_y - row_y)
         self.y = row_y + row_h + SIDE_FIGURE_V_MARGIN + BLOCK_SPACING
 
-    def _layout_side_figure_stacked(self, group: SideFigureGroup, figure_w: int) -> None:
+    def _layout_side_figure_stacked(
+        self,
+        group: SideFigureGroup,
+        max_w: int,
+        max_h: int | None,
+    ) -> None:
         """Narrow column: image then caption then paragraphs at full width."""
         for para in group.paragraphs:
             segment = self._segment_for(self._block_index(para))
@@ -362,10 +393,11 @@ class _LayoutBuilder:
             self._advance(h)
 
         center = group.figure.side == "center"
-        pix_h = self._place_pixmap(
+        _pix_w, pix_h = self._place_pixmap_sized(
             group.figure.path,
             group.figure.alt,
-            width=figure_w,
+            max_w=max_w,
+            max_h=max_h,
             x=0.0,
             center=center,
         )
@@ -388,31 +420,73 @@ class _LayoutBuilder:
                 self.y += cap_h
         self._finish_block()
 
+    def _scaled_pixmap(
+        self,
+        path: str,
+        *,
+        max_w: int,
+        max_h: int | None,
+    ) -> tuple[QPixmap | None, int, int]:
+        pix = self._load_pixmap(path)
+        content_w = max(1, int(self.width))
+        box_w = max(1, min(int(max_w), content_w))
+        if pix is None or pix.isNull():
+            box_h = max_h if max_h is not None else max(1, int(round(box_w * 9 / 16)))
+            return None, box_w, max(1, int(box_h))
+        if max_h is None:
+            if pix.width() != box_w:
+                pix = pix.scaledToWidth(
+                    box_w, Qt.TransformationMode.SmoothTransformation
+                )
+        else:
+            box_h = max(1, int(max_h))
+            pix = pix.scaled(
+                box_w,
+                box_h,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        return pix, max(1, int(pix.width())), max(1, int(pix.height()))
+
     def _place_pixmap(
         self,
         path: str,
         alt: str,
         *,
-        width: int | None,
+        max_w: int,
+        max_h: int | None,
         x: float,
         center: bool,
     ) -> float:
-        pix = self._load_pixmap(path)
-        target_w = self._fit_image_width(width)
-        if pix is not None and not pix.isNull():
-            if pix.width() > target_w:
-                pix = pix.scaledToWidth(target_w, Qt.TransformationMode.SmoothTransformation)
-            pix_w = pix.width()
-            pix_h = pix.height()
-        else:
-            pix_w = target_w
-            pix_h = 80
+        _w, h = self._place_pixmap_sized(
+            path, alt, max_w=max_w, max_h=max_h, x=x, center=center
+        )
+        return h
+
+    def _place_pixmap_sized(
+        self,
+        path: str,
+        alt: str,
+        *,
+        max_w: int,
+        max_h: int | None,
+        x: float,
+        center: bool,
+    ) -> tuple[float, float]:
+        pix, pix_w, pix_h = self._scaled_pixmap(path, max_w=max_w, max_h=max_h)
         draw_x = x
         if center:
             draw_x = max(0.0, (self.width - pix_w) / 2.0)
         rect = QRectF(draw_x, self.y, pix_w, pix_h)
-        self.pixmaps.append(PixmapFragment(rect=rect, pixmap=pix, alt=alt or path))
-        return float(pix_h)
+        self.pixmaps.append(
+            PixmapFragment(
+                rect=rect,
+                pixmap=pix,
+                alt=alt or path,
+                source_path=path,
+            )
+        )
+        return float(pix_w), float(pix_h)
 
     def _load_pixmap(self, path: str) -> QPixmap | None:
         resolved: str | Path | QPixmap | None = path

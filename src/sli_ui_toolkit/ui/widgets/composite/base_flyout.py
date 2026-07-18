@@ -54,6 +54,212 @@ def _point_in_rect(rect: QRect, spec: str) -> QPoint:
     )
 
 
+def _content_rect_in_flyout(size: QSize, shadow_radius: int) -> QRect:
+    """Visible panel rect inside the outer flyout size (excludes shadow halo)."""
+    r = max(0, int(shadow_radius))
+    return QRect(
+        r,
+        r,
+        max(0, int(size.width()) - 2 * r),
+        max(0, int(size.height()) - 2 * r),
+    )
+
+
+def _flyout_point_local(size: QSize, spec: str, shadow_radius: int) -> QPoint:
+    """Named point on the *rendered* panel, not the outer shadow bounds.
+
+    Aligning ``top-left`` of the full widget to an anchor left edge leaves the
+    opaque panel shifted right/down by ``SHADOW_RADIUS`` (the drop-shadow
+    margin). Callers of ``show_aligned`` expect edge alignment of what the
+    user sees.
+    """
+    return _point_in_rect(_content_rect_in_flyout(size, shadow_radius), spec)
+
+
+def _flip_point_vertical(spec: str) -> str:
+    """Swap top/bottom tokens in a point spec (``bottom-left`` → ``top-left``)."""
+    parts = [p for p in spec.split("-") if p]
+    flipped: list[str] = []
+    for part in parts:
+        if part == "top":
+            flipped.append("bottom")
+        elif part == "bottom":
+            flipped.append("top")
+        else:
+            flipped.append(part)
+    return "-".join(flipped) if flipped else spec
+
+
+def slide_start_delta(
+    final_rect: QRect,
+    anchor_rect: QRect,
+    *,
+    distance: int,
+    animation_axis: AnimationAxis,
+    shadow_radius: int,
+    ux: float,
+    uy: float,
+    length: float,
+) -> tuple[int, int]:
+    """Return ``(dx, dy)`` from final pos to slide-in start.
+
+    ``distance`` is the desired travel of the *outer* widget. When opening
+    below/above an anchor, a naive ``final - distance`` start puts the
+    opaque panel (inset by ``shadow_radius``) through the middle of a short
+    toolbar button — the same class of bug as aligning to the shadow halo
+    instead of the visible panel. Clamp so the panel edge does not cross
+    into the anchor.
+
+    Use ``y + height`` / ``x + width`` for edges — not ``QRect.bottom()`` /
+    ``right()``, which are inclusive last-pixel coordinates and sit one
+    device pixel short of the true outer edge.
+    """
+    dist = max(0, int(distance))
+    radius = max(0, int(shadow_radius))
+    anchor_left = anchor_rect.x()
+    anchor_top = anchor_rect.y()
+    anchor_right = anchor_rect.x() + anchor_rect.width()
+    anchor_bottom = anchor_rect.y() + anchor_rect.height()
+    if animation_axis == "vertical":
+        if final_rect.center().y() >= anchor_rect.center().y():
+            # Below: panel top = outer_y + radius; keep panel_top >= anchor bottom edge.
+            desired = final_rect.y() - dist
+            min_y = anchor_bottom - radius
+            start_y = max(desired, min_y)
+            return 0, start_y - final_rect.y()
+        # Above: panel bottom = outer_y + height - radius; keep <= anchor top edge.
+        desired = final_rect.y() + dist
+        max_y = anchor_top - final_rect.height() + radius
+        start_y = min(desired, max_y)
+        return 0, start_y - final_rect.y()
+    if animation_axis == "horizontal":
+        if final_rect.center().x() >= anchor_rect.center().x():
+            desired = final_rect.x() - dist
+            min_x = anchor_right - radius
+            start_x = max(desired, min_x)
+            return start_x - final_rect.x(), 0
+        desired = final_rect.x() + dist
+        max_x = anchor_left - final_rect.width() + radius
+        start_x = min(desired, max_x)
+        return start_x - final_rect.x(), 0
+    # auto: along anchor→flyout, still clamp the dominant axis against the
+    # shadow inset so a wide menu under a narrow button does not foreshorten
+    # into a diagonal dive through the trigger.
+    if length <= 0:
+        return 0, 0
+    slide_dx = int(round(-ux * dist))
+    slide_dy = int(round(-uy * dist))
+    start = QPoint(final_rect.x() + slide_dx, final_rect.y() + slide_dy)
+    if abs(uy) >= abs(ux):
+        if final_rect.center().y() >= anchor_rect.center().y():
+            min_y = anchor_bottom - radius
+            if start.y() < min_y:
+                start.setY(min_y)
+        else:
+            max_y = anchor_top - final_rect.height() + radius
+            if start.y() > max_y:
+                start.setY(max_y)
+    else:
+        if final_rect.center().x() >= anchor_rect.center().x():
+            min_x = anchor_right - radius
+            if start.x() < min_x:
+                start.setX(min_x)
+        else:
+            max_x = anchor_left - final_rect.width() + radius
+            if start.x() > max_x:
+                start.setX(max_x)
+    return start.x() - final_rect.x(), start.y() - final_rect.y()
+
+
+def _compute_aligned_top_left(
+    anchor_rect: QRect,
+    flyout_size: QSize,
+    *,
+    anchor_point: str,
+    flyout_point: str,
+    offset: int,
+    shadow_radius: int,
+) -> QPoint:
+    """Align visible panel point to anchor point, then clear the shadow halo.
+
+    Content-point alignment alone puts the opaque panel just outside the
+    anchor, but the outer widget still extends ``shadow_radius`` back over the
+    button (drop-shadow margin). Vertical/horizontal clearance therefore adds
+    ``shadow_radius`` so the halo sits past the anchor, not on top of it.
+    """
+    anchor_pt = _point_in_rect(anchor_rect, anchor_point)
+    flyout_pt_local = _flyout_point_local(flyout_size, flyout_point, shadow_radius)
+    top_left = QPoint(
+        anchor_pt.x() - flyout_pt_local.x(),
+        anchor_pt.y() - flyout_pt_local.y(),
+    )
+    afx, afy = _parse_point(anchor_point)
+    ffx, ffy = _parse_point(flyout_point)
+    clearance = int(offset) + max(0, int(shadow_radius))
+    # Axis-aligned push: dropdowns open straight down/up, not along the
+    # center-to-center diagonal (which foreshortens the gap when widths differ).
+    if afy > ffy:
+        top_left.setY(top_left.y() + clearance)
+    elif afy < ffy:
+        top_left.setY(top_left.y() - clearance)
+    elif afx > ffx:
+        top_left.setX(top_left.x() + clearance)
+    elif afx < ffx:
+        top_left.setX(top_left.x() - clearance)
+    return top_left
+
+
+def aligned_flyout_rect(
+    anchor_rect: QRect,
+    flyout_size: QSize,
+    *,
+    anchor_point: str,
+    flyout_point: str,
+    offset: int,
+    shadow_radius: int,
+    available: QRect,
+) -> QRect:
+    """Place flyout by named points; flip vertically when the preferred side overflows."""
+    preferred = QRect(
+        _compute_aligned_top_left(
+            anchor_rect,
+            flyout_size,
+            anchor_point=anchor_point,
+            flyout_point=flyout_point,
+            offset=offset,
+            shadow_radius=shadow_radius,
+        ),
+        flyout_size,
+    )
+    flipped_anchor = _flip_point_vertical(anchor_point)
+    flipped_flyout = _flip_point_vertical(flyout_point)
+    if flipped_anchor != anchor_point or flipped_flyout != flyout_point:
+        flipped = QRect(
+            _compute_aligned_top_left(
+                anchor_rect,
+                flyout_size,
+                anchor_point=flipped_anchor,
+                flyout_point=flipped_flyout,
+                offset=offset,
+                shadow_radius=shadow_radius,
+            ),
+            flyout_size,
+        )
+        # Same policy as place_surface_rect("bottom"): flip instead of sliding
+        # over the anchor when the preferred side does not fit.
+        if (
+            preferred.bottom() > available.bottom()
+            and flipped.top() >= available.top()
+        ):
+            preferred = flipped
+        elif (
+            preferred.top() < available.top()
+            and flipped.bottom() <= available.bottom()
+        ):
+            preferred = flipped
+    return clamp_surface_rect(preferred, available)
+
+
 class BaseFlyout(QWidget):
     SHADOW_RADIUS = 8
     CONTENT_RADIUS = 8
@@ -278,36 +484,16 @@ class BaseFlyout(QWidget):
             )
             flyout_center = final_rect.center()
         else:
-            anchor_pt = _point_in_rect(anchor_rect, anchor_point)
-            flyout_pt_local = _point_in_rect(
-                QRect(QPoint(0, 0), flyout_size),
-                flyout_point,
-            )
-
-            top_left = QPoint(
-                anchor_pt.x() - flyout_pt_local.x(),
-                anchor_pt.y() - flyout_pt_local.y(),
-            )
-
-            # Push flyout away from anchor by (offset - SHADOW_RADIUS) px so the
-            # visible (post-shadow) gap matches the requested offset.
-            flyout_center = QPoint(
-                top_left.x() + flyout_size.width() // 2,
-                top_left.y() + flyout_size.height() // 2,
-            )
-            dir_x = flyout_center.x() - anchor_rect.center().x()
-            dir_y = flyout_center.y() - anchor_rect.center().y()
-            length = math.hypot(dir_x, dir_y)
-            push = offset - self.SHADOW_RADIUS
-            if length > 0 and push != 0:
-                ux, uy = dir_x / length, dir_y / length
-                top_left = QPoint(
-                    top_left.x() + int(round(push * ux)),
-                    top_left.y() + int(round(push * uy)),
-                )
-            final_rect = clamp_surface_rect(
-                QRect(top_left, flyout_size),
-                surface_available_rect(self, anchor_widget, self.overlay_layer, margin=0),
+            final_rect = aligned_flyout_rect(
+                anchor_rect,
+                flyout_size,
+                anchor_point=anchor_point,
+                flyout_point=flyout_point,
+                offset=offset,
+                shadow_radius=self.SHADOW_RADIUS,
+                available=surface_available_rect(
+                    self, anchor_widget, self.overlay_layer, margin=0
+                ),
             )
             flyout_center = final_rect.center()
 
@@ -343,27 +529,19 @@ class BaseFlyout(QWidget):
             self._show_animation.deleteLater()
             self._show_animation = None
 
-        # Slide starts toward the anchor (opposite of push direction).
-        if animation_axis == "vertical":
-            slide_dx = 0
-            slide_dy = (
-                -distance
-                if flyout_center.y() >= anchor_rect.center().y()
-                else distance
-            )
-        elif animation_axis == "horizontal":
-            slide_dy = 0
-            slide_dx = (
-                -distance
-                if flyout_center.x() >= anchor_rect.center().x()
-                else distance
-            )
-        else:
-            slide_dx = -ux * distance if length > 0 else 0
-            slide_dy = -uy * distance if length > 0 else 0
+        slide_dx, slide_dy = slide_start_delta(
+            final_rect,
+            anchor_rect,
+            distance=distance,
+            animation_axis=animation_axis,
+            shadow_radius=self.SHADOW_RADIUS,
+            ux=ux,
+            uy=uy,
+            length=length,
+        )
         start_pos = QPoint(
-            final_rect.x() + int(round(slide_dx)),
-            final_rect.y() + int(round(slide_dy)),
+            final_rect.x() + slide_dx,
+            final_rect.y() + slide_dy,
         )
         self.setGeometry(QRect(start_pos, final_rect.size()))
         # Блокируем mouse-events до конца анимации — иначе flyout, проезжающий

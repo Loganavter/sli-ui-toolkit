@@ -27,6 +27,9 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.canvas import (
     HelpDocumentBodyCanvas,
     markdown_for_selection,
 )
+from sli_ui_toolkit.ui.widgets.composite.help_document.image_lightbox import (
+    HelpImageLightbox,
+)
 
 AssetResolver = Callable[[str], str | Path | QPixmap | None]
 
@@ -70,8 +73,10 @@ class HelpDocumentView(QWidget):
         self._canvas = HelpDocumentBodyCanvas(self)
         self._root.addWidget(self._canvas, 1)
         self._canvas.linkActivated.connect(self._on_link)
+        self._canvas.imageActivated.connect(self._on_image)
         self._canvas.textContextMenuRequested.connect(self.textContextMenuRequested)
         self._canvas.set_asset_resolver(resolve_asset)
+        self._lightbox: HelpImageLightbox | None = None
 
         self._theme.theme_changed.connect(self._repolish)
 
@@ -186,6 +191,32 @@ class HelpDocumentView(QWidget):
         self.linkActivated.emit(href)
         if self._open_external_links and href.startswith(("http://", "https://")):
             QDesktopServices.openUrl(QUrl(href))
+
+    def _on_image(self, path: str) -> None:
+        pixmap = self._load_full_pixmap(path)
+        if pixmap is None or pixmap.isNull():
+            return
+        host = self.window() if self.window() is not None else self
+        if self._lightbox is None or self._lightbox.parent() is not host:
+            if self._lightbox is not None:
+                self._lightbox.hide()
+                self._lightbox.deleteLater()
+            self._lightbox = HelpImageLightbox(host)
+        self._lightbox.show_pixmap(pixmap)
+
+    def _load_full_pixmap(self, path: str) -> QPixmap | None:
+        resolved: str | Path | QPixmap | None = path
+        if self._resolve_asset is not None:
+            resolved = self._resolve_asset(path)
+        if resolved is None:
+            return None
+        if isinstance(resolved, QPixmap):
+            return resolved
+        file_path = Path(resolved)
+        if not file_path.is_file():
+            return None
+        pix = QPixmap(str(file_path))
+        return pix if not pix.isNull() else None
 
     def _repolish(self, *_args) -> None:
         toc = self.findChild(QFrame, "HelpDocumentToc")
