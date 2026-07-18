@@ -190,6 +190,16 @@ class SimpleOptionsFlyout(BaseFlyout):
         # carry a baked system face — rebase onto UiFont.
         self._item_font = rebase_font(f)
 
+    def row_widget(self, index: int) -> QWidget | None:
+        """Return the live row button for ``index``, or ``None``."""
+        if not (0 <= index < len(self._options)):
+            return None
+        # Trailing stretch stays at the end of ``_rows_layout``.
+        if index >= max(0, self._rows_layout.count() - 1):
+            return None
+        item = self._rows_layout.itemAt(index)
+        return item.widget() if item is not None else None
+
     def populate(self, labels: list[str], current_index: int = -1):
         self._options = list(labels)
         self._current_index = (
