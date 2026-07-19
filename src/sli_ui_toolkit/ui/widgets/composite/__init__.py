@@ -23,7 +23,6 @@ from sli_ui_toolkit.ui.widgets.composite.dialog_shell import (
     ScrollableDialogPage,
     SidebarDialogShell,
 )
-from sli_ui_toolkit.ui.widgets.composite.drag_ghost_widget import DragGhostWidget
 from sli_ui_toolkit.ui.widgets.composite.log_console_widget import (
     LogConsoleEntry,
     LogConsoleWidget,
@@ -99,7 +98,6 @@ __all__ = [
     "popup_context_menu_for_anchor",
     "IconAction",
     "IconActionFlyout",
-    "DragGhostWidget",
     "IconListItem",
     "IconListWidget",
     "TopTabBar",

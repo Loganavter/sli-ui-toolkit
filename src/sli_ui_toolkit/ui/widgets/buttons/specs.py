@@ -100,7 +100,7 @@ class ButtonSpec:
     shape: ShapeSpec = field(default_factory=ShapeSpec)
     variant: str = "default"
     density: str = "normal"
-    defer_click: bool = False
+    defer_click: bool | int | str | None = None
     wheel_requires_focus: bool = False
 
     @classmethod
@@ -113,7 +113,7 @@ class ButtonSpec:
         shape: ShapeSpec | None = None,
         variant: str = "default",
         density: str = "normal",
-        defer_click: bool = False,
+        defer_click: bool | int | str | None = None,
         wheel_requires_focus: bool = False,
     ) -> "ButtonSpec":
         return cls(

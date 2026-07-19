@@ -297,11 +297,21 @@ def tr(key: str, language: str | None = None, default: str | None = None, *args:
     return result
 
 
-def _bind_widget(widget, callback: Callable[[str], None]) -> None:
+def _bind_widget(
+    widget,
+    callback: Callable[[str], None],
+    *,
+    defer_when_hidden: bool = False,
+) -> None:
     """Apply ``callback`` immediately and re-apply on ``language_changed``.
 
     Auto-disconnects when the widget is destroyed, so callers don't need
     to manage lifetimes.
+
+    When *defer_when_hidden* is true and the widget is not currently visible
+    (e.g. a workspace page buried in ``QStackedWidget``), the language update
+    is held until the next ``Show`` event — keeps language Apply cheap while
+    off-screen tabs are stacked away.
     """
     events = translation_events()
 
@@ -318,13 +328,9 @@ def _bind_widget(widget, callback: Callable[[str], None]) -> None:
         except Exception:
             return False
 
-    def _on_lang(lang: str) -> None:
-        if not _widget_alive():
-            try:
-                events.language_changed.disconnect(_on_lang)
-            except (TypeError, RuntimeError):
-                pass
-            return
+    state: dict[str, str | None] = {"pending": None}
+
+    def _apply(lang: str) -> None:
         try:
             callback(lang)
         except (RuntimeError, SystemError):
@@ -336,8 +342,45 @@ def _bind_widget(widget, callback: Callable[[str], None]) -> None:
             except (TypeError, RuntimeError):
                 pass
 
+    def _on_lang(lang: str) -> None:
+        if not _widget_alive():
+            try:
+                events.language_changed.disconnect(_on_lang)
+            except (TypeError, RuntimeError):
+                pass
+            return
+        if defer_when_hidden:
+            try:
+                visible = bool(widget.isVisible())
+            except RuntimeError:
+                return
+            if not visible:
+                state["pending"] = lang
+                return
+        state["pending"] = None
+        _apply(lang)
+
+    def _flush_pending() -> None:
+        pending = state["pending"]
+        if pending is None or not _widget_alive():
+            return
+        state["pending"] = None
+        _apply(pending)
+
     callback(get_current_language())
     events.language_changed.connect(_on_lang)
+
+    if defer_when_hidden:
+        from PySide6.QtCore import QEvent, QObject
+
+        class _ShowFlushFilter(QObject):
+            def eventFilter(self, obj, event):  # noqa: N802
+                if event.type() == QEvent.Type.Show and obj is widget:
+                    _flush_pending()
+                return False
+
+        show_filter = _ShowFlushFilter(widget)
+        widget.installEventFilter(show_filter)
 
     destroyed_signal = getattr(widget, "destroyed", None)
     if destroyed_signal is not None:
@@ -355,10 +398,15 @@ def translatable_text(
     *,
     suffix: str = "",
     tr_func: Callable[..., str] | None = None,
+    defer_when_hidden: bool = False,
 ) -> None:
     """Bind ``widget.setText`` to translation key ``key``."""
     tr_func = tr_func or tr
-    _bind_widget(widget, lambda lang: widget.setText(tr_func(key, lang) + suffix))
+    _bind_widget(
+        widget,
+        lambda lang: widget.setText(tr_func(key, lang) + suffix),
+        defer_when_hidden=defer_when_hidden,
+    )
 
 
 def translatable_tooltip(
@@ -366,10 +414,15 @@ def translatable_tooltip(
     key: str,
     *,
     tr_func: Callable[..., str] | None = None,
+    defer_when_hidden: bool = False,
 ) -> None:
     """Bind ``widget.setToolTip`` to translation key ``key``."""
     tr_func = tr_func or tr
-    _bind_widget(widget, lambda lang: widget.setToolTip(tr_func(key, lang)))
+    _bind_widget(
+        widget,
+        lambda lang: widget.setToolTip(tr_func(key, lang)),
+        defer_when_hidden=defer_when_hidden,
+    )
 
 
 def translatable_placeholder(
@@ -377,15 +430,28 @@ def translatable_placeholder(
     key: str,
     *,
     tr_func: Callable[..., str] | None = None,
+    defer_when_hidden: bool = False,
 ) -> None:
     """Bind ``widget.setPlaceholderText`` to translation key ``key``."""
     tr_func = tr_func or tr
-    _bind_widget(widget, lambda lang: widget.setPlaceholderText(tr_func(key, lang)))
+    _bind_widget(
+        widget,
+        lambda lang: widget.setPlaceholderText(tr_func(key, lang)),
+        defer_when_hidden=defer_when_hidden,
+    )
 
 
-def translatable_callback(widget, callback: Callable[[str], None]) -> None:
+def translatable_callback(
+    widget,
+    callback: Callable[[str], None],
+    *,
+    defer_when_hidden: bool = False,
+) -> None:
     """Bind an arbitrary ``callback(lang)`` for composite or conditional
     updates that don't fit a simple setter pattern. Lifetime is tied to
     ``widget`` — the connection is dropped on widget destruction.
+
+    Pass ``defer_when_hidden=True`` for workspace-page chrome so language
+    Apply skips pages that are not the current stacked widget.
     """
-    _bind_widget(widget, callback)
+    _bind_widget(widget, callback, defer_when_hidden=defer_when_hidden)

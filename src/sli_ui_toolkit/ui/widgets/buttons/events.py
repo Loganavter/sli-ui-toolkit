@@ -4,7 +4,7 @@
 hoverHitTest (контракт HoverCoordinator) + setEnabled.
 
 Опирается на инстансные атрибуты Button: _states, _flyout_open, _hovered,
-_pressed, _has_*, _ripple, _defer_click, и на capabilities (LongPress/Menu/...)
+_pressed, _has_*, _ripple, _defer_click_ms, и на capabilities (LongPress/Menu/...)
 через get_capability. Wheel-события диспатчатся duck-typed любой capability,
 у которой есть handle_wheel_event — так app-level capabilities (см.
 attach_capability) получают wheel-события без хардкода конкретного типа.
@@ -146,8 +146,12 @@ class _ButtonEvents:
                     if region_id == "_main" or "_main" in linked:
                         self._checked = checked
                         self.toggled.emit(checked)
-                if self._defer_click and region_id == "_main":
-                    QTimer.singleShot(0, self._emit_click_signals)
+                if self._defer_click_ms is not None:
+                    clicked_region = region_id
+                    QTimer.singleShot(
+                        self._defer_click_ms,
+                        lambda rid=clicked_region: self._emit_deferred_region_click(rid),
+                    )
                 else:
                     self._dispatch_region_behavior(region_id, "click")
                     self.regionClicked.emit(region_id)
@@ -238,9 +242,24 @@ class _ButtonEvents:
             return
         if self._has_toggle:
             self.setChecked(not self._checked)
-        if self._defer_click:
-            QTimer.singleShot(0, self._emit_click_signals)
+        if self._defer_click_ms is not None:
+            QTimer.singleShot(self._defer_click_ms, self._emit_click_signals)
         else:
+            self._emit_click_signals()
+
+    def _emit_deferred_region_click(self, region_id: str | None) -> None:
+        """Emit region/main click signals after ``defer_click`` delay."""
+        if not sip.isValid(self):
+            return
+        if region_id is None:
+            return
+        self._dispatch_region_behavior(region_id, "click")
+        if not sip.isValid(self):
+            return
+        self.regionClicked.emit(region_id)
+        if not sip.isValid(self):
+            return
+        if region_id == "_main" or "_main" in self._linked_region_ids(region_id):
             self._emit_click_signals()
 
     def _emit_click_signals(self) -> None:

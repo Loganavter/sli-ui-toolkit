@@ -5,6 +5,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
+    items_for_list,
+    set_items_for_list,
+)
+
 
 @dataclass
 class UnifiedFlyoutItem:
@@ -15,10 +20,27 @@ class UnifiedFlyoutItem:
 
 class _Document:
     def __init__(self) -> None:
-        self.image_list1: list[UnifiedFlyoutItem] = []
-        self.image_list2: list[UnifiedFlyoutItem] = []
+        self.list1: list[UnifiedFlyoutItem] = []
+        self.list2: list[UnifiedFlyoutItem] = []
         self.current_index1: int = -1
         self.current_index2: int = -1
+
+    # Host-domain aliases (Improve-ImgSLI document still uses these names).
+    @property
+    def image_list1(self) -> list[UnifiedFlyoutItem]:
+        return self.list1
+
+    @image_list1.setter
+    def image_list1(self, value: list[UnifiedFlyoutItem]) -> None:
+        self.list1 = value
+
+    @property
+    def image_list2(self) -> list[UnifiedFlyoutItem]:
+        return self.list2
+
+    @image_list2.setter
+    def image_list2(self, value: list[UnifiedFlyoutItem]) -> None:
+        self.list2 = value
 
 
 class SimpleUnifiedFlyoutStore:
@@ -39,8 +61,8 @@ class SimpleUnifiedFlyoutStore:
         current_left: int = -1,
         current_right: int = -1,
     ) -> None:
-        self.document.image_list1 = [_coerce(i) for i in left]
-        self.document.image_list2 = [_coerce(i) for i in right]
+        self.document.list1 = [_coerce(i) for i in left]
+        self.document.list2 = [_coerce(i) for i in right]
         self.document.current_index1 = current_left
         self.document.current_index2 = current_right
 
@@ -57,36 +79,43 @@ class SimpleUnifiedFlyoutController:
         elif list_num == 2:
             self._store.document.current_index2 = index
 
-    def remove_specific_image_from_list(self, list_num: int, index: int) -> None:
-        target = (
-            self._store.document.image_list1
-            if list_num == 1
-            else self._store.document.image_list2
-        )
+    def remove_item_from_list(self, list_num: int, index: int) -> None:
+        target = items_for_list(self._store.document, list_num)
         if 0 <= index < len(target):
             target.pop(index)
 
-    def increment_rating(self, image_number: int, index: int) -> None:
-        item = self._item(image_number, index)
+    # Legacy alias — prefer ``remove_item_from_list``.
+    remove_specific_image_from_list = remove_item_from_list
+
+    def increment_rating(self, list_num: int, index: int) -> None:
+        item = self._item(list_num, index)
         if item is not None:
             item.rating = min(5, item.rating + 1)
 
-    def decrement_rating(self, image_number: int, index: int) -> None:
-        item = self._item(image_number, index)
+    def decrement_rating(self, list_num: int, index: int) -> None:
+        item = self._item(list_num, index)
         if item is not None:
             item.rating = max(0, item.rating - 1)
 
     def reorder_item_in_list(
-        self, *, image_number: int, source_index: int, dest_index: int
+        self, list_num: int, source_index: int, dest_index: int
     ) -> None:
-        target = (
-            self._store.document.image_list1
-            if image_number == 1
-            else self._store.document.image_list2
+        self.reorder_items_in_list(
+            list_num=list_num,
+            indices=[source_index],
+            dest_index=dest_index,
         )
-        if 0 <= source_index < len(target) and 0 <= dest_index <= len(target):
-            item = target.pop(source_index)
-            target.insert(dest_index, item)
+
+    def reorder_items_in_list(
+        self, *, list_num: int, indices, dest_index: int
+    ) -> None:
+        from sli_ui_toolkit.ui.widgets.composite.unified_flyout.multi_move import (
+            reorder_many,
+        )
+
+        target = items_for_list(self._store.document, list_num)
+        rebuilt = reorder_many(target, indices, dest_index)
+        set_items_for_list(self._store.document, list_num, rebuilt)
 
     def move_item_between_lists(
         self,
@@ -96,28 +125,35 @@ class SimpleUnifiedFlyoutController:
         dest_list_num: int,
         dest_index: int,
     ) -> None:
-        src = (
-            self._store.document.image_list1
-            if source_list_num == 1
-            else self._store.document.image_list2
+        self.move_items_between_lists(
+            source_list_num=source_list_num,
+            indices=[source_index],
+            dest_list_num=dest_list_num,
+            dest_index=dest_index,
         )
-        dst = (
-            self._store.document.image_list1
-            if dest_list_num == 1
-            else self._store.document.image_list2
+
+    def move_items_between_lists(
+        self,
+        *,
+        source_list_num: int,
+        indices,
+        dest_list_num: int,
+        dest_index: int,
+    ) -> None:
+        from sli_ui_toolkit.ui.widgets.composite.unified_flyout.multi_move import (
+            move_many,
         )
-        if 0 <= source_index < len(src):
-            item = src.pop(source_index)
-            dst.insert(min(dest_index, len(dst)), item)
+
+        src = items_for_list(self._store.document, source_list_num)
+        dst = items_for_list(self._store.document, dest_list_num)
+        new_src, new_dst = move_many(src, dst, indices, dest_index)
+        set_items_for_list(self._store.document, source_list_num, new_src)
+        set_items_for_list(self._store.document, dest_list_num, new_dst)
 
     sessions = property(lambda self: self)
 
-    def _item(self, image_number: int, index: int) -> UnifiedFlyoutItem | None:
-        target = (
-            self._store.document.image_list1
-            if image_number == 1
-            else self._store.document.image_list2
-        )
+    def _item(self, list_num: int, index: int) -> UnifiedFlyoutItem | None:
+        target = items_for_list(self._store.document, list_num)
         return target[index] if 0 <= index < len(target) else None
 
 

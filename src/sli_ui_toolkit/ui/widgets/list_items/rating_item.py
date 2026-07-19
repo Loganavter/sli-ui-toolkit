@@ -7,6 +7,7 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import (
+    QColor,
     QCursor,
     QFont,
     QFontMetrics,
@@ -50,8 +51,10 @@ class _RatingRowBgLayer(Layer):
     def draw(self, ctx, tm: ThemeManager) -> None:
         widget = ctx.widget
         states = ctx.effective_states
+        is_selected = bool(getattr(widget, "is_selected", False))
         is_active = (
             widget.is_current
+            or is_selected
             or ButtonState.HOVERED in states
             or ButtonState.PRESSED in states
         )
@@ -61,7 +64,20 @@ class _RatingRowBgLayer(Layer):
         if widget._is_being_dragged:
             p.setOpacity(0.35)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(tm.get_color(key))
+        if is_selected:
+            # Soft accent wash for ctrl+LMB-selected rows — including the
+            # current row when it is part of the selection (its accent bar
+            # still shows on top).
+            accent = QColor(tm.get_color("accent"))
+            base = QColor(tm.get_color(key))
+            fill = QColor(
+                int(round(accent.red() * 0.38 + base.red() * 0.62)),
+                int(round(accent.green() * 0.38 + base.green() * 0.62)),
+                int(round(accent.blue() * 0.38 + base.blue() * 0.62)),
+            )
+            p.setBrush(fill)
+        else:
+            p.setBrush(tm.get_color(key))
         bg_rect = ctx.rect.toRect().adjusted(2, 2, -2, -2)
         pos = widget.position
         if pos == "middle":
@@ -131,6 +147,7 @@ class _RatingRowSeparatorLayer(Layer):
 
 class RatingListItem(Button):
     itemSelected = Signal(int)
+    itemSelectionToggled = Signal(int)
     itemRightClicked = Signal(int)
 
     def __init__(
@@ -139,20 +156,22 @@ class RatingListItem(Button):
         text,
         rating,
         full_path: str,
-        image_number: int,
-        get_rating,
-        increment_rating,
-        decrement_rating,
-        create_rating_gesture,
-        on_update_drop_indicator,
-        on_clear_drop_indicator,
-        parent,
+        list_num: int | None = None,
+        get_rating=None,
+        increment_rating=None,
+        decrement_rating=None,
+        create_rating_gesture=None,
+        on_update_drop_indicator=None,
+        on_clear_drop_indicator=None,
+        parent=None,
         is_current: bool = False,
         item_height: int = 36,
         item_font: QFont = None,
         item_type="image",
         position="middle",
         wheel_requires_focus: bool = False,
+        *,
+        image_number: int | None = None,
     ):
         # `item_type`/`position` нужны кастомным layer'ам ещё до super().__init__,
         # потому что Button.__init__ может вызвать update()/paint в зависимости
@@ -160,6 +179,7 @@ class RatingListItem(Button):
         self.item_type = item_type
         self.position = position
         self.is_current = is_current
+        self.is_selected = False
         self._is_being_dragged = False
         self.rating_label = None
         super().__init__(
@@ -177,7 +197,11 @@ class RatingListItem(Button):
         )
         self.index = index
         self.full_path = full_path
-        self.image_number = image_number
+        if list_num is None:
+            list_num = image_number
+        if list_num is None:
+            raise TypeError("RatingListItem requires list_num (or legacy image_number)")
+        self.list_num = int(list_num)
         self._get_rating = get_rating
         self._increment_rating = increment_rating
         self._decrement_rating = decrement_rating
@@ -205,7 +229,9 @@ class RatingListItem(Button):
 
         self.layout = QHBoxLayout(self)
 
-        self.layout.setContentsMargins(2, 2, 2, 2)
+        # Right margin is wider so the + button keeps a visible gap from the
+        # (2px-inset) row background edge.
+        self.layout.setContentsMargins(2, 2, 4, 2)
         self.layout.setSpacing(6)
 
         if self.item_type == "image":
@@ -275,9 +301,59 @@ class RatingListItem(Button):
         self.update_styles()
 
     def set_dragging_state(self, is_dragging: bool):
-        if self._is_being_dragged != is_dragging:
-            self._is_being_dragged = is_dragging
-            self.update()
+        self._is_being_dragged = bool(is_dragging)
+        self.update()
+
+    @property
+    def image_number(self) -> int:
+        return self.list_num
+
+    @image_number.setter
+    def image_number(self, value: int) -> None:
+        self.list_num = int(value)
+
+    def set_selected(self, selected: bool) -> None:
+        selected = bool(selected)
+        if self.is_selected == selected:
+            return
+        self.is_selected = selected
+        self._sync_rating_button_selection_background()
+        self.update()
+
+    def _sync_rating_button_selection_background(self) -> None:
+        if self.item_type != "image":
+            return
+        color = QColor(self.theme_manager.get_color("accent")) if self.is_selected else None
+        self.btn_minus.set_override_bg_color(color)
+        self.btn_plus.set_override_bg_color(color)
+
+    def _find_panel(self):
+        widget = self.parentWidget()
+        while widget is not None:
+            if widget.objectName() == "UnifiedFlyoutPanel":
+                return widget
+            widget = widget.parentWidget()
+        return None
+
+    def drag_indices(self) -> list[int]:
+        """Indices to move: multi-selection if this row is in it, else self."""
+        panel = self._find_panel()
+        if panel is None:
+            return [self.index]
+        getter = getattr(panel, "selected_indices", None)
+        if not callable(getter):
+            return [self.index]
+        selected = sorted(getter())
+        if self.index in selected and len(selected) > 1:
+            return selected
+        return [self.index]
+
+    def set_batch_dragging_state(self, dragging: bool, indices) -> None:
+        panel = self._find_panel()
+        if panel is not None and hasattr(panel, "set_items_dragging"):
+            panel.set_items_dragging(indices, bool(dragging))
+            return
+        self.set_dragging_state(dragging)
 
     def eventFilter(self, obj, event):
         if self.item_type != "image":
@@ -314,9 +390,9 @@ class RatingListItem(Button):
         if self.rating_label.geometry().contains(pos):
             delta = event.angleDelta().y()
             if delta > 0:
-                self._increment_rating(self.image_number, self.index)
+                self._increment_rating(self.list_num, self.index)
             else:
-                self._decrement_rating(self.image_number, self.index)
+                self._decrement_rating(self.list_num, self.index)
             self._update_label_from_store()
             event.accept()
         else:
@@ -332,6 +408,7 @@ class RatingListItem(Button):
             )
             self.btn_minus.setIcon(resolve_icon(DEFAULT_MINUS_ICON))
             self.btn_plus.setIcon(resolve_icon(DEFAULT_PLUS_ICON))
+            self._sync_rating_button_selection_background()
         self.update()
 
     def enterEvent(self, event):
@@ -380,6 +457,11 @@ class RatingListItem(Button):
             PathTooltip.get_instance().hide_tooltip()
 
             self._is_drag_initiated = True
+            panel = self._find_panel()
+            if panel is not None and self.index not in panel.selected_indices():
+                # Dragging a row outside the marquee selection collapses it;
+                # dragging a selected row keeps it (multi-move).
+                panel.clear_selection()
             service = get_dragdrop_service()
             if service is not None and not service.is_dragging():
                 service.start_drag(self, event)
@@ -428,25 +510,38 @@ class RatingListItem(Button):
                 self.btn_plus.isAncestorOf(under) or self.btn_minus.isAncestorOf(under)
             ):
                 return
+        modifiers = QApplication.keyboardModifiers()
+        if modifiers & (
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.MetaModifier
+        ):
+            self.itemSelectionToggled.emit(self.index)
+            return
         self.itemSelected.emit(self.index)
 
     def _on_plus_clicked(self):
         if self._is_drag_initiated or self._active_button not in (None, self.btn_plus):
             return
+        self._clear_panel_selection()
         if self._gesture_tx is not None:
             self._gesture_tx.apply_delta(+1)
         else:
-            self._increment_rating(self.image_number, self.index)
+            self._increment_rating(self.list_num, self.index)
         self._update_label_from_store()
 
     def _on_minus_clicked(self):
         if self._is_drag_initiated or self._active_button not in (None, self.btn_minus):
             return
+        self._clear_panel_selection()
         if self._gesture_tx is not None:
             self._gesture_tx.apply_delta(-1)
         else:
-            self._decrement_rating(self.image_number, self.index)
+            self._decrement_rating(self.list_num, self.index)
         self._update_label_from_store()
+
+    def _clear_panel_selection(self):
+        panel = self._find_panel()
+        if panel is not None and hasattr(panel, "clear_selection"):
+            panel.clear_selection()
 
     def _on_button_pressed(self, button):
         if self.item_type != "image":
@@ -454,9 +549,9 @@ class RatingListItem(Button):
         self._active_button = button
         self._drag_start_pos_global = QPointF(QCursor.pos())
         self.drag_start_pos = self.mapFromGlobal(QCursor.pos())
-        starting_score = self._get_rating(self.image_number, self.index)
+        starting_score = self._get_rating(self.list_num, self.index)
         self._gesture_tx = self._create_rating_gesture(
-            self.image_number,
+            self.list_num,
             self.index,
             starting_score,
         )
@@ -479,7 +574,7 @@ class RatingListItem(Button):
     def _update_label_from_store(self):
         if self.item_type != "image":
             return
-        self.rating_label.setText(str(self._get_rating(self.image_number, self.index)))
+        self.rating_label.setText(str(self._get_rating(self.list_num, self.index)))
 
     def _show_tooltip(self):
         if self.full_path:

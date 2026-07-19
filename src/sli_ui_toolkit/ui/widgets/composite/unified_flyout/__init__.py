@@ -94,7 +94,7 @@ class UnifiedFlyout(
         flyout.set_list_anchors(anchor_left, anchor_right)
         # Standalone default: right-click removes the row (no app menu).
         flyout.item_context_menu_requested.connect(
-            controller.remove_specific_image_from_list
+            controller.remove_item_from_list
         )
         return flyout
 

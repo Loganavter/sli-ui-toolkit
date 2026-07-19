@@ -169,7 +169,7 @@ class Label(QLabel):
             )
         QLabel.setText(self, text)
         self._applying_style = False
-        self.theme_manager.theme_changed.connect(self._apply_style)
+        self.theme_manager.theme_changed.connect(self._on_theme_changed)
         UiFont.get_instance().font_changed.connect(self._apply_style)
         self._apply_style()
 
@@ -335,6 +335,23 @@ class Label(QLabel):
         if minimum_width > 0:
             hint.setWidth(minimum_width)
         return hint
+
+    def _on_theme_changed(self) -> None:
+        """Theme flip: recolor only — skip font/geometry rebuild.
+
+        Full ``_apply_style`` on every Label was a major theme-switch cost
+        (hundreds of setFont/updateGeometry calls). Font tokens do not change
+        with light/dark; colors do.
+        """
+        if self._applying_style:
+            return
+        self._applying_style = True
+        try:
+            spec = get_label_variant(self._variant_name)
+            apply_text_color(self, self._resolve_color(spec))
+            self.update()
+        finally:
+            self._applying_style = False
 
     def _apply_style(self) -> None:
         if self._applying_style:

@@ -1,5 +1,7 @@
 from .drag_drop_overlay import DragDropOverlay
 from .in_window_overlay import OverlayItem, OverlaySlot, TopLevelInWindowOverlay
+from .marquee_band_gesture import MarqueeBandGesture, map_content_rect_to_window
+from .marquee_band_overlay import MarqueeBandOverlay
 from sli_ui_toolkit.deprecations import (
     CHOICE_OVERLAY_DEPRECATIONS,
     raise_missing_attribute,
@@ -8,9 +10,12 @@ from sli_ui_toolkit.deprecations import (
 
 __all__ = [
     "DragDropOverlay",
+    "MarqueeBandGesture",
+    "MarqueeBandOverlay",
     "OverlayItem",
     "OverlaySlot",
     "TopLevelInWindowOverlay",
+    "map_content_rect_to_window",
 ]
 
 

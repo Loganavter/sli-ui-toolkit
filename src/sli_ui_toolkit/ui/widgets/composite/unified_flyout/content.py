@@ -1,4 +1,8 @@
-from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
+    FlyoutMode,
+    current_index_for_list,
+    items_for_list,
+)
 
 class _UnifiedFlyoutContentMixin:
     def populate(self, list_num: int, items: list, list_type="image", current_index=-1):
@@ -22,27 +26,28 @@ class _UnifiedFlyoutContentMixin:
         if not self.isVisible() or self._is_simple_mode:
             return
 
+        doc = self.store.document
         self.panel_left.sync_with_list(
-            self.store.document.image_list1,
+            items_for_list(doc, 1),
             self._owner_proxy_left,
             self.item_height,
             self.item_font,
             "image",
-            self.store.document.current_index1,
+            current_index_for_list(doc, 1),
         )
         self.panel_right.sync_with_list(
-            self.store.document.image_list2,
+            items_for_list(doc, 2),
             self._owner_proxy_right,
             self.item_height,
             self.item_font,
             "image",
-            self.store.document.current_index2,
+            current_index_for_list(doc, 2),
         )
         self.refreshGeometry(immediate=True)
 
-    def update_rating_for_item(self, image_number: int, index: int):
+    def update_rating_for_item(self, list_num: int, index: int):
         if not self.isVisible():
             return
-        panel = self.panel_left if image_number == 1 else self.panel_right
+        panel = self.panel_left if list_num == 1 else self.panel_right
         if panel and panel.isVisible():
             panel.update_rating_for_item(index)

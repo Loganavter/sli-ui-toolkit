@@ -52,6 +52,10 @@ from .context import DrawContext
 from .events import _ButtonEvents
 from .layers._base import Layer
 from .layers.ripple import RippleEffect
+from .feedback import (
+    coerce_defer_click_ms,
+    get_default_defer_click,
+)
 from .painter import Painter
 from .regions import ButtonRegion, Divider, RegionHandle, SingleRegionSplit, SplitLayout
 from .specs import ButtonSpec, ShapeSpec, normalize_corner_radii
@@ -85,7 +89,8 @@ class ButtonConfig:
     variant: str = "default"
     density: str = "normal"
     wheel_requires_focus: bool = False
-    defer_click: bool = False
+    # ``None`` → process-wide ``get_default_defer_click()``.
+    defer_click: bool | int | str | None = None
 
 
 def _state_property(state: ButtonState):
@@ -153,7 +158,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         density: str = "normal",
         wheel_requires_focus: bool = False,
         background_color: QColor | None = None,
-        defer_click: bool = False,
+        defer_click: bool | int | str | None = None,
         regions: list[ButtonRegion] | None = None,
         split: SplitLayout | None = None,
         divider: Divider | None = None,
@@ -305,7 +310,9 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         self._region_ripple["_main"] = self._ripple
         self._ripple_color_from = None
         self._ripple_color_to = None
-        self._defer_click = bool(defer_click)
+        self.set_defer_click(
+            get_default_defer_click() if defer_click is None else defer_click
+        )
 
         self._capabilities: list[ButtonCapability] = []
         self._capability_map: dict[tuple[type, str], ButtonCapability] = {}
@@ -418,7 +425,7 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
             ),
             variant=self._variant,
             density=self._density,
-            defer_click=self._defer_click,
+            defer_click=self._defer_click_ms is not None,
             wheel_requires_focus=getattr(self, "_wheel_requires_focus", False),
         )
         self._sync_region_aliases()
@@ -492,7 +499,11 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
     def _apply_spec_widget_properties(self, spec: ButtonSpec) -> None:
         self._variant = spec.variant
         self._density = spec.density
-        self._defer_click = bool(spec.defer_click)
+        self.set_defer_click(
+            get_default_defer_click()
+            if spec.defer_click is None
+            else spec.defer_click
+        )
         self.set_wheel_requires_focus(spec.wheel_requires_focus)
         self.setProperty("variant", self._variant)
         self.setProperty("density", self._density)
@@ -688,6 +699,20 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
 
     def region_ripple(self, region_id: str) -> RippleEffect | None:
         return self._controller.ripple(region_id)
+
+    def set_defer_click(self, value: bool | int | str) -> None:
+        """Defer ``clicked`` / ``shortClicked`` relative to the press gesture.
+
+        ``False`` — emit synchronously.
+        ``True`` — next event-loop tick (one frame for the ripple to start).
+        ``int`` — wait that many ms.
+        ``"ripple"`` / ``DEFER_CLICK_AWAIT_RIPPLE`` — wait the process-wide
+        ripple duration (``get_ripple_duration_ms()``).
+
+        Construct with ``defer_click=None`` (default) to inherit
+        ``get_default_defer_click()``.
+        """
+        self._defer_click_ms = coerce_defer_click_ms(value)
 
     def _dispatch_region_behavior(
         self,

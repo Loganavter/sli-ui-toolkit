@@ -536,7 +536,7 @@ Button(
     corner_radius: int | None = None,
     variant: str = "default",
     density: str = "normal",
-    defer_click: bool = False,
+    defer_click: bool | int | str | None = None,
     regions: list[ButtonRegion] | None = None,
     split: SplitLayout | None = None,
     divider: Divider | None = None,
@@ -565,7 +565,7 @@ Button(
 | `corner_radius` | `int` | `None` | Corner radius (auto-calculated if None) |
 | `variant` | `str` | `"default"` | Color variant: "default", "surface", "ghost". Deprecated aliases warn. |
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
-| `defer_click` | `bool` | `False` | Emit `clicked`/`shortClicked` on the next event-loop tick (see [Press animations & blocking handlers](#press-animations--blocking-handlers)) |
+| `defer_click` | `bool \| int \| str \| None` | `None` | `None` inherits `get_default_defer_click()`; `False` sync; `True` next tick; `int` ms; `"ripple"` awaits `get_ripple_duration_ms()` (see [Press animations](#press-animations--blocking-handlers)) |
 | `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the flat constructor params. |
 | `split` | `SplitLayout` | `None` | Geometry strategy for regions: `HorizontalSplit`, `VerticalSplit`, `GridSplit`, or `CustomSplit`. |
 | `divider` | `Divider` | `None` | Optional whole-widget divider between regions. |
@@ -939,8 +939,9 @@ day_btn.set_data(True, QColor(0, 200, 0))        # Has data, green
 
 Buttons play a Material-style ripple animation from the press point. The ripple
 is driven by a `QTimer` that ticks every ~16 ms on the **main GUI thread**, same
-as every other Qt animation. Duration ~280 ms, alpha ~12 % (light) / ~16 %
-(dark) — aligned with the Material Design 3 motion tokens.
+as every other Qt animation. Duration ~280 ms (`RippleEffect.DURATION_MS`),
+alpha ~12 % (light) / ~16 % (dark) — aligned with the Material Design 3 motion
+tokens.
 
 ### Why animations may freeze
 
@@ -952,28 +953,63 @@ event loop is blocked until the handler returns. While it is blocked:
   whatever frame the press caught;
 - hover transitions, scroll popups, and any other animation stalls too.
 
-This is a **Qt-wide constraint**, not a bug in the ripple layer.
+This is a **Qt-wide constraint**, not a bug in the ripple layer. QSS polish and
+widget-tree mutation are inherently GUI-thread-bound — they cannot run on a
+worker thread alongside the ripple timer.
 
-### `defer_click=True`
+### `defer_click` and process-wide defaults
 
-Pass `defer_click=True` to schedule the `clicked` / `shortClicked` signals on
-the **next event-loop tick** via `QTimer.singleShot(0, …)`. The press visually
-completes (ripple, depress, release event) before the handler starts.
+`Button(defer_click=None)` (constructor default) inherits the process-wide
+policy from `get_default_defer_click()`. Toolkit library default is `False`
+(sync emit). Hosts that want every button to finish its ripple before
+`clicked` typically set this once at startup:
 
 ```python
-btn = Button(
-    text="Switch theme",
-    variant="surface",
-    defer_click=True,   # let the ripple frame land before the heavy slot
+from sli_ui_toolkit import (
+    DEFER_CLICK_AWAIT_RIPPLE,
+    configure_toolkit,
+    set_default_defer_click,
+    set_ripple_duration_ms,
 )
-btn.clicked.connect(theme_manager.toggle)   # slow: re-applies QSS everywhere
+
+# Parallel process-wide knobs (same idea as flyout timings):
+set_ripple_duration_ms(280)                 # system ripple length
+set_default_defer_click(DEFER_CLICK_AWAIT_RIPPLE)  # await that length
+
+# Or via configure_toolkit(...):
+configure_toolkit(
+    ripple_duration_ms=280,
+    default_defer_click=DEFER_CLICK_AWAIT_RIPPLE,
+)
 ```
 
-What this **does**: gives the ripple at least one frame to render before the
-blocking work starts, so the press feels acknowledged.
+Per-button override still works: `False` / `True` / `int` ms /
+`DEFER_CLICK_AWAIT_RIPPLE`, or `btn.set_defer_click(...)`. When set, both
+`clicked` / `shortClicked` and `regionClicked` are delayed (multi-region
+cards that wire only `regionClicked` still get the wait).
 
-What this **does not** do: it does not make the handler asynchronous. The
-animation will still stall mid-flight once the slow slot starts running.
+```python
+from sli_ui_toolkit.widgets import Button, DEFER_CLICK_AWAIT_RIPPLE
+
+btn = Button(
+    text="Apply",
+    variant="surface",
+    # omit defer_click to use the process default, or force:
+    defer_click=DEFER_CLICK_AWAIT_RIPPLE,
+)
+btn.clicked.connect(apply_settings)  # may re-apply QSS + retranslate
+```
+
+What this **does**: the press animation plays to completion on a free event
+loop; only then does the heavy handler run.
+
+What this **does not** do: it does not make QSS/polish asynchronous. The UI may
+still freeze *after* the ripple — just not *during* it.
+
+`ThemeManager.set_theme` (toolkit ≥ 3.1.5) also defaults to `await_ripples=True`:
+if any button ripple is still active when theme apply is requested, the blocking
+work is deferred until that wave ends (same idea, for callers that do not own
+the button).
 
 ### Ripple color: overlay vs state-transition gradient
 
@@ -1003,8 +1039,10 @@ either falls back to the default. Alpha is interpolated along with RGB.
 For truly responsive feedback, run the heavy logic in a `QThread`, a
 `QtConcurrent`-style worker, or chunk it with `QCoreApplication.processEvents()`
 between steps. Operations that are inherently GUI-thread-bound (re-applying
-QSS, mutating widget trees) cannot be moved off-thread and will always stall
-animations; `defer_click=True` is the best mitigation available there.
+QSS, mutating widget trees) cannot be moved off-thread; for those, finish the
+ripple first (`defer_click=DEFER_CLICK_AWAIT_RIPPLE` / process default, and/or
+`ThemeManager.set_theme`’s `await_ripples`) so the freeze happens *after* the
+press feedback, not during it.
 
 ## See Also
 

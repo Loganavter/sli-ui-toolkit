@@ -1,6 +1,14 @@
 from sli_ui_toolkit.ui.widgets.buttons.button import Button, ButtonConfig, ButtonRow
 from sli_ui_toolkit.ui.widgets.buttons.content import PixmapContent
 from sli_ui_toolkit.ui.widgets.buttons.button_group import ButtonGroup
+from sli_ui_toolkit.ui.widgets.buttons.feedback import (
+    DEFER_CLICK_AWAIT_RIPPLE,
+    get_default_defer_click,
+    get_ripple_duration_ms,
+    set_default_defer_click,
+    set_ripple_duration_ms,
+)
+from sli_ui_toolkit.ui.widgets.buttons.layers.ripple import RippleEffect
 from sli_ui_toolkit.ui.widgets.buttons.regions import (
     ButtonRegion,
     CustomSplit,
@@ -36,11 +44,13 @@ __all__ = [
     "ButtonGroup",
     "ButtonRegion",
     "CustomSplit",
+    "DEFER_CLICK_AWAIT_RIPPLE",
     "Divider",
     "GridSplit",
     "HorizontalSplit",
     "PixmapContent",
     "RegionHandle",
+    "RippleEffect",
     "SingleRegionSplit",
     "VerticalSplit",
     "BehaviorSpec",
@@ -49,6 +59,10 @@ __all__ = [
     "LongPressBehavior",
     "ShapeSpec",
     "ToggleBehavior",
+    "get_default_defer_click",
+    "get_ripple_duration_ms",
+    "set_default_defer_click",
+    "set_ripple_duration_ms",
 ]
 
 

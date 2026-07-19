@@ -1,5 +1,39 @@
 # Changelog
 
+## 3.1.5
+
+### Added
+- Process-wide button feedback API (parallel setters):
+  `set_ripple_duration_ms` / `get_ripple_duration_ms` and
+  `set_default_defer_click` / `get_default_defer_click`, plus
+  `DEFER_CLICK_AWAIT_RIPPLE` (`"ripple"`). Also accepted by
+  `configure_toolkit(ripple_duration_ms=..., default_defer_click=...)`.
+- `Button(defer_click=None)` inherits the process default (library default
+  remains synchronous `False`).
+- `defer_click` now delays `regionClicked` as well as `clicked` (needed for
+  multi-region create-cards that wire `regionClicked`).
+- `translatable_text` / `tooltip` / `placeholder` / `callback` accept
+  `defer_when_hidden=True`: language updates for off-screen widgets (e.g.
+  stacked workspace pages) wait until the next `Show` event.
+
+### Changed
+- `ThemeManager.set_theme(..., await_ripples=True)` (default) defers the
+  blocking QSS/polish apply until any active button ripple finishes, so the
+  wave is not frozen mid-frame. Top-levels hosting an active ripple are also
+  skipped by `suspend_widget_updates`.
+- `Button.defer_click` accepts `bool | int`: `True` = next tick, `int` = delay
+  in ms (use `RippleEffect.DURATION_MS`). `Button.set_defer_click()` setter.
+- `RippleEffect.remaining_ms()` and public `RippleEffect` export on
+  `sli_ui_toolkit.widgets`.
+- `Label`: `theme_changed` only recolors (palette); full font/geometry rebuild
+  stays on font changes and property setters — major theme-switch speedup.
+- `ThemeManager` theme switches batch top-level `setUpdatesEnabled(False)`
+  across QSS apply **and** `theme_changed` emit, then one `update()` pass —
+  avoids the “theme fills in gradually” cascade and shortens the freeze.
+- `apply_theme_to_app` no longer calls `QApplication.processEvents()` between
+  clearing and setting the stylesheet (that mid-flush painted a half-themed
+  tree). Nested `suspend_widget_updates()` is public for app wrappers.
+
 ## 3.1.4
 
 ### Added

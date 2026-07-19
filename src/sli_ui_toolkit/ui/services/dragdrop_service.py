@@ -3,10 +3,15 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QObject, QPointF
 from PySide6.QtWidgets import QApplication
 
-from sli_ui_toolkit.ui.widgets.composite.drag_ghost_widget import DragGhostWidget
-
 
 class ToolkitDragDropService(QObject):
+    """In-window drag coordinator for UnifiedFlyout rows.
+
+    Visual ghost rendering is host-owned (Improve-ImgSLI ``DragGhostWidget`` via
+    ``configure_toolkit(dragdrop_service_getter=...)``). This default service
+    tracks drop targets without painting a ghost — fine for toolkit demos/tests.
+    """
+
     _instance: "ToolkitDragDropService | None" = None
 
     @classmethod
@@ -20,7 +25,6 @@ class ToolkitDragDropService(QObject):
         self._is_dragging = False
         self._source_data: dict | None = None
         self._source_widget = None
-        self._ghost_widget: DragGhostWidget | None = None
         self._hotspot = QPointF()
         self._current_target = None
         self._drop_targets: list[object] = []
@@ -46,25 +50,41 @@ class ToolkitDragDropService(QObject):
         if self._is_dragging:
             return
 
-        list_num = getattr(source_widget, "image_number", None)
+        list_num = getattr(source_widget, "list_num", None)
+        if list_num not in (1, 2):
+            list_num = getattr(source_widget, "image_number", None)
         index = getattr(source_widget, "index", -1)
         if list_num not in (1, 2) or not isinstance(index, int) or index < 0:
             return
 
+        indices = getattr(source_widget, "drag_indices", None)
+        if callable(indices):
+            try:
+                resolved = list(indices())
+            except Exception:
+                resolved = [index]
+        else:
+            resolved = [index]
+        if not resolved:
+            resolved = [index]
+
         self._is_dragging = True
         self._source_widget = source_widget
-        self._source_data = {"list_num": list_num, "index": index}
+        self._source_data = {
+            "list_num": list_num,
+            "index": index,
+            "indices": resolved,
+        }
         self._hotspot = event.position()
-
-        ghost_parent = source_widget.window() if source_widget is not None else None
-        self._ghost_widget = DragGhostWidget(ghost_parent)
-        self._ghost_widget.set_pixmap(source_widget.grab())
-        self._move_ghost(event.globalPosition())
-        self._ghost_widget.show()
-        self._ghost_widget.raise_()
 
         if hasattr(source_widget, "set_dragging_state"):
             source_widget.set_dragging_state(True)
+        set_batch = getattr(source_widget, "set_batch_dragging_state", None)
+        if callable(set_batch):
+            try:
+                set_batch(True, resolved)
+            except Exception:
+                pass
 
         self._install_event_filter()
 
@@ -108,7 +128,6 @@ class ToolkitDragDropService(QObject):
         return False
 
     def _update_drag_position(self, current_pos: QPointF) -> None:
-        self._move_ghost(current_pos)
         self._maybe_switch_visible_single_flyout_to_double(current_pos)
 
         new_target = self._target_at(current_pos)
@@ -161,13 +180,6 @@ class ToolkitDragDropService(QObject):
             except Exception:
                 continue
 
-    def _move_ghost(self, current_pos: QPointF) -> None:
-        if self._ghost_widget is None:
-            return
-        desired_top_left = current_pos.toPoint() - self._hotspot.toPoint()
-        self._ghost_widget.move(desired_top_left)
-        self._ghost_widget.raise_()
-
     def _clear_target_indicator(self, target) -> None:
         if target is not None and hasattr(target, "clear_drop_indicator"):
             try:
@@ -176,17 +188,18 @@ class ToolkitDragDropService(QObject):
                 pass
 
     def _cleanup(self) -> None:
-        if self._ghost_widget is not None:
-            self._ghost_widget.deleteLater()
-            self._ghost_widget = None
-
-        if self._source_widget is not None and hasattr(
-            self._source_widget, "set_dragging_state"
-        ):
-            try:
-                self._source_widget.set_dragging_state(False)
-            except RuntimeError:
-                pass
+        if self._source_widget is not None:
+            if hasattr(self._source_widget, "set_dragging_state"):
+                try:
+                    self._source_widget.set_dragging_state(False)
+                except RuntimeError:
+                    pass
+            set_batch = getattr(self._source_widget, "set_batch_dragging_state", None)
+            if callable(set_batch):
+                try:
+                    set_batch(False, [])
+                except Exception:
+                    pass
 
         self._clear_target_indicator(self._current_target)
         self._is_dragging = False
