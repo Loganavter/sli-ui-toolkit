@@ -73,9 +73,9 @@ class _UnifiedFlyoutBootstrapMixin(_UnifiedFlyoutSessionMixin):
         self.panel_left = self._create_panel(1)
         self.panel_right = self._create_panel(2)
 
-    def _create_panel(self, image_number: int) -> _Panel:
+    def _create_panel(self, list_num: int) -> _Panel:
         return _Panel(
-            image_number,
+            list_num,
             self.item_height,
             self.item_font,
             self._get_current_index,

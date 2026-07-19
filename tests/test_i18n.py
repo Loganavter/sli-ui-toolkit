@@ -72,3 +72,42 @@ def test_add_i18n_root_rebuilds_live_pack(tmp_path):
     mgr.add_i18n_root(plugin_root)
     assert tr("export.preview") == "Preview"
     assert tr("export.preview", language="en") == "Preview"
+
+
+def test_translatable_defers_when_hidden(qapp, qtbot):
+    from PySide6.QtWidgets import QLabel, QStackedWidget, QWidget
+    from sli_ui_toolkit.i18n import translatable_callback
+
+    stack = QStackedWidget()
+    visible_page = QWidget()
+    hidden_page = QWidget()
+    label = QLabel("start", hidden_page)
+    stack.addWidget(visible_page)
+    stack.addWidget(hidden_page)
+    stack.setCurrentWidget(visible_page)
+    stack.show()
+    qtbot.addWidget(stack)
+
+    seen: list[str] = []
+
+    def _on_lang(lang: str) -> None:
+        seen.append(lang)
+        label.setText(lang)
+
+    translatable_callback(label, _on_lang, defer_when_hidden=True)
+    assert seen  # initial apply while binding (may run before hide is noticed)
+    initial = label.text()
+    seen.clear()
+
+    emit_language_changed("ru")
+    assert seen == []
+    assert label.text() == initial
+
+    emit_language_changed("zh")
+    assert label.text() == initial
+    assert seen == []
+
+    stack.setCurrentWidget(hidden_page)
+    qtbot.waitUntil(lambda: label.isVisible(), timeout=1000)
+    qtbot.waitUntil(lambda: label.text() == "zh", timeout=1000)
+    assert "zh" in seen

@@ -41,6 +41,48 @@ window via `attach_in_window_widget`. The overlay is transparent for input
 outside the flyout container and stacks on top of normal widgets. This is what
 makes the flyout visually "float" while remaining a child of the window.
 
+#### Wayland: no `grabMouse` on in-window surfaces
+
+In-window flyouts and overlays are ordinary `Qt.Widget` children of the host
+window — **not** `Qt.Popup`. On Wayland, Qt prints
+
+> This plugin supports grabbing the mouse only for popup windows
+
+and the grab is a no-op if you call `QWidget.grabMouse()` / `releaseMouse()` from
+that hierarchy (marquee drags, custom rubber-bands, drag previews, etc.).
+
+For pointer tracking that must continue when the cursor leaves the origin
+widget (or crosses a pointer-transparent overlay):
+
+1. Prefer `WA_TransparentForMouseEvents` on the painted overlay so events keep
+   hitting the content underneath, **or**
+2. Install a short-lived `QApplication` event filter for the gesture; map with
+   `event.globalPosition()` → target `mapFromGlobal(...)`.
+3. Do **not** rely on `grabMouse()` unless the surface is a real `Qt.Popup`
+   (see `ContextMenu` `surface="popup"` below).
+
+Improve-ImgSLI’s Session Picker Recent shelf and any host list that needs
+multi-select rubber-banding should use toolkit ``MarqueeBandOverlay`` +
+``MarqueeBandGesture`` (public via ``sli_ui_toolkit.widgets``) instead of
+``grabMouse`` or ``QRubberBand``.
+
+```python
+from sli_ui_toolkit.widgets import MarqueeBandGesture
+
+gesture = MarqueeBandGesture(
+    list_viewport_content,
+    clip_widget=scroll.viewport(),
+    on_update=lambda rect: preview_hits(rect),
+    on_finish=lambda rect: commit_hits(rect),
+)
+# On empty-area left press (content-local):
+gesture.set_accent(pastel_accent)
+gesture.start(event.position().toPoint())
+# Move/release are handled by the gesture's app filter.
+```
+
+Not the same as text ``MarqueeDriver`` / ``apply_marquee`` (scrolling labels).
+
 ### Manager
 
 `FlyoutManager` is a singleton (`FlyoutManager.get_instance()`) that:

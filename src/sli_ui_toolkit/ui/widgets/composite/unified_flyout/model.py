@@ -8,11 +8,13 @@ IsCurrentRole = Qt.ItemDataRole.UserRole + 5
 
 class ImageListModel(QAbstractListModel):
 
-    def __init__(self, image_list=None, image_number: int = 1, store=None, parent=None):
+    def __init__(self, items=None, list_num: int = 1, store=None, parent=None, *, image_list=None, image_number: int | None = None):
         super().__init__(parent)
 
-        self._data = image_list if image_list is not None else []
-        self._image_number = image_number
+        if items is None:
+            items = image_list
+        self._data = items if items is not None else []
+        self._list_num = list_num if image_number is None else int(image_number)
         self._store = store
         self._current_index = -1
 
@@ -75,9 +77,9 @@ class ImageListModel(QAbstractListModel):
             new_model_index = self.index(current_index)
             self.dataChanged.emit(new_model_index, new_model_index, [IsCurrentRole])
 
-    def updateData(self, image_list, current_index: int = -1):
+    def updateData(self, items, current_index: int = -1):
         self.beginResetModel()
-        self._data = image_list if image_list is not None else []
+        self._data = items if items is not None else []
         self._current_index = current_index
         self.endResetModel()
 
@@ -107,12 +109,12 @@ class ImageListModel(QAbstractListModel):
             row = index.row()
 
             data_dict = {
-                "list_num": self._image_number,
+                "list_num": self._list_num,
                 "index": row,
             }
 
             mime_data.setData(
-                "application/x-imagelist-item", f"{self._image_number}:{row}".encode()
+                "application/x-imagelist-item", f"{self._list_num}:{row}".encode()
             )
         return mime_data
 

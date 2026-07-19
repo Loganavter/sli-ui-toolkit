@@ -58,7 +58,7 @@ QSS files use `@token` placeholders resolved at theme-apply time:
 - `@dialog.border` — subtle borders
 - `@dialog.input.background` — input field fill
 - `@flyout.background` / `@flyout.border` — flyout surfaces
-- `@list_item.background.hover` — hovered/current rows inside flyouts and menus
+- `@list_item.background.hover` — hovered/current rows inside flyouts and menus; ctrl+LMB-selected rows get a soft accent wash over this base (current row included when selected)
 - `@input.border.thin` — hairline input borders
 
 ## Typography

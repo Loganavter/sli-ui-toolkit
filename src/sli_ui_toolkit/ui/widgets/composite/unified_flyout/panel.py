@@ -1,18 +1,32 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath
-from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QLinearGradient, QMouseEvent, QPainter, QPainterPath
+from PySide6.QtWidgets import QApplication, QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.widgets import OverlayScrollArea
+from sli_ui_toolkit.ui.widgets.atomic import OverlayScrollArea
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.multi_move import payload_indices
 from sli_ui_toolkit.ui.widgets.list_items.rating_item import RatingListItem
+from sli_ui_toolkit.ui.widgets.overlays.marquee_band_gesture import MarqueeBandGesture
+
+import logging
+
+_dbg = logging.getLogger("ImproveImgSLI.flyout")  # TEMP debug
 
 class _ListOwnerProxy:
-    def __init__(self, image_number: int):
-        self.image_number = image_number
+    def __init__(self, list_num: int):
+        self.list_num = list_num
+
+    @property
+    def image_number(self) -> int:
+        return self.list_num
+
+    @image_number.setter
+    def image_number(self, value: int) -> None:
+        self.list_num = int(value)
 
 class _DropIndicator(QWidget):
     def __init__(self, parent=None):
@@ -55,7 +69,7 @@ class _Panel(QWidget):
 
     def __init__(
         self,
-        image_number: int,
+        list_num: int,
         item_height: int,
         item_font,
         get_current_index,
@@ -72,7 +86,7 @@ class _Panel(QWidget):
         parent=None,
     ):
         super().__init__(parent)
-        self.image_number = image_number
+        self.list_num = list_num
         self.item_height = item_height
         self.item_font = item_font
         self._get_current_index = get_current_index
@@ -91,6 +105,9 @@ class _Panel(QWidget):
         self._container_height = 50
         self._owner_proxy = None
         self._list_type = "image"
+        self._selected_indices: set[int] = set()
+        self._marquee_gesture = None
+        self._marquee_additive = False
 
         self.setObjectName("UnifiedFlyoutPanel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -118,6 +135,9 @@ class _Panel(QWidget):
 
         self.setMinimumHeight(0)
         self.scroll_area.setMinimumHeight(0)
+
+        self.content_widget.setMouseTracking(True)
+        self.content_widget.installEventFilter(self)
 
         self._apply_style()
         self.theme_manager.theme_changed.connect(self._apply_style)
@@ -164,7 +184,7 @@ class _Panel(QWidget):
 
     def clear_and_rebuild(
         self,
-        image_list,
+        items,
         owner_proxy,
         item_height,
         item_font,
@@ -194,16 +214,16 @@ class _Panel(QWidget):
                     item.widget().deleteLater()
 
             if current_index == -1:
-                current_app_index = self._get_current_index(self.image_number)
+                current_app_index = self._get_current_index(self.list_num)
             else:
                 current_app_index = current_index
 
-            if not image_list:
+            if not items:
                 self.recalculate_and_set_height()
                 return
 
-            total = len(image_list)
-            for i, img_item in enumerate(image_list):
+            total = len(items)
+            for i, img_item in enumerate(items):
                 is_current = i == current_app_index
 
                 text = (
@@ -227,7 +247,7 @@ class _Panel(QWidget):
                     text=text,
                     rating=rating,
                     full_path=full_path,
-                    image_number=owner_proxy.image_number,
+                    list_num=owner_proxy.list_num,
                     get_rating=self._get_rating,
                     increment_rating=self._increment_rating,
                     decrement_rating=self._decrement_rating,
@@ -243,6 +263,7 @@ class _Panel(QWidget):
                 )
 
                 item_widget.itemSelected.connect(self._on_item_clicked)
+                item_widget.itemSelectionToggled.connect(self._on_item_selection_toggled)
                 item_widget.itemRightClicked.connect(self._on_context_menu)
 
                 self.content_layout.insertWidget(
@@ -252,6 +273,7 @@ class _Panel(QWidget):
             self.recalculate_and_set_height()
         finally:
             self.content_widget.setUpdatesEnabled(True)
+            self.clear_selection()
 
         if preserve_scroll:
             QTimer.singleShot(
@@ -262,7 +284,7 @@ class _Panel(QWidget):
 
     def sync_with_list(
         self,
-        image_list,
+        items,
         owner_proxy,
         item_height,
         item_font,
@@ -275,26 +297,26 @@ class _Panel(QWidget):
         self.item_font = item_font
 
         if current_index == -1:
-            current_app_index = self._get_current_index(self.image_number)
+            current_app_index = self._get_current_index(self.list_num)
         else:
             current_app_index = current_index
 
         existing_widgets = self._item_widgets()
         if not existing_widgets or list_type != "image":
             self.clear_and_rebuild(
-                image_list, owner_proxy, item_height, item_font, list_type, current_index
+                items, owner_proxy, item_height, item_font, list_type, current_index
             )
             return
 
-        target_paths = [getattr(item, "path", "") for item in image_list]
+        target_paths = [getattr(item, "path", "") for item in items]
         existing_paths = [getattr(widget, "full_path", "") for widget in existing_widgets]
 
         if existing_paths == target_paths:
-            self._refresh_widgets_from_list(image_list, current_app_index)
+            self._refresh_widgets_from_list(items, current_app_index)
             return
 
         self.clear_and_rebuild(
-            image_list, owner_proxy, item_height, item_font, list_type, current_index
+            items, owner_proxy, item_height, item_font, list_type, current_index
         )
 
     def _ensure_visible(self, index):
@@ -333,12 +355,12 @@ class _Panel(QWidget):
             widget.rating_label.setText(str(rating))
         widget.update()
 
-    def _refresh_widgets_from_list(self, image_list, current_index):
-        total = len(image_list)
+    def _refresh_widgets_from_list(self, items, current_index):
+        total = len(items)
         widgets = self._item_widgets()
         if len(widgets) != total:
             self.clear_and_rebuild(
-                image_list,
+                items,
                 self._owner_proxy,
                 self.item_height,
                 self.item_font,
@@ -347,7 +369,7 @@ class _Panel(QWidget):
             )
             return
 
-        for index, (widget, img_item) in enumerate(zip(widgets, image_list)):
+        for index, (widget, img_item) in enumerate(zip(widgets, items)):
             self._apply_item_data(widget, index, img_item, current_index, total)
 
         self.recalculate_and_set_height()
@@ -378,7 +400,7 @@ class _Panel(QWidget):
             text=text,
             rating=rating,
             full_path=full_path,
-            image_number=self._owner_proxy.image_number,
+            list_num=self._owner_proxy.list_num,
             get_rating=self._get_rating,
             increment_rating=self._increment_rating,
             decrement_rating=self._decrement_rating,
@@ -548,14 +570,15 @@ class _Panel(QWidget):
         if not isinstance(payload, dict):
             return False
 
-        if payload.get("list_num") != self.image_number:
+        if payload.get("list_num") != self.list_num:
             return False
 
-        src_index = payload.get("index")
-        if not isinstance(src_index, int) or src_index < 0:
+        indices = payload_indices(payload)
+        if not indices:
             return False
-
-        return dest_index in (src_index, src_index + 1)
+        # Hide when dropping would be a no-op for the contiguous selection block.
+        lo, hi = indices[0], indices[-1]
+        return lo <= dest_index <= hi + 1
 
     def update_drop_indicator(self, global_pos: QPointF):
         local_pos = self.content_widget.mapFromGlobal(global_pos.toPoint())
@@ -591,27 +614,172 @@ class _Panel(QWidget):
     def handle_drop(self, payload: dict, global_pos: QPointF):
         self.clear_drop_indicator()
         source_list_num = payload.get("list_num", -1)
-        source_index = payload.get("index", -1)
+        indices = payload_indices(payload)
+        if not indices:
+            return
 
         local_pos = self.content_widget.mapFromGlobal(global_pos.toPoint())
         dest_index, _ = self.find_drop_target(local_pos.y())
 
-        if source_list_num == self.image_number:
+        if source_list_num == self.list_num:
             QTimer.singleShot(
                 0,
                 lambda: self._on_reorder(
-                    self.image_number,
-                    source_index,
+                    self.list_num,
+                    indices,
                     dest_index,
                 ),
             )
         else:
             self._on_move_between_lists(
                 source_list_num,
-                source_index,
-                self.image_number,
+                indices,
+                self.list_num,
                 dest_index,
             )
+        self.clear_selection()
+
+    @property
+    def image_number(self) -> int:
+        return self.list_num
+
+    @image_number.setter
+    def image_number(self, value: int) -> None:
+        self.list_num = int(value)
+
+    def selected_indices(self) -> set[int]:
+        return set(self._selected_indices)
+
+    def clear_selection(self) -> None:
+        if not self._selected_indices:
+            self._sync_selection_visuals()
+            return
+        self._selected_indices.clear()
+        self._sync_selection_visuals()
+
+    def set_selected_indices(self, indices) -> None:
+        self._selected_indices = {int(i) for i in indices if isinstance(i, int) and i >= 0}
+        self._sync_selection_visuals()
+
+    def set_items_dragging(self, indices, dragging: bool) -> None:
+        wanted = {int(i) for i in (indices or [])}
+        for widget in self._item_widgets():
+            if widget.index in wanted:
+                widget.set_dragging_state(dragging)
+
+    def _sync_selection_visuals(self) -> None:
+        selected = self._selected_indices
+        for widget in self._item_widgets():
+            setter = getattr(widget, "set_selected", None)
+            if callable(setter):
+                setter(widget.index in selected)
+            else:
+                widget.is_selected = widget.index in selected
+                widget.update()
+
+    def _on_item_selection_toggled(self, index: int) -> None:
+        if index in self._selected_indices:
+            self._selected_indices.discard(index)
+        else:
+            self._selected_indices.add(index)
+        self._sync_selection_visuals()
+
+    def _ensure_marquee_gesture(self):
+        if self._marquee_gesture is None:
+            self._marquee_gesture = MarqueeBandGesture(
+                self.content_widget,
+                parent=self,
+                clip_widget=self.scroll_area.viewport(),
+                on_update=self._on_marquee_rect_update,
+                on_finish=self._on_marquee_rect_finish,
+            )
+            try:
+                accent = QColor(self.theme_manager.get_color("accent"))
+                base = QColor(self.theme_manager.get_color("flyout.background"))
+                pastel = QColor(
+                    int(round(accent.red() * 0.38 + base.red() * 0.62)),
+                    int(round(accent.green() * 0.38 + base.green() * 0.62)),
+                    int(round(accent.blue() * 0.38 + base.blue() * 0.62)),
+                )
+                self._marquee_gesture.set_accent(pastel)
+            except Exception:
+                pass
+        else:
+            self._marquee_gesture.set_clip_widget(self.scroll_area.viewport())
+        return self._marquee_gesture
+
+    def _indices_intersecting_rect(self, rect: QRect) -> set[int]:
+        if rect.isEmpty():
+            return set()
+        hit: set[int] = set()
+        for widget in self._item_widgets():
+            if widget.geometry().intersects(rect):
+                hit.add(widget.index)
+        return hit
+
+    def _on_marquee_rect_update(self, rect: QRect) -> None:
+        band = self._indices_intersecting_rect(rect)
+        if self._marquee_additive:
+            preview = set(self._selected_indices) | band
+        else:
+            preview = band
+        # Preview without committing until finish.
+        for widget in self._item_widgets():
+            setter = getattr(widget, "set_selected", None)
+            if callable(setter):
+                setter(widget.index in preview)
+
+    def _on_marquee_rect_finish(self, rect: QRect) -> None:
+        if rect.isEmpty():
+            if not self._marquee_additive:
+                self.clear_selection()
+            else:
+                self._sync_selection_visuals()
+            return
+        band = self._indices_intersecting_rect(rect)
+        if self._marquee_additive:
+            self._selected_indices |= band
+        else:
+            self._selected_indices = set(band)
+        self._sync_selection_visuals()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if watched is self.content_widget and isinstance(event, QMouseEvent):
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if event.button() == Qt.MouseButton.LeftButton:
+                    pos = event.position().toPoint()
+                    child = self.content_widget.childAt(pos)
+                    if isinstance(child, RatingListItem):
+                        # The row background is visually inset by 2px and the
+                        # layout spacing is 2px, so the strip that *looks* like
+                        # a gap between rows still belongs to the row widgets.
+                        # Treat presses in that edge strip as empty space so
+                        # the marquee can start "between" rows.
+                        geo = child.geometry()
+                        edge = 4
+                        if pos.y() - geo.top() <= edge or geo.bottom() - pos.y() <= edge:
+                            child = None
+                    _dbg.debug(
+                        "[DBG-MARQUEE] panel press pos=%s child=%r",
+                        event.position().toPoint(), child,
+                    )
+                    if child is None:
+                        mods = event.modifiers()
+                        self._marquee_additive = bool(
+                            mods
+                            & (
+                                Qt.KeyboardModifier.ControlModifier
+                                | Qt.KeyboardModifier.MetaModifier
+                            )
+                        )
+                        gesture = self._ensure_marquee_gesture()
+                        ok = gesture.start(event.position().toPoint())
+                        _dbg.debug("[DBG-MARQUEE] gesture.start -> %s", ok)
+                        if ok:
+                            if not self._marquee_additive:
+                                self._on_marquee_rect_update(QRect())
+                            return True
+        return super().eventFilter(watched, event)
 
     def update_rating_for_item(self, index: int):
         if 0 <= index < (self.content_layout.count() - 1):
@@ -624,7 +792,7 @@ class _Panel(QWidget):
                 item.widget()._update_label_from_store()
 
     def _on_item_clicked(self, index):
-        self._on_item_selected_cb(self.image_number, index)
+        self._on_item_selected_cb(self.list_num, index)
 
     def _on_context_menu(self, index):
-        self._on_item_context_menu_cb(self.image_number, index)
+        self._on_item_context_menu_cb(self.list_num, index)

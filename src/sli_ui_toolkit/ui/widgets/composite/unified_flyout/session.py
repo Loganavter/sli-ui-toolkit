@@ -1,6 +1,10 @@
 from PySide6.QtCore import QTimer
 
 from sli_ui_toolkit.config import create_rating_gesture
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
+    current_index_for_list,
+    items_for_list,
+)
 
 class _UnifiedFlyoutSessionMixin:
     def _schedule_structure_sync(self):
@@ -46,72 +50,99 @@ class _UnifiedFlyoutSessionMixin:
         """
         self.item_context_menu_requested.emit(list_num, index)
 
-    def _get_current_index(self, image_number: int) -> int:
-        if image_number == 1:
-            return self.store.document.current_index1
-        if image_number == 2:
-            return self.store.document.current_index2
-        return -1
+    def _get_current_index(self, list_num: int) -> int:
+        return current_index_for_list(self.store.document, list_num)
 
-    def _get_item_rating(self, image_number: int, index: int) -> int:
-        target_list = (
-            self.store.document.image_list1
-            if image_number == 1
-            else self.store.document.image_list2
-        )
+    def _get_item_rating(self, list_num: int, index: int) -> int:
+        target_list = items_for_list(self.store.document, list_num)
         if 0 <= index < len(target_list):
             return getattr(target_list[index], "rating", 0)
         return 0
 
     def _create_rating_gesture(
-        self, image_number: int, item_index: int, starting_score: int
+        self, list_num: int, item_index: int, starting_score: int
     ):
         if self.main_controller is None:
             return None
+        # Pass both names: hosts may still expect ``image_number``.
         return create_rating_gesture(
             main_controller=self.main_controller,
-            image_number=image_number,
+            list_num=list_num,
+            image_number=list_num,
             item_index=item_index,
             starting_score=starting_score,
         )
 
-    def _increment_rating(self, image_number: int, index: int) -> None:
+    def _increment_rating(self, list_num: int, index: int) -> None:
         session_handler = self._get_session_handler()
         if session_handler is not None and hasattr(session_handler, "increment_rating"):
-            session_handler.increment_rating(image_number, index)
+            session_handler.increment_rating(list_num, index)
 
-    def _decrement_rating(self, image_number: int, index: int) -> None:
+    def _decrement_rating(self, list_num: int, index: int) -> None:
         session_handler = self._get_session_handler()
         if session_handler is not None and hasattr(session_handler, "decrement_rating"):
-            session_handler.decrement_rating(image_number, index)
+            session_handler.decrement_rating(list_num, index)
 
-    def _reorder_item(self, image_number: int, source_index: int, dest_index: int) -> None:
+    def _reorder_item(self, list_num: int, indices, dest_index: int) -> None:
+        if isinstance(indices, int):
+            indices = [indices]
         session_handler = self._get_session_handler()
-        if session_handler is not None and hasattr(
-            session_handler, "reorder_item_in_list"
-        ):
-            session_handler.reorder_item_in_list(
-                image_number=image_number,
-                source_index=source_index,
+        if session_handler is None:
+            return
+        if hasattr(session_handler, "reorder_items_in_list"):
+            session_handler.reorder_items_in_list(
+                list_num=list_num,
+                indices=list(indices),
                 dest_index=dest_index,
+            )
+            self._schedule_structure_sync()
+            return
+        if hasattr(session_handler, "reorder_item_in_list") and indices:
+            from sli_ui_toolkit.ui.widgets.composite.unified_flyout.multi_move import (
+                normalize_indices,
+            )
+
+            normalized = normalize_indices(indices)
+            if not normalized:
+                return
+            session_handler.reorder_item_in_list(
+                list_num, normalized[0], dest_index
             )
             self._schedule_structure_sync()
 
     def _move_item_between_lists(
         self,
         source_list_num: int,
-        source_index: int,
+        indices,
         dest_list_num: int,
         dest_index: int,
     ) -> None:
+        if isinstance(indices, int):
+            indices = [indices]
         session_handler = self._get_session_handler()
-        if session_handler is not None and hasattr(
-            session_handler, "move_item_between_lists"
-        ):
-            session_handler.move_item_between_lists(
+        if session_handler is None:
+            return
+        if hasattr(session_handler, "move_items_between_lists"):
+            session_handler.move_items_between_lists(
                 source_list_num=source_list_num,
-                source_index=source_index,
+                indices=list(indices),
                 dest_list_num=dest_list_num,
                 dest_index=dest_index,
             )
+            self._schedule_structure_sync()
+            return
+        if hasattr(session_handler, "move_item_between_lists") and indices:
+            from sli_ui_toolkit.ui.widgets.composite.unified_flyout.multi_move import (
+                normalize_indices,
+            )
+
+            normalized = normalize_indices(indices)
+            insert_at = dest_index
+            for index in sorted(normalized, reverse=True):
+                session_handler.move_item_between_lists(
+                    source_list_num=source_list_num,
+                    source_index=index,
+                    dest_list_num=dest_list_num,
+                    dest_index=insert_at,
+                )
             self._schedule_structure_sync()

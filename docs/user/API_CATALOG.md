@@ -552,12 +552,6 @@ Block parsers for `HelpDocumentView` live under
 | `TimelineWidget` | Keyframe timeline with thumbnail strip, grouped tracks, ruler, playhead, zoom/scroll, range selection. Feed via `set_data()`. |
 | `TimelineCallbacks` | Callback hooks: `should_show_track`, `visible_channels`, `is_track_active`, `localize_token`, `localize_value`, `prominent_track_ids`. |
 
-### Drag & Drop
-
-| Widget | Description |
-|--------|-------------|
-| `DragGhostWidget` | Semi-transparent ghost widget shown during drag operations. |
-
 ---
 
 ## Overlays (from `sli_ui_toolkit.ui.widgets.overlays`)
@@ -567,6 +561,14 @@ Block parsers for `HelpDocumentView` live under
 | `TopLevelInWindowOverlay` | Modal full-window in-window overlay that can host arbitrary `QWidget` content. Children can be placed by `OverlaySlot` around an anchor or with explicit overlay-local geometry. Emits `dismissed()`. |
 | `OverlaySlot` / `OverlayItem` | Slot enum and item metadata used by `TopLevelInWindowOverlay`. |
 | `DragDropOverlay` | Transparent drag/drop zone painter built on `TopLevelInWindowOverlay`; keeps pointer transparency and the existing `set_overlay_state(...)` API. |
+| `MarqueeBandOverlay` | Pointer-transparent in-window selection rubber-band (not `QRubberBand` / not text `MarqueeDriver`). `set_band(rect)` / `set_accent(color)`. |
+| `MarqueeBandGesture` | Wayland-safe drag tracker for `MarqueeBandOverlay` (app event filter; no `grabMouse`). Host supplies hit-testing via `on_update` / `on_finish` content-local rects. |
+| `map_content_rect_to_window(...)` | Map a content-local rect into the host window, optionally clipped to a viewport widget. |
+
+Drag ghosts for UnifiedFlyout are **host-owned** (Improve-ImgSLI
+`ui/widgets/drag_ghost_widget.py` + `DragAndDropService`). The toolkit
+`ToolkitDragDropService` coordinates drop targets without painting a ghost;
+apps inject their service via `configure_toolkit(dragdrop_service_getter=...)`.
 
 ---
 
@@ -620,7 +622,7 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 
 | Name | Description |
 |------|-------------|
-| `ThemeManager` | Palette + QSS theme application singleton. |
+| `ThemeManager` | Palette + QSS theme application singleton. `set_theme` batches top-level updates across apply + `theme_changed`; `suspend_widget_updates()` is available for nested wrappers. |
 | `FlyoutManager` | Ensures only one registered flyout is active at a time. |
 | `DelayedActionTimer` | Single-shot delayed callback wrapper. |
 | `SettleGate` | Restartable quiet-period gate with optional per-pulse work (resize: cheap refit + deferred heavy pass). |
@@ -664,7 +666,10 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 
 | Function | Module | Description |
 |----------|--------|-------------|
-| `configure_toolkit(timings=..., overlay_resolver=..., dragdrop_service=...)` | `sli_ui_toolkit.config` | Overlay layer resolution, drag-drop, timing constants. |
+| `configure_toolkit(timings=..., overlay_resolver=..., dragdrop_service=..., ripple_duration_ms=..., default_defer_click=...)` | `sli_ui_toolkit.config` | Overlay layer resolution, drag-drop, timing constants, button ripple duration + default click deferral. |
+| `set_ripple_duration_ms(ms)` / `get_ripple_duration_ms()` | `sli_ui_toolkit` / `widgets` | Process-wide Material ripple length (keeps `RippleEffect.DURATION_MS` in sync). |
+| `set_default_defer_click(value)` / `get_default_defer_click()` | `sli_ui_toolkit` / `widgets` | Process-wide default for `Button(defer_click=None)`. Use `DEFER_CLICK_AWAIT_RIPPLE` to await the system ripple. |
+
 | `configure_icon_resolver(resolver=..., named_icons=...)` | `sli_ui_toolkit.icons` | Icon resolution strategy. |
 | `configure_i18n(i18n_root=...)` | `sli_ui_toolkit.i18n` | Path to JSON translation directory. |
 

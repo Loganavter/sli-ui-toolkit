@@ -7,7 +7,10 @@ from sli_ui_toolkit.ui.in_window_surface import (
     surface_available_rect,
 )
 from sli_ui_toolkit.ui.managers.ui_font import paint_font, rebase_font, ui_font
-from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
+    FlyoutMode,
+    items_for_list,
+)
 
 class _UnifiedFlyoutLayoutMixin:
     _move_easing = QEasingCurve.Type.OutQuad
@@ -86,8 +89,8 @@ class _UnifiedFlyoutLayoutMixin:
             self.panel_left.show()
             self.panel_right.hide()
             return 1
-        self.populate(1, self.store.document.image_list1)
-        self.populate(2, self.store.document.image_list2)
+        self.populate(1, items_for_list(self.store.document, 1))
+        self.populate(2, items_for_list(self.store.document, 2))
         self.panel_left.setVisible(list_num == 1)
         self.panel_right.setVisible(list_num == 2)
         return list_num

@@ -37,6 +37,8 @@ def _lerp_color(a: QColor, b: QColor, t: float) -> QColor:
 
 
 class RippleEffect:
+    # Class attribute kept in sync by ``set_ripple_duration_ms``; prefer
+    # ``get_ripple_duration_ms()`` for new code.
     DURATION_MS = 280
     TICK_MS = 16
     PEAK_ALPHA_LIGHT = 31
@@ -51,6 +53,11 @@ class RippleEffect:
         self._center: QPointF | None = None
         self._color_from: QColor | None = None
         self._color_to: QColor | None = None
+
+    def _duration_ms(self) -> int:
+        from sli_ui_toolkit.ui.widgets.buttons.feedback import get_ripple_duration_ms
+
+        return get_ripple_duration_ms()
 
     def trigger(
         self,
@@ -75,6 +82,12 @@ class RippleEffect:
 
     def is_active(self) -> bool:
         return self._center is not None
+
+    def remaining_ms(self) -> int:
+        """Milliseconds left in the wave, or ``0`` when idle."""
+        if self._center is None:
+            return 0
+        return max(0, self._duration_ms() - self._elapsed)
 
     def cancel(self) -> None:
         """Stop and clear the wave immediately, e.g. when the widget is
@@ -102,11 +115,14 @@ class RippleEffect:
         return self._color_to
 
     def progress(self) -> float:
-        return min(1.0, self._elapsed / self.DURATION_MS)
+        duration = self._duration_ms()
+        if duration <= 0:
+            return 1.0
+        return min(1.0, self._elapsed / duration)
 
     def _on_tick(self) -> None:
         self._elapsed += self.TICK_MS
-        if self._elapsed >= self.DURATION_MS:
+        if self._elapsed >= self._duration_ms():
             self._timer.stop()
             self._center = None
             self._color_from = None

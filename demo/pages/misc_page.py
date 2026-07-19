@@ -15,7 +15,6 @@ from sli_ui_toolkit.ui.widgets.composite.calendar_widget.models import (
 from sli_ui_toolkit.widgets import (
     Button,
     CalendarWidget,
-    DragGhostWidget,
     Label,
 )
 
@@ -26,7 +25,7 @@ class MiscPage(GalleryPage):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             title="Misc",
-            subtitle="Календарь, preview, drag-ghost и прочие одиночные виджеты.",
+            subtitle="Календарь, preview и прочие одиночные виджеты.",
             source_file=__file__,
             parent=parent,
         )
@@ -162,17 +161,5 @@ class MiscPage(GalleryPage):
             self.add_card("PreviewPanel", preview, "Панель просмотра с edit/save/revert.")
         except Exception as e:
             self.add_card("PreviewPanel", Label(f"requires setup: {e}", pixel_size=11))
-
-        try:
-            ghost_holder = QWidget()
-            gh = QHBoxLayout(ghost_holder)
-            gh.setContentsMargins(0, 0, 0, 0)
-            ghost = DragGhostWidget(ghost_holder)
-            gh.addWidget(ghost)
-            gh.addWidget(Label("Используется во время drag&drop", pixel_size=11))
-            gh.addStretch()
-            self.add_card("DragGhostWidget", ghost_holder)
-        except Exception:
-            pass
 
         self.add_stretch()

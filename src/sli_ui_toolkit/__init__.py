@@ -23,15 +23,20 @@ from sli_ui_toolkit.utils.paths import resource_path
 from sli_ui_toolkit.workers.generic_worker import GenericWorker, WorkerSignals
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.widgets import (
+    DEFER_CLICK_AWAIT_RIPPLE,
     Label,
     LabelConfig,
     LabelVariantSpec,
     application_tooltips_enabled,
+    get_default_defer_click,
     get_label_variant,
+    get_ripple_duration_ms,
     install_application_tooltips,
     popup_context_menu_for_anchor,
     register_label_variant,
     set_application_tooltips_enabled,
+    set_default_defer_click,
+    set_ripple_duration_ms,
 )
 from sli_ui_toolkit.style import (
     WidgetStyleTokens,
@@ -75,11 +80,16 @@ __all__ = [
     "TranslationManager",
     "configure_i18n",
     "configure_toolkit",
+    "DEFER_CLICK_AWAIT_RIPPLE",
     "emit_language_changed",
+    "get_default_defer_click",
     "get_log_directory",
     "get_current_language",
+    "get_ripple_duration_ms",
     "get_unique_filepath",
     "resource_path",
+    "set_default_defer_click",
+    "set_ripple_duration_ms",
     "setup_logging",
     "setup_simple_logging",
     "tr",

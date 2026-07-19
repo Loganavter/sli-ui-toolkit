@@ -1,4 +1,7 @@
-from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
+    FlyoutMode,
+    items_for_list,
+)
 
 class _UnifiedFlyoutRefreshMixin:
     def _do_refresh_geometry(self):
@@ -14,8 +17,8 @@ class _UnifiedFlyoutRefreshMixin:
             self._is_refreshing = False
             return
 
-        list1 = self.store.document.image_list1
-        list2 = self.store.document.image_list2
+        list1 = items_for_list(self.store.document, 1)
+        list2 = items_for_list(self.store.document, 2)
         if not list1 and not list2:
             self._finish_refresh_with_close()
             return

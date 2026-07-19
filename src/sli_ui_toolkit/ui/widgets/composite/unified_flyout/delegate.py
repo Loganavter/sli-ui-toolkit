@@ -12,6 +12,7 @@ from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import items_for_list
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.model import (
     IsCurrentRole,
     NameRole,
@@ -30,7 +31,7 @@ class RatingDelegate(QStyledItemDelegate):
         main_controller=None,
         main_window=None,
         store=None,
-        image_number: int = 1,
+        list_num: int = 1,
         item_height: int = 36,
         item_font=None,
         item_type: str = "image",
@@ -40,7 +41,7 @@ class RatingDelegate(QStyledItemDelegate):
         self.main_controller = main_controller
         self.main_window = main_window
         self.store = store
-        self.image_number = image_number
+        self.list_num = list_num
         self.item_height = item_height
         self.item_font = rebase_font(item_font) if item_font else ui_font()
         self.item_type = item_type
@@ -72,6 +73,14 @@ class RatingDelegate(QStyledItemDelegate):
         ):
             return controller
         return getattr(controller, "sessions", None)
+
+    @property
+    def image_number(self) -> int:
+        return self.list_num
+
+    @image_number.setter
+    def image_number(self, value: int) -> None:
+        self.list_num = int(value)
 
     def sizeHint(self, option, index):
         return QSize(option.rect.width(), self.item_height)
@@ -218,11 +227,7 @@ class RatingDelegate(QStyledItemDelegate):
                 self._drag_start_pos = click_pos
                 self._drag_start_pos_global = event.globalPosition()
 
-                target_list = (
-                    self.store.document.image_list1
-                    if self.image_number == 1
-                    else self.store.document.image_list2
-                )
+                target_list = (items_for_list(self.store.document, self.list_num))
                 row = index.row()
                 starting_score = 0
                 if 0 <= row < len(target_list):
@@ -230,7 +235,8 @@ class RatingDelegate(QStyledItemDelegate):
 
                 self._gesture_tx = create_rating_gesture(
                     main_controller=self.main_controller,
-                    image_number=self.image_number,
+                    list_num=self.list_num,
+                    image_number=self.list_num,
                     item_index=row,
                     starting_score=starting_score,
                 )
@@ -241,11 +247,7 @@ class RatingDelegate(QStyledItemDelegate):
                 self._drag_start_pos = click_pos
                 self._drag_start_pos_global = event.globalPosition()
 
-                target_list = (
-                    self.store.document.image_list1
-                    if self.image_number == 1
-                    else self.store.document.image_list2
-                )
+                target_list = (items_for_list(self.store.document, self.list_num))
                 row = index.row()
                 starting_score = 0
                 if 0 <= row < len(target_list):
@@ -253,7 +255,8 @@ class RatingDelegate(QStyledItemDelegate):
 
                 self._gesture_tx = create_rating_gesture(
                     main_controller=self.main_controller,
-                    image_number=self.image_number,
+                    list_num=self.list_num,
+                    image_number=self.list_num,
                     item_index=row,
                     starting_score=starting_score,
                 )
@@ -289,7 +292,7 @@ class RatingDelegate(QStyledItemDelegate):
                         session_handler, "increment_rating"
                     ):
                         session_handler.increment_rating(
-                            self.image_number, index.row()
+                            self.list_num, index.row()
                         )
                 self._update_rating_in_model(model, index)
                 self._active_button = None
@@ -306,7 +309,7 @@ class RatingDelegate(QStyledItemDelegate):
                         session_handler, "decrement_rating"
                     ):
                         session_handler.decrement_rating(
-                            self.image_number, index.row()
+                            self.list_num, index.row()
                         )
                 self._update_rating_in_model(model, index)
                 self._active_button = None
@@ -321,9 +324,7 @@ class RatingDelegate(QStyledItemDelegate):
 
     def _update_rating_in_model(self, model, index):
         target_list = (
-            self.store.document.image_list1
-            if self.image_number == 1
-            else self.store.document.image_list2
+            items_for_list(self.store.document, self.list_num)
         )
         row = index.row()
         if 0 <= row < len(target_list):
