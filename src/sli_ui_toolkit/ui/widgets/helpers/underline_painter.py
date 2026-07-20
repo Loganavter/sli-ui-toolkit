@@ -37,34 +37,34 @@ def _draw_tapered_arc(
     alpha_at_start: float,
     alpha_at_end: float,
 ) -> None:
-    """Рисует дугу короткими сегментами с переменной альфой.
-
-    alpha_at_start/end — нормализованные коэффициенты [0..1] от full_alpha
-    в точках t=0 (start_deg) и t=1 (start_deg + sweep_deg).
+    """Рисует дугу с градиентным затуханием.
+    Используется QLinearGradient вместо множества вызовов setPen/drawLine, 
+    чтобы обойти баг PySide6 (access violation) при GC QPen.
     """
-    prev_pt = None
-    for s in range(_TAPER_SEGMENTS + 1):
-        t = s / _TAPER_SEGMENTS
-        ang = math.radians(start_deg + sweep_deg * t)
-        # Y экран вниз: используем -sin для отображения стандартных углов
-        x = cx + radius * math.cos(ang)
-        y = cy - radius * math.sin(ang)
-        pt = QPointF(x, y)
-        if prev_pt is not None:
-            t_mid = (s - 0.5) / _TAPER_SEGMENTS
-            alpha_norm = alpha_at_start + (alpha_at_end - alpha_at_start) * t_mid
-            alpha_val = int(round(full_alpha * max(0.0, min(1.0, alpha_norm))))
-            
-            seg_color = QColor(base_color)
-            seg_color.setAlpha(alpha_val)
-            
-            seg_pen = QPen(seg_color)
-            seg_pen.setWidthF(thickness)
-            seg_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-            
-            painter.setPen(seg_pen)
-            painter.drawLine(prev_pt, pt)
-        prev_pt = pt
+    from PySide6.QtGui import QLinearGradient
+    
+    x1 = cx + radius * math.cos(math.radians(start_deg))
+    y1 = cy - radius * math.sin(math.radians(start_deg))
+    x2 = cx + radius * math.cos(math.radians(start_deg + sweep_deg))
+    y2 = cy - radius * math.sin(math.radians(start_deg + sweep_deg))
+    
+    grad = QLinearGradient(x1, y1, x2, y2)
+    
+    c1 = QColor(base_color)
+    c1.setAlpha(int(round(full_alpha * max(0.0, min(1.0, alpha_at_start)))))
+    
+    c2 = QColor(base_color)
+    c2.setAlpha(int(round(full_alpha * max(0.0, min(1.0, alpha_at_end)))))
+    
+    grad.setColorAt(0.0, c1)
+    grad.setColorAt(1.0, c2)
+    
+    pen = QPen(grad, thickness)
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    painter.setPen(pen)
+    
+    rect = QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius)
+    painter.drawArc(rect, int(start_deg * 16), int(sweep_deg * 16))
 
 def draw_bottom_underline(
     painter, rect, theme_manager: ThemeManager, config: UnderlineConfig | None = None
