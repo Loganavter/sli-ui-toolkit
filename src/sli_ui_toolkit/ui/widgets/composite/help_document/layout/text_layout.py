@@ -86,7 +86,7 @@ def build_text_layout(
         elif style.kind == InlineKind.ITALIC:
             fmt.setFontItalic(True)
         elif style.kind == InlineKind.CODE:
-            fmt.setFontFamily("monospace")
+            fmt.setFontFamilies(["monospace"])
         elif style.kind == InlineKind.KBD:
             _apply_kbd_format(fmt, theme, text_color)
         elif style.kind == InlineKind.LINK and style.href:
