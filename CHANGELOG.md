@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.1.6-1.1.11
+
+### Fixed
+- Resolved cascading issues with tests, painters, and widget creation/deletion in environments other than the development environment (Linux Mutter/Wayland).
+- The toolkit is now guaranteed not to crash on GitHub Windows CI servers and Flatpak build servers.
+
 ## 3.1.5
 
 ### Added
