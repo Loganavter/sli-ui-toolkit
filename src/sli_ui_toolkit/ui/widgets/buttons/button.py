@@ -772,6 +772,8 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        if not painter.isActive():
+            return
         try:
             self._painter.paint(self._make_context(painter))
         finally:
