@@ -189,37 +189,43 @@ class CustomLineEdit(QLineEdit):
 
         try:
             painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            if not painter.isActive():
+                return
+            painter.save()
+            try:
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-            thin = QColor(self.theme_manager.get_color("input.border.thin"))
-            alpha = max(8, int(thin.alpha() * 0.66))
-            thin.setAlpha(alpha)
-            pen = QPen(thin)
-            pen.setWidthF(0.66)
-            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rounded_rect, radius, radius)
+                thin = QColor(self.theme_manager.get_color("input.border.thin"))
+                alpha = max(8, int(thin.alpha() * 0.66))
+                thin.setAlpha(alpha)
+                pen = QPen(thin)
+                pen.setWidthF(0.66)
+                pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRoundedRect(rounded_rect, radius, radius)
 
-            if self.hasFocus():
-                underline_config = UnderlineConfig(
-                    color=(
-                        self._focused_underline_color
-                        or self.theme_manager.get_color("accent")
-                    ),
-                    alpha=120,
-                    thickness=self._focused_underline_thickness or 1.5,
-                    arc_radius=3.0,
-                )
-            else:
-                underline_config = UnderlineConfig(
-                    color=self._underline_color,
-                    alpha=60,
-                    thickness=self._underline_thickness or 1.0,
-                    arc_radius=3.0,
-                )
+                if self.hasFocus():
+                    underline_config = UnderlineConfig(
+                        color=(
+                            self._focused_underline_color
+                            or self.theme_manager.get_color("accent")
+                        ),
+                        alpha=120,
+                        thickness=self._focused_underline_thickness or 1.5,
+                        arc_radius=3.0,
+                    )
+                else:
+                    underline_config = UnderlineConfig(
+                        color=self._underline_color,
+                        alpha=60,
+                        thickness=self._underline_thickness or 1.0,
+                        arc_radius=3.0,
+                    )
 
-            draw_bottom_underline(painter, rect, self.theme_manager, underline_config)
-            painter.end()
+                draw_bottom_underline(painter, rect, self.theme_manager, underline_config)
+            finally:
+                painter.restore()
+                painter.end()
         except Exception:
             pass
