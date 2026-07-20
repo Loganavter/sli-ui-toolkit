@@ -240,7 +240,8 @@ def test_help_document_double_click_selects_word(qapp, qtbot):
     view.set_markdown("Hello world paragraph.\n")
     qapp.processEvents()
     canvas = _canvas(view)
-    qtbot.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(40, 20))
+    pos = canvas._layout.text_fragments[0].rect.topLeft().toPoint() + QPoint(20, 10)
+    qtbot.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
     qapp.processEvents()
     selected = canvas.selected_plain_text()
     assert selected in ("Hello", "world", "paragraph.")
@@ -310,7 +311,7 @@ def test_help_document_triple_click_selects_paragraph(qapp, qtbot):
     view.set_markdown("Hello world paragraph.\n\nAnother block.\n")
     qapp.processEvents()
     canvas = _canvas(view)
-    pos = QPoint(40, 20)
+    pos = canvas._layout.text_fragments[0].rect.topLeft().toPoint() + QPoint(20, 10)
     # Three rapid clicks (QTest.mouseDClick skips intermediate presses).
     for _ in range(3):
         qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
@@ -331,7 +332,7 @@ def test_help_document_triple_click_after_double_click_window(qapp, qtbot):
     view.set_markdown("Hello world paragraph.\n\nAnother block.\n")
     qapp.processEvents()
     canvas = _canvas(view)
-    pos = QPoint(40, 20)
+    pos = canvas._layout.text_fragments[0].rect.topLeft().toPoint() + QPoint(20, 10)
     qtbot.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
     qapp.processEvents()
     assert canvas.selected_plain_text() in ("Hello", "world", "paragraph.")
@@ -382,7 +383,8 @@ def test_help_document_single_click_does_not_select_word(qapp, qtbot):
     view.set_markdown("Hello world paragraph.\n")
     qapp.processEvents()
     canvas = _canvas(view)
-    qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(40, 20))
+    pos = canvas._layout.text_fragments[0].rect.topLeft().toPoint() + QPoint(20, 10)
+    qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
     qapp.processEvents()
     assert canvas.selected_plain_text() == ""
     view.deleteLater()
