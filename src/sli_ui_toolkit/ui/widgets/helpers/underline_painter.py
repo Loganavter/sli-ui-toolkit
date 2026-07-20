@@ -106,43 +106,47 @@ def draw_bottom_underline(
     total_width = end_x - start_x
     segment_width = total_width / count
 
-    for i, color in enumerate(final_colors):
-        pen = QPen(color)
-        pen.setWidthF(thickness)
-        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-        painter.setPen(pen)
+    painter.save()
+    try:
+        for i, color in enumerate(final_colors):
+            pen = QPen(color)
+            pen.setWidthF(thickness)
+            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            painter.setPen(pen)
 
-        seg_start = start_x + (i * segment_width)
-        seg_end = start_x + ((i + 1) * segment_width)
-        line_start_x = seg_start + arc_radius if i == 0 else seg_start
-        line_end_x = seg_end - arc_radius if i == count - 1 else seg_end
+            seg_start = start_x + (i * segment_width)
+            seg_end = start_x + ((i + 1) * segment_width)
+            line_start_x = seg_start + arc_radius if i == 0 else seg_start
+            line_end_x = seg_end - arc_radius if i == count - 1 else seg_end
 
-        if line_end_x > line_start_x:
-            painter.drawLine(
-                QPointF(line_start_x, base_y),
-                QPointF(line_end_x, base_y),
-            )
+            if line_end_x > line_start_x:
+                painter.drawLine(
+                    QPointF(line_start_x, base_y),
+                    QPointF(line_end_x, base_y),
+                )
 
-        full_alpha = color.alpha()
-        if arc_radius <= 0:
-            continue
+            full_alpha = color.alpha()
+            if arc_radius <= 0:
+                continue
 
-        if i == 0:
-            # Левый кончик: дуга 180°→270°. Альфа линейно нарастает от 0 (кончик) до full (стык с линией).
-            cx = start_x + arc_radius
-            cy = base_y - arc_radius
-            _draw_tapered_arc(
-                painter, color, thickness, cx, cy, arc_radius,
-                start_deg=180.0, sweep_deg=90.0,
-                full_alpha=full_alpha, alpha_at_start=0.0, alpha_at_end=1.0,
-            )
+            if i == 0:
+                # Левый кончик: дуга 180°→270°. Альфа линейно нарастает от 0 (кончик) до full (стык с линией).
+                cx = start_x + arc_radius
+                cy = base_y - arc_radius
+                _draw_tapered_arc(
+                    painter, color, thickness, cx, cy, arc_radius,
+                    start_deg=180.0, sweep_deg=90.0,
+                    full_alpha=full_alpha, alpha_at_start=0.0, alpha_at_end=1.0,
+                )
 
-        if i == count - 1:
-            # Правый кончик: дуга 270°→360°. Альфа падает от full (стык) до 0 (кончик).
-            cx = end_x - arc_radius
-            cy = base_y - arc_radius
-            _draw_tapered_arc(
-                painter, color, thickness, cx, cy, arc_radius,
-                start_deg=270.0, sweep_deg=90.0,
-                full_alpha=full_alpha, alpha_at_start=1.0, alpha_at_end=0.0,
-            )
+            if i == count - 1:
+                # Правый кончик: дуга 270°→360°. Альфа падает от full (стык) до 0 (кончик).
+                cx = end_x - arc_radius
+                cy = base_y - arc_radius
+                _draw_tapered_arc(
+                    painter, color, thickness, cx, cy, arc_radius,
+                    start_deg=270.0, sweep_deg=90.0,
+                    full_alpha=full_alpha, alpha_at_start=1.0, alpha_at_end=0.0,
+                )
+    finally:
+        painter.restore()
