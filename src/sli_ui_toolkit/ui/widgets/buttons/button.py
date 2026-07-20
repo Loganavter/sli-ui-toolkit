@@ -774,12 +774,16 @@ class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
         painter = QPainter(self)
         if not painter.isActive():
             return
-        painter.save()
         try:
-            self._painter.paint(self._make_context(painter))
-        finally:
-            painter.restore()
-            painter.end()
+            painter.save()
+            try:
+                self._painter.paint(self._make_context(painter))
+            finally:
+                painter.restore()
+                painter.end()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
 
 
 # Backwards-compat: ButtonRow re-exported from button module.
