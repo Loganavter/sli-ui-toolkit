@@ -148,6 +148,12 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     def event(self, event):
         return _ButtonStyleApi.event(self, event)
 
+    def sizeHint(self):
+        return _ButtonStyleApi.sizeHint(self)
+
+    def minimumSizeHint(self):
+        return _ButtonStyleApi.minimumSizeHint(self)
+
     toggled = Signal(bool)
     longPressed = Signal()
     shortClicked = Signal()
