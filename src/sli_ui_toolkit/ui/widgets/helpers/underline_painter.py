@@ -38,10 +38,11 @@ def _draw_tapered_arc(
     alpha_at_end: float,
 ) -> None:
     """Рисует дугу с градиентным затуханием.
-    Используется QLinearGradient вместо множества вызовов setPen/drawLine, 
-    чтобы обойти баг PySide6 (access violation) при GC QPen.
+    Использует QPainterPathStroker и fillPath, чтобы полностью избежать QPen
+    и багов PySide6 с access violation на Windows.
     """
-    from PySide6.QtGui import QLinearGradient
+    import math
+    from PySide6.QtGui import QLinearGradient, QPainterPath, QPainterPathStroker
     
     x1 = cx + radius * math.cos(math.radians(start_deg))
     y1 = cy - radius * math.sin(math.radians(start_deg))
@@ -59,12 +60,17 @@ def _draw_tapered_arc(
     grad.setColorAt(0.0, c1)
     grad.setColorAt(1.0, c2)
     
-    pen = QPen(grad, thickness)
-    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-    painter.setPen(pen)
-    
     rect = QRectF(cx - radius, cy - radius, 2 * radius, 2 * radius)
-    painter.drawArc(rect, int(start_deg * 16), int(sweep_deg * 16))
+    path = QPainterPath()
+    path.arcMoveTo(rect, start_deg)
+    path.arcTo(rect, start_deg, sweep_deg)
+    
+    stroker = QPainterPathStroker()
+    stroker.setWidth(thickness)
+    stroker.setCapStyle(Qt.PenCapStyle.FlatCap)
+    
+    stroked_path = stroker.createStroke(path)
+    painter.fillPath(stroked_path, grad)
 
 def draw_bottom_underline(
     painter, rect, theme_manager: ThemeManager, config: UnderlineConfig | None = None
@@ -103,16 +109,18 @@ def draw_bottom_underline(
     base_y = float(rect.bottom()) - vertical_offset
     start_x = float(rect.left())
     end_x = float(rect.right())
-    total_width = end_x - start_x
-    segment_width = total_width / count
+    segment_width = (end_x - start_x) / count
 
     painter.save()
     try:
         for i, color in enumerate(final_colors):
-            pen = QPen(color)
-            pen.setWidthF(thickness)
-            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-            painter.setPen(pen)
+            thickness = cfg.thickness
+            if i == 0 and len(final_colors) > 1:
+                # Если тень, делаем чуть толще для блюра/выступа
+                thickness += 1.0
+
+            # Отключаем QPen (чтобы избежать багов PySide6)
+            painter.setPen(Qt.PenStyle.NoPen)
 
             seg_start = start_x + (i * segment_width)
             seg_end = start_x + ((i + 1) * segment_width)
@@ -120,10 +128,8 @@ def draw_bottom_underline(
             line_end_x = seg_end - arc_radius if i == count - 1 else seg_end
 
             if line_end_x > line_start_x:
-                painter.drawLine(
-                    QPointF(line_start_x, base_y),
-                    QPointF(line_end_x, base_y),
-                )
+                line_rect = QRectF(line_start_x, base_y - thickness / 2.0, line_end_x - line_start_x, thickness)
+                painter.fillRect(line_rect, color)
 
             full_alpha = color.alpha()
             if arc_radius <= 0:
