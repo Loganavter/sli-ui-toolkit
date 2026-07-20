@@ -3,7 +3,7 @@
 pkgname=python-sli-ui-toolkit
 _pyname=sli-ui-toolkit
 _distname=sli_ui_toolkit
-pkgver=3.1.7
+pkgver=3.1.8
 pkgrel=1
 pkgdesc="Reusable PySide6 UI toolkit primitives for SLI desktop tools"
 arch=('any')
