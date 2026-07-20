@@ -35,14 +35,16 @@ class _ButtonEvents:
                 self._update_hover_region(pos)
             else:
                 self.setHoverActive(True)
-        super().enterEvent(event)
+        from PySide6.QtWidgets import QWidget
+        QWidget.enterEvent(self, event)
 
     def leaveEvent(self, event):
         if not self._flyout_open:
             self.setHoverActive(False)
             self._set_region_state(self._pressed_region, ButtonState.PRESSED, False)
             self._pressed_region = None
-        super().leaveEvent(event)
+        from PySide6.QtWidgets import QWidget
+        QWidget.leaveEvent(self, event)
 
     def hoverHitTest(self, pos) -> bool:
         # Region gaps (split.gap between different click targets) are still
@@ -75,7 +77,8 @@ class _ButtonEvents:
 
     def mouseMoveEvent(self, event: QMouseEvent):
         self._update_hover_region(event.position())
-        super().mouseMoveEvent(event)
+        from PySide6.QtWidgets import QWidget
+        QWidget.mouseMoveEvent(self, event)
 
     # -------- mouse --------
 
@@ -114,7 +117,8 @@ class _ButtonEvents:
             if self._region_at(event.position()) is not None:
                 event.accept()
                 return
-        super().mousePressEvent(event)
+        from PySide6.QtWidgets import QWidget
+        QWidget.mousePressEvent(self, event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -180,7 +184,8 @@ class _ButtonEvents:
                 event.accept()
                 return
 
-        super().mouseReleaseEvent(event)
+        from PySide6.QtWidgets import QWidget
+        QWidget.mouseReleaseEvent(self, event)
 
     def wheelEvent(self, event: QWheelEvent):
         region_id = self._region_at(event.position()) or "_main"
@@ -200,7 +205,8 @@ class _ButtonEvents:
         for cap in caps:
             if cap.handle_wheel_event(event):
                 return
-        return super().wheelEvent(event)
+        from PySide6.QtWidgets import QWidget
+        return QWidget.wheelEvent(self, event)
 
     # -------- keyboard --------
 
@@ -210,15 +216,18 @@ class _ButtonEvents:
                 self._activate_via_keyboard()
             event.accept()
             return
-        super().keyPressEvent(event)
+        from PySide6.QtWidgets import QWidget
+        QWidget.keyPressEvent(self, event)
 
     def focusInEvent(self, event):
         self.update()
-        super().focusInEvent(event)
+        from PySide6.QtWidgets import QWidget
+        QWidget.focusInEvent(self, event)
 
     def focusOutEvent(self, event):
         self.update()
-        super().focusOutEvent(event)
+        from PySide6.QtWidgets import QWidget
+        QWidget.focusOutEvent(self, event)
 
     # -------- click flow --------
 

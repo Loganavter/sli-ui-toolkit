@@ -22,7 +22,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QPainter
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -110,16 +110,47 @@ def _state_property(state: ButtonState):
     return property(getter, setter)
 
 
-class Button(WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents, QWidget):
+class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     clicked = Signal()
     pressed = Signal()
     released = Signal()
-    toggled = Signal(bool)
-    longPressed = Signal()
+    regionClicked = Signal(str)
     rightClicked = Signal()
     middleClicked = Signal()
+
+    def enterEvent(self, event):
+        _ButtonEvents.enterEvent(self, event)
+
+    def leaveEvent(self, event):
+        _ButtonEvents.leaveEvent(self, event)
+
+    def mouseMoveEvent(self, event):
+        _ButtonEvents.mouseMoveEvent(self, event)
+
+    def mousePressEvent(self, event):
+        _ButtonEvents.mousePressEvent(self, event)
+
+    def mouseReleaseEvent(self, event):
+        _ButtonEvents.mouseReleaseEvent(self, event)
+
+    def wheelEvent(self, event):
+        _ButtonEvents.wheelEvent(self, event)
+
+    def keyPressEvent(self, event):
+        _ButtonEvents.keyPressEvent(self, event)
+
+    def focusInEvent(self, event):
+        _ButtonEvents.focusInEvent(self, event)
+
+    def focusOutEvent(self, event):
+        _ButtonEvents.focusOutEvent(self, event)
+
+    def event(self, event):
+        return _ButtonStyleApi.event(self, event)
+
+    toggled = Signal(bool)
+    longPressed = Signal()
     shortClicked = Signal()
-    regionClicked = Signal(str)
     regionPressed = Signal(str)
     regionReleased = Signal(str)
     regionToggled = Signal(str, bool)

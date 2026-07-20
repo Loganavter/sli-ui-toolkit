@@ -402,7 +402,8 @@ class _ButtonStyleApi:
         if event.type() == QEvent.Type.DynamicPropertyChange:
             name = event.propertyName().data().decode("utf-8", errors="ignore")
             self._handle_property_change(name)
-        return super().event(event)
+        from PySide6.QtWidgets import QWidget
+        return QWidget.event(self, event)
 
     def _handle_property_change(self, name: str):
         needs_geometry = False
