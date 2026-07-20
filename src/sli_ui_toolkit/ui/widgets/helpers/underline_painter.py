@@ -42,10 +42,6 @@ def _draw_tapered_arc(
     alpha_at_start/end — нормализованные коэффициенты [0..1] от full_alpha
     в точках t=0 (start_deg) и t=1 (start_deg + sweep_deg).
     """
-    pen = QPen(base_color)
-    pen.setWidthF(thickness)
-    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
-
     prev_pt = None
     for s in range(_TAPER_SEGMENTS + 1):
         t = s / _TAPER_SEGMENTS
@@ -58,10 +54,15 @@ def _draw_tapered_arc(
             t_mid = (s - 0.5) / _TAPER_SEGMENTS
             alpha_norm = alpha_at_start + (alpha_at_end - alpha_at_start) * t_mid
             alpha_val = int(round(full_alpha * max(0.0, min(1.0, alpha_norm))))
+            
             seg_color = QColor(base_color)
             seg_color.setAlpha(alpha_val)
-            pen.setColor(seg_color)
-            painter.setPen(pen)
+            
+            seg_pen = QPen(seg_color)
+            seg_pen.setWidthF(thickness)
+            seg_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            
+            painter.setPen(seg_pen)
             painter.drawLine(prev_pt, pt)
         prev_pt = pt
 
