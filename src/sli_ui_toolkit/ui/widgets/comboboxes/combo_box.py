@@ -577,7 +577,9 @@ class ComboBox(Button):
         self.hideDropdown()
 
     def eventFilter(self, watched, event):
-        if not self._expanded or self._overlay is None:
+        expanded = getattr(self, "_expanded", False)
+        overlay = getattr(self, "_overlay", None)
+        if not expanded or overlay is None:
             return super().eventFilter(watched, event)
 
         if watched is self.window() and event.type() in (QEvent.Type.Move, QEvent.Type.Resize):

@@ -68,7 +68,7 @@ def test_icon_list_widget_paints_icon_pixels(qtbot):
     widget.add_item("Settings", icon="settings")
     row = widget._rows[0]
     row.button.setFixedSize(180, 44)
-    qtbot.addWidget(row.button)
+    qtbot.addWidget(widget)
     row.button.show()
     qtbot.waitExposed(row.button)
 
