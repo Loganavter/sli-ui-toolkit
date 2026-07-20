@@ -356,10 +356,13 @@ class RatingListItem(Button):
         self.set_dragging_state(dragging)
 
     def eventFilter(self, obj, event):
-        if self.item_type != "image":
+        item_type = getattr(self, "item_type", None)
+        if item_type != "image":
             return super().eventFilter(obj, event)
 
-        if obj in (self.btn_plus, self.btn_minus):
+        btn_plus = getattr(self, "btn_plus", None)
+        btn_minus = getattr(self, "btn_minus", None)
+        if obj in (btn_plus, btn_minus):
             if event.type() == QEvent.Type.MouseMove and (
                 event.buttons() & Qt.MouseButton.LeftButton
             ):
