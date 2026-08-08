@@ -108,7 +108,7 @@ class TopTabContent(Content):
 
 
 class TopTabButton(Button):
-    """Owner-managed selection (same contract as sidebar ``_NavRowButton``)."""
+    """Owner-managed selection (same contract as sidebar nav row buttons)."""
 
     def __init__(self, *args, **kwargs) -> None:
         kwargs["toggle"] = False

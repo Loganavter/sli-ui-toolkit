@@ -1,8 +1,10 @@
+import logging
 import math
 from typing import Any, Literal
 
 from PySide6.QtCore import (
     QEasingCurve,
+    QEvent,
     QPoint,
     QPropertyAnimation,
     QRect,
@@ -10,8 +12,8 @@ from PySide6.QtCore import (
     QSize,
     Qt,
 )
-from PySide6.QtGui import QBrush, QPainter, QPen
-from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QWidget
+from PySide6.QtGui import QBrush, QColor, QPainter, QPen
+from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QRhiWidget, QWidget
 
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.ui.in_window_surface import (
@@ -28,10 +30,12 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.buttons.layers.background import rounded_rect_path
+from sli_ui_toolkit.ui.widgets.composite.gpu_fill.widget import FlyoutGpuFillWidget
 from sli_ui_toolkit.ui.widgets.helpers.rounded_clip import RoundedClipEffect
 
-AnimationAxis = Literal["auto", "vertical", "horizontal"]
+AnimationAxis = Literal["auto", "vertical", "horizontal", "diagonal"]
 
+logger = logging.getLogger(__name__)
 
 _H_AXIS = {"left": 0.0, "center": 0.5, "right": 1.0}
 _V_AXIS = {"top": 0.0, "center": 0.5, "bottom": 1.0}
@@ -120,28 +124,46 @@ def slide_start_delta(
     anchor_top = anchor_rect.y()
     anchor_right = anchor_rect.x() + anchor_rect.width()
     anchor_bottom = anchor_rect.y() + anchor_rect.height()
-    if animation_axis == "vertical":
+
+    def _vertical_dy() -> int:
         if final_rect.center().y() >= anchor_rect.center().y():
             # Below: panel top = outer_y + radius; keep panel_top >= anchor bottom edge.
             desired = final_rect.y() - dist
             min_y = anchor_bottom - radius
             start_y = max(desired, min_y)
-            return 0, start_y - final_rect.y()
-        # Above: panel bottom = outer_y + height - radius; keep <= anchor top edge.
-        desired = final_rect.y() + dist
-        max_y = anchor_top - final_rect.height() + radius
-        start_y = min(desired, max_y)
-        return 0, start_y - final_rect.y()
-    if animation_axis == "horizontal":
+        else:
+            # Above: panel bottom = outer_y + height - radius; keep <= anchor top edge.
+            desired = final_rect.y() + dist
+            max_y = anchor_top - final_rect.height() + radius
+            start_y = min(desired, max_y)
+        return start_y - final_rect.y()
+
+    def _horizontal_dx() -> int:
         if final_rect.center().x() >= anchor_rect.center().x():
             desired = final_rect.x() - dist
             min_x = anchor_right - radius
             start_x = max(desired, min_x)
-            return start_x - final_rect.x(), 0
-        desired = final_rect.x() + dist
-        max_x = anchor_left - final_rect.width() + radius
-        start_x = min(desired, max_x)
-        return start_x - final_rect.x(), 0
+        else:
+            desired = final_rect.x() + dist
+            max_x = anchor_left - final_rect.width() + radius
+            start_x = min(desired, max_x)
+        return start_x - final_rect.x()
+
+    if animation_axis == "vertical":
+        return 0, _vertical_dy()
+    if animation_axis == "horizontal":
+        return _horizontal_dx(), 0
+    if animation_axis == "diagonal":
+        # Both axes travel the full `distance`, each independently clamped
+        # against the anchor edge -- unlike "auto" below (which splits one
+        # `distance`-length vector along anchor->flyout, so a corner-aligned
+        # flyout whose centers differ a lot more on one axis than the other
+        # gets a near-invisible slide on the smaller axis: e.g. a wide panel
+        # barely offset vertically from a narrow anchor button ends up
+        # looking like a near-pure horizontal slide, or vice-versa). This
+        # guarantees a clearly visible motion on *both* axes regardless of
+        # how the anchor and flyout sizes compare.
+        return _horizontal_dx(), _vertical_dy()
     # auto: along anchor→flyout, still clamp the dominant axis against the
     # shadow inset so a wide menu under a narrow button does not foreshorten
     # into a diagonal dive through the trigger.
@@ -184,8 +206,21 @@ def _compute_aligned_top_left(
 
     Content-point alignment alone puts the opaque panel just outside the
     anchor, but the outer widget still extends ``shadow_radius`` back over the
-    button (drop-shadow margin). Vertical/horizontal clearance therefore adds
-    ``shadow_radius`` so the halo sits past the anchor, not on top of it.
+    button (drop-shadow margin). Clearance is therefore at least
+    ``shadow_radius`` so the halo never sits on top of the anchor — but it is
+    *not* added on top of ``offset``: per show_aligned's own contract, offset
+    is the total visible pixel gap the caller asked for, so once offset
+    already clears the halo on its own it should be used as-is (a caller
+    passing offset=10 should not silently get an 18px gap).
+
+    Caveat callers keep tripping over: this means any ``offset <
+    shadow_radius`` (the common ``BaseFlyout.SHADOW_RADIUS = 8`` default)
+    is silently raised to ``shadow_radius`` -- e.g. offset=2 and offset=4
+    render *identically* (both floored to 8px), so tuning a value in that
+    range looks like "offset does nothing" with zero indication why. Logged
+    below at DEBUG when the floor actually changes the requested value;
+    pass an offset at or above the flyout's own ``SHADOW_RADIUS`` (or lower
+    ``SHADOW_RADIUS`` itself) to get the exact pixel gap requested.
     """
     anchor_pt = _point_in_rect(anchor_rect, anchor_point)
     flyout_pt_local = _flyout_point_local(flyout_size, flyout_point, shadow_radius)
@@ -195,14 +230,29 @@ def _compute_aligned_top_left(
     )
     afx, afy = _parse_point(anchor_point)
     ffx, ffy = _parse_point(flyout_point)
-    clearance = int(offset) + max(0, int(shadow_radius))
-    # Axis-aligned push: dropdowns open straight down/up, not along the
-    # center-to-center diagonal (which foreshortens the gap when widths differ).
+    clearance = max(int(offset), max(0, int(shadow_radius)))
+    if clearance != int(offset):
+        logger.debug(
+            "show_aligned: offset=%s floored to shadow_radius=%s "
+            "(anchor_point=%r, flyout_point=%r) -- pass offset>=shadow_radius "
+            "for the exact gap requested",
+            offset,
+            clearance,
+            anchor_point,
+            flyout_point,
+        )
+    # Axis-aligned push: dropdowns open straight down/up (or left/right),
+    # not along the center-to-center diagonal (which foreshortens the gap
+    # when widths differ). Independent if-blocks, not if/elif -- a true
+    # corner-to-corner anchor (e.g. anchor "top-left" / flyout
+    # "bottom-right") differs on *both* axes and needs clearance pushed on
+    # both, otherwise one axis is left flush against the anchor with zero
+    # gap (only the first block that happened to match ever fired).
     if afy > ffy:
         top_left.setY(top_left.y() + clearance)
     elif afy < ffy:
         top_left.setY(top_left.y() - clearance)
-    elif afx > ffx:
+    if afx > ffx:
         top_left.setX(top_left.x() + clearance)
     elif afx < ffx:
         top_left.setX(top_left.x() - clearance)
@@ -264,10 +314,28 @@ class BaseFlyout(QWidget):
     SHADOW_RADIUS = 8
     CONTENT_RADIUS = 8
 
-    def __init__(self, parent=None, *, attach_overlay: bool = True):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        attach_overlay: bool = True,
+        pinned: bool = False,
+        gpu_fill: bool = False,
+        gpu_fill_api: "QRhiWidget.Api | None" = None,
+    ):
         if parent is None:
             raise ValueError("BaseFlyout requires an in-window parent widget")
         super().__init__(parent)
+
+        # Pinned flyouts (persistent HUDs, e.g. a zoom-percent or info chip
+        # anchored to a canvas) opt out of FlyoutManager's passive-dismiss
+        # paths: outside click, outside wheel, app/window deactivate, and
+        # anchor move/resize no longer hide them (see FlyoutManager._dismiss_passive
+        # / _close_flyouts_with_moved_anchors). An explicit close_all() still
+        # closes them. Callers are expected to keep them positioned via
+        # reposition() (e.g. from the host's resize/move handlers) since the
+        # manager will not do it for them.
+        self.pinned = pinned
 
         self.setWindowFlags(Qt.WindowType.Widget)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -295,6 +363,33 @@ class BaseFlyout(QWidget):
         self._container_clip = RoundedClipEffect(self.CONTENT_RADIUS, self.container)
         self.container.setGraphicsEffect(self._container_clip)
 
+        # Host-overridable surface style (background/border/shadow) — see
+        # set_background_brush / set_border_color / set_shadow_color below.
+        # None means "use the theme token", matching Button's
+        # override_bg/border_color/hover_color convention in style_api.py.
+        self._background_brush: QBrush | None = None
+        self._border_color_override: QColor | None = None
+        self._shadow_color: QColor | None = None
+
+        # Opt-in second rendering path for the panel fill: a QRhiWidget child
+        # sitting behind content_layout's widgets, painting via a GPU shader
+        # instead of paintEvent's QBrush fill. Off by default -- the QPainter
+        # path above stays the only path unless a caller asks for gpu_fill.
+        # Currently solid-color only (see gpu_fill/widget.py); a brush that
+        # isn't a flat QColor falls back to the QPainter fill even with
+        # gpu_fill=True.
+        self._gpu_fill: FlyoutGpuFillWidget | None = None
+        if gpu_fill:
+            self._gpu_fill = FlyoutGpuFillWidget(self.container, api=gpu_fill_api)
+            self._gpu_fill.lower()
+            self._gpu_fill.setGeometry(self.container.rect())
+            # Starts hidden: only a *solid-color* set_background_brush() call
+            # turns it on (see there). Until then the theme-token default /
+            # a gradient / texture brush still goes through paintEvent's
+            # QPainter fill below, same as gpu_fill=False.
+            self._gpu_fill.setVisible(False)
+            self.container.installEventFilter(self)
+
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._apply_base_style)
         self._apply_base_style()
@@ -315,6 +410,15 @@ class BaseFlyout(QWidget):
             return
         super().keyPressEvent(event)
 
+    def eventFilter(self, obj, event):  # noqa: N802 — Qt API
+        if (
+            self._gpu_fill is not None
+            and obj is self.container
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._gpu_fill.setGeometry(self.container.rect())
+        return super().eventFilter(obj, event)
+
     def _apply_base_style(self):
         self.container.style().unpolish(self.container)
         self.container.style().polish(self.container)
@@ -322,6 +426,56 @@ class BaseFlyout(QWidget):
 
     def add_widget(self, widget):
         self.content_layout.addWidget(widget)
+
+    # -------- surface style (background / border / shadow) --------
+    #
+    # Same shape as Button's style_api.py: a plain setter storing an
+    # instance override, ``None`` falls back to the theme token, and the
+    # setter repaints. No QSS/property dispatch here (unlike Button)
+    # because BaseFlyout doesn't expose Qt Designer-style dynamic
+    # properties — these are plain Python attributes.
+
+    def set_background_brush(self, brush: QBrush | QColor | None) -> None:
+        """Override the flyout panel's fill.
+
+        Accepts a flat ``QColor`` (solid override) or any ``QBrush`` —
+        a ``QLinearGradient``/``QRadialGradient`` for a glass-style tint,
+        or ``QBrush(QPixmap(...))`` to stretch a custom texture. Pass
+        ``None`` to go back to the ``flyout.background`` theme token.
+        """
+        self._background_brush = (
+            QBrush(brush) if brush is not None and not isinstance(brush, QBrush) else brush
+        )
+        if self._gpu_fill is not None:
+            solid = (
+                self._background_brush is not None
+                and self._background_brush.style() == Qt.BrushStyle.SolidPattern
+            )
+            self._gpu_fill.setVisible(solid)
+            if solid:
+                self._gpu_fill.set_fill_color(self._background_brush.color())
+        self.update()
+
+    def background_brush(self) -> QBrush | None:
+        return self._background_brush
+
+    def set_border_color(self, color: QColor | None) -> None:
+        """Override the panel's stroke color; ``None`` restores ``flyout.border``."""
+        self._border_color_override = QColor(color) if color is not None else None
+        self.update()
+
+    def border_color(self) -> QColor | None:
+        return self._border_color_override
+
+    def set_shadow_color(self, color: QColor | None) -> None:
+        """Tint the drop shadow (e.g. an accent-colored glow); ``None`` restores
+        the default black shadow. Only RGB is used — alpha falloff is
+        computed by the shadow painter, not taken from ``color``."""
+        self._shadow_color = QColor(color) if color is not None else None
+        self.update()
+
+    def shadow_color(self) -> QColor | None:
+        return self._shadow_color
 
     # -------- builder helpers --------
 
@@ -413,13 +567,28 @@ class BaseFlyout(QWidget):
             self.container.geometry(),
             shadow_radius=self.SHADOW_RADIUS,
             corner_radius=self.CONTENT_RADIUS,
+            shadow_color=self._shadow_color,
         )
         rect = QRectF(self.container.geometry())
         stroke_rect = rect.adjusted(0.5, 0.5, -0.5, -0.5)
         r = self.CONTENT_RADIUS
         path = rounded_rect_path(stroke_rect, (r, r, r, r))
-        painter.setBrush(QBrush(self.theme_manager.get_color("flyout.background")))
-        painter.setPen(QPen(self.theme_manager.get_color("flyout.border"), 1))
+        background = self._background_brush or QBrush(
+            self.theme_manager.get_color("flyout.background")
+        )
+        border = self._border_color_override or self.theme_manager.get_color(
+            "flyout.border"
+        )
+        # A visible _gpu_fill already painted this frame's solid fill via its
+        # own QRhi pass (see set_background_brush) -- painting it again here
+        # would just be redundant CPU work under the same rounded clip.
+        gpu_fill_active = self._gpu_fill is not None and self._gpu_fill.isVisible()
+        # Anchor texture/gradient brushes to the panel's own corner instead
+        # of (0, 0) of the flyout widget (which is inset by the shadow
+        # margin), so a custom texture lines up with the visible panel.
+        painter.setBrushOrigin(stroke_rect.topLeft())
+        painter.setBrush(Qt.BrushStyle.NoBrush if gpu_fill_active else background)
+        painter.setPen(QPen(border, 1))
         painter.drawPath(path)
         painter.end()
 
@@ -461,7 +630,19 @@ class BaseFlyout(QWidget):
             * ``"auto"`` — slide along the anchor→flyout vector (default).
             * ``"vertical"`` — slide only on Y (dropdown under a toolbar button).
             * ``"horizontal"`` — slide only on X.
+            * ``"diagonal"`` — slide on both X and Y, each the full
+              ``distance``/``animation_distance`` independently (not split
+              across a single vector like ``"auto"``) — for a corner-aligned
+              flyout where you want a clearly visible slide on both axes
+              regardless of how the anchor/flyout sizes compare.
         """
+        self._last_align_kwargs = dict(
+            anchor_widget=anchor_widget,
+            anchor_point=anchor_point,
+            flyout_point=flyout_point,
+            position=position,
+            offset=offset,
+        )
         self._anchor_widget = anchor_widget
         self._ensure_overlay_parent(anchor_widget)
 
@@ -562,6 +743,35 @@ class BaseFlyout(QWidget):
         self._show_animation = anim
         anim.start()
 
+    def reposition(self) -> None:
+        """Re-run the last :meth:`show_aligned` call, without animation.
+
+        For ``pinned=True`` flyouts: the manager exempts them from
+        auto-hide-on-anchor-move (unlike regular flyouts, which just close),
+        so the host must call this from its own resize/move handlers to keep
+        the HUD tracking its anchor. No-op if never shown, no longer visible,
+        or the anchor widget was deleted.
+        """
+        kwargs = getattr(self, "_last_align_kwargs", None)
+        if not kwargs or not self.isVisible():
+            return
+        anchor_widget = kwargs.get("anchor_widget")
+        if anchor_widget is None:
+            return
+        try:
+            if not anchor_widget.isVisible():
+                return
+        except RuntimeError:
+            return
+        self.show_aligned(
+            anchor_widget,
+            kwargs.get("anchor_point", "bottom-center"),
+            kwargs.get("flyout_point", "top-center"),
+            position=kwargs.get("position"),
+            offset=kwargs.get("offset", 5),
+            animation="none",
+        )
+
     def _on_show_animation_finished(self) -> None:
         if self._show_animation is not None:
             self._show_animation.deleteLater()
@@ -621,6 +831,33 @@ class BaseFlyout(QWidget):
         anchor = getattr(self, "_anchor_widget", None)
         return (anchor,) if isinstance(anchor, QWidget) else ()
 
+    def trigger_widgets(self) -> tuple[QWidget, ...]:
+        """Widgets whose click toggles this flyout closed while it's open.
+
+        Defaults to :meth:`anchor_widgets` -- for a typical flyout (dropdown,
+        context menu) the anchor *is* the trigger button, so clicking it
+        again while open should dismiss instead of reopening.
+
+        Override to return ``()`` (or a narrower subset) when the anchor is
+        used purely for positioning against a widget that isn't itself a
+        click-to-toggle trigger -- e.g. a hover-driven flyout anchored to a
+        whole button group for width/placement. Left coupled to
+        ``anchor_widgets()`` by default, FlyoutManager's click-on-anchor
+        heuristic (see its ``eventFilter``) would misread a click on any
+        *sibling* button in that group as "clicked the trigger, dismiss".
+        """
+        return self.anchor_widgets()
+
+    def trigger_contains_global(self, global_pos) -> bool:
+        for widget in self.trigger_widgets():
+            try:
+                top_left = widget.mapToGlobal(QPoint(0, 0))
+                if QRect(top_left, widget.size()).contains(global_pos):
+                    return True
+            except RuntimeError:
+                continue
+        return False
+
     def restore_focus_on_hide(self) -> bool:
         """Whether hide() should shove focus back onto the host window.
 
@@ -637,14 +874,38 @@ class BaseFlyout(QWidget):
 
         if not self.restore_focus_on_hide():
             return
-        if self.parent() and self.parent().window():
-            self.parent().window().activateWindow()
-            self.parent().window().setFocus()
+        window = self.parent().window() if self.parent() else None
+        if window is None or window.isActiveWindow():
+            # Already the active window (the common case for a
+            # hover-driven flyout closing while the user's cursor is still
+            # inside the host app) -- activateWindow()/setFocus() would be
+            # a no-op WM round-trip in that case, and doing it on every
+            # close of a flyout that hides at hover frequency is enough
+            # synchronous WM traffic to visibly stall the main thread
+            # (observed as an "app not responding" busy-cursor flash).
+            return
+        if not getattr(self, "_window_active_on_show", False):
+            # The host window was already inactive (app in the background,
+            # OS focus elsewhere) at the moment this flyout opened -- e.g. a
+            # purely hover-driven flyout (slider hint, settings panel) that
+            # opened just because the cursor passed over its trigger while
+            # the user was working in another app. There is no prior focus
+            # state to "restore" here, so calling activateWindow() would
+            # only steal/ request OS focus for a window the user never
+            # activated -- surfacing as an unsolicited taskbar flash / "app
+            # wants attention" hint. Only windows that were genuinely active
+            # when the flyout opened (and lost activation during its
+            # lifetime, e.g. to a nested dialog) get focus handed back.
+            return
+        window.activateWindow()
+        window.setFocus()
 
     def show(self):
         fm = getattr(self, "flyout_manager", None)
         if fm is not None:
             fm.request_show(self)
+        window = self.parent().window() if self.parent() else None
+        self._window_active_on_show = bool(window is not None and window.isActiveWindow())
         super().show()
 
     def raise_(self) -> None:  # noqa: N802 — Qt API

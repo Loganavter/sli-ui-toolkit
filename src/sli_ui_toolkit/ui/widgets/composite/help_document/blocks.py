@@ -105,7 +105,20 @@ class FigureBlock:
     height: int | None = None  # absolute px
 
 
-HelpBlock = HeadingBlock | ParagraphBlock | ListBlock | ImageBlock | FigureBlock
+@dataclass(frozen=True, slots=True)
+class TableBlock:
+    """Two-column label/value table, painted with real border lines.
+
+    Programmatic-only (not part of the authored markdown subset): built
+    directly via ``InlineSpan`` tuples by callers like Image Properties.
+    """
+
+    rows: tuple[tuple[tuple[InlineSpan, ...], tuple[InlineSpan, ...]], ...]
+
+
+HelpBlock = (
+    HeadingBlock | ParagraphBlock | ListBlock | ImageBlock | FigureBlock | TableBlock
+)
 
 
 def parse_inline(text: str) -> tuple[InlineSpan, ...]:
@@ -355,4 +368,10 @@ def blocks_to_plain_text(blocks: Iterable[HelpBlock]) -> str:
             parts.append(block.alt or block.path)
         elif isinstance(block, FigureBlock):
             parts.append(block.caption or block.alt or block.path)
+        elif isinstance(block, TableBlock):
+            for label, value in block.rows:
+                # One part per cell — matches the two text-index segments
+                # ``build_text_index`` emits per row (see ``add_table_cell``).
+                parts.append(spans_to_plain(label))
+                parts.append(spans_to_plain(value))
     return "\n\n".join(part for part in parts if part.strip())

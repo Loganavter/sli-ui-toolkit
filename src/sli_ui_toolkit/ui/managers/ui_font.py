@@ -156,9 +156,40 @@ class UiFont(QObject):
         return self.rebase(source, **merged)
 
     def apply(self, widget: QWidget, **overrides) -> QFont:
-        """``setFont(resolve(...))`` on ``widget`` and return the font used."""
+        """``setFont(resolve(...))`` on ``widget`` and return the font used.
+
+        Also keeps ``widget`` in sync with any *future* real font change
+        (``font_changed``) using these same ``overrides`` -- not just the
+        one baked in by this call. ``resolve()`` reads
+        ``QApplication.font()`` at the exact moment it runs, and
+        ``QWidget.setFont()`` marks ``WA_SetFont``, so Qt never
+        retroactively re-cascades a later ``ApplicationFontChange`` onto a
+        widget on its own. A widget constructed before the host finishes
+        its own startup font correction (``FontManager.apply_from_state()``
+        in Improve-ImgSLI, or equivalent) would otherwise bake in whatever
+        transient system-fallback font was active at that moment and never
+        recover -- confirmed live via a plain ``QLabel`` stuck on a 10pt
+        fallback face while the app's real UI font (12pt) was already/about
+        to be set moments later in that same startup sequence, previously
+        "fixed" only by accident (an unrelated full-widget-tree
+        unpolish+polish pass happening to run for a different reason).
+        ``Label`` already covers itself the same way internally (see its
+        own ``font_changed``-connected ``_apply_style``) -- this generalizes
+        the same protection to any other ``apply()`` caller, a bare
+        ``QLabel`` included, so callers don't each need their own
+        `font_changed` plumbing.
+
+        Safe against ``widget`` being destroyed later: disconnects itself
+        via ``widget.destroyed`` rather than leaving a dangling connection
+        to a freed C++ object."""
         font = self.resolve(**overrides)
         widget.setFont(font)
+
+        def _resync() -> None:
+            widget.setFont(self.resolve(**overrides))
+
+        connection = self.font_changed.connect(_resync)
+        widget.destroyed.connect(lambda: self.font_changed.disconnect(connection))
         return font
 
     def eventFilter(self, obj, event):  # noqa: N802 — Qt API

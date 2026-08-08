@@ -492,6 +492,25 @@ class ToastManager(QObject):
         if self.image_label is not None:
             self.image_label.installEventFilter(self)
 
+    def set_anchor(self, image_label) -> None:
+        """Repoint the anchor widget used for toast placement/sizing.
+
+        Lets one shared ToastManager track whichever tab/widget is
+        currently active instead of being permanently anchored to the
+        widget it was constructed with.
+        """
+        if image_label is self.image_label:
+            return
+        if self.image_label is not None:
+            try:
+                self.image_label.removeEventFilter(self)
+            except RuntimeError:
+                pass
+        self.image_label = image_label
+        if self.image_label is not None:
+            self.image_label.installEventFilter(self)
+        self._position_toasts()
+
     def show_toast(
         self,
         content,

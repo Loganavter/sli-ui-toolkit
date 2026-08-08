@@ -14,6 +14,7 @@ DEFER_CLICK_AWAIT_RIPPLE: Literal["ripple"] = "ripple"
 _DEFAULT_RIPPLE_DURATION_MS = 280
 _ripple_duration_ms = _DEFAULT_RIPPLE_DURATION_MS
 _default_defer_click: bool | int | str = False
+_default_underline_fade: bool = True
 
 
 def set_ripple_duration_ms(ms: int) -> None:
@@ -57,6 +58,23 @@ def set_default_defer_click(value: bool | int | str) -> None:
 def get_default_defer_click() -> bool | int | str:
     """Return the process-wide default ``defer_click`` policy."""
     return _default_defer_click
+
+
+def set_default_underline_fade(value: bool) -> None:
+    """Set the process-wide default for ``Button(..., underline_fade=None)``.
+
+    Controls whether the true left/right ends of a ``show_underline`` strip
+    taper to transparent (``True``, library default) or stop with a crisp
+    hard edge (``False``). Buttons that pass an explicit ``underline_fade=``
+    always override this.
+    """
+    global _default_underline_fade
+    _default_underline_fade = bool(value)
+
+
+def get_default_underline_fade() -> bool:
+    """Return the process-wide default underline tip-fade policy."""
+    return _default_underline_fade
 
 
 def coerce_defer_click_ms(value: bool | int | str) -> int | None:

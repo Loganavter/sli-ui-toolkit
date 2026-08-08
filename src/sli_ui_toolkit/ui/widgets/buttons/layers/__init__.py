@@ -10,6 +10,7 @@ from .ripple import RippleEffect, RippleLayer
 from .underline import UnderlineLayer
 from .strikethrough import StrikethroughLayer
 from .divider import DividerLayer
+from .overlay import OverlayPainterCallback, OverlayPainterLayer
 
 __all__ = [
     "BackgroundLayer",
@@ -20,4 +21,6 @@ __all__ = [
     "UnderlineLayer",
     "StrikethroughLayer",
     "DividerLayer",
+    "OverlayPainterCallback",
+    "OverlayPainterLayer",
 ]

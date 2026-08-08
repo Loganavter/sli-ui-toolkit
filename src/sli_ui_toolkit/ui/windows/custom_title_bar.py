@@ -89,8 +89,10 @@ class CustomTitleBar(QWidget):
         show_minimize: bool = True,
         show_maximize: bool = True,
         show_close: bool = True,
+        defer_close_click: Any = None,
     ):
         super().__init__(parent)
+        self._defer_close_click = defer_close_click
         _ensure_titlebar_label_variant()
         self.setObjectName("CustomTitleBar")
         self.setFixedHeight(self.HEIGHT)
@@ -566,6 +568,10 @@ class CustomTitleBar(QWidget):
             size=(self.BUTTON_WIDTH, self.HEIGHT),
             icon_size=self.ICON_SIZE,
             corner_radii=corner_radii,
+            # Closing tears down the window (session save, plugin teardown,
+            # etc.) — let the press ripple finish first if the host asked
+            # for that via defer_close_click. Min/maximize stay instant.
+            defer_click=self._defer_close_click if role == "close" else None,
             parent=self,
         )
         btn.setObjectName("CustomTitleBarButton")
@@ -623,11 +629,19 @@ class CustomTitleBar(QWidget):
             # Project) can trigger a host Resize/Move while the menu is being
             # attached. Closing *all* flyouts here makes the first File/Help
             # click look like a no-op; keep context menus open.
+            #
+            # ``pinned=True`` flyouts (persistent HUDs, see FLYOUT_SYSTEM.md
+            # "Pinned flyouts") are exempt from every other anchor-move/resize
+            # auto-dismiss path in FlyoutManager (``_close_flyouts_with_moved_anchors``
+            # explicitly skips them) -- this sweep must honor that same
+            # contract instead of hiding them unconditionally.
             for flyout in list(getattr(mgr, "_registered_flyouts", ())):
                 try:
                     if not flyout.isVisible():
                         continue
                     if getattr(flyout, "flyout_group", None) == "context_menu":
+                        continue
+                    if getattr(flyout, "pinned", False):
                         continue
                     flyout.hide()
                 except RuntimeError:

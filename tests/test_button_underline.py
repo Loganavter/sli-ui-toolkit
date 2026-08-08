@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QImage, QPainter, QPixmap
 
@@ -13,7 +11,7 @@ from sli_ui_toolkit.ui.widgets.helpers import underline_painter
 from sli_ui_toolkit.widgets import Button
 
 
-def test_button_underline_thickness_is_clamped_to_three(qapp, monkeypatch):
+def test_button_underline_thickness_is_uncapped(qapp, monkeypatch):
     tm = ThemeManager.get_instance()
     tm.register_palettes(FLUENT_LIGHT, FLUENT_DARK)
     tm.set_theme("light")
@@ -32,13 +30,12 @@ def test_button_underline_thickness_is_clamped_to_three(qapp, monkeypatch):
         fake_draw_bottom_underline,
     )
 
-    with pytest.warns(RuntimeWarning, match="capped at 3.0px"):
-        button = Button(
-            text="",
-            show_underline=True,
-            underline_color=QColor("#ff0000"),
-            underline_thickness=6.0,
-        )
+    button = Button(
+        text="",
+        show_underline=True,
+        underline_color=QColor("#ff0000"),
+        underline_thickness=6.0,
+    )
     pixmap = QPixmap(button.size())
     painter = QPainter(pixmap)
     try:
@@ -53,13 +50,12 @@ def test_button_underline_thickness_is_clamped_to_three(qapp, monkeypatch):
             underline_color=QColor("#ff0000"),
             underline_thickness=6.0,
         )
-        with pytest.warns(RuntimeWarning, match="capped at 3.0px"):
-            UnderlineLayer().draw(ctx, tm)
+        UnderlineLayer().draw(ctx, tm)
     finally:
         painter.end()
         button.deleteLater()
 
-    assert seen["thickness"] == 3.0
+    assert seen["thickness"] == 6.0
 
 
 def test_button_underline_requires_show_flag(qapp, monkeypatch):

@@ -18,6 +18,7 @@ class WindowControlsConfig:
     show_minimize: bool = True
     show_maximize: bool = True
     show_close: bool = True
+    defer_close_click: Any = None
 
 
 class WindowControlsHandle:

@@ -51,12 +51,13 @@ from .controller import ButtonController
 from .context import DrawContext
 from .events import _ButtonEvents
 from .layers._base import Layer
+from .layers.overlay import OverlayPainterCallback, OverlayPainterLayer
 from .layers.ripple import RippleEffect
 from .feedback import (
     coerce_defer_click_ms,
     get_default_defer_click,
 )
-from .painter import Painter
+from .painter import Painter, default_layers
 from .regions import ButtonRegion, Divider, RegionHandle, SingleRegionSplit, SplitLayout
 from .specs import ButtonSpec, ShapeSpec, normalize_corner_radii
 from .state import ButtonState
@@ -81,6 +82,9 @@ class ButtonConfig:
     show_underline: bool = False
     underline_color: Any = None
     underline_thickness: float | None = None
+    underline_tongue_reach: float | None = None
+    underline_ring: bool = False
+    underline_fade: bool | None = None
     size: tuple[int, int] = (36, 36)
     icon_size: int = 22
     corner_radius: int | None = None
@@ -181,6 +185,9 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         show_underline: bool = False,
         underline_color: Any = None,
         underline_thickness: float | None = None,
+        underline_tongue_reach: float | None = None,
+        underline_ring: bool = False,
+        underline_fade: bool | None = None,
         size: tuple[int, int] = (36, 36),
         icon_size: int = 22,
         gap: int = 6,
@@ -202,6 +209,8 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         spec: ButtonSpec | None = None,
         config: ButtonConfig | None = None,
         layers: list[Layer] | None = None,
+        extra_layers: list[Layer] | None = None,
+        overlay_painter: OverlayPainterCallback | None = None,
         parent: QWidget | None = None,
     ):
         # Call QWidget directly. Cooperative ``super()`` through the non-QObject
@@ -221,6 +230,9 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             show_underline = config.show_underline
             underline_color = config.underline_color
             underline_thickness = config.underline_thickness
+            underline_tongue_reach = config.underline_tongue_reach
+            underline_ring = config.underline_ring
+            underline_fade = config.underline_fade
             size = config.size
             icon_size = config.icon_size
             corner_radius = config.corner_radius
@@ -310,6 +322,11 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._accent_color: QColor | None = None
         self._show_underline = show_underline
         self._underline_thickness = _normalize_underline_thickness(underline_thickness)
+        self._underline_tongue_reach = (
+            None if underline_tongue_reach is None else max(0.0, float(underline_tongue_reach))
+        )
+        self._underline_ring = bool(underline_ring)
+        self._underline_fade = None if underline_fade is None else bool(underline_fade)
         self._show_strike_through = False
         self._is_footer = False
         self._underline_config_color: QColor | list | None = underline_color
@@ -342,7 +359,20 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update)
 
-        self._painter = Painter(self.theme_manager, layers=layers)
+        effective_extra: list[Layer] = []
+        if extra_layers:
+            effective_extra.extend(extra_layers)
+        if overlay_painter is not None:
+            effective_extra.append(OverlayPainterLayer(overlay_painter))
+
+        if layers is not None:
+            final_layers = list(layers) + effective_extra
+        elif effective_extra:
+            final_layers = default_layers() + effective_extra
+        else:
+            final_layers = None
+
+        self._painter = Painter(self.theme_manager, layers=final_layers)
         self._ripple = RippleEffect(self)
         self._region_ripple["_main"] = self._ripple
         self._ripple_color_from = None
@@ -681,6 +711,9 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             show_underline=self._show_underline,
             underline_color=self._underline_config_color,
             underline_thickness=self._underline_thickness,
+            underline_tongue_reach=self._underline_tongue_reach,
+            underline_ring=self._underline_ring,
+            underline_fade=self._underline_fade,
             show_strike_through=self._is_strike_through(),
             is_footer=self._is_footer,
             icon_size_px=self._icon_size_px,

@@ -177,7 +177,11 @@ def update_fixed_width(widget) -> None:
     viewport_width = max(1, get_viewport_width(widget) - right_inset(widget))
     final_width = max(content_width, viewport_width + right_inset(widget))
     if widget.width() != final_width:
-        widget.setFixedWidth(final_width)
+        widget._suppress_resize_recalc = True
+        try:
+            widget.setFixedWidth(final_width)
+        finally:
+            widget._suppress_resize_recalc = False
     widget.update()
 
 def format_time(seconds: float, step: float | None = None) -> str:

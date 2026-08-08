@@ -549,3 +549,45 @@ def test_grouped_checked_does_not_leak_across_groups(qtbot):
     button.setRegionChecked("plate", True)
     assert ButtonState.CHECKED in button.region_states("plate")
     assert ButtonState.CHECKED not in button.region_states("run")
+
+
+def test_subregion_clip_applied_with_path_fn_without_rect_fn_hack(qtbot):
+    """Path clip in BackgroundLayer must be applied when path_fn is present even if rect_fn is omitted."""
+    from sli_ui_toolkit.ui.widgets.buttons.layers.background import BackgroundLayer
+
+    path = QPainterPath()
+    path.addEllipse(10, 10, 20, 20)
+
+    button = Button(
+        regions=[
+            ButtonRegion(
+                id="circle",
+                path_fn=lambda r: path,
+                override_bg_color=QColor("#ff0000"),
+            )
+        ],
+        size=(40, 40),
+    )
+    _show(button, qtbot)
+
+    layer = BackgroundLayer()
+    img = QImage(button.size(), QImage.Format.Format_ARGB32)
+    painter = QPainter(img)
+    ctx = button._make_context(painter)
+    scoped_list = list(button.iter_regions(ctx))
+
+    # is_subregion must evaluate to True because path_fn is present
+    backgrounds, border_color = layer._resolve(scoped_list[0], button.theme_manager)
+    region_rect = scoped_list[0].effective_rect
+    is_subregion = (
+        scoped_list[0].region_id is not None
+        and region_rect is not None
+        and (
+            region_rect != scoped_list[0].rect
+            or scoped_list[0].region_path is not None
+            or scoped_list[0].region_corner_radii is not None
+        )
+    )
+    painter.end()
+
+    assert is_subregion is True

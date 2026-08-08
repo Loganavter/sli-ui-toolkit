@@ -5,19 +5,36 @@ Replaces ButtonGroupContainer from atomic/.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import ui_font
+from sli_ui_toolkit.ui.widgets.buttons.layers.background import rounded_rect_path
+from sli_ui_toolkit.ui.widgets.buttons.specs import CornerRadii, normalize_corner_radii
 
 class ButtonGroup(QWidget):
-    def __init__(self, buttons: list, label: str = "", parent=None):
+    def __init__(
+        self,
+        buttons: list,
+        label: str = "",
+        parent=None,
+        *,
+        border_radius: int = 8,
+        corner_radii: CornerRadii | None = None,
+    ):
         super().__init__(parent)
         self._label = label
         self._border_width = 1
-        self._border_radius = 8
+        # (top-left, top-right, bottom-right, bottom-left); border_radius is
+        # the uniform shorthand, corner_radii overrides per-corner (same
+        # convention as Button's ShapeSpec). Runtime-adjustable via
+        # set_corner_radii -- e.g. squaring off the bottom corners while a
+        # flyout is docked flush under this group.
+        self._corner_radii: CornerRadii = normalize_corner_radii(
+            border_radius, corner_radii, fallback=8
+        )
 
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setAutoFillBackground(False)
@@ -39,6 +56,29 @@ class ButtonGroup(QWidget):
             self.update()
 
     set_label_text = set_label
+
+    def label(self) -> str:
+        return self._label
+
+    def set_corner_radii(
+        self,
+        corner_radii: CornerRadii | None = None,
+        *,
+        border_radius: int | None = None,
+    ) -> None:
+        """Set the border's per-corner radii.
+
+        Pass ``corner_radii=(tl, tr, br, bl)`` for explicit control, or
+        ``border_radius=N`` for a uniform value on all four. Omitting both
+        restores the default (uniform 8px).
+        """
+        resolved = normalize_corner_radii(border_radius, corner_radii, fallback=8)
+        if resolved != self._corner_radii:
+            self._corner_radii = resolved
+            self.update()
+
+    def corner_radii(self) -> CornerRadii:
+        return self._corner_radii
 
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -69,7 +109,7 @@ class ButtonGroup(QWidget):
             rect.width() - margin_h * 2 - 1,
             bottom_y - margin_v * 2,
         )
-        painter.drawRoundedRect(draw_rect, self._border_radius, self._border_radius)
+        painter.drawPath(rounded_rect_path(QRectF(draw_rect), self._corner_radii))
         painter.translate(-0.5, -0.5)
 
         if self._label:

@@ -14,6 +14,9 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import HelpBlock
 from sli_ui_toolkit.ui.widgets.composite.help_document.layout.builder import (
     layout_document,
 )
+from sli_ui_toolkit.ui.widgets.composite.help_document.layout.constants import (
+    PARAGRAPH_TAB_STOP_PX,
+)
 from sli_ui_toolkit.ui.widgets.composite.help_document.layout.hit_test import (
     hit_test_link,
     hit_test_pixmap,
@@ -85,12 +88,26 @@ class HelpDocumentBodyCanvas(QWidget):
         self._click_last_pos: QPoint | None = None
         self._anchor_markers: dict[str, _AnchorMarker] = {}
         self._last_layout_width: int = 0
+        self._tab_stop_px: float = PARAGRAPH_TAB_STOP_PX
 
         self._theme.theme_changed.connect(self._relayout)
         self.customContextMenuRequested.connect(self._emit_context_menu)
 
     def set_asset_resolver(self, resolver: AssetResolver | None) -> None:
         self._resolve_asset = resolver
+        self._relayout()
+
+    def set_tab_stop_px(self, px: float) -> None:
+        """Column position a literal ``\\t`` in paragraph text lands on.
+
+        Callers that build label/value rows (e.g. Image Properties) measure
+        their widest label and pass it here so the tab column always clears
+        it — a fixed constant would break under larger UI font scales.
+        """
+        px = max(1.0, float(px))
+        if px == self._tab_stop_px:
+            return
+        self._tab_stop_px = px
         self._relayout()
 
     def set_blocks(self, blocks: tuple[HelpBlock, ...]) -> None:
@@ -411,6 +428,7 @@ class HelpDocumentBodyCanvas(QWidget):
             float(width),
             self._theme,
             self._resolve_asset,
+            tab_stop_px=self._tab_stop_px,
         )
         self.setMinimumHeight(max(1, int(self._layout.height)))
         self._sync_anchor_markers()

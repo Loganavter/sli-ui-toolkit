@@ -396,8 +396,10 @@ class IconTextContent(Content):
         p.drawPixmap(start_x, icon_y, pixmap)
         p.setPen(_text_color(ctx, tm))
         text_x = start_x + icon_px + gap
+        text_w = max(0, int(rect.right()) - text_x + 1)
+        elided = p.fontMetrics().elidedText(self.text, Qt.TextElideMode.ElideRight, text_w)
         p.drawText(
-            QRect(text_x, int(rect.y()), max(0, int(rect.right()) - text_x + 1), int(rect.height())),
+            QRect(text_x, int(rect.y()), text_w, int(rect.height())),
             text_v | Qt.AlignmentFlag.AlignLeft,
-            self.text,
+            elided,
         )

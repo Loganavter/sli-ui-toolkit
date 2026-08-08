@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Callable, Iterable, Literal, Sequence
 
+import shiboken6 as sip
+
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
@@ -13,12 +15,14 @@ from PySide6.QtCore import (
     QPropertyAnimation,
     QRect,
     Qt,
+    QTimer,
     Signal,
 )
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.config import get_context_menu_surface, get_flyout_timings
+from sli_ui_toolkit.ui.widgets.buttons.feedback import get_ripple_duration_ms
 from sli_ui_toolkit.ui.in_window_surface import (
     clamp_surface_rect,
     surface_anchor_rect,
@@ -245,11 +249,29 @@ class ContextMenu(BaseFlyout):
         if spec.children:
             submenu_ops.toggle_submenu(self, row, spec)
             return
+        if spec.defer_trigger:
+            # The menu (and this row, with it) is about to be hidden --
+            # normally that happens synchronously below, right as the row's
+            # own click ripple starts, so it never gets to play at all.
+            # Wait one ripple duration with the menu still open/visible
+            # before hiding + firing, for an action whose handler opens a
+            # modal dialog (see ContextMenuAction.defer_trigger).
+            action_id, data = spec.action_id, spec.data
+            QTimer.singleShot(
+                get_ripple_duration_ms(),
+                lambda: self._finish_row_click(action_id, data)
+                if sip.isValid(self)
+                else None,
+            )
+            return
+        self._finish_row_click(spec.action_id, spec.data)
+
+    def _finish_row_click(self, action_id: str, data: object) -> None:
         submenu_ops.close_submenu(self)
         submenu_ops.root_menu(self).hide()
-        self.actionTriggered.emit(spec.action_id, spec.data)
+        self.actionTriggered.emit(action_id, data)
         if self._on_triggered is not None:
-            self._on_triggered(spec.action_id, spec.data)
+            self._on_triggered(action_id, data)
 
     def _root_menu(self) -> ContextMenu:
         return submenu_ops.root_menu(self)

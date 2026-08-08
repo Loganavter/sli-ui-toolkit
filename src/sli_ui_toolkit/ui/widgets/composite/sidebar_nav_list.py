@@ -20,15 +20,32 @@ no-indicator). Это даёт «бесплатный» ripple-эффект (ove
 
 Прокси `_ListItem` не наследник QListWidgetItem — это лёгкая ссылка на
 конкретную строку-Button плюс dict для произвольных Qt-ролей (UserRole и др.).
+
+Кастомизация строк (``button_factory``)
+----------------------------------------
+По умолчанию каждая строка — это ``Button``, собранный внутренним
+``_make_nav_row_button`` (icon+text, variant="sidebar_nav", left-aligned).
+Приложению, которому нужен другой внешний вид строки (бейджи, свой variant,
+``regions=``, multi-row текст и т.п.), не нужно наследоваться от
+``IconListWidget`` или лезть в его внутренности — достаточно передать
+``button_factory=Callable[[IconListItem], Button]`` в конструктор. Строки,
+собранные через кастомную фабрику, IconListWidget трогает минимально: он
+по-прежнему управляет layout'ом (растягивает кнопку по ширине, лочит
+``FocusPolicy.NoFocus``), кликом (подписка на ``clicked`` → выбор строки) и
+CHECKED-состоянием (``setRegionChecked("_main", ...)`` при смене
+``currentRow``) — но не трогает иконку/foreground-цвет строки: это styling,
+специфичный для дефолтной фабрики, приложение с кастомной фабрикой отвечает
+за собственную визуальную реакцию на checked само (через variant/`Button`
+API, как обычно).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Callable, Iterable
 
-from PySide6.QtCore import QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QImage, QPixmap
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QScrollArea,
@@ -41,11 +58,9 @@ from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.buttons.content import Content, _text_color
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.buttons.variants import VariantSpec, register_variant
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
-from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 
 
 _TRANSPARENT = QColor(0, 0, 0, 0)
@@ -55,6 +70,9 @@ def _sidebar_nav_resolve(states, tm: ThemeManager) -> QColor:
     if ButtonState.DISABLED in states:
         return QColor(tm.try_get_color("list_item.background.normal") or _TRANSPARENT)
     if ButtonState.CHECKED in states:
+        selected_bg = tm.try_get_color("list_item.background.selected")
+        if selected_bg is not None:
+            return QColor(selected_bg)
         accent = tm.try_get_color("accent")
         if accent is not None:
             return QColor(accent)
@@ -80,106 +98,40 @@ def _split_icon_pair(icon: object | None) -> tuple[object | None, object | None]
     return icon, None
 
 
-class _NavRowContent(Content):
-    """Иконка слева + текст вертикально по центру, без горизонтального центрирования."""
-
-    def __init__(
-        self,
-        normal_pixmap: QPixmap | None,
-        selected_pixmap: QPixmap | None,
-        text: str,
-    ) -> None:
-        self.normal_pixmap = normal_pixmap
-        self.text = text
-        self.selected_pixmap = selected_pixmap
-
-    def draw(self, ctx, tm: ThemeManager) -> None:
-        widget = ctx.widget
-        p = ctx.painter
-        style = read_widget_style(widget)
-        icon_px = int(style.icon_size_px or ctx.icon_size_px)
-
-        pixmap = (
-            self.selected_pixmap
-            if widget.isChecked() and self.selected_pixmap is not None
-            else self.normal_pixmap
-        )
-
-        x = _LEFT_PADDING
-        if pixmap is not None and not pixmap.isNull():
-            icon_y = (widget.height() - icon_px) // 2
-            p.drawPixmap(x, icon_y, pixmap)
-            x += icon_px + _ICON_TEXT_GAP
-
-        if self.text:
-            p.setPen(_text_color(ctx, tm))
-            text_rect = QRect(
-                x,
-                0,
-                max(0, widget.width() - x - _LEFT_PADDING),
-                widget.height(),
-            )
-            text = p.fontMetrics().elidedText(
-                self.text,
-                Qt.TextElideMode.ElideRight,
-                text_rect.width(),
-            )
-            p.drawText(
-                text_rect,
-                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                text,
-            )
+_NAV_CONTENT_ALIGN = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+_NAV_CONTENT_PADDING = (_LEFT_PADDING, 0.0, _LEFT_PADDING, 0.0)
 
 
-class _NavRowButton(Button):
-    """Кнопка-строка сайдбара. toggle=False — selected-состоянием полностью
-    управляет IconListWidget (через `_checked`), чтобы:
+def _make_nav_row_button(
+    text: str,
+    icon: object | None,
+    row_height: int,
+    icon_size_px: int,
+) -> Button:
+    """Кнопка-строка сайдбара, целиком через публичный Button API.
+
+    ``toggle=False`` — selected-состоянием полностью управляет IconListWidget
+    (через ``setRegionChecked``), чтобы:
       * клик мгновенно фиксировал выбор без deselect-restore-flicker;
       * ripple оставался в overlay-режиме (немного темнее ховера), а не в
-        авто-градиенте между unchecked-/checked-bg.
+        авто-градиенте между unchecked-/checked-bg (тот включается только
+        для ``toggle=True``).
     Focus-обводки нет — у sidebar-навигации нет своей tab-логики.
     """
-
-    def __init__(self, *args, **kwargs) -> None:
-        kwargs["toggle"] = False
-        super().__init__(*args, **kwargs)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._normal_pixmap: QPixmap | None = None
-        self._selected_pixmap: QPixmap | None = None
-
-    def isChecked(self) -> bool:
-        return ButtonState.CHECKED in self._controller.states("_main")
-
-    def set_selected(self, selected: bool) -> None:
-        self._controller.set_state("_main", ButtonState.CHECKED, bool(selected))
-        self._sync_region_aliases()
-        self.update()
-
-    def set_selected_pixmap(self, pixmap: QPixmap | None) -> None:
-        self._selected_pixmap = pixmap
-        self.update()
-
-    def set_nav_pixmaps(
-        self,
-        normal_pixmap: QPixmap | None,
-        selected_pixmap: QPixmap | None,
-    ) -> None:
-        self._normal_pixmap = normal_pixmap
-        self._selected_pixmap = selected_pixmap
-        self.update()
-
-    def _build_content(self):
-        return self._nav_content()
-
-    def _build_region_content(self, region):
-        return self._nav_content()
-
-    def _nav_content(self):
-        return _NavRowContent(
-            normal_pixmap=self._normal_pixmap,
-            selected_pixmap=self._selected_pixmap,
-            text=self._text,
-        )
+    button = Button(
+        icon=icon,
+        text=text,
+        toggle=False,
+        size=(0, row_height),
+        variant="sidebar_nav",
+        corner_radius=6,
+        icon_size=icon_size_px,
+        gap=_ICON_TEXT_GAP,
+        content_align=_NAV_CONTENT_ALIGN,
+        content_padding=_NAV_CONTENT_PADDING,
+    )
+    button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    return button
 
 
 @dataclass(slots=True)
@@ -197,7 +149,8 @@ class _RowSpec:
     icon: object | None
     selected_icon: object | None
     row_height: int
-    button: _NavRowButton
+    button: Button
+    custom: bool = False
     data_roles: dict[int, object] = field(default_factory=dict)
     normal_pixmap: QPixmap | None = None
     selected_pixmap: QPixmap | None = None
@@ -278,11 +231,13 @@ class IconListWidget(QWidget):
         icon_size: QSize | None = None,
         row_height: int = 44,
         selected_icon_mode: str = "invert",
+        button_factory: Callable[[IconListItem], Button] | None = None,
     ) -> None:
         super().__init__(parent)
         self._row_height = int(row_height)
         self._icon_size: QSize = icon_size if isinstance(icon_size, QSize) else QSize(24, 24)
         self._selected_icon_mode = self._normalize_selected_icon_mode(selected_icon_mode)
+        self._button_factory = button_factory
         self._rows: list[_RowSpec] = []
         self._current_row: int = -1
 
@@ -385,7 +340,7 @@ class IconListWidget(QWidget):
         prev = self._current_row
         self._current_row = idx
         for i, row in enumerate(self._rows):
-            row.button.set_selected(i == idx)
+            row.button.setRegionChecked("_main", i == idx)
             self._update_row_icon(row)
             self._update_row_fg(row)
         prev_item = _ListItem(self, prev) if 0 <= prev < len(self._rows) else None
@@ -403,12 +358,17 @@ class IconListWidget(QWidget):
             return
         self._icon_size = QSize(size)
         for row in self._rows:
+            if row.custom:
+                continue
             row.button.setIconSize(self._icon_size)
             self._apply_icon(row)
 
     def refresh_icons(self) -> None:
         for row in self._rows:
+            if row.custom:
+                continue
             self._apply_icon(row)
+            self._update_row_fg(row)
 
     def selectedIconMode(self) -> str:
         return self._selected_icon_mode
@@ -434,22 +394,27 @@ class IconListWidget(QWidget):
         selected_icon = spec.selected_icon
         if selected_icon is None:
             selected_icon = selected_icon_from_pair
-        button = _NavRowButton(
-            text=spec.text,
-            toggle=True,
-            size=(0, spec.row_height or self._row_height),
-            variant="sidebar_nav",
-            corner_radius=6,
-            icon_size=self._icon_size.height() if isinstance(self._icon_size, QSize) else 24,
-        )
+
+        custom = self._button_factory is not None
+        if custom:
+            button = self._button_factory(spec)
+        else:
+            button = _make_nav_row_button(
+                text=spec.text,
+                icon=None,
+                row_height=spec.row_height or self._row_height,
+                icon_size_px=self._icon_size.height() if isinstance(self._icon_size, QSize) else 24,
+            )
         button.setMinimumWidth(0)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         row = _RowSpec(
             text=spec.text,
             icon=icon,
             selected_icon=selected_icon,
             row_height=spec.row_height or self._row_height,
             button=button,
+            custom=custom,
         )
         if spec.data is not None:
             row.data_roles[int(Qt.ItemDataRole.UserRole)] = spec.data
@@ -471,29 +436,31 @@ class IconListWidget(QWidget):
         self.setCurrentRow(idx)
 
     def _apply_icon(self, row: _RowSpec) -> None:
+        if row.custom:
+            return
         row.normal_pixmap = None
         row.selected_pixmap = None
-        row.button.setIcon(row.icon)
-        row.button.set_nav_pixmaps(None, None)
-        if row.icon is None:
-            return
-        base_icon = resolve_icon(row.icon)
-        if base_icon.isNull():
-            return
-
-        size = self._icon_size if self._icon_size.isValid() else QSize(24, 24)
-        normal_pixmap = normalized_icon_pixmap(base_icon, size.height())
-        if normal_pixmap.isNull():
-            return
-
-        row.normal_pixmap = normal_pixmap
-        row.selected_pixmap = self._selected_pixmap_for_row(row, normal_pixmap)
-        row.button.set_nav_pixmaps(row.normal_pixmap, row.selected_pixmap)
+        if row.icon is not None:
+            base_icon = resolve_icon(row.icon)
+            if not base_icon.isNull():
+                size = self._icon_size if self._icon_size.isValid() else QSize(24, 24)
+                normal_pixmap = normalized_icon_pixmap(base_icon, size.height())
+                if not normal_pixmap.isNull():
+                    row.normal_pixmap = normal_pixmap
+                    row.selected_pixmap = self._selected_pixmap_for_row(row, normal_pixmap)
+        self._update_row_icon(row)
 
     def _update_row_icon(self, row: _RowSpec) -> None:
-        row.button.update()
+        if row.custom:
+            return
+        pixmap = row.normal_pixmap
+        if row.button.isChecked() and row.selected_pixmap is not None:
+            pixmap = row.selected_pixmap
+        row.button.setIcon(QIcon(pixmap) if pixmap is not None else None)
 
     def _update_row_fg(self, row: _RowSpec) -> None:
+        if row.custom:
+            return
         if row.button.isChecked():
             row.button.setForegroundColor(self._selected_icon_color())
         else:
@@ -502,6 +469,9 @@ class IconListWidget(QWidget):
 
     def _selected_icon_color(self) -> QColor:
         theme = ThemeManager.get_instance()
+        color = theme.try_get_color("list_item.icon.selected")
+        if color is not None and color.isValid():
+            return QColor(color)
         color = theme.try_get_color("HighlightedText")
         if color is None or not color.isValid():
             color = QColor("white")
@@ -523,7 +493,7 @@ class IconListWidget(QWidget):
             selected_pixmap = normalized_icon_pixmap(resolved, size.height())
             return selected_pixmap if not selected_pixmap.isNull() else normal_pixmap
 
-        selected_pixmap = self._inverted_pixmap(normal_pixmap)
+        selected_pixmap = self._tinted_pixmap(normal_pixmap, self._selected_icon_color())
         return selected_pixmap if not selected_pixmap.isNull() else normal_pixmap
 
     def _normalize_selected_icon_mode(self, mode: str) -> str:
@@ -554,19 +524,15 @@ class IconListWidget(QWidget):
             selected_icon=selected_icon,
         )
 
-    def _inverted_pixmap(self, base_pixmap: QPixmap) -> QPixmap:
+    def _tinted_pixmap(self, base_pixmap: QPixmap, color: QColor) -> QPixmap:
         if base_pixmap.isNull():
             return QPixmap()
-        image = base_pixmap.toImage().convertToFormat(QImage.Format.Format_ARGB32)
-        for y in range(image.height()):
-            for x in range(image.width()):
-                color = image.pixelColor(x, y)
-                alpha = color.alpha()
-                if alpha == 0:
-                    continue
-                color.setRed(255 - color.red())
-                color.setGreen(255 - color.green())
-                color.setBlue(255 - color.blue())
-                color.setAlpha(alpha)
-                image.setPixelColor(x, y, color)
-        return QPixmap.fromImage(image)
+        result = QPixmap(base_pixmap.size())
+        result.setDevicePixelRatio(base_pixmap.devicePixelRatio())
+        result.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(result)
+        painter.drawPixmap(0, 0, base_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(result.rect(), color)
+        painter.end()
+        return result

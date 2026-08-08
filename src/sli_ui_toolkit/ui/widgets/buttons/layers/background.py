@@ -283,7 +283,10 @@ class BackgroundLayer(Layer):
         is_subregion = (
             ctx.region_id is not None
             and region_rect is not None
-            and region_rect != ctx.rect
+            and (
+                region_rect != ctx.rect
+                or ctx.region_corner_radii is not None
+            )
         )
 
         for bg in backgrounds:

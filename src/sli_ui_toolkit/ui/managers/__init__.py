@@ -1,6 +1,7 @@
 from sli_ui_toolkit.ui.managers.flyout_manager import FlyoutManager
 from sli_ui_toolkit.ui.managers.flyout_policy import (
     CallableShowPolicy,
+    ChainShowPolicy,
     DEFAULT_FLYOUT_GROUP,
     DISMISS_ALL,
     ExclusiveShowPolicy,
@@ -11,6 +12,7 @@ from sli_ui_toolkit.ui.managers.flyout_timer_service import (
     AnchoredFlyoutAutoHide,
     DelayedActionTimer,
 )
+from sli_ui_toolkit.ui.managers.layer_stack import LayerStack
 from sli_ui_toolkit.ui.managers.settle_gate import SettleGate
 from sli_ui_toolkit.ui.managers.theme_manager import ThemeManager
 
@@ -26,12 +28,14 @@ from sli_ui_toolkit.ui.managers.ui_font import (
 __all__ = [
     "AnchoredFlyoutAutoHide",
     "CallableShowPolicy",
+    "ChainShowPolicy",
     "DEFAULT_FLYOUT_GROUP",
     "DISMISS_ALL",
     "DelayedActionTimer",
     "ExclusiveShowPolicy",
     "FlyoutManager",
     "GroupShowPolicy",
+    "LayerStack",
     "SettleGate",
     "ThemeManager",
 

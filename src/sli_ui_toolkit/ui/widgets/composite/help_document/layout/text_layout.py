@@ -13,6 +13,9 @@ from PySide6.QtGui import (
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import InlineKind, InlineSpan
+from sli_ui_toolkit.ui.widgets.composite.help_document.layout.constants import (
+    PARAGRAPH_TAB_STOP_PX,
+)
 from sli_ui_toolkit.ui.widgets.composite.help_document.layout.types import LinkHitBox
 from sli_ui_toolkit.ui.widgets.composite.help_document.text_index import (
     CharStyle,
@@ -56,6 +59,7 @@ def build_text_layout(
     theme: ThemeManager,
     color_token: str,
     width: float,
+    tab_stop_px: float = PARAGRAPH_TAB_STOP_PX,
 ) -> tuple[QTextLayout, tuple[LinkHitBox, ...]]:
     cursor = QTextCharFormat()
     text_color = theme.try_get_color(color_token) or theme.try_get_color("dialog.text")
@@ -64,6 +68,7 @@ def build_text_layout(
 
     option = QTextOption()
     option.setWrapMode(QTextOption.WrapMode.WordWrap)
+    option.setTabStopDistance(tab_stop_px)
 
     layout = QTextLayout(text, base_font)
     layout.setTextOption(option)

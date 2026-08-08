@@ -31,6 +31,8 @@ def paint_layout(
     else:
         highlight.setAlpha(80)
 
+    _paint_tables(painter, layout, theme)
+
     for frag in layout.text_fragments:
         painter.save()
         painter.translate(frag.rect.topLeft())
@@ -48,6 +50,32 @@ def paint_layout(
             fm = QFontMetrics(QFont())
             painter.drawText(pix.rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop), pix.alt)
             painter.restore()
+
+
+def _paint_tables(painter: QPainter, layout: LayoutResult, theme: ThemeManager) -> None:
+    if not layout.tables:
+        return
+    border = theme.try_get_color("help.separator")
+    if border is None or not border.isValid():
+        border = theme.try_get_color("dialog.border")
+    if border is None or not border.isValid():
+        border = QColor(128, 128, 128, 160)
+    painter.save()
+    pen = painter.pen()
+    pen.setColor(border)
+    pen.setWidthF(1.0)
+    painter.setPen(pen)
+    for table in layout.tables:
+        painter.drawRect(table.rect)
+        for row_y in table.row_ys:
+            painter.drawLine(
+                QPointF(table.rect.left(), row_y), QPointF(table.rect.right(), row_y)
+            )
+        painter.drawLine(
+            QPointF(table.col_x, table.rect.top()),
+            QPointF(table.col_x, table.rect.bottom()),
+        )
+    painter.restore()
 
 
 def _paint_selection(

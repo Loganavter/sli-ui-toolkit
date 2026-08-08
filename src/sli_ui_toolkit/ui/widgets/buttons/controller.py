@@ -112,15 +112,6 @@ class ButtonController:
                 path.addRect(region_rect)
                 paths[region.id] = path
                 if region.group is not None and region.corner_radii is None:
-                    # Hit-testing (region_at, above) must stay on the exact
-                    # nominal rect. Painting a same-group capsule fill from
-                    # that same rect can leave a hairline antialiased seam
-                    # against the neighboring region when the split boundary
-                    # isn't pixel-aligned (routine with 3+ fractional
-                    # weights). Give the *fill* path alone a hairline
-                    # overlap; the outer capsule clip in BackgroundLayer
-                    # still trims it back at the button's true edges, so
-                    # only the inner region-to-region seam is affected.
                     fill_path = QPainterPath()
                     fill_path.addRect(region_rect.adjusted(-0.75, -0.75, 0.75, 0.75))
                     fill_paths[region.id] = fill_path

@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers import SettleGate
 from sli_ui_toolkit.widgets import MinimalistScrollBar
 from .models import TimelineCallbacks
 from . import interaction as timeline_interaction
@@ -103,6 +104,16 @@ class TimelineWidget(QWidget):
 
         self._zoom_level = 1.0
         self._last_min_zoom = 1.0
+        self._suppress_resize_recalc = False
+        # Coalesce host-dialog resize ticks: the expensive min-zoom/width
+        # recompute (and the setFixedWidth-triggered relayout/repaint it
+        # causes) only runs once the resize settles, same idea as the main
+        # window's resize_in_progress gating around its tile rebuild.
+        self._layout_settle = SettleGate(
+            on_settle=self._on_layout_settle,
+            interval_ms=SettleGate.DEFAULT_INTERVAL_MS,
+            parent=self,
+        )
 
         self._snapshots = snapshots if snapshots else []
         self._duration = (
@@ -153,6 +164,14 @@ class TimelineWidget(QWidget):
         self._update_vertical_scrollbar()
 
         if not self.has_snapshots():
+            return
+
+        if self._suppress_resize_recalc:
+            # This resize was caused by our own update_fixed_width()'s
+            # setFixedWidth() call, which already recomputed everything
+            # (calculate_min_zoom, content width, widget.update()).
+            # Redoing that work here would double it on every resize tick.
+            self.resized.emit()
             return
 
         old_size = event.oldSize()
@@ -381,6 +400,12 @@ class TimelineWidget(QWidget):
         timeline_viewport.fit_view(self)
 
     def update_layout_width(self):
+        # Called on every host-dialog resizeEvent tick (dozens/sec while the
+        # user drags a window edge). Defer the actual recompute to settle
+        # instead of redoing it synchronously on each tick.
+        self._layout_settle.ping()
+
+    def _on_layout_settle(self):
         timeline_viewport.update_fixed_width(self)
 
     def wheelEvent(self, event):

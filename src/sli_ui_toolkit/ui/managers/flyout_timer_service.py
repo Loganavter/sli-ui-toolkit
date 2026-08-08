@@ -96,7 +96,34 @@ class AnchoredFlyoutAutoHide(QObject):
             except Exception:
                 pass
 
+        if self._cursor_in_linked_child(cursor_pos):
+            self.schedule(self._retry_ms)
+            return
+
         try:
             self._flyout.hide()
         except Exception:
             pass
+
+    def _cursor_in_linked_child(self, cursor_pos) -> bool:
+        """True if the cursor is over a ``FlyoutManager.link()``-ed child.
+
+        E.g. an options dropdown opened from a combo box that lives inside
+        this (hover-driven) flyout's own content: the dropdown is its own
+        top-level-ish overlay widget, spatially outside both this flyout's
+        own rect and its anchor's rect, so without this check the cursor
+        moving onto it during a pick would read as "left both safe zones"
+        and auto-hide the parent flyout out from under the dropdown.
+        """
+        try:
+            from sli_ui_toolkit.managers import FlyoutManager
+        except Exception:
+            return False
+        manager = FlyoutManager.get_instance()
+        for child in manager.linked_children(self._flyout):
+            try:
+                if child.isVisible() and child.contains_global(cursor_pos):
+                    return True
+            except Exception:
+                continue
+        return False

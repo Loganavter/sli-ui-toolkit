@@ -18,6 +18,7 @@ class TitleBarPresets:
         parent=None,
         close_icon: Any = None,
         show_close: bool = True,
+        defer_close_click: Any = None,
     ) -> CustomTitleBar:
         return CustomTitleBar(
             parent=parent,
@@ -26,6 +27,7 @@ class TitleBarPresets:
             show_maximize=False,
             show_close=show_close,
             close_icon=close_icon,
+            defer_close_click=defer_close_click,
         )
 
     @staticmethod
@@ -53,6 +55,7 @@ class TitleBarPresets:
             show_minimize=cfg.show_minimize,
             show_maximize=cfg.show_maximize,
             show_close=cfg.show_close,
+            defer_close_click=cfg.defer_close_click,
         )
         if menus is not None:
             strip = menus if isinstance(menus, TitleBarMenuStrip) else TitleBarMenuStrip(menus)

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtGui import QFont, QFontMetrics, QPixmap
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
@@ -17,6 +17,7 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
     InlineSpan,
     ListBlock,
     ParagraphBlock,
+    TableBlock,
     parse_inline,
     spans_to_plain,
 )
@@ -28,8 +29,11 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.layout.constants import (
     H2_FONT_PX,
     H3_FONT_PX,
     LIST_INDENT,
+    PARAGRAPH_TAB_STOP_PX,
     SIDE_FIGURE_SPACING,
     SIDE_FIGURE_V_MARGIN,
+    TABLE_CELL_PAD_X,
+    TABLE_CELL_PAD_Y,
 )
 from sli_ui_toolkit.ui.widgets.composite.help_document.layout.segment_map import (
     build_segment_map,
@@ -43,6 +47,7 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.layout.types import (
     AssetResolver,
     LayoutResult,
     PixmapFragment,
+    TableGeometry,
     TextFragment,
 )
 from sli_ui_toolkit.ui.widgets.composite.help_document.structure import (
@@ -62,6 +67,7 @@ def layout_document(
     width: float,
     theme: ThemeManager,
     resolve_asset: AssetResolver | None = None,
+    tab_stop_px: float = PARAGRAPH_TAB_STOP_PX,
 ) -> LayoutResult:
     builder = _LayoutBuilder(
         blocks=blocks,
@@ -69,6 +75,7 @@ def layout_document(
         theme=theme,
         resolve_asset=resolve_asset,
         text_index=text_index,
+        tab_stop_px=tab_stop_px,
     )
     builder.layout_items(group_side_figures(blocks))
     return builder.finish()
@@ -81,10 +88,12 @@ class _LayoutBuilder:
     theme: ThemeManager
     resolve_asset: AssetResolver | None
     text_index: DocumentTextIndex
+    tab_stop_px: float = PARAGRAPH_TAB_STOP_PX
     y: float = 0.0
     text_fragments: list[TextFragment] | None = None
     pixmaps: list[PixmapFragment] | None = None
     anchors: dict[str, float] | None = None
+    tables: list[TableGeometry] | None = None
 
     def __post_init__(self) -> None:
         if self.text_fragments is None:
@@ -93,6 +102,8 @@ class _LayoutBuilder:
             self.pixmaps = []
         if self.anchors is None:
             self.anchors = {}
+        if self.tables is None:
+            self.tables = []
         self._segment_map = build_segment_map(self.text_index)
 
     def _block_index(self, block: HelpBlock) -> int:
@@ -115,11 +126,17 @@ class _LayoutBuilder:
             text_fragments=tuple(self.text_fragments or []),
             pixmaps=tuple(self.pixmaps or []),
             anchors=dict(self.anchors or {}),
+            tables=tuple(self.tables or []),
         )
 
     def _body_font(self) -> QFont:
         font = QFont()
         font.setPixelSize(BODY_FONT_PX)
+        return font
+
+    def _bold_body_font(self) -> QFont:
+        font = self._body_font()
+        font.setBold(True)
         return font
 
     def _heading_font(self, level: int) -> QFont:
@@ -160,6 +177,7 @@ class _LayoutBuilder:
             theme=self.theme,
             color_token=color_token,
             width=max_width,
+            tab_stop_px=self.tab_stop_px,
         )
         natural = text_layout_height(layout)
         rect = QRectF(x, self.y, max_width, natural)
@@ -220,6 +238,8 @@ class _LayoutBuilder:
                 self._layout_image(item)
             elif isinstance(item, FigureBlock):
                 self._layout_figure(item)
+            elif isinstance(item, TableBlock):
+                self._layout_table(item)
 
     def _layout_heading(self, block: HeadingBlock) -> None:
         if block.anchor:
@@ -260,6 +280,70 @@ class _LayoutBuilder:
                 base_font=self._body_font(),
             )
             self._advance(h)
+
+    def _layout_table(self, block: TableBlock) -> None:
+        """Two-column label/value table with real border lines.
+
+        Label column width is measured from the widest label (bold body
+        font) so it always clears the text — a fixed pixel budget would
+        wrap under larger UI font scales or longer translations.
+        """
+        if not block.rows:
+            return
+        block_index = self._block_index(block)
+        font = self._body_font()
+        bold_metrics = QFontMetrics(self._bold_body_font())
+        label_col_w = 0.0
+        for label_spans, _value_spans in block.rows:
+            label_col_w = max(
+                label_col_w,
+                float(bold_metrics.horizontalAdvance(spans_to_plain(label_spans))),
+            )
+        label_col_w = min(label_col_w, max(1.0, self.width * 0.6))
+        divider_x = TABLE_CELL_PAD_X + label_col_w + TABLE_CELL_PAD_X
+        value_x = divider_x + TABLE_CELL_PAD_X
+        value_w = max(1.0, self.width - value_x - TABLE_CELL_PAD_X)
+
+        table_top = self.y
+        row_ys: list[float] = []
+        for row_index in range(len(block.rows)):
+            row_top = self.y
+            label_seg = self._segment_for(block_index, list_item_index=row_index * 2)
+            value_seg = self._segment_for(
+                block_index, list_item_index=row_index * 2 + 1
+            )
+            label_h = 0.0
+            value_h = 0.0
+            if label_seg is not None:
+                self.y = row_top + TABLE_CELL_PAD_Y
+                label_h = self._layout_segment(
+                    label_seg,
+                    x=TABLE_CELL_PAD_X,
+                    max_width=max(1.0, label_col_w),
+                    base_font=font,
+                )
+            if value_seg is not None:
+                self.y = row_top + TABLE_CELL_PAD_Y
+                value_h = self._layout_segment(
+                    value_seg,
+                    x=value_x,
+                    max_width=value_w,
+                    base_font=font,
+                )
+            row_h = max(label_h, value_h) + 2 * TABLE_CELL_PAD_Y
+            self.y = row_top + row_h
+            if row_index < len(block.rows) - 1:
+                row_ys.append(self.y)
+
+        table_bottom = self.y
+        self.tables.append(
+            TableGeometry(
+                rect=QRectF(0.0, table_top, self.width, table_bottom - table_top),
+                row_ys=tuple(row_ys),
+                col_x=divider_x,
+            )
+        )
+        self._finish_block()
 
     def _layout_image(self, block: ImageBlock) -> None:
         pix_h = self._place_pixmap(

@@ -214,6 +214,7 @@ class CustomLineEdit(QLineEdit):
                         alpha=120,
                         thickness=self._focused_underline_thickness or 1.5,
                         arc_radius=3.0,
+                        vertical_offset=0.0,
                     )
                 else:
                     underline_config = UnderlineConfig(
@@ -221,6 +222,7 @@ class CustomLineEdit(QLineEdit):
                         alpha=60,
                         thickness=self._underline_thickness or 1.0,
                         arc_radius=3.0,
+                        vertical_offset=0.0,
                     )
 
                 draw_bottom_underline(painter, rect, self.theme_manager, underline_config)

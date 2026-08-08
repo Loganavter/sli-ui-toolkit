@@ -62,14 +62,21 @@ multi-region layouts.
 from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.widgets import (
+    BackgroundLayer,
     Button,
     ButtonGroup,
     ButtonRegion,
     ButtonSpec,
     ClickBehavior,
     Divider,
+    DrawContext,
+    Layer,
+    OverlayPainterCallback,
+    OverlayPainterLayer,
+    RippleLayer,
     ShapeSpec,
     VerticalSplit,
+    default_layers,
 )
 
 # Icon-only toggle
@@ -172,7 +179,9 @@ btn = Button.from_spec(
 | `badge` | str/int | Small overlay badge text |
 | `show_underline` | bool | Bottom color underline |
 | `underline_color` | QColor/list/None | Explicit underline color or color segments |
-| `underline_thickness` | float/None | Explicit underline thickness in pixels |
+| `underline_thickness` | float/None | Explicit underline thickness in pixels (uncapped) |
+| `underline_tongue_reach` | float/None | How high (px) the underline's end caps climb the sides; `0` = square ends, `None` = matches corner radius |
+| `underline_ring` | bool | Draw the underline as a closed frame around the whole button instead of a bottom band |
 | `menu` | list | Dropdown menu items |
 | `variant` | str | Visual variant (see below) |
 | `wheel_requires_focus` | bool | Require focus before wheel events reach attached capabilities (see BUTTON_API.md's Capability Management section) |
@@ -214,7 +223,9 @@ btn = Button.from_spec(
 | Method | Description |
 |--------|-------------|
 | `setUnderlineColor(QColor\|list\|None)` | Set underline color |
-| `setUnderlineThickness(float\|None)` | Set underline thickness in pixels |
+| `setUnderlineThickness(float\|None)` | Set underline thickness in pixels (uncapped) |
+| `setUnderlineTongueReach(float\|None)` | Set how high the underline's end caps climb the sides |
+| `setUnderlineRing(bool)` | Draw the underline as a closed frame instead of a bottom band |
 | `setBadge(str)` | Update badge text |
 | `setBadgeStyle(filled=..., background_color=..., border_color=..., text_color=...)` | Configure badge outline/fill colors. Badges are outline-only by default. |
 | `set_footer_mode(bool)` | Flat top, rounded bottom (for footer buttons) |
@@ -233,7 +244,9 @@ btn = Button.from_spec(
 | `regions()` | Copy of the current `list[ButtonRegion]` (mutating the returned list has no effect — use `update_region`/`set_regions`) |
 | `setFlyoutOpen(bool)` | Visual state for attached flyout |
 
-**Underline scaling:** underline thickness and arc radius scale proportionally with widget height (baseline: 32 px). This ensures visibility on high-DPI / large UI modes.
+**Underline scaling:** underline thickness, tongue reach, and arc radius scale proportionally with widget height (baseline: 32 px). This ensures visibility on high-DPI / large UI modes.
+
+**Underline geometry:** the band is built from rounded-rect path boolean ops (never a stroked arc), so it cannot spill past the button's own rounded corners at any thickness. See `underline_tongue_reach`/`underline_ring` above and [BUTTON_API.md](BUTTON_API.md#custom-styling) for the full explanation and an example.
 
 ### ButtonGroup
 
@@ -257,177 +270,41 @@ removed in `0.3.0`.
 
 ### ContextMenu
 
-`ContextMenu` is a theme-aware native `QMenu` for right-click commands. It is
-intended for app/domain context actions such as rename, duplicate, remove,
-properties, and submenus. Compared with flyouts, it uses Qt's menu behavior for
-focus, keyboard navigation, submenus, and native popup lifecycle.
-
-```python
-from sli_ui_toolkit.widgets import ContextMenuBuilder
-
-menu = (
-    ContextMenuBuilder()
-    .action("rename", "Rename", shortcut="F2")
-    .action("duplicate", "Duplicate")
-    .separator()
-    .action("remove", "Remove", danger=True)
-    .build(parent, on_triggered=lambda action_id, data: ...)
-)
-menu.popup_at(global_pos)
-```
-
-Public names:
+Theme-aware native `QMenu` for right-click commands. Full reference,
+constructor/builder API, and `defer_trigger` details:
+**[CONTEXT_MENU_API.md](CONTEXT_MENU_API.md)**.
 
 | Name | Description |
 |------|-------------|
-| `ContextMenu` | `QMenu` subclass built from declarative entries. |
-| `ContextMenuAction` | Action item model: id, text, icon, enabled, checked, danger, shortcut, data, children. |
-| `ContextMenuSeparator` | Separator model. |
-| `ContextMenuSection` | Group of entries with optional disabled title. |
-| `ContextMenuBuilder` | Chainable builder for common menus. |
-| `entries_from_labeled_data(items, current=..., checkable=...)` | Build picker entries from `[(label, data), ...]`; current row is highlighted (no check glyph). |
-| `entries_from_callbacks(items)` | Build command entries from `[(label, callback_or_data), ...]`. |
-| `popup_context_menu_for_anchor(parent, anchor, entries, ...)` | Anchor-aligned dropdown (replaces removed `Button.menu` / `DropdownMenu`). |
-| `show_context_menu(parent, global_pos, entries, on_triggered=...)` | Convenience function that builds and pops up a menu. |
+| `ContextMenu` / `ContextMenuBuilder` / `ContextMenuAction` | Declarative right-click menus with a chainable builder. |
+| `popup_context_menu_for_anchor` / `show_context_menu` | Convenience popup helpers. |
 
 ### Labels
 
-`Label` is the unified text component. Set the typography and behavior directly,
-or start from a registered variant when a shared preset is useful.
-
-```python
-from sli_ui_toolkit.widgets import Label, LabelConfig
-
-title = Label("Settings", variant="group-title")
-body = Label("Ready", pixel_size=12)
-caption = Label("Secondary status", pixel_size=11)
-custom = Label(
-    config=LabelConfig(
-        text="Pinned",
-        pixel_size=10,
-        bold=True,
-        color_token="accent",
-        elide=True,
-        minimum_width=80,
-    )
-)
-```
-
-**Common options:**
-
-| Option | Description |
-|--------|-------------|
-| `text` | Label text. |
-| `variant` | Optional registered preset name. |
-| `family` | Font family override. |
-| `pixel_size` | Font size in pixels. |
-| `bold` / `italic` / `underline` / `strike_out` | Font styling flags. |
-| `color` / `color_token` | Explicit `QColor` or `ThemeManager` token. |
-| `alignment` | Qt alignment flags. |
-| `elide` | Elide overflowing text with an ellipsis. |
-| `marquee` | Scroll overflowing text left→right in a loop (wins over `elide`). Also: `apply_marquee(qlabel)`. |
-| `minimum_width` | Minimum width used by size hints. |
-| `expanding` | Use an expanding horizontal size policy. |
-| `word_wrap` | Enable wrapped multiline text. |
-| `selectable` | Enable mouse/keyboard text selection. |
-
-**Built-in presets:**
-
-| Variant | Size | Weight | Behavior |
-|---------|------|--------|----------|
-| `"body"` | 12 px | Normal | Standard body text |
-| `"caption"` | 11 px | Normal | Small secondary/status text |
-| `"compact"` | 10 px | Normal | Dense elided text |
-| `"group-title"` | 13 px | Bold | Section headers |
-| `"adaptive"` | 12 px | Normal | Expanding elided text |
+Unified themed text component (`Label`), typography options, and built-in
+presets: **[LABELS_API.md](LABELS_API.md)**.
 
 | Widget | Description |
 |--------|-------------|
-| `Label` | Unified themed text label with direct typography and behavior options. |
-| `LabelConfig` | Declarative configuration object for `Label`. |
-| `LabelVariantSpec` | Typography/color variant registry entry. |
+| `Label` / `LabelConfig` / `LabelVariantSpec` | Unified themed text label, its config object, and variant registry entry. |
 | `DropZoneLabel` | Label with drag-and-drop zone visuals and file accept logic. |
 
-### Inputs
+### Inputs & Other Atomic Controls
+
+Text inputs, toggles, sliders, scroll areas, spinners, and grouped
+containers — constructor kwargs, underline/wheel-focus policy, and runtime
+setters for every widget below: **[INPUTS_API.md](INPUTS_API.md)**.
 
 | Widget | Description |
 |--------|-------------|
-| `CustomLineEdit` | Themed line edit with rounded input paint, text padding, configurable text alignment, theme-updated text color, and focus normalization. |
-| `CheckBox` | Custom-painted checkbox. |
-| `RadioButton` | Custom-painted radio button. |
-| `Slider` | Custom-painted slider with accent track. |
+| `CustomLineEdit` | Themed line edit with rounded input paint and configurable alignment/underline. |
+| `CheckBox` / `RadioButton` | Custom-painted checkbox/radio. |
+| `Slider` | Custom-painted slider with accent track and optional custom track painter. |
 | `SpinBox` | Custom-painted compact spinbox. |
 | `Switch` | Custom-painted toggle switch. |
-| `ComboBox` | Full custom-painted combo box with dropdown popup, type-to-search matching, and keyboard navigation. `showDropdown(focus_index=…)` scrolls a row into view without changing `currentIndex`; `dropdown_row_widget(index)` returns that row for Find Action pulse. |
-| `ScrollableComboBox` | Combo box with mouse-wheel cycling. |
-| `TimeLineEdit` | Compact toolkit-painted `HH:mm` input with validation/normalization, two right-side repeatable step buttons, and no native `QTimeEdit` chrome. |
-
-Text inputs accept Qt alignment flags or string alignment values:
-
-```python
-name = CustomLineEdit(alignment="left")
-time = TimeLineEdit(alignment="center", wheel_requires_focus=False)
-count = SpinBox(default_value=42, alignment="right", wheel_requires_focus=False)
-
-name.setTextAlignment("center")
-time.setStepButtonsVisible(False)
-```
-
-Toolkit-painted inputs expose the same underline configuration names as
-`Button`: `underline_color`, `underline_thickness`, `setUnderlineColor(...)`,
-and `setUnderlineThickness(...)`. `CustomLineEdit`, `SpinBox`, `TimeLineEdit`,
-and `ComboBox` support these options.
-
-```python
-name = CustomLineEdit(underline_color=QColor("#0078D4"), underline_thickness=1.5)
-combo = ComboBox(underline_thickness=1.0)
-
-name.setUnderlineColor(QColor("#0078D4"))
-combo.setUnderlineThickness(1.5)
-```
-
-`CustomLineEdit`, `SpinBox`, `TimeLineEdit`, and `ComboBox` also support
-separate focused underline styling. The base `underline_*` options apply when
-the field is not focused; focused options apply only while the field has focus.
-
-```python
-name = CustomLineEdit(
-    underline_color=QColor("#808080"),
-    underline_thickness=1.0,
-    focused_underline_color=QColor("#0078D4"),
-    focused_underline_thickness=1.5,
-)
-
-name.setFocusedUnderlineColor(QColor("#0078D4"))
-name.setFocusedUnderlineThickness(1.5)
-```
-
-Wheel-scrollable widgets use the shared `wheel_requires_focus` policy. It
-defaults to `False`, so wheel interaction works on hover without clicking first.
-When a widget handles wheel input, it takes focus so focused visuals activate
-consistently. Set it to `True` when a control should only react after focus. The
-same policy is available on `Button`, `ComboBox`, `ScrollableComboBox`,
-`InstancesCounterButton`, `Slider`, `SpinBox`, and `TimeLineEdit`.
-
-```python
-spin = SpinBox(wheel_requires_focus=True)
-slider = Slider(wheel_requires_focus=True)
-button = Button(icon="line_weight", wheel_requires_focus=True)
-
-spin.setWheelRequiresFocus(False)
-```
-
-### Scrolling
-
-| Widget | Description |
-|--------|-------------|
-| `MinimalistScrollBar` | Thin minimalist scrollbar for custom scroll areas. |
-| `OverlayScrollArea` | Scroll area with overlay-style thin scrollbars. |
-
-### Other Atomic
-
-| Widget | Description |
-|--------|-------------|
+| `ComboBox` / `ScrollableComboBox` | Custom-painted combo box family. |
+| `TimeLineEdit` | Compact toolkit-painted `HH:mm` input. |
+| `MinimalistScrollBar` / `OverlayScrollArea` | Thin/overlay-style scrollbars. |
 | `LoadingSpinner` | Animated conical-gradient loading spinner. |
 | `CustomGroupWidget` / `CustomGroupBuilder` | Grouped widget container with builder pattern. |
 
@@ -435,53 +312,15 @@ spin.setWheelRequiresFocus(False)
 
 ## Composite Widgets
 
-### TopTabBar / TopTabHost
+### Tabs
 
-Horizontal content-section tabs for dialogs (export settings, wizards). Twin of
-`IconListWidget` on the other axis — not for closable workspace documents.
+Two independent tab families — content-section tabs vs. closable workspace
+tabs. Full constructor options and behavior: **[TABS_API.md](TABS_API.md)**.
 
-```python
-from sli_ui_toolkit.widgets import TopTabHost
-
-tabs = TopTabHost()
-tabs.addTab(standard_page, "Standard")
-tabs.addTab(manual_page, "Manual")
-tabs.currentChanged.connect(on_tab_changed)
-```
-
-`TopTabBar` alone is enough when the host already owns a stack. Tab chrome is
-painter-driven (`top_tab` Button variant); do not style tabs with QSS.
-
-Implementation lives under `sli_ui_toolkit.ui.widgets.composite.top_tab_bar/`
-(`bar`, `host`, `pane`, `chrome`, `tab_button`, …) — import the public types
-from `sli_ui_toolkit.widgets`.
-
-### AdaptiveTabStrip
-
-Compact workspace-style tabs with a trailing add button and adaptive close
-buttons.
-
-```python
-from sli_ui_toolkit.widgets import AdaptiveTabStrip, CloseButtonPolicy
-
-tabs = AdaptiveTabStrip(
-    add_icon=AppIcon.ADD,
-    close_icon=AppIcon.CLOSE,
-    close_policy=CloseButtonPolicy.ALL_WHEN_FIT_ELSE_CURRENT,
-    single_tab_closable=True,
-)
-tabs.addRequested.connect(create_workspace)
-tabs.tabCloseRequested.connect(close_workspace)
-tabs.currentChanged.connect(activate_workspace)
-```
-
-The strip reserves close-button width for every tab, so switching the selected
-tab never changes tab widths. With the default close policy, every close button
-is shown while full-size tabs fit; otherwise only the current tab keeps one.
-
-`AdaptiveTabStrip` exposes common `QTabBar`-style methods such as `addTab`,
-`removeTab`, `count`, `setCurrentIndex`, `setTabData`, and `tabData`. The
-underlying widgets are available as `tab_bar` and `add_button`.
+| Widget | Description |
+|--------|-------------|
+| `TopTabBar` / `TopTabHost` | Horizontal content-section tabs for dialogs (export settings, wizards). Not for closable workspace documents. |
+| `AdaptiveTabStrip` | Compact workspace-style tabs with a trailing add button and adaptive close buttons. |
 
 ### Flyouts & Panels
 
@@ -502,81 +341,66 @@ accepted (deprecated alias of the point API).
 
 ### Dialogs & Navigation
 
-| Widget | Description |
-|--------|-------------|
-| `SidebarDialogShell` | Sidebar + stacked pages dialog container. |
-| `ScrollableDialogPage` | Ready-made scrollable page for dialog content. |
-| `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. Selected icons support `selected_icon_mode="invert"` (default color inversion) or `"replace"` with `selected_icon=` / `(normal_icon, selected_icon)` pairs. |
-| `TopTabBar` / `TopTabItem` / `TopTabHost` | Horizontal content-section tabs (axis twin of `IconListWidget`). `TopTabBar` is the painted strip; `TopTabHost` adds a bordered page stack with folder-tab chrome and a `QTabWidget`-like API (`addTab`, `setCurrentIndex`, `setTabText`, …). Not for closable workspace docs — use `AdaptiveTabStrip` there. |
-| `MarkdownHelpDialog` / `MarkdownHelpSection` | Markdown→HTML help dialog (`QTextBrowser`) with anchors, TOC, and `help://slug#anchor` navigation. Useful for tests and simple HTML help. |
-| `HelpDocumentView` | Native widget-tree help page renderer (controlled markdown subset, figures, kbd, links). Prefer for illustrated manuals; see Improve-ImgSLI `docs/dev/HELP_SYSTEM.md`. |
-
-Markdown help section discovery helpers are intentionally not exported from
-`sli_ui_toolkit.widgets`. Import them only where needed from
-`sli_ui_toolkit.ui.widgets.composite.help_sections`.
-
-Block parsers for `HelpDocumentView` live under
-`sli_ui_toolkit.ui.widgets.composite.help_document`
-(`parse_help_blocks`, `FigureBlock`, …).
-
-### Path & File
+Sidebar-shell dialogs, in-dialog navigation lists, and markdown/native help
+viewers — constructor options and a full wiring example:
+**[DIALOGS_API.md](DIALOGS_API.md)**.
 
 | Widget | Description |
 |--------|-------------|
-| `OutputPathSection` | Combined output-directory + filename form section. |
+| `SidebarDialogShell` / `ScrollableDialogPage` | Sidebar + stacked pages dialog container, and a ready-made scrollable content page. |
+| `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. |
+| `MarkdownHelpDialog` / `MarkdownHelpSection` | Markdown→HTML help dialog (`QTextBrowser`) with anchors, TOC, and `help://slug#anchor` navigation. |
+| `HelpDocumentView` | Native widget-tree help page renderer (controlled markdown subset, figures, kbd, links). |
 
-### Console & Logging
+### Console, Logging & Notifications
+
+Live process/log consoles and transient toast notifications — constructor
+kwargs and `show_toast`/`append_message` signatures:
+**[FEEDBACK_API.md](FEEDBACK_API.md)**.
 
 | Widget | Description |
 |--------|-------------|
 | `LogConsoleWidget` / `LogConsoleEntry` | Read-only themed console for app log messages. |
 | `ProcessConsoleWidget` | `QProcess`-driven console for live command output with stdin input. |
-
-### Notifications
-
-| Widget | Description |
-|--------|-------------|
-| `ToastManager` / `ToastNotification` / `ToastAction` / `ToastProgressBar` | In-window transient toasts. `show_toast(content, actions=...)` accepts strings, custom content widgets, `ToastAction` entries, action specs, or action widgets. Progress uses painted `ToastProgressBar` (accent fill, rounded track). |
+| `ToastManager` / `ToastNotification` / `ToastAction` / `ToastProgressBar` | In-window transient toasts with actions and progress. |
 
 ### Data Visualization
 
+Sunburst/donut charts, a three-level calendar, and a keyframe timeline —
+full dataclass fields and runtime setters: **[CHARTS_API.md](CHARTS_API.md)**.
+
 | Widget | Description |
 |--------|-------------|
-| `SunburstChartWidget` | Sunburst/donut chart (`QGraphicsView`-based). Feed `SunburstSegmentData` list. Signals: `segment_clicked`, `segment_hover_*`. Center text color follows `dialog.text` or `set_center_text_color(...)`. |
-| `SunburstSegmentData` | Dataclass: start_angle, span_angle (radians), inner/outer radius, color, segment_id. |
-| `SunburstSegmentItem` | Individual chart segment (`QGraphicsPathItem`). |
-| `CalendarWidget` | Three-level calendar (days/months/years) with `QStackedWidget`. Feed `CalendarViewModel` via `update_view()`. |
-| `CalendarDayButton` | Individual day button with `date_clicked`/`date_context_menu` signals. |
-| `CalendarDayInfo` / `CalendarMonthInfo` / `CalendarYearInfo` | Per-cell data for calendar. |
-| `CalendarViewModel` | Full calendar view state (year, month, day, view_mode, navigation). |
-| `TimelineWidget` | Keyframe timeline with thumbnail strip, grouped tracks, ruler, playhead, zoom/scroll, range selection. Feed via `set_data()`. |
-| `TimelineCallbacks` | Callback hooks: `should_show_track`, `visible_channels`, `is_track_active`, `localize_token`, `localize_value`, `prominent_track_ids`. |
+| `SunburstChartWidget` / `SunburstSegmentData` / `SunburstSegmentItem` | Sunburst/donut chart (`QGraphicsView`-based). |
+| `CalendarWidget` / `CalendarDayButton` / `CalendarViewModel` | Three-level calendar (days/months/years). |
+| `TimelineWidget` / `TimelineCallbacks` | Keyframe timeline with thumbnail strip, grouped tracks, zoom/scroll, range selection. |
 
 ---
 
 ## Overlays (from `sli_ui_toolkit.ui.widgets.overlays`)
 
+In-window modal surfaces, drag/drop zone painters, and rubber-band selection
+— constructor options and the `close_on_*` flag matrix:
+**[OVERLAYS_API.md](OVERLAYS_API.md)**.
+
 | Widget | Description |
 |--------|-------------|
-| `TopLevelInWindowOverlay` | Modal full-window in-window overlay that can host arbitrary `QWidget` content. Children can be placed by `OverlaySlot` around an anchor or with explicit overlay-local geometry. Emits `dismissed()`. |
-| `OverlaySlot` / `OverlayItem` | Slot enum and item metadata used by `TopLevelInWindowOverlay`. |
-| `DragDropOverlay` | Transparent drag/drop zone painter built on `TopLevelInWindowOverlay`; keeps pointer transparency and the existing `set_overlay_state(...)` API. |
-| `MarqueeBandOverlay` | Pointer-transparent in-window selection rubber-band (not `QRubberBand` / not text `MarqueeDriver`). `set_band(rect)` / `set_accent(color)`. |
-| `MarqueeBandGesture` | Wayland-safe drag tracker for `MarqueeBandOverlay` (app event filter; no `grabMouse`). Host supplies hit-testing via `on_update` / `on_finish` content-local rects. |
-| `map_content_rect_to_window(...)` | Map a content-local rect into the host window, optionally clipped to a viewport widget. |
-
-Drag ghosts for UnifiedFlyout are **host-owned** (Improve-ImgSLI
-`ui/widgets/drag_ghost_widget.py` + `DragAndDropService`). The toolkit
-`ToolkitDragDropService` coordinates drop targets without painting a ghost;
-apps inject their service via `configure_toolkit(dragdrop_service_getter=...)`.
+| `TopLevelInWindowOverlay` | Modal full-window in-window overlay hosting arbitrary `QWidget` content. |
+| `OverlaySlot` / `OverlayItem` | Slot enum and item metadata. |
+| `DragDropOverlay` | Transparent drag/drop zone painter. |
+| `MarqueeBandOverlay` / `MarqueeBandGesture` | Pointer-transparent selection rubber-band + Wayland-safe drag tracker. |
 
 ---
 
-## List Items (from `sli_ui_toolkit.ui.widgets.list_items`)
+## List Items
+
+Row widgets meant to be dropped into a host-owned list/flyout, imported from
+`sli_ui_toolkit.widgets`: **[LIST_ITEMS_API.md](LIST_ITEMS_API.md)**.
 
 | Widget | Description |
 |--------|-------------|
-| `RatingItem` | Star-rating list item with interactive hover and click. |
+| `RatingListItem` | Star-rating list item with interactive hover and click. |
+| `EditableListItem` | Row with inline-editable text, an optional checkbox, and a delete button. |
 
 ---
 
@@ -664,14 +488,20 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 
 ## Configuration Hooks
 
+See [CONFIGURATION.md](CONFIGURATION.md) for the full startup sequence,
+every parameter, defaults, and what happens if a hook is skipped. Quick
+reference:
+
 | Function | Module | Description |
 |----------|--------|-------------|
 | `configure_toolkit(timings=..., overlay_resolver=..., dragdrop_service=..., ripple_duration_ms=..., default_defer_click=...)` | `sli_ui_toolkit.config` | Overlay layer resolution, drag-drop, timing constants, button ripple duration + default click deferral. |
 | `set_ripple_duration_ms(ms)` / `get_ripple_duration_ms()` | `sli_ui_toolkit` / `widgets` | Process-wide Material ripple length (keeps `RippleEffect.DURATION_MS` in sync). |
 | `set_default_defer_click(value)` / `get_default_defer_click()` | `sli_ui_toolkit` / `widgets` | Process-wide default for `Button(defer_click=None)`. Use `DEFER_CLICK_AWAIT_RIPPLE` to await the system ripple. |
-
 | `configure_icon_resolver(resolver=..., named_icons=...)` | `sli_ui_toolkit.icons` | Icon resolution strategy. |
 | `configure_i18n(i18n_root=...)` | `sli_ui_toolkit.i18n` | Path to JSON translation directory. |
+| `ThemeManager.get_instance().register_palettes(light_palette=..., dark_palette=...)` / `.set_theme(name, app)` | `sli_ui_toolkit.theme` | Register color tokens and pick the active light/dark theme. |
+| `setup_logging(app_name, debug_enabled=False, debug_env_var=None)` | `sli_ui_toolkit` | Route toolkit log records into the host app's logger/handlers. |
+| `install_application_tooltips(app)` | `sli_ui_toolkit` | Install the toolkit's themed hover-tooltip event filter app-wide. |
 
 `overlay_resolver` is used by in-window surfaces such as button dropdown menus
 and flyouts. A host overlay object should provide `host`, `attach(widget)`,
@@ -703,7 +533,6 @@ Safe first choices for new code:
 - `ButtonGroup` for grouped toolbar sections
 - Labels, `CustomLineEdit`
 - `SidebarDialogShell` + `ScrollableDialogPage`
-- `OutputPathSection`
 - `LogConsoleWidget` / `ProcessConsoleWidget`
 - `ToastManager`
 - `SunburstChartWidget` / `CalendarWidget` / `TimelineWidget`

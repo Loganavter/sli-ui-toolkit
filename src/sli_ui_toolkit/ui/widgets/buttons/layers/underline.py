@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
-
 from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -12,24 +10,6 @@ from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 
 from ..context import DrawContext
 from ._base import Layer
-
-
-_MAX_UNDERLINE_THICKNESS = 3.0
-
-
-def _clamp_underline_thickness(thickness: float) -> float:
-    normalized = max(0.0, float(thickness))
-    if normalized > _MAX_UNDERLINE_THICKNESS:
-        warnings.warn(
-            (
-                "Button underline thickness is capped at "
-                f"{_MAX_UNDERLINE_THICKNESS:.1f}px; got {normalized:.1f}px."
-            ),
-            RuntimeWarning,
-            stacklevel=3,
-        )
-        return _MAX_UNDERLINE_THICKNESS
-    return normalized
 
 
 class UnderlineLayer(Layer):
@@ -69,7 +49,17 @@ class UnderlineLayer(Layer):
         thickness = (
             ctx.underline_thickness if ctx.underline_thickness is not None else 1.0
         )
-        thickness = _clamp_underline_thickness(thickness)
+        thickness = max(0.0, float(thickness))
+
+        tongue_reach = ctx.underline_tongue_reach
+        if tongue_reach is not None:
+            tongue_reach = tongue_reach / scale if scale > 0 else tongue_reach
+
+        fade = ctx.underline_fade
+        if fade is None:
+            from sli_ui_toolkit.ui.widgets.buttons.feedback import get_default_underline_fade
+
+            fade = get_default_underline_fade()
 
         cfg = UnderlineConfig(
             thickness=thickness,
@@ -77,6 +67,9 @@ class UnderlineLayer(Layer):
             arc_radius=normalized_radius,
             alpha=alpha,
             color=resolved,
+            tongue_reach=tongue_reach,
+            ring=bool(ctx.underline_ring),
+            fade=bool(fade),
         )
         rect = ctx.rect
         if hasattr(rect, "toAlignedRect"):

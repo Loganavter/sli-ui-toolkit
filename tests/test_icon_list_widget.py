@@ -1,15 +1,62 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QImage, QPainter
 from PySide6.QtWidgets import QSizePolicy
 
-from sli_ui_toolkit.widgets import IconListItem, IconListWidget
+from sli_ui_toolkit.widgets import Button, IconListItem, IconListWidget
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.buttons.content import IconTextContent
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
-from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import _NavRowContent
+
+
+def test_icon_list_widget_button_factory_builds_custom_rows(qapp):
+    built = []
+
+    def factory(item):
+        btn = Button(text=item.text, badge=3, variant="surface", size=(0, 40))
+        built.append(btn)
+        return btn
+
+    widget = IconListWidget(button_factory=factory)
+    widget.add_item("Alerts")
+    row = widget._rows[0]
+
+    assert row.custom is True
+    assert row.button is built[0]
+    assert row.button.getVariant() == "surface"
+
+
+def test_icon_list_widget_button_factory_selection_still_works(qapp):
+    def factory(item):
+        return Button(text=item.text, variant="surface", size=(0, 40))
+
+    widget = IconListWidget(button_factory=factory)
+    widget.add_item("First")
+    widget.add_item("Second")
+
+    widget.setCurrentRow(1)
+
+    assert widget.currentRow() == 1
+    assert widget._rows[1].button.isChecked()
+    assert not widget._rows[0].button.isChecked()
+
+
+def test_icon_list_widget_button_factory_skips_default_icon_management(qapp):
+    def factory(item):
+        return Button(icon="settings", text=item.text, variant="surface", size=(0, 40))
+
+    widget = IconListWidget(button_factory=factory, selected_icon_mode="invert")
+    widget.add_item("Custom", icon="settings")
+    row = widget._rows[0]
+
+    # Default icon-swap/pixmap bookkeeping is skipped for factory-built rows —
+    # the app's Button owns its own icon.
+    assert row.normal_pixmap is None
+    assert row.selected_pixmap is None
+
+    widget.setCurrentRow(0)
+    assert row.button.isChecked()
 
 
 def test_icon_list_widget_resolves_string_icons(qapp):
@@ -20,10 +67,8 @@ def test_icon_list_widget_resolves_string_icons(qapp):
 
     assert row.normal_pixmap is not None
     assert not row.normal_pixmap.isNull()
-    assert row.button._normal_pixmap is row.normal_pixmap
     content = row.button._build_region_content(row.button.regions()[0])
-    assert isinstance(content, _NavRowContent)
-    assert content.normal_pixmap is row.normal_pixmap
+    assert isinstance(content, IconTextContent)
 
 
 def test_icon_list_widget_set_icon_updates_row_pixmap(qapp):
@@ -35,7 +80,6 @@ def test_icon_list_widget_set_icon_updates_row_pixmap(qapp):
 
     assert row.normal_pixmap is not None
     assert not row.normal_pixmap.isNull()
-    assert row.button._normal_pixmap is row.normal_pixmap
 
 
 def test_icon_list_widget_set_icon_accepts_icon_pair(qapp):
@@ -160,10 +204,9 @@ def test_icon_list_widget_rows_expand_without_text_minimum(qapp):
 def test_nav_row_content_elides_text_to_available_width(qapp):
     long_text = "Navigation entry with text that cannot fit"
     widget = IconListWidget()
-    widget.add_item(long_text)
+    widget.add_item(long_text, icon="settings")
     button = widget._rows[0].button
     button.setFixedSize(96, 44)
-    content = _NavRowContent(None, None, long_text)
 
     class FakePainter:
         def __init__(self, source):
@@ -173,14 +216,22 @@ def test_nav_row_content_elides_text_to_available_width(qapp):
         def fontMetrics(self):
             return self.source.fontMetrics()
 
+        def setFont(self, _font):
+            pass
+
         def setPen(self, _pen):
+            pass
+
+        def drawPixmap(self, *_args):
             pass
 
         def drawText(self, _rect, _flags, text):
             self.drawn_text = text
 
     painter = FakePainter(button)
-    ctx = SimpleNamespace(widget=button, painter=painter, icon_size_px=24)
+    ctx = button._make_context(painter)
+    content = ctx.content
+    assert isinstance(content, IconTextContent)
 
     content.draw(ctx, ThemeManager.get_instance())
 

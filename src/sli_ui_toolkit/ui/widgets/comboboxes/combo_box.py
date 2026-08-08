@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
-from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
+from PySide6.QtCore import (
+    QEvent,
+    QRect,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -20,8 +27,7 @@ from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     normalize_for_search,
     visible_indices_normalized,
 )
-
-logger = logging.getLogger(__name__)
+from sli_ui_toolkit.ui.widgets.comboboxes.capabilities import GearDragCapability
 
 
 class _ComboFieldBgLayer(Layer):
@@ -89,6 +95,24 @@ class ComboBox(Button):
     ITEM_VERTICAL_PADDING = 12
     TEXT_HORIZONTAL_PADDING = 12
 
+    # "Gear-shifter" drag-select: hold the field for GEAR_HOLD_MS, or drag it
+    # sideways/vertically past GEAR_DRAG_THRESHOLD_PX right after pressing, to
+    # open the dropdown and scrub through rows by dragging — like sliding a
+    # gearbox knob into its slot. Releasing commits whichever row is under the
+    # field at that moment; a plain click/release still just toggles the list.
+    GEAR_HOLD_MS = 450
+    GEAR_DRAG_THRESHOLD_PX = 8
+    # On release, the popup window snaps the rest of the way to the exact
+    # item-boundary offset (see GearDragCapability._finish_drag) so the
+    # focused row ends up perfectly centered under the field before the
+    # dropdown closes, instead of closing mid-drag with the row a few pixels
+    # off.
+    GEAR_SNAP_DURATION_MS = 40
+    # Brief hold once the snap has landed, so the fully-settled state is
+    # actually visible for a beat before the dropdown closes, instead of
+    # collapsing the instant the animation finishes.
+    GEAR_SNAP_HOLD_MS = 250
+
     def __init__(
         self,
         parent=None,
@@ -100,6 +124,8 @@ class ComboBox(Button):
             size=(0, self.BASE_HEIGHT),
             corner_radius=self.RADIUS,
             wheel_requires_focus=wheel_requires_focus,
+            long_press=True,
+            long_press_ms=self.GEAR_HOLD_MS,
             layers=[
                 _ComboFieldBgLayer(),
                 RippleLayer(),
@@ -125,10 +151,35 @@ class ComboBox(Button):
         self._visible_positions_cache: dict[int, int] = {}
         self._visible_cache_dirty = True
 
+        # Gear-shifter drag-select (see GEAR_HOLD_MS above) — behavior lives
+        # in GearDragCapability, mirroring Button's own capability system
+        # (LongPressCapability). Cached directly here (in addition to being
+        # reachable via get_capability) since hideDropdown() and the proxy
+        # properties below need cheap, frequent access.
+        self._gear = GearDragCapability(
+            hold_ms=self.GEAR_HOLD_MS,
+            drag_threshold_px=self.GEAR_DRAG_THRESHOLD_PX,
+            snap_duration_ms=self.GEAR_SNAP_DURATION_MS,
+            snap_hold_ms=self.GEAR_SNAP_HOLD_MS,
+        )
+        self.attach_capability(self._gear)
+
         self.clicked.connect(self._on_field_clicked)
 
     def _item_height(self) -> int:
         return max(28, QFontMetrics(self.font()).height() + self.ITEM_VERTICAL_PADDING)
+
+    @property
+    def _gear_active(self) -> bool:
+        """Proxy to GearDragCapability.active — _overlay.py reads this as a
+        plain ComboBox attribute and has no reason to know capabilities
+        exist."""
+        return self._gear.active
+
+    @property
+    def _gear_focus_index(self) -> int:
+        """Proxy to GearDragCapability.focus_index — see _gear_active."""
+        return self._gear.focus_index
 
     def _invalidate_visible_cache(self) -> None:
         self._visible_cache_dirty = True
@@ -430,14 +481,6 @@ class ComboBox(Button):
         self._expanded = True
         self._pressed = False
         self._ensure_current_visible()
-        logger.debug(
-            "[ComboBox.showDropdown] object=%s current=%d focus=%s count=%d scroll_offset=%d",
-            self.objectName() or "<unnamed>",
-            self.currentIndex(),
-            self._dropdown_focus_index,
-            self.count(),
-            self._scroll_offset,
-        )
         self._overlay.show_for_owner()
         self.update()
         QApplication.instance().installEventFilter(self)
@@ -452,7 +495,14 @@ class ComboBox(Button):
         return self._overlay.slot_for_index(index)
 
     def hideDropdown(self):
+        if self._gear.snap_in_progress:
+            # Let the in-flight snap animation land on its own — see
+            # GearDragCapability.snap_in_progress. It calls back into
+            # hideDropdown() itself once settled.
+            return
+        self._gear.cancel()
         if self._overlay is not None:
+            self._overlay.clear_hover()
             self._overlay.hide()
         self._expanded = False
         self._pressed = False
@@ -471,6 +521,28 @@ class ComboBox(Button):
             self.hideDropdown()
         else:
             self.showDropdown()
+
+    # -------- gear-shifter drag-select (see GearDragCapability) --------
+
+    def mousePressEvent(self, event: QMouseEvent):
+        self._gear.handle_press(event)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._gear.handle_move(event):
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        outcome = self._gear.handle_release(event)
+        if outcome is not None:
+            self._suppress_next_click = outcome.suppress_click
+            super().mouseReleaseEvent(event)
+            self._suppress_next_click = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
         if self._search_enabled and event.key() == Qt.Key.Key_Backspace:
@@ -544,14 +616,6 @@ class ComboBox(Button):
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
-        next_widget = QApplication.focusWidget()
-        logger.debug(
-            "[ComboBox.focusOut] object=%s next=%s expanded=%r overlay_visible=%r",
-            self.objectName() or "<unnamed>",
-            type(next_widget).__name__ if next_widget is not None else None,
-            self._expanded,
-            self._overlay.isVisible() if self._overlay is not None else False,
-        )
         if not self._expanded:
             return
         QTimer.singleShot(0, self._hide_dropdown_if_focus_left)

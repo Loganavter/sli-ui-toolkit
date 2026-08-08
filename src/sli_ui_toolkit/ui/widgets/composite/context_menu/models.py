@@ -31,6 +31,14 @@ class ContextMenuAction:
     tooltip: str = ""
     data: object = None
     children: tuple["ContextMenuEntry", ...] = ()
+    # Row click closes the menu (hiding/destroying the row) and invokes
+    # on_triggered synchronously -- fine for lightweight actions, but a
+    # handler that opens a modal (``.exec()``) dialog blocks the event loop
+    # before the row's own click ripple has any chance to play at all (the
+    # row is gone the instant the menu hides). Set True to delay the
+    # hide+emit+on_triggered by the ripple duration instead, same rationale
+    # as ``Button(defer_click=DEFER_CLICK_AWAIT_RIPPLE)``.
+    defer_trigger: bool = False
 
 
 @dataclass(slots=True)

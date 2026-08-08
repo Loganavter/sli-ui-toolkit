@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 ContextMenuSurface = Literal["in_window", "popup"]
 
@@ -28,11 +31,13 @@ def configure_toolkit(
     context_menu_surface: ContextMenuSurface | None = None,
     ripple_duration_ms: int | None = None,
     default_defer_click: bool | int | str | None = None,
+    default_underline_fade: bool | None = None,
 ) -> None:
     """Configure process-wide toolkit behaviour.
 
     Button press feedback (ripple duration + default click deferral) can also
     be set via ``set_ripple_duration_ms`` / ``set_default_defer_click``.
+    Underline tip fade (``set_default_underline_fade``) likewise.
     """
     global _timings, _overlay_resolver, _rating_gesture_factory, _dragdrop_service_getter
     global _context_menu_surface
@@ -54,6 +59,10 @@ def configure_toolkit(
         from sli_ui_toolkit.ui.widgets.buttons.feedback import set_default_defer_click
 
         set_default_defer_click(default_defer_click)
+    if default_underline_fade is not None:
+        from sli_ui_toolkit.ui.widgets.buttons.feedback import set_default_underline_fade
+
+        set_default_underline_fade(default_underline_fade)
 
 def get_flyout_timings() -> FlyoutTimingConfig:
     return _timings
@@ -67,6 +76,7 @@ def resolve_overlay_layer(widget: object | None):
     try:
         return _overlay_resolver(widget)
     except Exception:
+        logger.warning("overlay_resolver raised; falling back to no overlay", exc_info=True)
         return None
 
 def create_rating_gesture(**kwargs):
@@ -75,6 +85,7 @@ def create_rating_gesture(**kwargs):
     try:
         return _rating_gesture_factory(**kwargs)
     except Exception:
+        logger.warning("rating_gesture_factory raised; rating gesture disabled", exc_info=True)
         return None
 
 def get_dragdrop_service():
@@ -85,6 +96,10 @@ def get_dragdrop_service():
     try:
         return _dragdrop_service_getter()
     except Exception:
+        logger.warning(
+            "dragdrop_service_getter raised; falling back to ToolkitDragDropService.get_instance()",
+            exc_info=True,
+        )
         from sli_ui_toolkit.ui.services.dragdrop_service import ToolkitDragDropService
 
         return ToolkitDragDropService.get_instance()

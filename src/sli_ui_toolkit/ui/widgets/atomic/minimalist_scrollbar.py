@@ -207,6 +207,20 @@ class OverlayScrollArea(QScrollArea):
         self._reserve_scrollbar_space = bool(reserve)
         self._update_scrollbar_visibility()
 
+    def overlay_scrollbar_inset(self) -> int:
+        """Content-side clearance (px) content must leave for the bar.
+
+        Non-zero only when ``reserve_scrollbar_space`` is off (the bar
+        floats over the viewport instead of getting its own margin) and
+        the bar is actually visible (content overflows). Callers that lay
+        out content manually inside the scroll area can use this to avoid
+        a fixed guess at the bar's width, and to skip the inset entirely
+        when nothing scrolls.
+        """
+        if self._reserve_scrollbar_space or not self.custom_v_scrollbar.isVisible():
+            return 0
+        return self._scrollbar_width + self._scrollbar_gap
+
     def set_corner_radius(self, radius: int):
         radius = max(0, int(radius))
         if self._corner_radius == radius:

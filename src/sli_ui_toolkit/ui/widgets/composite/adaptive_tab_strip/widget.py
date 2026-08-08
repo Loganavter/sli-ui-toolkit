@@ -9,10 +9,7 @@ from PySide6.QtGui import QColor, QCursor, QFontMetrics, QLinearGradient, QPaint
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QTabBar, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.buttons.context import DrawContext
-from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
-from sli_ui_toolkit.ui.widgets.buttons.painter import default_layers
+from sli_ui_toolkit.ui.widgets.buttons import Button, DrawContext, Layer, default_layers
 
 
 class _CloseButtonTabBackgroundLayer(Layer):

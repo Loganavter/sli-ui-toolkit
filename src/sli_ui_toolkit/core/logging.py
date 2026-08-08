@@ -25,7 +25,20 @@ def get_log_directory(app_name: str) -> str:
 def setup_logging(
     app_name: str, debug_enabled: bool = False, debug_env_var: str | None = None
 ) -> None:
+    """Wire up the app's named logger — and this toolkit's own.
+
+    Handlers only get attached to the logger literally named ``app_name``
+    (e.g. ``"ImproveImgSLI"``); a submodule using ``logging.getLogger(name)``
+    with a dotted ``"ImproveImgSLI.xxx"`` name propagates up to it and gets
+    handled, but ``sli_ui_toolkit.*`` loggers (every widget file here uses
+    ``logging.getLogger(__name__)``, per normal library practice) are a
+    disjoint tree — their records had nowhere to go and were silently
+    dropped, even with the app's own debug logging enabled. Attaching the
+    same handlers to the ``"sli_ui_toolkit"`` logger closes that gap without
+    touching the app's own logger tree (siblings, so no duplicate lines).
+    """
     logger = logging.getLogger(app_name)
+    toolkit_logger = logging.getLogger("sli_ui_toolkit")
 
     if debug_env_var:
         suppress_debug = (
@@ -43,9 +56,13 @@ def setup_logging(
         logger.setLevel(level)
         for handler in logger.handlers:
             handler.setLevel(level)
+        toolkit_logger.setLevel(level)
+        for handler in toolkit_logger.handlers:
+            handler.setLevel(level)
         return
 
     logger.setLevel(level)
+    toolkit_logger.setLevel(level)
     formatter = logging.Formatter(
         "%(asctime)s - [%(levelname)s] - (%(filename)s:%(lineno)d) - %(message)s"
     )
@@ -55,6 +72,7 @@ def setup_logging(
     stream_handler.setFormatter(formatter)
     stream_handler.setLevel(level)
     logger.addHandler(stream_handler)
+    toolkit_logger.addHandler(stream_handler)
 
     try:
         log_dir = get_log_directory(app_name)
@@ -65,6 +83,7 @@ def setup_logging(
         file_handler.setFormatter(formatter)
         file_handler.setLevel(level)
         logger.addHandler(file_handler)
+        toolkit_logger.addHandler(file_handler)
 
         logging.getLogger("markdown").setLevel(logging.WARNING)
         logging.getLogger("markdown.extensions").setLevel(logging.WARNING)

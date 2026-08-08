@@ -56,6 +56,7 @@ def decorate_dialog(
     corner_radius: int = DEFAULT_CORNER_RADIUS,
     resizable: bool = True,
     resize_margin: int | None = None,
+    defer_close_click: Any = None,
 ) -> CustomTitleBar:
     """Install CSD on ``dialog`` and return the inserted title bar."""
     if title_bar is None:
@@ -69,6 +70,7 @@ def decorate_dialog(
             show_minimize=show_minimize,
             show_maximize=show_maximize,
             show_close=show_close,
+            defer_close_click=defer_close_click,
         )
     elif title_bar.parent() is not dialog:
         title_bar.setParent(dialog)

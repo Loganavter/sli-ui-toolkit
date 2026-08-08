@@ -12,16 +12,12 @@ setProperty, setFixedSize…).
 from __future__ import annotations
 
 from typing import Any
-import warnings
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QColor, QCursor
 
 from sli_ui_toolkit.deprecations import BUTTON_PRIMARY_VARIANT, warn_deprecated
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
-
-
-_MAX_UNDERLINE_THICKNESS = 3.0
 
 
 def normalize_content_padding(
@@ -45,18 +41,7 @@ def normalize_content_padding(
 def _normalize_underline_thickness(thickness: float | None) -> float | None:
     if thickness is None:
         return None
-    normalized = max(0.0, float(thickness))
-    if normalized > _MAX_UNDERLINE_THICKNESS:
-        warnings.warn(
-            (
-                "Button underline thickness is capped at "
-                f"{_MAX_UNDERLINE_THICKNESS:.1f}px; got {normalized:.1f}px."
-            ),
-            RuntimeWarning,
-            stacklevel=3,
-        )
-        return _MAX_UNDERLINE_THICKNESS
-    return normalized
+    return max(0.0, float(thickness))
 
 
 class _ButtonStyleApi:
@@ -113,6 +98,27 @@ class _ButtonStyleApi:
         self.update()
 
     set_underline_thickness = setUnderlineThickness
+
+    def setUnderlineTongueReach(self, reach: float | None):
+        self._underline_tongue_reach = None if reach is None else max(0.0, float(reach))
+        self.setProperty("underlineTongueReachPx", self._underline_tongue_reach)
+        self.update()
+
+    set_underline_tongue_reach = setUnderlineTongueReach
+
+    def setUnderlineRing(self, ring: bool):
+        self._underline_ring = bool(ring)
+        self.setProperty("underlineRing", self._underline_ring)
+        self.update()
+
+    set_underline_ring = setUnderlineRing
+
+    def setUnderlineFade(self, fade: bool | None):
+        self._underline_fade = None if fade is None else bool(fade)
+        self.setProperty("underlineFade", self._underline_fade)
+        self.update()
+
+    set_underline_fade = setUnderlineFade
 
     def setShowUnderline(self, show: bool):
         if self._show_underline != show:
@@ -432,6 +438,14 @@ class _ButtonStyleApi:
         elif name == "underlineThicknessPx":
             value = self.property("underlineThicknessPx")
             self._underline_thickness = _normalize_underline_thickness(value)
+        elif name == "underlineTongueReachPx":
+            value = self.property("underlineTongueReachPx")
+            self._underline_tongue_reach = None if value is None else max(0.0, float(value))
+        elif name == "underlineRing":
+            self._underline_ring = bool(self.property("underlineRing"))
+        elif name == "underlineFade":
+            value = self.property("underlineFade")
+            self._underline_fade = None if value is None else bool(value)
         else:
             return
         update_widget_style(self, update_geometry=needs_geometry)

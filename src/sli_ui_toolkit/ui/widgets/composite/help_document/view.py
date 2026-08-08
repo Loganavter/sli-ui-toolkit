@@ -90,6 +90,10 @@ class HelpDocumentView(QWidget):
     def set_show_toc(self, enabled: bool) -> None:
         self._show_toc = bool(enabled)
 
+    def set_tab_stop_px(self, px: float) -> None:
+        """See ``HelpDocumentBodyCanvas.set_tab_stop_px``."""
+        self._canvas.set_tab_stop_px(px)
+
     def clear(self) -> None:
         self._blocks = ()
         self._source_markdown = ""

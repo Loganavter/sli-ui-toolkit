@@ -36,9 +36,19 @@ class PixmapFragment:
 
 
 @dataclass(frozen=True, slots=True)
+class TableGeometry:
+    """Border lines for one ``TableBlock`` — outer rect + row/column dividers."""
+
+    rect: QRectF
+    row_ys: tuple[float, ...]  # horizontal divider y-positions, between rows
+    col_x: float  # vertical divider x-position, between label/value columns
+
+
+@dataclass(frozen=True, slots=True)
 class LayoutResult:
     width: float
     height: float
     text_fragments: tuple[TextFragment, ...]
     pixmaps: tuple[PixmapFragment, ...]
     anchors: dict[str, float]
+    tables: tuple[TableGeometry, ...] = ()

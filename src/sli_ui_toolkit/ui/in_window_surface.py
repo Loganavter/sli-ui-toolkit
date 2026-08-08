@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QBoxLayout, QVBoxLayout, QWidget
 
@@ -21,12 +21,29 @@ def surface_anchor_rect(
     overlay_layer: object | None = None,
 ) -> QRect:
     if overlay_layer is not None and hasattr(overlay_layer, "anchor_rect"):
-        return overlay_layer.anchor_rect(anchor)
+        full_rect = overlay_layer.anchor_rect(anchor)
+    else:
+        parent = surface.parentWidget()
+        if parent is not None and not surface.isWindow():
+            full_rect = QRect(anchor.mapTo(parent, QPoint(0, 0)), anchor.size())
+        else:
+            full_rect = QRect(anchor.mapToGlobal(QPoint(0, 0)), anchor.size())
 
-    parent = surface.parentWidget()
-    if parent is not None and not surface.isWindow():
-        return QRect(anchor.mapTo(parent, QPoint(0, 0)), anchor.size())
-    return QRect(anchor.mapToGlobal(QPoint(0, 0)), anchor.size())
+    # A widget can narrow what "anchor rect" means for flyout positioning by
+    # implementing ``flyoutAnchorRect() -> QRect | None`` (local coordinates,
+    # relative to its own top-left) -- e.g. Slider anchors to its thumb
+    # instead of the whole track, so a value flyout tracks the handle as it
+    # moves rather than staying pinned to the track's horizontal center.
+    # None (or no such method) keeps the full-widget-rect default.
+    sub_rect_getter = getattr(anchor, "flyoutAnchorRect", None)
+    if callable(sub_rect_getter):
+        local_sub_rect = sub_rect_getter()
+        if local_sub_rect is not None:
+            return QRect(
+                full_rect.topLeft() + local_sub_rect.topLeft(),
+                local_sub_rect.size(),
+            )
+    return full_rect
 
 
 def surface_available_rect(
@@ -194,6 +211,7 @@ def paint_shadowed_surface(
     *,
     shadow_radius: int,
     corner_radius: int,
+    shadow_color: QColor | None = None,
 ) -> None:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
@@ -202,4 +220,5 @@ def paint_shadowed_surface(
         surface_rect,
         steps=shadow_radius,
         radius=corner_radius,
+        color=shadow_color,
     )

@@ -208,6 +208,11 @@ Current split:
   Search and ranking helpers.
 - `_models.py`
   Small internal item model.
+- `capabilities/`
+  ComboBox-specific composable gesture/interaction behavior (e.g.
+  `GearDragCapability`, the press-hold/drag-to-scrub gesture), attached via
+  the `Button.attach_capability()` `ComboBox` inherits. Mirrors
+  `buttons/capabilities/` (`ButtonCapability`, `LongPressCapability`).
 - `scrollable_combobox.py`
   Separate lightweight widget with different behavior.
 

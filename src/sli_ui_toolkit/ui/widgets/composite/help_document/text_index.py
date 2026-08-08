@@ -14,6 +14,7 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
     InlineSpan,
     ListBlock,
     ParagraphBlock,
+    TableBlock,
     blocks_to_plain_text,
     spans_to_plain,
 )
@@ -240,6 +241,19 @@ class _TextIndexBuilder:
         self._append_plain(text)
         self._end_segment(start, block_index=block_index)
 
+    def add_table_cell(
+        self,
+        *,
+        spans: tuple[InlineSpan, ...],
+        block_index: int,
+        cell_index: int,
+    ) -> None:
+        """One table cell (label or value); ``cell_index = row * 2 + column``."""
+        self.add_block_separator()
+        start = self._begin_segment()
+        self._append_spans(spans)
+        self._end_segment(start, block_index=block_index, list_item_index=cell_index)
+
     def add_figure_caption(self, block: FigureBlock, block_index: int) -> None:
         self.add_block_separator()
         caption = block.caption or block.alt or block.path
@@ -271,6 +285,18 @@ def build_text_index(blocks: tuple[HelpBlock, ...]) -> DocumentTextIndex:
             builder.add_image(block, block_index)
         elif isinstance(block, FigureBlock):
             builder.add_figure_caption(block, block_index)
+        elif isinstance(block, TableBlock):
+            for row_index, (label_spans, value_spans) in enumerate(block.rows):
+                builder.add_table_cell(
+                    spans=label_spans,
+                    block_index=block_index,
+                    cell_index=row_index * 2,
+                )
+                builder.add_table_cell(
+                    spans=value_spans,
+                    block_index=block_index,
+                    cell_index=row_index * 2 + 1,
+                )
     return builder.build()
 
 
