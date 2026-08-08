@@ -1,8 +1,21 @@
+from typing import Callable
+
 from PySide6.QtCore import Qt
 
 
 class WheelScrollPolicyMixin:
-    """Shared wheel-scroll focus policy for custom scrollable widgets."""
+    """Shared wheel-scroll focus policy for custom scrollable widgets.
+
+    Bare mixin — folded into a QWidget subclass by every consumer (Button,
+    SpinBox, TimeLineEdit, ComboBox, ...), never used standalone. These
+    declarations (no `= value`) exist only so mypy can resolve the QWidget
+    methods used below; they add nothing to the real MRO.
+    """
+
+    hasFocus: Callable[[], bool]
+    isEnabled: Callable[[], bool]
+    focusPolicy: Callable[[], Qt.FocusPolicy]
+    setFocus: Callable[..., None]
 
     def init_wheel_scroll_policy(self, *, wheel_requires_focus: bool = False) -> None:
         self._wheel_requires_focus = bool(wheel_requires_focus)

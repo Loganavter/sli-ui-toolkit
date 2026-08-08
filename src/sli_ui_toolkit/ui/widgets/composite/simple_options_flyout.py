@@ -76,7 +76,7 @@ class _SimpleRow(Button):
         is_current: bool,
         item_height: int,
         item_font: QFont,
-        parent: QWidget = None,
+        parent: QWidget | None = None,
     ):
         super().__init__(
             text="",
@@ -104,7 +104,8 @@ class _SimpleRow(Button):
         self.clicked.connect(lambda: self.rowClicked.emit(self.index))
 
     def sizeHint(self) -> QSize:
-        margins = self.layout().contentsMargins() if self.layout() is not None else None
+        row_layout = self.layout()
+        margins = row_layout.contentsMargins() if row_layout is not None else None
         pad = (
             (margins.left() + margins.right())
             if margins is not None
@@ -379,6 +380,7 @@ class SimpleOptionsFlyout(BaseFlyout):
 
             def _map(point: QPoint) -> QPoint:
                 if use_parent_coords:
+                    assert parent_widget is not None
                     return anchor_widget.mapTo(parent_widget, point)
                 return anchor_widget.mapToGlobal(point)
 
@@ -391,15 +393,20 @@ class SimpleOptionsFlyout(BaseFlyout):
             anchor_center_x = _map(anchor_widget.rect().center()).x()
 
             if use_parent_coords:
+                assert parent_widget is not None
                 avail = parent_widget.rect()
             else:
                 try:
                     screen = anchor_widget.screen() or QGuiApplication.screenAt(
                         QPoint(anchor_top_left.x(), anchor_bottom_y)
                     )
+                    if screen is None:
+                        raise RuntimeError("no screen")
                     avail = screen.availableGeometry()
                 except Exception:
-                    avail = QGuiApplication.primaryScreen().availableGeometry()
+                    primary_screen = QGuiApplication.primaryScreen()
+                    assert primary_screen is not None
+                    avail = primary_screen.availableGeometry()
 
             space_below = avail.bottom() - anchor_bottom_y - offset - gap
             space_above = anchor_top_y - avail.top() - offset - gap

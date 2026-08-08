@@ -91,8 +91,8 @@ class MarqueeDriver(QObject):
         self._timer.timeout.connect(self._tick)
         self._clock = QElapsedTimer()
         # Mirror onto the host so paint paths can read ``host._marquee_phase``.
-        host._marquee_phase = 0.0
-        host._marquee_driver = self
+        setattr(host, "_marquee_phase", 0.0)
+        setattr(host, "_marquee_driver", self)
 
     def set_active(self, needed: bool) -> None:
         if needed and self._host.isVisible():
@@ -104,7 +104,7 @@ class MarqueeDriver(QObject):
             self._timer.stop()
             if self.phase != 0.0:
                 self.phase = 0.0
-                self._host._marquee_phase = 0.0
+                setattr(self._host, "_marquee_phase", 0.0)
                 self._host.update()
 
     def _tick(self) -> None:
@@ -112,7 +112,7 @@ class MarqueeDriver(QObject):
         if elapsed_ms <= 0:
             elapsed_ms = max(1, int(self._timer.interval()))
         self.phase += (self._speed * elapsed_ms) / 1000.0
-        self._host._marquee_phase = self.phase
+        setattr(self._host, "_marquee_phase", self.phase)
         if self._on_tick is not None:
             self._on_tick()
         else:
@@ -141,13 +141,13 @@ def apply_marquee(
     if hasattr(label, "setMarquee"):
         label.setMarquee(enabled)
         driver = ensure_marquee_driver(label, speed_px_s=speed_px_s)
-        label._marquee_gap = int(gap)
+        setattr(label, "_marquee_gap", int(gap))
         return driver
 
     driver = ensure_marquee_driver(label, speed_px_s=speed_px_s)
-    label._marquee_enabled = bool(enabled)
-    label._marquee_gap = int(gap)
-    label._marquee_original_text = label.text()
+    setattr(label, "_marquee_enabled", bool(enabled))
+    setattr(label, "_marquee_gap", int(gap))
+    setattr(label, "_marquee_original_text", label.text())
 
     if getattr(label, "_marquee_filter_installed", False):
         return driver
@@ -198,14 +198,14 @@ def apply_marquee(
 
     filt = _Filter(label)
     label.installEventFilter(filt)
-    label._marquee_filter = filt
-    label._marquee_filter_installed = True
+    setattr(label, "_marquee_filter", filt)
+    setattr(label, "_marquee_filter_installed", True)
 
     # Keep original text when setText is used.
     original_set_text = label.setText
 
     def _set_text(text: str) -> None:
-        label._marquee_original_text = text
+        setattr(label, "_marquee_original_text", text)
         original_set_text(text)
         label.update()
 

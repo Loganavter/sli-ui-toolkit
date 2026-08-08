@@ -29,7 +29,7 @@ class SunburstSegmentItem(QGraphicsPathItem):
         gap_color: QColor | None = None,
     ):
         super().__init__()
-        self.data = data
+        self._segment_data = data
         self.signals = signals
 
         self.setAcceptHoverEvents(True)
@@ -44,11 +44,11 @@ class SunburstSegmentItem(QGraphicsPathItem):
     def _update_path(self):
         path = QPainterPath()
 
-        inner_r = self.data.inner_radius * self.SCENE_SCALE
-        outer_r = self.data.outer_radius * self.SCENE_SCALE
+        inner_r = self._segment_data.inner_radius * self.SCENE_SCALE
+        outer_r = self._segment_data.outer_radius * self.SCENE_SCALE
 
-        start_deg = math.degrees(self.data.start_angle)
-        end_deg = math.degrees(self.data.end_angle)
+        start_deg = math.degrees(self._segment_data.start_angle)
+        end_deg = math.degrees(self._segment_data.end_angle)
         sweep = end_deg - start_deg
 
         outer_rect = QRectF(-outer_r, -outer_r, outer_r * 2, outer_r * 2)
@@ -61,9 +61,9 @@ class SunburstSegmentItem(QGraphicsPathItem):
         self.setPath(path)
 
     def _setup_appearance(self, gap_color: QColor | None):
-        self.base_color = QColor(self.data.color)
+        self.base_color = QColor(self._segment_data.color)
         self.setBrush(QBrush(self.base_color))
-        sweep_rad = self.data.end_angle - self.data.start_angle
+        sweep_rad = self._segment_data.end_angle - self._segment_data.start_angle
         if sweep_rad >= 2.0 * math.pi - 0.01:
             self.setPen(QPen(Qt.PenStyle.NoPen))
         else:
@@ -73,15 +73,15 @@ class SunburstSegmentItem(QGraphicsPathItem):
     def _add_label(self):
         from sli_ui_toolkit.ui.managers.ui_font import ui_font
 
-        text_item = QGraphicsTextItem(self.data.label, self)
-        font = ui_font(point_size=int(self.data.font_size * 1.5))
+        text_item = QGraphicsTextItem(self._segment_data.label, self)
+        font = ui_font(point_size=int(self._segment_data.font_size * 1.5))
         text_item.setFont(font)
         text_item.setDefaultTextColor(_contrast_text_color(self.base_color))
         br = text_item.boundingRect()
         text_item.setTransformOriginPoint(br.width() / 2, br.height() / 2)
 
-        mid_angle = (self.data.start_angle + self.data.end_angle) / 2.0
-        center_r = (self.data.inner_radius + self.data.outer_radius) / 2.0
+        mid_angle = (self._segment_data.start_angle + self._segment_data.end_angle) / 2.0
+        center_r = (self._segment_data.inner_radius + self._segment_data.outer_radius) / 2.0
         label_x = center_r * math.cos(mid_angle) * self.SCENE_SCALE
         label_y = center_r * math.sin(mid_angle) * self.SCENE_SCALE
 
@@ -96,11 +96,11 @@ class SunburstSegmentItem(QGraphicsPathItem):
 
     def hoverEnterEvent(self, event):
         self.setBrush(QBrush(self.base_color.lighter(115)))
-        self.signals.hover_enter.emit(self.data, QPointF(event.screenPos()))
+        self.signals.hover_enter.emit(self._segment_data, QPointF(event.screenPos()))
         super().hoverEnterEvent(event)
 
     def hoverMoveEvent(self, event):
-        self.signals.hover_move.emit(self.data, QPointF(event.screenPos()))
+        self.signals.hover_move.emit(self._segment_data, QPointF(event.screenPos()))
         super().hoverMoveEvent(event)
 
     def hoverLeaveEvent(self, event):
@@ -110,7 +110,7 @@ class SunburstSegmentItem(QGraphicsPathItem):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.signals.clicked.emit(self.data.node_id, 1)
+            self.signals.clicked.emit(self._segment_data.node_id, 1)
         elif event.button() == Qt.MouseButton.RightButton:
-            self.signals.clicked.emit(self.data.node_id, 3)
+            self.signals.clicked.emit(self._segment_data.node_id, 3)
         event.accept()

@@ -56,22 +56,27 @@ def setup_dialog_scaffold(
     action_layout.setSpacing(8)
     action_layout.addStretch()
 
-    dialog.ok_button = Button(text=ok_text, variant="surface", parent=action_bar)
-    dialog.ok_button.setProperty("class", "primary")
+    ok_button = Button(text=ok_text, variant="surface", parent=action_bar)
+    ok_button.setProperty("class", "primary")
 
-    dialog.cancel_button = Button(text=cancel_text, variant="surface", parent=action_bar)
+    cancel_button = Button(text=cancel_text, variant="surface", parent=action_bar)
 
-    dialog.ok_button.clicked.connect(dialog.accept)
-    dialog.cancel_button.clicked.connect(dialog.reject)
+    ok_button.clicked.connect(dialog.accept)
+    cancel_button.clicked.connect(dialog.reject)
 
     if not show_cancel_button:
-        dialog.cancel_button.hide()
+        cancel_button.hide()
 
-    action_layout.addWidget(dialog.ok_button)
-    action_layout.addWidget(dialog.cancel_button)
+    action_layout.addWidget(ok_button)
+    action_layout.addWidget(cancel_button)
     main_layout.addWidget(action_bar)
 
-def setup_dialog_icon(dialog: QDialog, icon_path: str = None):
+    # Public API: host code (and this toolkit's own tests) read
+    # dialog.ok_button / dialog.cancel_button after calling this helper.
+    dialog.ok_button = ok_button  # type: ignore[attr-defined]
+    dialog.cancel_button = cancel_button  # type: ignore[attr-defined]
+
+def setup_dialog_icon(dialog: QDialog, icon_path: str | None = None):
     if icon_path is None:
         try:
             icon_path = resource_path("resources/icons/icon.png")
@@ -100,7 +105,7 @@ def _update_group_sizes(dialog: QDialog):
     for child in dialog.findChildren(QWidget):
         if child.objectName() == "StyledGroupFrame":
             parent_group = child.parent()
-            if parent_group:
+            if isinstance(parent_group, QWidget):
                 content_width = child.sizeHint().width()
                 min_width = content_width + 30
 

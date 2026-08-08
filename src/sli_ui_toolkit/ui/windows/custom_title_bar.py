@@ -178,6 +178,10 @@ class CustomTitleBar(QWidget):
         buttons_layout.setContentsMargins(0, 0, 0, 0)
         buttons_layout.setSpacing(0)
 
+        self._min_btn: Button | None
+        self._max_btn: Button | None
+        self._close_btn: Button | None
+
         if show_minimize:
             self._min_btn = self._mk_button(minimize_icon, "min")
             self._min_btn.clicked.connect(self.minimize_requested.emit)
@@ -275,12 +279,12 @@ class CustomTitleBar(QWidget):
             "center": self._center_host,
         }[zone]
         layout = host.layout()
-        assert layout is not None
+        assert isinstance(layout, QHBoxLayout)
         return layout
 
     def _clear_zone(self, zone: TitleBarZone) -> None:
         layout = self._zone_layout(zone)
-        keep = {self._title_label}
+        keep: set[QLabel] = {self._title_label}
         if zone == "leading" and self._app_icon_label is not None:
             keep.add(self._app_icon_label)
         for index in reversed(range(layout.count())):
@@ -682,7 +686,7 @@ class CustomTitleBar(QWidget):
         child = self.childAt(pos)
         if child is None:
             return True
-        widget = child
+        widget: QWidget | None = child
         while widget is not None and widget is not self:
             if id(widget) in self._drag_exclusions:
                 return False
@@ -728,8 +732,10 @@ class CustomTitleBar(QWidget):
                 except Exception:
                     pass
 
+            drag_start = self._drag_start_global
+            assert drag_start is not None
             current = event.globalPosition().toPoint()
-            delta = current - self._drag_start_global
+            delta = current - drag_start
             self._drag_start_global = current
             if w.isMaximized():
                 w.showNormal()

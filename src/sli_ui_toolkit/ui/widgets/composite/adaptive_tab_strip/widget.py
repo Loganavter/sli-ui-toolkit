@@ -17,8 +17,9 @@ class _CloseButtonTabBackgroundLayer(Layer):
         slot = ctx.widget.parentWidget()
         tab_bar = slot.parentWidget() if slot is not None else None
         color = None
-        if hasattr(tab_bar, "close_slot_background_color"):
-            color = tab_bar.close_slot_background_color(slot)
+        get_color = getattr(tab_bar, "close_slot_background_color", None)
+        if callable(get_color):
+            color = get_color(slot)
         if color is None or color.alpha() <= 0:
             return
         ctx.painter.fillRect(ctx.rect, color)
@@ -84,10 +85,11 @@ class _CloseButtonSlot(QWidget):
 
     def _sync_parent_hover(self, reason: str) -> None:
         tab_bar = self.parentWidget()
-        if not hasattr(tab_bar, "set_hover_from_global"):
+        set_hover = getattr(tab_bar, "set_hover_from_global", None)
+        if not callable(set_hover):
             return
         global_pos = QCursor.pos()
-        tab_bar.set_hover_from_global(global_pos)
+        set_hover(global_pos)
 
     def _force_button_hover_region(self, global_pos) -> None:
         update_hover_region = getattr(self.button, "_update_hover_region", None)
@@ -435,7 +437,7 @@ class _AdaptiveTabBar(QWidget):
         text_right = tab_rect.right() - self._SIDE_PADDING
         close_slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
         has_close = close_slot is not None and close_slot.isVisible()
-        if has_close:
+        if has_close and close_slot is not None:
             text_right = min(text_right, close_slot.geometry().left() - self._CLOSE_GAP)
         text_rect = QRect(
             tab_rect.left() + self._SIDE_PADDING,
@@ -624,18 +626,25 @@ class AdaptiveTabStrip(QWidget):
         finally:
             self._updating_close_buttons = False
 
+    def _row_layout(self) -> QHBoxLayout:
+        # Always set in __init__ (QHBoxLayout(self)) — never None in practice.
+        layout = self.layout()
+        assert isinstance(layout, QHBoxLayout)
+        return layout
+
     def _should_show_all_close_buttons(self) -> bool:
         if self.close_policy is CloseButtonPolicy.ALL:
             return True
         if self.close_policy is CloseButtonPolicy.CURRENT_ONLY:
             return False
-        margins = self.layout().contentsMargins()
+        row_layout = self._row_layout()
+        margins = row_layout.contentsMargins()
         available = (
             self.contentsRect().width()
             - margins.left()
             - margins.right()
             - max(self.add_button.width(), self.add_button.sizeHint().width())
-            - self.layout().spacing()
+            - row_layout.spacing()
         )
         return self.tab_bar.full_tabs_width() <= available
 
@@ -671,19 +680,19 @@ class AdaptiveTabStrip(QWidget):
     # QTabBar-like compatibility surface.
     def addTab(self, text: str) -> int:  # noqa: N802
         index = self.tab_bar.addTab(text)
-        self.layout().activate()
+        self._row_layout().activate()
         self.refresh_close_buttons()
         return index
 
     def insertTab(self, index: int, text: str) -> int:  # noqa: N802
         index = self.tab_bar.insertTab(index, text)
-        self.layout().activate()
+        self._row_layout().activate()
         self.refresh_close_buttons()
         return index
 
     def removeTab(self, index: int) -> None:  # noqa: N802
         self.tab_bar.removeTab(index)
-        self.layout().activate()
+        self._row_layout().activate()
         self.refresh_close_buttons()
 
     def replaceTab(self, index: int, text: str) -> int:  # noqa: N802
@@ -701,7 +710,7 @@ class AdaptiveTabStrip(QWidget):
         try:
             self.tab_bar.removeTab(index)
             new_index = self.tab_bar.insertTab(index, text)
-            self.layout().activate()
+            self._row_layout().activate()
             self.refresh_close_buttons()
         finally:
             self.setUpdatesEnabled(updates_were_enabled)

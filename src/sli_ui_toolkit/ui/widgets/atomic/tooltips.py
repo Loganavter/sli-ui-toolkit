@@ -152,16 +152,16 @@ def install_custom_tooltip(widget: QWidget):
         return
     interceptor = _TooltipInterceptor(widget)
     widget.installEventFilter(interceptor)
-    widget._custom_tooltip_installed = True
-    widget._custom_tooltip_interceptor = interceptor
+    setattr(widget, "_custom_tooltip_installed", True)
+    setattr(widget, "_custom_tooltip_interceptor", interceptor)
 
 def install_application_tooltips(app: QApplication | None):
     if app is None or getattr(app, "_custom_tooltip_installed", False):
         return
     interceptor = _ApplicationTooltipInterceptor(app)
     app.installEventFilter(interceptor)
-    app._custom_tooltip_installed = True
-    app._custom_tooltip_interceptor = interceptor
+    setattr(app, "_custom_tooltip_installed", True)
+    setattr(app, "_custom_tooltip_interceptor", interceptor)
 
 def set_application_tooltips_enabled(enabled: bool) -> None:
     PathTooltip.get_instance().set_enabled(enabled)
@@ -210,9 +210,10 @@ class PathTooltip(QObject):
         self._host = None
 
     def _resolve_host(self, global_pos: QPoint) -> QWidget | None:
-        app = QApplication.instance()
-        if app is None:
+        instance = QApplication.instance()
+        if not isinstance(instance, QApplication):
             return None
+        app = instance
 
         widget = QApplication.widgetAt(global_pos)
         if widget is None:

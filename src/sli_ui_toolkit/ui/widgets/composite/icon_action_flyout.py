@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.managers import AnchoredFlyoutAutoHide
 from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
+from sli_ui_toolkit.ui.widgets.composite.base_flyout import AnimationAxis, BaseFlyout
 
 @dataclass(slots=True)
 class IconAction:
@@ -102,7 +102,6 @@ class IconActionFlyout(BaseFlyout):
 
         if icon is not None:
             spec.icon = icon
-            button._icon = icon
             button.setIcon(resolve_icon(icon))
         if tooltip is not None:
             spec.tooltip = tooltip
@@ -157,6 +156,7 @@ class IconActionFlyout(BaseFlyout):
         animation: str = "none",
         animation_duration_ms: int | None = None,
         animation_distance: int | None = None,
+        animation_axis: AnimationAxis = "auto",
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
         toggle: bool = True,
     ):
@@ -178,6 +178,7 @@ class IconActionFlyout(BaseFlyout):
             animation=animation,
             animation_duration_ms=animation_duration_ms,
             animation_distance=animation_distance,
+            animation_axis=animation_axis,
             easing=easing,
         )
 

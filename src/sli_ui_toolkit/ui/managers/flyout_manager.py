@@ -238,10 +238,12 @@ class FlyoutManager(QObject):
                 raise_fn = getattr(item, "raise_", None)
                 if callable(raise_fn):
                     # Use QWidget.raise_ to avoid re-entering ensure_overlay_stacking
-                    # if the widget's raise_ is wrapped.
+                    # if the widget's raise_ is wrapped. ManagedFlyout is a
+                    # structural Protocol (isVisible/hide only) so mypy can't
+                    # see it's really QWidget-backed at runtime.
                     from PySide6.QtWidgets import QWidget
 
-                    QWidget.raise_(item)
+                    QWidget.raise_(item)  # type: ignore[arg-type]
             except RuntimeError:
                 self._registered_flyouts.discard(item)
             except Exception:
@@ -342,7 +344,7 @@ class FlyoutManager(QObject):
             def _maybe_close() -> None:
                 self._deactivate_close_scheduled = False
                 app = QApplication.instance()
-                if app is not None:
+                if isinstance(app, QApplication):
                     try:
                         from PySide6.QtCore import Qt
 
@@ -567,7 +569,7 @@ class FlyoutManager(QObject):
         if flyout is None or not isinstance(obj, QWidget):
             return False
         try:
-            widget = obj
+            widget: QWidget | None = obj
             flyout_widget = flyout if isinstance(flyout, QWidget) else None
             if flyout_widget is None:
                 return False

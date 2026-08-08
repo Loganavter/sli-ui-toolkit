@@ -178,7 +178,7 @@ class ProcessConsoleWidget(QWidget):
         self.output.blockSignals(False)
 
     def _on_stdout_ready(self) -> None:
-        text = bytes(self.process.readAllStandardOutput()).decode(
+        text = bytes(self.process.readAllStandardOutput().data()).decode(
             "utf-8", errors="replace"
         )
         if not text:
@@ -192,7 +192,7 @@ class ProcessConsoleWidget(QWidget):
         self.outputReceived.emit(text)
 
     def _on_stderr_ready(self) -> None:
-        text = bytes(self.process.readAllStandardError()).decode(
+        text = bytes(self.process.readAllStandardError().data()).decode(
             "utf-8", errors="replace"
         )
         if not text:

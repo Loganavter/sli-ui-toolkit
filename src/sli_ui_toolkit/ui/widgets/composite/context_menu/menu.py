@@ -134,7 +134,7 @@ class ContextMenu(BaseFlyout):
         pending: list[QWidget] = []
         while self.content_layout.count():
             item = self.content_layout.takeAt(0)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if widget is not None:
                 pending.append(widget)
         self._rows.clear()
@@ -175,7 +175,8 @@ class ContextMenu(BaseFlyout):
         max_w = 0
 
         for index in range(self.content_layout.count()):
-            widget = self.content_layout.itemAt(index).widget()
+            layout_item = self.content_layout.itemAt(index)
+            widget = layout_item.widget() if layout_item is not None else None
             if widget is None:
                 continue
             widget.setMinimumWidth(0)
@@ -189,7 +190,8 @@ class ContextMenu(BaseFlyout):
             max_w = max(max_w, row.sizeHint().width())
 
         for index in range(self.content_layout.count()):
-            widget = self.content_layout.itemAt(index).widget()
+            layout_item = self.content_layout.itemAt(index)
+            widget = layout_item.widget() if layout_item is not None else None
             if widget is None:
                 continue
             hint = widget.sizeHint()
@@ -201,14 +203,16 @@ class ContextMenu(BaseFlyout):
             return
 
         for index in range(self.content_layout.count()):
-            widget = self.content_layout.itemAt(index).widget()
+            layout_item = self.content_layout.itemAt(index)
+            widget = layout_item.widget() if layout_item is not None else None
             if widget is not None:
                 widget.setMinimumWidth(max_w)
 
         self.setMinimumSize(0, 0)
-        if self.container.layout():
-            self.container.layout().invalidate()
-            self.container.layout().activate()
+        container_layout = self.container.layout()
+        if container_layout is not None:
+            container_layout.invalidate()
+            container_layout.activate()
             self.container.updateGeometry()
         self.adjustSize()
 
@@ -411,9 +415,10 @@ class ContextMenu(BaseFlyout):
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
     ) -> None:
         self._anchor_widget = anchor_widget
-        if self.container.layout():
-            self.container.layout().invalidate()
-            self.container.layout().activate()
+        container_layout = self.container.layout()
+        if container_layout is not None:
+            container_layout.invalidate()
+            container_layout.activate()
             self.container.updateGeometry()
         self.adjustSize()
         flyout_size = self.size()
@@ -505,9 +510,10 @@ class ContextMenu(BaseFlyout):
     def popup_at(self, global_pos: QPoint) -> None:
         submenu_ops.close_submenu(self)
         self._relayout_widths()
-        if self.container.layout():
-            self.container.layout().invalidate()
-            self.container.layout().activate()
+        container_layout = self.container.layout()
+        if container_layout is not None:
+            container_layout.invalidate()
+            container_layout.activate()
             self.container.updateGeometry()
         self.adjustSize()
 

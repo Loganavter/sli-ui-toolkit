@@ -447,13 +447,11 @@ class BaseFlyout(QWidget):
             QBrush(brush) if brush is not None and not isinstance(brush, QBrush) else brush
         )
         if self._gpu_fill is not None:
-            solid = (
-                self._background_brush is not None
-                and self._background_brush.style() == Qt.BrushStyle.SolidPattern
-            )
+            brush = self._background_brush
+            solid = brush is not None and brush.style() == Qt.BrushStyle.SolidPattern
             self._gpu_fill.setVisible(solid)
-            if solid:
-                self._gpu_fill.set_fill_color(self._background_brush.color())
+            if solid and brush is not None:
+                self._gpu_fill.set_fill_color(brush.color())
         self.update()
 
     def background_brush(self) -> QBrush | None:
@@ -552,9 +550,10 @@ class BaseFlyout(QWidget):
             return
         if self.overlay_layer is None:
             self.overlay_layer = attach_in_window_widget(self, anchor_widget)
-        if self.overlay_layer is not None and self.parentWidget() is not self.overlay_layer.host:
+        overlay = self.overlay_layer
+        if overlay is not None and self.parentWidget() is not getattr(overlay, "host", None):
             was_visible = self.isVisible()
-            self.overlay_layer.attach(self)
+            overlay.attach(self)  # type: ignore[attr-defined]
             if was_visible:
                 self.show()
                 self.raise_()
@@ -648,9 +647,10 @@ class BaseFlyout(QWidget):
 
         self.flyout_manager.request_show(self)
 
-        if self.container.layout():
-            self.container.layout().invalidate()
-            self.container.layout().activate()
+        container_layout = self.container.layout()
+        if container_layout is not None:
+            container_layout.invalidate()
+            container_layout.activate()
             self.container.updateGeometry()
         self.adjustSize()
         flyout_size = self.size()

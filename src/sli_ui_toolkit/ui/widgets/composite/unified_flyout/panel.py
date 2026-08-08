@@ -214,8 +214,9 @@ class _Panel(QWidget):
         try:
             while self.content_layout.count() > 1:
                 item = self.content_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
+                item_widget = item.widget() if item is not None else None
+                if item_widget is not None:
+                    item_widget.deleteLater()
 
             if current_index == -1:
                 current_app_index = self._get_current_index(self.list_num)
@@ -392,8 +393,9 @@ class _Panel(QWidget):
 
     def _remove_widget_at(self, index: int):
         layout_item = self.content_layout.takeAt(index)
-        if layout_item and layout_item.widget():
-            layout_item.widget().deleteLater()
+        removed_widget = layout_item.widget() if layout_item is not None else None
+        if removed_widget is not None:
+            removed_widget.deleteLater()
 
     def _build_item_widget(self, index, img_item, current_index, total):
         text = img_item.display_name if hasattr(img_item, "display_name") else str(img_item)
@@ -476,8 +478,8 @@ class _Panel(QWidget):
 
             for i in range(num_items):
                 layout_item = self.content_layout.itemAt(i)
-                if layout_item and layout_item.widget():
-                    widget = layout_item.widget()
+                widget = layout_item.widget() if layout_item is not None else None
+                if widget is not None:
                     widget.setFixedHeight(row_h)
                     widget.setSizePolicy(
                         QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -503,8 +505,8 @@ class _Panel(QWidget):
 
             for i in range(num_items):
                 layout_item = self.content_layout.itemAt(i)
-                if layout_item and layout_item.widget():
-                    widget = layout_item.widget()
+                widget = layout_item.widget() if layout_item is not None else None
+                if widget is not None:
                     widget.setMinimumHeight(0)
                     widget.setMaximumHeight(16777215)
                     widget.setSizePolicy(
@@ -534,7 +536,7 @@ class _Panel(QWidget):
 
         for i in range(count):
             item = self.content_layout.itemAt(i)
-            widget = item.widget()
+            widget = item.widget() if item is not None else None
             if not widget or not widget.isVisible():
                 continue
 
@@ -545,8 +547,9 @@ class _Panel(QWidget):
                 return i, geo.top()
 
         last_item = self.content_layout.itemAt(count - 1)
-        if last_item and last_item.widget():
-            return count, last_item.widget().geometry().bottom()
+        last_widget = last_item.widget() if last_item is not None else None
+        if last_widget is not None:
+            return count, last_widget.geometry().bottom()
 
         return count, 0
 
@@ -788,12 +791,10 @@ class _Panel(QWidget):
     def update_rating_for_item(self, index: int):
         if 0 <= index < (self.content_layout.count() - 1):
             item = self.content_layout.itemAt(index)
-            if (
-                item
-                and item.widget()
-                and hasattr(item.widget(), "_update_label_from_store")
-            ):
-                item.widget()._update_label_from_store()
+            item_widget = item.widget() if item is not None else None
+            update_label = getattr(item_widget, "_update_label_from_store", None)
+            if callable(update_label):
+                update_label()
 
     def _on_item_clicked(self, index):
         self._on_item_selected_cb(self.list_num, index)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor
@@ -81,7 +81,7 @@ class WindowChrome:
 
         paint_fn, paint_state = make_rounded_paint_event(bg_color, cfg.corner_radius)
         window.paintEvent = paint_fn.__get__(window, type(window))  # type: ignore[method-assign]
-        window._csd_paint_state = paint_state
+        setattr(window, "_csd_paint_state", paint_state)
 
         bg_layer = None
         if isinstance(window, QDialog):
@@ -89,7 +89,7 @@ class WindowChrome:
             bg_layer.sync_geometry()
             bg_layer.show()
             bg_layer.lower()
-            window._csd_bg_layer = bg_layer
+            setattr(window, "_csd_bg_layer", bg_layer)
 
         if cfg.title_bar is not None:
             title_bar = cfg.title_bar
@@ -109,7 +109,7 @@ class WindowChrome:
 
         layout = window.layout()
         if layout is not None:
-            l, t, r, b = layout.getContentsMargins()
+            l, t, r, b = cast("tuple[int, int, int, int]", layout.getContentsMargins())
             layout.setContentsMargins(l, t + CustomTitleBar.HEIGHT, r, b)
             if hasattr(window, "adjustSize"):
                 window.adjustSize()
@@ -120,8 +120,8 @@ class WindowChrome:
 
         geom_filter = TitleBarGeometryFilter(window, title_bar)  # type: ignore[arg-type]
         window.installEventFilter(geom_filter)
-        window._csd_geom_filter = geom_filter
-        window._csd_title_bar = title_bar
+        setattr(window, "_csd_geom_filter", geom_filter)
+        setattr(window, "_csd_title_bar", title_bar)
 
         chrome = cls(
             window,
@@ -131,7 +131,7 @@ class WindowChrome:
             bg_layer=bg_layer,
             bg_token=cfg.bg_token,
         )
-        window._window_chrome = chrome
+        setattr(window, "_window_chrome", chrome)
         chrome._sync_background()
         # Do not setMask the shell — binary masks destroy AA corners painted
         # by CsdRoundedBackground / the dialog paintEvent.

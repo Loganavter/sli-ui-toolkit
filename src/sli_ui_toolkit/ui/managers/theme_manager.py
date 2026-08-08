@@ -11,6 +11,11 @@ from PySide6.QtWidgets import QApplication, QWidget
 theme_logger = logging.getLogger("ThemeManager")
 
 
+def _qapp_instance() -> QApplication | None:
+    instance = QApplication.instance()
+    return instance if isinstance(instance, QApplication) else None
+
+
 def _ripple_remaining_ms(widget: QWidget) -> int:
     """Duck-typed peek at toolkit button ripple state (avoids import cycles)."""
     best = 0
@@ -28,9 +33,10 @@ def _ripple_remaining_ms(widget: QWidget) -> int:
         if callable(remaining):
             best = max(best, int(remaining()))
             continue
-        if not callable(getattr(effect, "is_active", None)):
+        is_active = getattr(effect, "is_active", None)
+        if not callable(is_active):
             continue
-        if not effect.is_active():
+        if not is_active():
             continue
         elapsed = int(getattr(effect, "_elapsed", 0) or 0)
         duration = int(getattr(effect, "DURATION_MS", 280) or 280)
@@ -58,7 +64,7 @@ def _tree_ripple_remaining_ms(root: QWidget, *, limit: int = 8000) -> int:
 
 def max_active_ripple_remaining_ms(app: QApplication | None = None) -> int:
     """Longest remaining button-ripple duration across top-level windows."""
-    app = app or QApplication.instance()
+    app = app or _qapp_instance()
     if app is None:
         return 0
     try:
@@ -103,7 +109,7 @@ class ThemeManager(QObject):
             cls._instance = cls()
         return cls._instance
 
-    def register_palettes(self, light_palette: Dict, dark_palette: Dict = None):
+    def register_palettes(self, light_palette: Dict, dark_palette: Dict | None = None):
         self._light_palette = copy.deepcopy(light_palette)
         if dark_palette:
             self._dark_palette = copy.deepcopy(dark_palette)
@@ -147,7 +153,7 @@ class ThemeManager(QObject):
             self._dark_palette[color_key] = color_to_store
         else:
             self._light_palette[color_key] = color_to_store
-        app = QApplication.instance()
+        app = _qapp_instance()
         with self.suspend_widget_updates(app):
             self._apply_theme()
             self.theme_changed.emit()
@@ -170,7 +176,7 @@ class ThemeManager(QObject):
         enabled so a finishing wave is not frozen mid-frame (QSS itself still
         blocks the GUI thread — prefer ``await_ripples`` / ``defer_click``).
         """
-        app = app or QApplication.instance()
+        app = app or _qapp_instance()
         if app is None:
             yield
             return
@@ -217,7 +223,7 @@ class ThemeManager(QObject):
         cannot run off-thread, so waiting is the reliable mitigation.
         """
         new_theme = "dark" if theme_name == "dark" else "light"
-        app = app or QApplication.instance()
+        app = app or _qapp_instance()
 
         if self._current_theme == new_theme and self._pending_theme is None:
             if app is not None and not app.styleSheet():
@@ -240,7 +246,7 @@ class ThemeManager(QObject):
         self._theme_flush_scheduled = False
         pending = self._pending_theme
         self._pending_theme = None
-        app = self._theme_flush_app or QApplication.instance()
+        app = self._theme_flush_app or _qapp_instance()
         self._theme_flush_app = None
         if pending is None:
             return
@@ -340,7 +346,7 @@ class ThemeManager(QObject):
             main_window.update()
 
     def _apply_theme(self):
-        app = QApplication.instance()
+        app = _qapp_instance()
         if app is None:
             return
 
@@ -376,7 +382,7 @@ class ThemeManager(QObject):
         dialog.style().unpolish(dialog)
         dialog.style().polish(dialog)
 
-        app = QApplication.instance()
+        app = _qapp_instance()
         q_palette = QPalette(app.palette()) if app is not None else QPalette()
         for name, role in color_roles.items():
             if name in palette_data:

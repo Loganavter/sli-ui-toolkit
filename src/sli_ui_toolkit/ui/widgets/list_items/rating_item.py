@@ -144,7 +144,7 @@ class _RatingRowSeparatorLayer(Layer):
         if widget._is_being_dragged:
             p.setOpacity(0.35)
         p.setPen(QPen(tm.get_color("separator.color"), 1))
-        x_pos = widget.rating_label.geometry().right() + widget.layout.spacing() // 2
+        x_pos = widget.rating_label.geometry().right() + widget._row_layout.spacing() // 2
         p.drawLine(x_pos, 6, x_pos, widget.height() - 6)
         if widget._is_being_dragged:
             p.setOpacity(1.0)
@@ -171,7 +171,7 @@ class RatingListItem(Button):
         parent=None,
         is_current: bool = False,
         item_height: int = 36,
-        item_font: QFont = None,
+        item_font: QFont | None = None,
         item_type: ListItemType = "image",
         position: RatingItemPosition = "middle",
         wheel_requires_focus: bool = False,
@@ -186,7 +186,7 @@ class RatingListItem(Button):
         self.is_current = is_current
         self.is_selected = False
         self._is_being_dragged = False
-        self.rating_label = None
+        self.rating_label: QLabel | None = None
         super().__init__(
             text="",
             size=(0, item_height),
@@ -232,12 +232,12 @@ class RatingListItem(Button):
         self.clicked.connect(self._emit_item_selected_from_row)
         self.rightClicked.connect(lambda: self.itemRightClicked.emit(self.index))
 
-        self.layout = QHBoxLayout(self)
+        self._row_layout = QHBoxLayout(self)
 
         # Right margin is wider so the + button keeps a visible gap from the
         # (2px-inset) row background edge.
-        self.layout.setContentsMargins(2, 2, 4, 2)
-        self.layout.setSpacing(6)
+        self._row_layout.setContentsMargins(2, 2, 4, 2)
+        self._row_layout.setSpacing(6)
 
         if self.item_type == "image":
             self.rating_label = QLabel(str(rating), self)
@@ -260,6 +260,7 @@ class RatingListItem(Button):
         self.name_label.setFont(base_font)
 
         if self.item_type == "image":
+            assert self.rating_label is not None
 
             base_px = base_font.pixelSize()
             if base_px <= 0:
@@ -280,10 +281,10 @@ class RatingListItem(Button):
                 btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
                 btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
-            self.layout.addWidget(self.rating_label)
-            self.layout.addWidget(self.name_label, 1)
-            self.layout.addWidget(self.btn_minus)
-            self.layout.addWidget(self.btn_plus)
+            self._row_layout.addWidget(self.rating_label)
+            self._row_layout.addWidget(self.name_label, 1)
+            self._row_layout.addWidget(self.btn_minus)
+            self._row_layout.addWidget(self.btn_plus)
 
             self.btn_plus.clicked.connect(self._on_plus_clicked)
             self.btn_minus.clicked.connect(self._on_minus_clicked)
@@ -301,7 +302,7 @@ class RatingListItem(Button):
             self.btn_plus.installEventFilter(self)
             self.btn_minus.installEventFilter(self)
         else:
-            self.layout.addWidget(self.name_label, 1)
+            self._row_layout.addWidget(self.name_label, 1)
 
         self.update_styles()
 
