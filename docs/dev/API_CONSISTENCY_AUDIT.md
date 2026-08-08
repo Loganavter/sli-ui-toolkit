@@ -349,10 +349,26 @@ than leaving `py.typed` honestly imperfect.
     the mixin-annotation pass but the real value (`coerce_defer_click_ms`)
     is legitimately `int | None` (`None` = "emit synchronously") — fixed
     the annotation rather than the (correct) code.
-  - Remaining ~222 errors, concentrated in `gpu_fill/liquid_glass_widget.py`
-    (60), `comboboxes/capabilities/gear_drag.py` (38),
-    `gpu_fill/widget.py` (27), `timeline_widget/render.py` (23), and a
-    long tail of smaller files — not yet started.
+  - While chasing `gpu_fill/liquid_glass_widget.py`'s 60 errors, found the
+    file isn't dead-weight-but-typed — it's **not part of this toolkit at
+    all**: not imported by anything in `src/` (confirmed via repo-wide
+    grep), not exported from `widgets.py`, not documented, not tested, and
+    its own comments reference `glass_hud.py`'s `_watch_target` and a
+    "source canvas" — `glass_hud.py` does not exist anywhere in this repo.
+    Near-certainly an accidental copy from a consumer app's magnifier/HUD
+    feature (matches Improve-ImgSLI's domain), bundled into commit
+    `ff14051` alongside unrelated docs work with no CHANGELOG entry.
+    **Deleted** `liquid_glass_widget.py` and its four dedicated shader
+    pairs (`liquid_glass_{pass.vert,composite.frag,blur.frag}` +
+    `.qsb`); left `gpu_fill/widget.py` (`FlyoutGpuFillWidget`) and its
+    `flyout_fill.{vert,frag}` shaders untouched — that one *is* wired up
+    (`base_flyout.py`'s `gpu_fill=` param) and is the toolkit's real,
+    intentionally-minimal GPU fill path. Confirmed no other file
+    referenced the deleted ones; full test suite (370 tests) unaffected.
+  - Remaining ~190 errors, concentrated in
+    `comboboxes/capabilities/gear_drag.py` (38), `gpu_fill/widget.py`
+    (27), `timeline_widget/render.py` (23), and a long tail of smaller
+    files — not yet started.
 - Do not add a CI mypy gate until the count is low enough that it's
   actually enforceable — an aspirational gate that's disabled from day one
   because it's red is worse than no gate.
