@@ -365,10 +365,33 @@ than leaving `py.typed` honestly imperfect.
     (`base_flyout.py`'s `gpu_fill=` param) and is the toolkit's real,
     intentionally-minimal GPU fill path. Confirmed no other file
     referenced the deleted ones; full test suite (370 tests) unaffected.
-  - Remaining ~190 errors, concentrated in
-    `comboboxes/capabilities/gear_drag.py` (38), `gpu_fill/widget.py`
-    (27), `timeline_widget/render.py` (23), and a long tail of smaller
-    files — not yet started.
+  - Cleared the rest of the 20+-error files: `gear_drag.py` (38→0 —
+    `GearDragCapability`'s `_combo: ComboBox | None` is genuinely always
+    non-`None` for the capability's whole attach/detach lifetime, just
+    typed loosely; added `assert combo is not None` after each of the six
+    `combo = self._combo` locals, matching the file's own existing style
+    rather than restructuring control flow), `gpu_fill/widget.py` (27→0 —
+    lazily-initialized `QRhi`/`QRhiBuffer`/`QRhiShaderResourceBindings`
+    attributes needed real type annotations instead of bare `= None`;
+    `TargetBlend.srcColor` etc. needed `# type: ignore[assignment]` since
+    PySide6's stub types those fields `int` while the enum members aren't
+    assignable as `int()`; `render()` needed `# type: ignore[override]`
+    since it collides in name with `QWidget.render()`, an unrelated
+    method, not a real override), `timeline_widget/render.py` (23→5→0 —
+    two `list[tuple[..., object, object]]` annotations widened to the
+    real `SimpleNamespace` type actually stored, plus three `drawLine()`
+    calls needed an explicit `int()` on a `float` argument mixed with
+    `int`s, no overload accepts mixed float/int), `timeline_widget/widget.py`
+    (6→0 — same `_row_layout`/`_hover_points`/`_thumbnails`/
+    `_thumb_indices` untyped-list/dict pattern as elsewhere, plus
+    `_host_h_scrollbar` needed an explicit `QScrollBar | None` annotation
+    instead of bare `= None`). All four verified against the full test
+    suite (370 tests) after each fix.
+  - Remaining ~127 errors, now spread thin across 18 files with no more
+    single dominant cluster (`dialog_helpers.py` 15,
+    `list_items/rating_item.py` 13, `unified_flyout/panel.py` 13,
+    `managers/flyout_manager.py` 12, and a tail of ≤11-error files) — not
+    yet started.
 - Do not add a CI mypy gate until the count is low enough that it's
   actually enforceable — an aspirational gate that's disabled from day one
   because it's red is worse than no gate.

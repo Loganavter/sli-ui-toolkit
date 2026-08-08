@@ -122,6 +122,9 @@ class GearDragCapability(ButtonCapability):
 
     def handle_press(self, event: QMouseEvent) -> None:
         combo = self._combo
+        # Only ever called while attached (between ComboBox.__init__'s
+        # attach_capability() and detach()) — see attach()/detach() below.
+        assert combo is not None
         if (
             event.button() == Qt.MouseButton.LeftButton
             and combo.isEnabled()
@@ -200,6 +203,9 @@ class GearDragCapability(ButtonCapability):
 
     def _begin_drag(self) -> None:
         combo = self._combo
+        # Only ever called while attached (between ComboBox.__init__'s
+        # attach_capability() and detach()) — see attach()/detach() below.
+        assert combo is not None
         if combo.count() == 0 or self._press_pos is None:
             return
         visible = combo._visible_indices()
@@ -272,6 +278,9 @@ class GearDragCapability(ButtonCapability):
 
     def _update_drag(self, pos: QPointF) -> None:
         combo = self._combo
+        # Only ever called while attached (between ComboBox.__init__'s
+        # attach_capability() and detach()) — see attach()/detach() below.
+        assert combo is not None
         if self._press_pos is None:
             return
         item_h = combo._item_height()
@@ -331,6 +340,9 @@ class GearDragCapability(ButtonCapability):
 
     def _finish_drag(self) -> None:
         combo = self._combo
+        # Only ever called while attached (between ComboBox.__init__'s
+        # attach_capability() and detach()) — see attach()/detach() below.
+        assert combo is not None
         final_index = self.focus_index
         overlay = combo._overlay
         if overlay is not None:
@@ -373,6 +385,9 @@ class GearDragCapability(ButtonCapability):
 
     def _start_snap_animation(self, target_pos: QPoint, final_index: int) -> None:
         combo = self._combo
+        # Only ever called while attached (between ComboBox.__init__'s
+        # attach_capability() and detach()) — see attach()/detach() below.
+        assert combo is not None
         overlay = combo._overlay
         if overlay is None:
             self._commit_selection(final_index)
@@ -417,6 +432,9 @@ class GearDragCapability(ButtonCapability):
 
     def _commit_selection(self, final_index: int) -> None:
         combo = self._combo
+        # Only ever called while attached (between ComboBox.__init__'s
+        # attach_capability() and detach()) — see attach()/detach() below.
+        assert combo is not None
         if final_index >= 0:
             combo.setCurrentIndex(final_index)
         # hideDropdown() calls self.cancel(), which restores the cursor and

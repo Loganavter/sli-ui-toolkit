@@ -6,7 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QScrollBar, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers import SettleGate
@@ -61,8 +61,8 @@ class TimelineWidget(QWidget):
         self._visual_index = 0.0
         self._scrub_visual_index: float | None = None
         self._timeline_model = None
-        self._row_layout = []
-        self._hover_points = []
+        self._row_layout: list[tuple] = []
+        self._hover_points: list[tuple[QRectF, str]] = []
         self._hover_tooltip_text = None
         self._hover_tooltip_pos = None
         self._collapsed_group_ids: set[str] = set()
@@ -119,8 +119,8 @@ class TimelineWidget(QWidget):
         self._duration = (
             float(self._snapshots[-1].timestamp) if self._snapshots else 0.0
         )
-        self._thumbnails = {}
-        self._thumb_indices = []
+        self._thumbnails: dict[int, QPixmap] = {}
+        self._thumb_indices: list[int] = []
 
         self._total_frames = timeline_viewport.compute_total_frames(self)
         self._current_index = 0
@@ -145,7 +145,7 @@ class TimelineWidget(QWidget):
         self._sb_dragging = False
         self._sb_drag_start_x = 0.0
         self._sb_drag_start_value = 0
-        self._host_h_scrollbar = None
+        self._host_h_scrollbar: QScrollBar | None = None
 
         self.theme_manager = ThemeManager.get_instance()
 
@@ -202,7 +202,7 @@ class TimelineWidget(QWidget):
         if scroll_area is None:
             return
         scrollbar = scroll_area.horizontalScrollBar()
-        if scrollbar is self._host_h_scrollbar:
+        if scrollbar is None or scrollbar is self._host_h_scrollbar:
             return
         if self._host_h_scrollbar is not None:
             try:

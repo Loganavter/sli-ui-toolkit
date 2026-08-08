@@ -6,11 +6,13 @@ from pathlib import Path
 from PySide6.QtCore import QSize
 from PySide6.QtGui import (
     QColor,
+    QRhi,
     QRhiBuffer,
     QRhiCommandBuffer,
     QRhiDepthStencilClearValue,
     QRhiGraphicsPipeline,
     QRhiShaderResourceBinding,
+    QRhiShaderResourceBindings,
     QRhiShaderStage,
     QRhiViewport,
     QShader,
@@ -52,9 +54,9 @@ class FlyoutGpuFillWidget(QRhiWidget):
         self.setAutoFillBackground(False)  # see qrhi-gotchas.md#qrhiwidget-autofill
         self._fill_color = QColor(0, 0, 0, 0)
         self._pipeline: QRhiGraphicsPipeline | None = None
-        self._srb = None
-        self._ubuf = None
-        self._last_rhi = None
+        self._srb: QRhiShaderResourceBindings | None = None
+        self._ubuf: QRhiBuffer | None = None
+        self._last_rhi: QRhi | None = None
 
     def set_fill_color(self, color: QColor) -> None:
         if color == self._fill_color:
@@ -105,10 +107,13 @@ class FlyoutGpuFillWidget(QRhiWidget):
         )
         blend = QRhiGraphicsPipeline.TargetBlend()
         blend.enable = True
-        blend.srcColor = QRhiGraphicsPipeline.BlendFactor.SrcAlpha
-        blend.dstColor = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha
-        blend.srcAlpha = QRhiGraphicsPipeline.BlendFactor.One
-        blend.dstAlpha = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha
+        # PySide6's TargetBlend.srcColor/etc. stubs type these fields as
+        # plain `int`, not `BlendFactor` — the enum members are int-valued,
+        # so this is a real, working assignment, just under-typed upstream.
+        blend.srcColor = QRhiGraphicsPipeline.BlendFactor.SrcAlpha  # type: ignore[assignment]
+        blend.dstColor = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha  # type: ignore[assignment]
+        blend.srcAlpha = QRhiGraphicsPipeline.BlendFactor.One  # type: ignore[assignment]
+        blend.dstAlpha = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha  # type: ignore[assignment]
         pipeline.setTargetBlends([blend])
         pipeline.setTopology(QRhiGraphicsPipeline.Topology.Triangles)
         pipeline.setShaderResourceBindings(self._srb)
@@ -132,7 +137,10 @@ class FlyoutGpuFillWidget(QRhiWidget):
         self._ubuf = None
         self._last_rhi = None
 
-    def render(self, command_buffer: QRhiCommandBuffer) -> None:
+    def render(self, command_buffer: QRhiCommandBuffer) -> None:  # type: ignore[override]
+        # QRhiWidget's per-frame render callback — unrelated to (and shadows)
+        # QWidget.render()'s paint-to-QPainter utility; PySide6's stubs model
+        # both under the same name, hence the signature mismatch mypy sees.
         rhi = self.rhi()
         if rhi is None or self._pipeline is None:
             return
@@ -143,6 +151,8 @@ class FlyoutGpuFillWidget(QRhiWidget):
         )
 
         updates = rhi.nextResourceUpdateBatch()
+        # _ubuf/_srb are always set together with _pipeline in initialize().
+        assert self._ubuf is not None
         updates.updateDynamicBuffer(self._ubuf, 0, color_bytes)
 
         clear = QColor(0, 0, 0, 0)

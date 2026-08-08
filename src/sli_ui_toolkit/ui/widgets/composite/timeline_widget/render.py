@@ -104,7 +104,7 @@ def _draw_color_track_segments(
 
     left_bound = start_x - 12.0
     right_bound = end_x + 12.0
-    segments: list[tuple[float, float, float, QColor, object, object]] = []
+    segments: list[tuple[float, float, float, QColor, SimpleNamespace, SimpleNamespace]] = []
 
     for index, (timestamp, color) in enumerate(color_states):
         end_timestamp = (
@@ -199,7 +199,7 @@ def _draw_enum_track_segments(
 
     left_bound = start_x - 12.0
     right_bound = end_x + 12.0
-    segments: list[tuple[float, float, float, object, object]] = []
+    segments: list[tuple[float, float, float, SimpleNamespace, SimpleNamespace]] = []
     active_index = 0
 
     for index, (timestamp, value) in enumerate(states):
@@ -459,7 +459,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             timeline_primitives.draw_track_title_label(widget, painter, QRectF(18, y, max(40, widget.LEFT_GUTTER - 30), row_h), track.label, text_col)
             row_center_y = y + row_h / 2.0
             painter.setPen(QPen(QColor(190, 190, 196), 1))
-            painter.drawLine(content_start_x, int(row_center_y), width, int(row_center_y))
+            painter.drawLine(int(content_start_x), int(row_center_y), width, int(row_center_y))
             _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=4.0)
             y += row_h
             continue
@@ -501,7 +501,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
         )
         row_center_y = y + row_h / 2.0
         painter.setPen(QPen(QColor(190, 190, 196), 1))
-        painter.drawLine(content_start_x, int(row_center_y), width, int(row_center_y))
+        painter.drawLine(int(content_start_x), int(row_center_y), width, int(row_center_y))
         _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=3.5)
         y += row_h
 
@@ -515,7 +515,7 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
     painter.setPen(QPen(sep_soft, 1))
     painter.drawLine(0, int(ruler_top) - 1, width, int(ruler_top) - 1)
     painter.setPen(QPen(grid_col, 1))
-    painter.drawLine(content_start_x, ruler_bottom - 1, width, ruler_bottom - 1)
+    painter.drawLine(int(content_start_x), ruler_bottom - 1, width, ruler_bottom - 1)
     painter.setPen(QPen(sep_strong, 1))
     painter.drawLine(0, widget.height() - 1, width, widget.height() - 1)
     if duration <= 0:
