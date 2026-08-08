@@ -345,7 +345,7 @@ class _ResizeFilter(QObject):
         handle = target.windowHandle()
         if handle is not None:
             try:
-                if handle.startSystemResize(Qt.Edges(edges)):
+                if handle.startSystemResize(Qt.Edge(edges)):
                     return True
             except Exception:
                 pass
@@ -438,7 +438,7 @@ class _ResizeFilter(QObject):
     def _clear_peer_cursors(self) -> None:
         """Drop resize cursors left on other top-levels (modal open / Wayland)."""
         app = QApplication.instance()
-        if app is None:
+        if not isinstance(app, QApplication):
             return
         target = self._target
         for widget in app.topLevelWidgets():

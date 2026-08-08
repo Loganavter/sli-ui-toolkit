@@ -378,8 +378,9 @@ class CalendarWidget(QWidget):
 
     def _create_year_view(self) -> QWidget:
         widget = QWidget()
-        widget.setLayout(QGridLayout())
-        widget.layout().setSpacing(self._spacing_unit())
+        year_layout = QGridLayout()
+        widget.setLayout(year_layout)
+        year_layout.setSpacing(self._spacing_unit())
         return widget
 
     def update_view(self, vm: CalendarViewModel) -> None:

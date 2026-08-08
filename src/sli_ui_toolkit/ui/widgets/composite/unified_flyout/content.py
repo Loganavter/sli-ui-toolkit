@@ -1,11 +1,18 @@
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
     FlyoutMode,
+    ListItemType,
     current_index_for_list,
     items_for_list,
 )
 
 class _UnifiedFlyoutContentMixin:
-    def populate(self, list_num: int, items: list, list_type="image", current_index=-1):
+    def populate(
+        self,
+        list_num: int,
+        items: list,
+        list_type: ListItemType = "image",
+        current_index=-1,
+    ):
         panel = (
             self.panel_left
             if (list_num == 1 or list_type == "simple")

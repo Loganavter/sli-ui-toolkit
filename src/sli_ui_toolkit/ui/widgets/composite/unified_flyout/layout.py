@@ -9,6 +9,7 @@ from sli_ui_toolkit.ui.in_window_surface import (
 from sli_ui_toolkit.ui.managers.ui_font import paint_font, rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
     FlyoutMode,
+    ListItemType,
     items_for_list,
 )
 
@@ -19,7 +20,7 @@ class _UnifiedFlyoutLayoutMixin:
         self,
         list_num: int,
         anchor_widget: QWidget,
-        list_type="image",
+        list_type: ListItemType = "image",
         simple_items=None,
         simple_current_index=-1,
     ):

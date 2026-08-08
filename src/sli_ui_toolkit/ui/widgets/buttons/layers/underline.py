@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import QRect, QRectF
 from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -71,7 +72,7 @@ class UnderlineLayer(Layer):
             ring=bool(ctx.underline_ring),
             fade=bool(fade),
         )
-        rect = ctx.rect
+        rect: QRectF | QRect = ctx.rect
         if hasattr(rect, "toAlignedRect"):
             rect = rect.toAlignedRect()
         draw_bottom_underline(ctx.painter, rect, tm, cfg)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
@@ -69,7 +69,7 @@ def _normalize_menu_entries(
     if not entries:
         return ()
     if all(_is_context_entry(entry) for entry in entries):
-        return tuple(entries)  # type: ignore[return-value]
+        return tuple(cast(ContextMenuEntry, entry) for entry in entries)
     if all(_is_callback_tuple_entry(entry) for entry in entries):
         return entries_from_callbacks(entries, id_prefix=id_prefix)  # type: ignore[arg-type]
     raise TypeError(
@@ -233,9 +233,12 @@ class TitleBarMenuStrip(QWidget):
             if callable(sync):
                 sync()
                 # Erase translucent ghost trigger glyphs after width changes.
-                parent.repaint()
+                repaint = getattr(parent, "repaint", None)
+                if callable(repaint):
+                    repaint()
                 break
-            parent = parent.parentWidget()
+            parent_widget = getattr(parent, "parentWidget", None)
+            parent = parent_widget() if callable(parent_widget) else None
 
     def _on_theme_changed(self, *_args) -> None:
         for button in self._buttons:

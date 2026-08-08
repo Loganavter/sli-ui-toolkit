@@ -36,6 +36,6 @@ def apply_editable_text_behavior(widget: QWidget) -> QWidget:
     if app is not None:
         app.installEventFilter(behavior)
         widget.destroyed.connect(lambda: app.removeEventFilter(behavior))
-    widget._editable_text_behavior = behavior
-    widget._editable_text_behavior_installed = True
+    setattr(widget, "_editable_text_behavior", behavior)
+    setattr(widget, "_editable_text_behavior_installed", True)
     return widget

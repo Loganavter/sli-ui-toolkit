@@ -3,7 +3,7 @@ from __future__ import annotations
 from weakref import WeakKeyDictionary, ref
 
 import shiboken6
-from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, Qt
 from PySide6.QtGui import QCursor, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -52,7 +52,7 @@ class HoverCoordinator(QObject):
         self._widgets: WeakKeyDictionary[QWidget, tuple[bool, bool]] = (
             WeakKeyDictionary()
         )
-        self._installed_app: QApplication | None = None
+        self._installed_app: QCoreApplication | None = None
         # True while some gesture elsewhere (e.g. ComboBox gear-drag) is
         # driving the real, physically-moving cursor across the app under a
         # blanked icon. reconcile() would otherwise light up hover on

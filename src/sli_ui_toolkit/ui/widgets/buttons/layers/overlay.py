@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Callable, Literal
+from typing import Callable, Literal, cast
 
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QPainter
@@ -37,11 +37,12 @@ class OverlayPainterLayer(Layer):
         p = ctx.painter
         p.save()
         try:
+            painter_fn = cast(Callable[..., None], self._painter_fn)
             if self._param_count == 3:
-                self._painter_fn(p, ctx, tm)  # type: ignore[call-arg]
+                painter_fn(p, ctx, tm)
             elif self._param_count == 1:
-                self._painter_fn(p)  # type: ignore[call-arg]
+                painter_fn(p)
             else:
-                self._painter_fn(p, ctx.rect)  # type: ignore[call-arg]
+                painter_fn(p, ctx.rect)
         finally:
             p.restore()

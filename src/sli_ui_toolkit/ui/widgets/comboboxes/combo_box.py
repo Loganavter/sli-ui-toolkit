@@ -483,7 +483,9 @@ class ComboBox(Button):
         self._ensure_current_visible()
         self._overlay.show_for_owner()
         self.update()
-        QApplication.instance().installEventFilter(self)
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
         window = self.window()
         if window is not None:
             window.installEventFilter(self)

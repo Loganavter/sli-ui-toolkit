@@ -108,8 +108,8 @@ def _variant_standard_hover(variant: VariantSpec, tm: ThemeManager) -> QColor | 
         return color if color.alpha() > 0 else None
     prefix = variant.token_prefix
     key = f"{prefix}.background.hover"
-    color = tm.try_get_color(key)
-    return QColor(color) if color is not None else None
+    theme_color = tm.try_get_color(key)
+    return QColor(theme_color) if theme_color is not None else None
 
 
 def _variant_standard_pressed(variant: VariantSpec, tm: ThemeManager) -> QColor | None:
@@ -118,8 +118,8 @@ def _variant_standard_pressed(variant: VariantSpec, tm: ThemeManager) -> QColor 
         return color if color.alpha() > 0 else None
     prefix = variant.token_prefix
     key = f"{prefix}.background.pressed"
-    color = tm.try_get_color(key)
-    return QColor(color) if color is not None else None
+    theme_color = tm.try_get_color(key)
+    return QColor(theme_color) if theme_color is not None else None
 
 
 def _variant_normal(variant: VariantSpec, tm: ThemeManager) -> QColor:
@@ -247,6 +247,7 @@ def resolve_button_background(
     layers.extend(hover_layers)
 
     if ButtonState.PRESSED in states and ButtonState.DISABLED not in states:
+        pressed: QColor | None
         if custom_pal is not None and params.override_bg is None:
             pressed = custom_pal.pressed
         else:

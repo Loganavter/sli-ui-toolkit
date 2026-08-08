@@ -59,7 +59,7 @@ class UiFont(QObject):
         if self._family_override:
             return self._family_override
         app = QApplication.instance()
-        if app is not None:
+        if isinstance(app, QApplication):
             family = app.font().family()
             if family:
                 return family
@@ -84,7 +84,7 @@ class UiFont(QObject):
     def base_font(self) -> QFont:
         """Copy of the current UI face (size from the application font)."""
         app = QApplication.instance()
-        if app is not None:
+        if isinstance(app, QApplication):
             font = QFont(app.font())
         else:
             font = QFont()
@@ -249,7 +249,7 @@ def apply_text_color(widget: QWidget, color: QColor | None) -> None:
     if color is None or not color.isValid():
         return
     app = QApplication.instance()
-    palette = QPalette(app.palette()) if app is not None else QPalette(widget.palette())
+    palette = QPalette(app.palette()) if isinstance(app, QApplication) else QPalette(widget.palette())
     palette.setColor(QPalette.ColorRole.WindowText, color)
     palette.setColor(QPalette.ColorRole.Text, color)
     widget.setPalette(palette)

@@ -15,7 +15,7 @@ class LongPressCapability(ButtonCapability):
     def __init__(self, delay_ms: int = 600):
         super().__init__()
         self.delay_ms = delay_ms
-        self._button = None
+        self._button: QWidget | None = None
         self._lp_timer: QTimer | None = None
         self._lp_triggered = False
 

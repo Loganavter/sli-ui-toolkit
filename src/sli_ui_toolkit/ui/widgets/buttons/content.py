@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from pathlib import Path
 
@@ -31,12 +31,13 @@ from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 from .context import DrawContext
 from .state import ButtonState
 
+ImageFill = Literal["cover", "contain", "stretch"]
 _IMAGE_FILLS = frozenset({"cover", "contain", "stretch"})
 
 
-def normalize_image_fill(value: str | None) -> str:
+def normalize_image_fill(value: str | None) -> ImageFill:
     fill = str(value or "cover").strip().lower()
-    return fill if fill in _IMAGE_FILLS else "cover"
+    return fill if fill in _IMAGE_FILLS else "cover"  # type: ignore[return-value]
 
 
 def coerce_pixmap(value: Any) -> QPixmap | None:
@@ -121,11 +122,8 @@ def _text_color(ctx: DrawContext, tm: ThemeManager) -> QColor:
 
 
 def _rect(ctx: DrawContext) -> QRect:
-    rect = ctx.effective_rect
-    if isinstance(rect, QRectF):
-        rect = rect.toAlignedRect()
-    else:
-        rect = QRect(rect)
+    raw = ctx.effective_rect
+    rect = raw.toAlignedRect() if isinstance(raw, QRectF) else QRect(raw)
     left, top, right, bottom = ctx.content_padding
     if left or top or right or bottom:
         rect = rect.adjusted(int(left), int(top), -int(right), -int(bottom))
@@ -293,7 +291,7 @@ class PixmapContent(Content):
     """
 
     pixmap: Any = None
-    image_fill: str = "cover"
+    image_fill: ImageFill = "cover"
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
         pix = coerce_pixmap(self.pixmap)
@@ -314,7 +312,7 @@ class PixmapContent(Content):
         if radii is not None:
             from .layers.background import rounded_rect_path
 
-            clip = rounded_rect_path(QRectF(dest), tuple(int(r) for r in radii))
+            clip = rounded_rect_path(QRectF(dest), radii)
             p.setClipPath(clip)
         else:
             p.setClipRect(dest)

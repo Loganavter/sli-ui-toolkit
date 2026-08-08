@@ -42,7 +42,7 @@ API, как обычно).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Literal, cast
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
@@ -89,6 +89,7 @@ register_variant(
 
 _LEFT_PADDING = 12
 _ICON_TEXT_GAP = 10
+SelectedIconMode = Literal["invert", "replace"]
 _SELECTED_ICON_MODES = {"invert", "replace"}
 
 
@@ -230,7 +231,7 @@ class IconListWidget(QWidget):
         *,
         icon_size: QSize | None = None,
         row_height: int = 44,
-        selected_icon_mode: str = "invert",
+        selected_icon_mode: SelectedIconMode = "invert",
         button_factory: Callable[[IconListItem], Button] | None = None,
     ) -> None:
         super().__init__(parent)
@@ -370,7 +371,7 @@ class IconListWidget(QWidget):
             self._apply_icon(row)
             self._update_row_fg(row)
 
-    def selectedIconMode(self) -> str:
+    def selectedIconMode(self) -> SelectedIconMode:
         return self._selected_icon_mode
 
     def setSelectedIconMode(self, mode: str) -> None:
@@ -396,7 +397,7 @@ class IconListWidget(QWidget):
             selected_icon = selected_icon_from_pair
 
         custom = self._button_factory is not None
-        if custom:
+        if self._button_factory is not None:
             button = self._button_factory(spec)
         else:
             button = _make_nav_row_button(
@@ -496,7 +497,7 @@ class IconListWidget(QWidget):
         selected_pixmap = self._tinted_pixmap(normal_pixmap, self._selected_icon_color())
         return selected_pixmap if not selected_pixmap.isNull() else normal_pixmap
 
-    def _normalize_selected_icon_mode(self, mode: str) -> str:
+    def _normalize_selected_icon_mode(self, mode: str) -> SelectedIconMode:
         normalized = str(mode or "").strip().lower().replace("-", "_")
         aliases = {
             "inversion": "invert",
@@ -510,7 +511,7 @@ class IconListWidget(QWidget):
                 "selected_icon_mode must be 'invert' or 'replace', "
                 f"got {mode!r}"
             )
-        return normalized
+        return cast(SelectedIconMode, normalized)
 
     def _item_from_tuple(self, item: tuple) -> IconListItem:
         if len(item) <= 4:

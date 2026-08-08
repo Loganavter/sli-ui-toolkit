@@ -441,8 +441,9 @@ class HelpDocumentBodyCanvas(QWidget):
         parent = self.parentWidget()
         if parent is not None:
             margins = 0
-            if parent.layout() is not None:
-                m = parent.layout().contentsMargins()
+            parent_layout = parent.layout()
+            if parent_layout is not None:
+                m = parent_layout.contentsMargins()
                 margins = m.left() + m.right()
             parent_w = parent.width()
             if parent_w > margins + 1:
@@ -455,12 +456,12 @@ class HelpDocumentBodyCanvas(QWidget):
                 marker.deleteLater()
                 del self._anchor_markers[anchor]
         for anchor, y in self._layout.anchors.items():
-            marker = self._anchor_markers.get(anchor)
-            if marker is None:
-                marker = _AnchorMarker(self)
-                self._anchor_markers[anchor] = marker
-            marker.move(0, int(y))
-            marker.show()
+            anchor_marker = self._anchor_markers.get(anchor)
+            if anchor_marker is None:
+                anchor_marker = _AnchorMarker(self)
+                self._anchor_markers[anchor] = anchor_marker
+            anchor_marker.move(0, int(y))
+            anchor_marker.show()
 
 
 def _normalize_ws(text: str) -> str:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.config import resolve_overlay_layer
 from sli_ui_toolkit.ui.widgets.helpers import draw_rounded_shadow
@@ -183,7 +183,7 @@ def create_shadow_surface(
     *,
     shadow_radius: int,
     container_object_name: str,
-    layout_cls: type[QBoxLayout] = QVBoxLayout,
+    layout_cls: type[QVBoxLayout] | type[QHBoxLayout] = QVBoxLayout,
     outer_margins: tuple[int, int, int, int] | None = None,
     content_margins: tuple[int, int, int, int] = (4, 4, 4, 4),
     content_spacing: int = 4,

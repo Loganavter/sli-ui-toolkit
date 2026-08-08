@@ -253,6 +253,8 @@ class MarkdownHelpDialog(QDialog):
         metrics = QFontMetrics(self.nav_widget.font())
         for i in range(self.nav_widget.count()):
             item = self.nav_widget.item(i)
+            if item is None:
+                continue
             max_text_width = max(max_text_width, metrics.horizontalAdvance(item.text()))
         self.nav_widget.setMinimumWidth(max_text_width + 32)
 

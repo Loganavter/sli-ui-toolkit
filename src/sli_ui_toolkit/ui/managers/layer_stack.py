@@ -17,11 +17,11 @@ from __future__ import annotations
 
 
 class LayerStack:
-    DEFAULT_ORDER = ("base", "context_menu")
+    DEFAULT_ORDER: tuple[str, ...] = ("base", "context_menu")
 
     def __init__(self, order: tuple[str, ...] | list[str] | None = None):
         if order is None:
-            self._order = self.DEFAULT_ORDER
+            self._order: tuple[str, ...] = self.DEFAULT_ORDER
             self._group_layer: dict[str, str] = {"context_menu": "context_menu"}
         else:
             self._order = tuple(order)

@@ -144,8 +144,9 @@ def get_viewport_width(widget) -> int:
         if isinstance(parent, QScrollArea):
             viewport_width = parent.viewport().width()
         elif isinstance(parent, QWidget):
-            if isinstance(parent.parent(), QScrollArea):
-                viewport_width = parent.parent().viewport().width()
+            grandparent = parent.parent()
+            if isinstance(grandparent, QScrollArea):
+                viewport_width = grandparent.viewport().width()
             else:
                 viewport_width = parent.width()
     return viewport_width

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import (
     QColor,
@@ -131,8 +133,8 @@ def build_text_layout(
             overlap_end = min(end, line_end)
             if overlap_start >= overlap_end:
                 continue
-            x1 = line.cursorToX(overlap_start)[0]
-            x2 = line.cursorToX(overlap_end)[0]
+            x1, _ = cast(tuple[float, int], line.cursorToX(overlap_start))
+            x2, _ = cast(tuple[float, int], line.cursorToX(overlap_end))
             top = line.y()
             links.append(
                 LinkHitBox(

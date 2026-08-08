@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from typing import Literal
+
 from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.theme import ThemeManager
@@ -33,9 +35,12 @@ from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import ListItemType
 
 DEFAULT_MINUS_ICON = "remove"
 DEFAULT_PLUS_ICON = "add"
+
+RatingItemPosition = Literal["first", "middle", "last", "only"]
 
 
 class _RatingRowBgLayer(Layer):
@@ -167,8 +172,8 @@ class RatingListItem(Button):
         is_current: bool = False,
         item_height: int = 36,
         item_font: QFont = None,
-        item_type="image",
-        position="middle",
+        item_type: ListItemType = "image",
+        position: RatingItemPosition = "middle",
         wheel_requires_focus: bool = False,
         *,
         image_number: int | None = None,

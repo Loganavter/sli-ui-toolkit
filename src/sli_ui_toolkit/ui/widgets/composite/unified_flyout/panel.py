@@ -8,8 +8,12 @@ from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic import OverlayScrollArea
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import ListItemType
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.multi_move import payload_indices
-from sli_ui_toolkit.ui.widgets.list_items.rating_item import RatingListItem
+from sli_ui_toolkit.ui.widgets.list_items.rating_item import (
+    RatingItemPosition,
+    RatingListItem,
+)
 from sli_ui_toolkit.ui.widgets.overlays.marquee_band_gesture import MarqueeBandGesture
 
 import logging
@@ -104,7 +108,7 @@ class _Panel(QWidget):
         self.drop_indicator_y = -1
         self._container_height = 50
         self._owner_proxy = None
-        self._list_type = "image"
+        self._list_type: ListItemType = "image"
         self._selected_indices: set[int] = set()
         self._marquee_gesture = None
         self._marquee_additive = False
@@ -188,7 +192,7 @@ class _Panel(QWidget):
         owner_proxy,
         item_height,
         item_font,
-        list_type="image",
+        list_type: ListItemType = "image",
         current_index=-1,
     ):
         PathTooltip.get_instance().hide_tooltip()
@@ -234,7 +238,7 @@ class _Panel(QWidget):
                 rating = img_item.rating if hasattr(img_item, "rating") else 0
                 full_path = img_item.path if hasattr(img_item, "path") else ""
 
-                position = "middle"
+                position: RatingItemPosition = "middle"
                 if total == 1:
                     position = "only"
                 elif i == 0:
@@ -288,7 +292,7 @@ class _Panel(QWidget):
         owner_proxy,
         item_height,
         item_font,
-        list_type="image",
+        list_type: ListItemType = "image",
         current_index=-1,
     ):
         self._owner_proxy = owner_proxy

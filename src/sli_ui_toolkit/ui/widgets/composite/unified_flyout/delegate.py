@@ -12,7 +12,7 @@ from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
-from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import items_for_list
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import ListItemType, items_for_list
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.model import (
     IsCurrentRole,
     NameRole,
@@ -34,7 +34,7 @@ class RatingDelegate(QStyledItemDelegate):
         list_num: int = 1,
         item_height: int = 36,
         item_font=None,
-        item_type: str = "image",
+        item_type: ListItemType = "image",
     ):
         super().__init__(parent)
         self.theme_manager = theme_manager or ThemeManager.get_instance()

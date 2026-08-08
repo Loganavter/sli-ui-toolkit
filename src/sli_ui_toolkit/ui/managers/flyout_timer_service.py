@@ -122,7 +122,8 @@ class AnchoredFlyoutAutoHide(QObject):
         manager = FlyoutManager.get_instance()
         for child in manager.linked_children(self._flyout):
             try:
-                if child.isVisible() and child.contains_global(cursor_pos):
+                contains_global = getattr(child, "contains_global", None)
+                if child.isVisible() and contains_global and contains_global(cursor_pos):
                     return True
             except Exception:
                 continue

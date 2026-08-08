@@ -8,7 +8,7 @@ menu over ``UnifiedFlyout`` — without patching widget classes.
 
 from __future__ import annotations
 
-from typing import Callable, Iterable, Protocol, Sequence
+from typing import Callable, Iterable, Protocol, Sequence, cast
 
 # Sentinel: dismiss every other visible flyout (legacy exclusive behavior).
 DISMISS_ALL = object()
@@ -279,4 +279,4 @@ class GroupShowPolicy:
             if dismisses == "*":
                 return None
             return frozenset((dismisses,))
-        return frozenset(dismisses)
+        return frozenset(cast(Iterable[str], dismisses))

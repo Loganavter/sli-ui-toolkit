@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Protocol
 from PySide6.QtCore import QLineF, QRectF
 from PySide6.QtGui import QColor, QCursor, QPainterPath
 
-from .content import ButtonRow
+from .content import ButtonRow, ImageFill
 from .state import ButtonState
 
 if TYPE_CHECKING:
@@ -31,7 +31,7 @@ class ButtonRegion:
     # When set, Button paints PixmapContent instead of IconContent. ``corner_radii``
     # also clips this image (crop radii). Prefer over ``icon=QIcon(pixmap)``.
     pixmap: Any = None
-    image_fill: str = "cover"  # "cover" | "contain" | "stretch"
+    image_fill: ImageFill = "cover"
     toggle: bool = False
     long_press: bool = False
     long_press_ms: int = 600

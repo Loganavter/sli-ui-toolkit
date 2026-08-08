@@ -131,16 +131,40 @@ from source, not guess.
 - Adopt a project rule going forward: any new `str`-typed constructor kwarg
   with a closed set of valid values must be typed `Literal[...]`, not bare
   `str`. Add this to `AGENTS.md`'s "Good Defaults" section.
-- Retrofit existing ones opportunistically — when a widget file is touched
-  for an unrelated change, upgrade its string kwargs to `Literal[...]` in
-  the same PR, rather than a single giant sweep PR that touches everything
-  at once (matches the existing `ThemedWidget` migration pattern already
-  used in `docs/dev/ROADMAP.md`'s "fold onto ThemedWidget when touched"
-  item).
-- Candidates identified so far (non-exhaustive): `Button.variant`,
-  `IconListWidget.selected_icon_mode`, `RatingListItem.item_type` /
-  `.position`, text-input `alignment` parameters, `ContextMenuSurface`
-  (already a `Literal`, just move it next to the others for consistency).
+- ~~Retrofit existing ones opportunistically~~ **Done for the closed-set
+  cases**, in one pass rather than opportunistically (explicit maintainer
+  decision, see chat log):
+  - `IconListWidget.selected_icon_mode: Literal["invert", "replace"]` —
+    `sidebar_nav_list.py` (alias defined next to the widget; setter/getter
+    and internal normalizer updated too).
+  - `RatingListItem.position: Literal["first", "middle", "last", "only"]`
+    (`RatingItemPosition`, `rating_item.py`) — also threaded through the
+    one caller that constructs it, `unified_flyout/panel.py`.
+  - `RatingListItem.item_type` / the `list_type` family:
+    `Literal["image", "simple"]` (`ListItemType`, defined once in
+    `unified_flyout/common.py` since the concept spans `rating_item.py`,
+    `unified_flyout/delegate.py`, `panel.py`, `content.py`, `layout.py`).
+  - `ButtonRegion.image_fill` / `PixmapContent.image_fill`:
+    `Literal["cover", "contain", "stretch"]` (`ImageFill`, defined once in
+    `buttons/content.py`, reused by `buttons/regions.py`).
+  - `CustomLineEdit.alignment` (+ `SpinBox`, `TimeLineEdit` forwards):
+    `Qt.AlignmentFlag | Literal["left", "center", "right"]`
+    (`TextAlignment`, `custom_line_edit.py`) — this one was untyped
+    entirely before (accepted a `Qt.AlignmentFlag` or a string alias, no
+    annotation at all), not a `str`→`Literal` narrowing.
+  - Verified additive/non-breaking: full test suite (370 tests) still
+    green, mypy shows zero new errors on any touched file (pre-existing
+    `ui/`-internals noise from item #7 unaffected).
+- **Deliberately not touched:** `Button.variant` (and the same-shaped
+  `WidgetStyleTokens.variant`, `Toast.variant`, Label `variant`) — these
+  are backed by a runtime-extensible registry
+  (`register_variant()`/`register_label_variant()`), so a closed
+  `Literal[...]` would be actively wrong: it would reject variant names a
+  caller legitimately registered at runtime. Needs a design decision
+  (e.g. `Literal["default", "surface", "ghost"] | str` for editor
+  hinting without a hard reject) before touching, not a mechanical swap.
+- `ContextMenuSurface` was already a `Literal`, already colocated with its
+  owning module — no action needed there.
 
 ### 3. Global singleton state instead of explicit dependency injection
 
@@ -224,14 +248,56 @@ than leaving `py.typed` honestly imperfect.
   rather than treated as absent. Removing it wouldn't fix anything, only
   hide the (currently accurate) signal that types exist and are
   best-effort.
-- Prioritize the public top-level modules first if this gets picked up:
-  `i18n.py`'s 23 errors are the highest-value fix (small file, genuinely
-  public, all clustered around `TranslationManager`'s attribute
-  declarations — likely fixable by declaring the attributes with real
-  types in `__init__` instead of wherever they're currently first
-  assigned).
-- Treat `ui/` internals as lower priority and fix opportunistically per
-  file when touched, same policy as item #4's `Literal[...]` retrofit.
+- ~~Prioritize the public top-level modules first if this gets picked up:
+  `i18n.py`'s 23 errors are the highest-value fix~~ **Done.** `i18n.py`'s
+  22 errors (21 from `TranslationManager.__new__` assigning through
+  `cls._instance._x` instead of a self-typed instance, 1 from an untyped
+  `_shiboken = None` fallback assignment) are fixed: attributes are now
+  declared with class-level type annotations and assigned via a local
+  `instance` variable in `__new__`, and `_shiboken` gets an explicit
+  `Any` annotation. `mypy src/sli_ui_toolkit/i18n.py --follow-imports=silent`
+  is now clean. No behavior change; full test suite (370 tests) still
+  passes.
+- ~~Treat `ui/` internals as lower priority and fix opportunistically per
+  file when touched~~ **In progress**, explicit maintainer decision to
+  batch through it now rather than wait for opportunistic touches (chat
+  log). Progress: **562 → 511 errors, 65 → 43 files** (two batches: all
+  1-error files, then all 2-error files). Full test suite (370 tests)
+  green after each batch — one regression caught and fixed mid-batch (see
+  below), none shipped. Remaining ~470 errors are concentrated in files
+  with 3+ errors each; next batch would start there.
+  - **Bonus finds, not just type-noise:** two real bugs surfaced by
+    getting mypy to actually check these files, both pre-existing (not
+    introduced by this pass):
+    1. `timeline_widget/layout.py`'s `visible_keyframe_segments()`
+       returned a bare tuple `(x, y, x, keyframe, keyframe)` for the
+       single-keyframe case instead of the `dict[str, Any]` shape (built
+       via `_segment_payload()`) that every caller (`render.py`) expects
+       and indexes with `segment["x1"]` etc. — would have raised
+       `TypeError: tuple indices must be integers` at runtime for any
+       channel with exactly one keyframe. No test exercised this path
+       (the toolkit's test suite doesn't cover `timeline_widget` at all).
+       Fixed to route through `_segment_payload()` like every other
+       branch.
+    2. `help_document/canvas.py`'s `_sync_anchor_markers()` had two
+       `for` loops both using the loop variable name `marker`; renaming
+       the second loop's variable during the type-fix (to resolve a
+       mypy type conflict between the two loops) exposed a latent
+       `marker.show()` call at the end that was silently relying on the
+       *first* loop's leftover `marker` binding rather than the
+       newly-created/looked-up one in the second loop. Test suite caught
+       it immediately (`UnboundLocalError` once renamed) — fixed by
+       using the correct local (`anchor_marker.show()`).
+  - Also fixed one place where mypy's typing actually caught a subtly
+    wrong constraint: `ManagedFlyout` (a `Protocol` in `flyout_manager.py`)
+    doesn't declare `contains_global`, so `flyout_timer_service.py`'s
+    direct `child.contains_global(...)` call on a `Protocol`-typed value
+    was only "working" because the whole block was wrapped in a blanket
+    `try/except Exception`. Switched to the same `getattr(...)`-guarded
+    pattern already used elsewhere in `flyout_manager.py` for the same
+    optional-capability check — same runtime behavior, but no longer
+    depends on an exception swallowing a `AttributeError` that a
+    `Protocol` mismatch would otherwise always raise.
 - Do not add a CI mypy gate until the count is low enough that it's
   actually enforceable — an aspirational gate that's disabled from day one
   because it's red is worse than no gate.

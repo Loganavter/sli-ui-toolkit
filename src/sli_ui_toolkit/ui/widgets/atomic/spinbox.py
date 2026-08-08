@@ -3,7 +3,7 @@ from PySide6.QtGui import QColor, QFocusEvent, QIntValidator
 from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
+from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit, TextAlignment
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
 
@@ -15,7 +15,7 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         parent=None,
         default_value: int = 0,
         *,
-        alignment=Qt.AlignmentFlag.AlignCenter,
+        alignment: TextAlignment = Qt.AlignmentFlag.AlignCenter,
         wheel_requires_focus: bool = False,
         underline_color: QColor | None = None,
         underline_thickness: float | None = None,

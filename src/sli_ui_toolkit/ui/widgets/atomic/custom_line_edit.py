@@ -1,3 +1,5 @@
+from typing import Literal
+
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QLineEdit
@@ -8,6 +10,8 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     apply_editable_text_behavior,
     draw_bottom_underline,
 )
+
+TextAlignment = Qt.AlignmentFlag | Literal["left", "center", "right"]
 
 
 class CustomLineEdit(QLineEdit):
@@ -22,7 +26,7 @@ class CustomLineEdit(QLineEdit):
         self,
         parent=None,
         *,
-        alignment=Qt.AlignmentFlag.AlignLeft,
+        alignment: TextAlignment = Qt.AlignmentFlag.AlignLeft,
         underline_color: QColor | None = None,
         underline_thickness: float | None = None,
         focused_underline_color: QColor | None = None,
@@ -60,14 +64,14 @@ class CustomLineEdit(QLineEdit):
         btn_class = str(self.property("class") or "")
         return "button.primary" if btn_class == "primary" else "button.default"
 
-    def setTextAlignment(self, alignment) -> None:
+    def setTextAlignment(self, alignment: Qt.AlignmentFlag | str) -> None:
         """Set text alignment using Qt flags or 'left' / 'center' / 'right'."""
         self.setAlignment(self._normalize_alignment(alignment))
 
     def textAlignment(self):
         return self.alignment()
 
-    def set_text_alignment(self, alignment) -> None:
+    def set_text_alignment(self, alignment: Qt.AlignmentFlag | str) -> None:
         self.setTextAlignment(alignment)
 
     def text_alignment(self):
@@ -113,7 +117,7 @@ class CustomLineEdit(QLineEdit):
     def _normalize_thickness(thickness: float | None) -> float | None:
         return None if thickness is None else max(0.0, float(thickness))
 
-    def _normalize_alignment(self, alignment):
+    def _normalize_alignment(self, alignment: Qt.AlignmentFlag | str) -> Qt.AlignmentFlag:
         if isinstance(alignment, str):
             normalized = alignment.strip().lower().replace("-", "_")
             if normalized in {"left", "start", "leading"}:

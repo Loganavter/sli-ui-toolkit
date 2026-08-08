@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from PySide6.QtCore import QEvent, QObject, QPointF
 from PySide6.QtWidgets import QApplication
 
@@ -27,7 +29,7 @@ class ToolkitDragDropService(QObject):
         self._source_widget = None
         self._hotspot = QPointF()
         self._current_target = None
-        self._drop_targets: list[object] = []
+        self._drop_targets: list[Any] = []
         self._event_filter_installed = False
 
     def register_drop_target(self, target) -> None:

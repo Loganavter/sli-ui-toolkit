@@ -1,5 +1,6 @@
 import logging
 from enum import Enum
+from typing import Literal
 
 from sli_ui_toolkit.ui.widgets.helpers.rounded_clip import RoundedClipEffect
 
@@ -7,6 +8,11 @@ logger = logging.getLogger(__name__)
 
 # Back-compat alias for in-package imports.
 _RoundedClipEffect = RoundedClipEffect
+
+# Shared with RatingListItem.item_type — "image" renders a thumbnail-first
+# row, "simple" renders a text-only row (single-list flyout mode).
+ListItemType = Literal["image", "simple"]
+
 
 class FlyoutMode(Enum):
     HIDDEN = 0

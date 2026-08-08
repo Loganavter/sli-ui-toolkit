@@ -87,16 +87,23 @@ def _resolve_dotted_key(data: dict[str, Any], dotted_key: str) -> str:
 
 class TranslationManager:
     _instance: TranslationManager | None = None
+    _translations: dict[str, Any]
+    _cache: dict[str, dict[str, Any]]
+    _current_lang: str
+    _events: ToolkitTranslationEvents
+    _i18n_root: Path | None
+    _extra_roots: list[Path]
 
     def __new__(cls) -> TranslationManager:
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._translations: dict[str, Any] = {}
-            cls._instance._cache: dict[str, dict[str, Any]] = {}
-            cls._instance._current_lang = "en"
-            cls._instance._events = ToolkitTranslationEvents()
-            cls._instance._i18n_root: Path | None = None
-            cls._instance._extra_roots: list[Path] = []
+            instance = super().__new__(cls)
+            instance._translations = {}
+            instance._cache = {}
+            instance._current_lang = "en"
+            instance._events = ToolkitTranslationEvents()
+            instance._i18n_root = None
+            instance._extra_roots = []
+            cls._instance = instance
         return cls._instance
 
     def set_i18n_root(self, path: str | Path) -> None:
@@ -315,10 +322,11 @@ def _bind_widget(
     """
     events = translation_events()
 
+    _shiboken: Any = None
     try:
         import shiboken6 as _shiboken
     except Exception:
-        _shiboken = None
+        pass
 
     def _widget_alive() -> bool:
         if _shiboken is None:

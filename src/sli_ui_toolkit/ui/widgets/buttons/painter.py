@@ -144,6 +144,7 @@ class ButtonPainter:
         if is_checked: states.add(ButtonState.CHECKED)
         if not widget.isEnabled(): states.add(ButtonState.DISABLED)
 
+        content: RowsContent | IconTextContent | TextContent | IconContent | None
         if rows:
             content = RowsContent(rows=rows, compact=rows_compact)
         elif text and icon_unchecked:

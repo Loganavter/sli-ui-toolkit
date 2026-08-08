@@ -89,13 +89,19 @@ def paint_pane_chrome(
         return
 
     stroke_rect = QRectF(pane.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-    stroke_radii = tuple(float(r) for r in pane_radii)
-    stroke_path = rounded_rect_path(stroke_rect, stroke_radii)
+    stroke_path = rounded_rect_path(stroke_rect, pane_radii)
 
     if bg is not None:
         inset = PANE_BORDER_WIDTH
         fill_rect = stroke_rect.adjusted(inset, inset, -inset, -inset)
-        fill_radii = tuple(max(0.0, r - inset) for r in stroke_radii)
+        tl, tr, br, bl = pane_radii
+        inset_i = round(inset)
+        fill_radii = (
+            max(0, tl - inset_i),
+            max(0, tr - inset_i),
+            max(0, br - inset_i),
+            max(0, bl - inset_i),
+        )
         fill_path = rounded_rect_path(fill_rect, fill_radii)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(bg)

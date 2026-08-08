@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, Qt
@@ -90,20 +90,12 @@ class _LayoutBuilder:
     text_index: DocumentTextIndex
     tab_stop_px: float = PARAGRAPH_TAB_STOP_PX
     y: float = 0.0
-    text_fragments: list[TextFragment] | None = None
-    pixmaps: list[PixmapFragment] | None = None
-    anchors: dict[str, float] | None = None
-    tables: list[TableGeometry] | None = None
+    text_fragments: list[TextFragment] = field(default_factory=list)
+    pixmaps: list[PixmapFragment] = field(default_factory=list)
+    anchors: dict[str, float] = field(default_factory=dict)
+    tables: list[TableGeometry] = field(default_factory=list)
 
     def __post_init__(self) -> None:
-        if self.text_fragments is None:
-            self.text_fragments = []
-        if self.pixmaps is None:
-            self.pixmaps = []
-        if self.anchors is None:
-            self.anchors = {}
-        if self.tables is None:
-            self.tables = []
         self._segment_map = build_segment_map(self.text_index)
 
     def _block_index(self, block: HelpBlock) -> int:

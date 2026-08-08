@@ -194,7 +194,7 @@ def rebuild_row_layout(widget) -> None:
         return
 
     for group in widget._timeline_model.groups.values():
-        group_items = []
+        group_items: list[tuple] = []
         for track in group.tracks.values():
             if not should_show_track(widget, track):
                 continue
@@ -441,7 +441,7 @@ def visible_keyframe_segments(
         if x < start_x - 12.0 or x > end_x + 12.0:
             return []
         point_y = row_center_y if is_active_bool_channel else row_center_y - stagger_px
-        return [(x, point_y, x, keyframe, keyframe)]
+        return [_segment_payload(x, point_y, x, keyframe, keyframe)]
 
     segments: list[dict[str, Any]] = []
     left_bound = start_x - 12.0

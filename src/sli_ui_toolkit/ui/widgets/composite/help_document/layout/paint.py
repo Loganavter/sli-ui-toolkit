@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 
@@ -104,8 +106,8 @@ def _paint_selection(
         o_end = min(local_end, line_end)
         if o_start >= o_end:
             continue
-        x1 = line.cursorToX(o_start)[0]
-        x2 = line.cursorToX(o_end)[0]
+        x1, _ = cast(tuple[float, int], line.cursorToX(o_start))
+        x2, _ = cast(tuple[float, int], line.cursorToX(o_end))
         rect = QRectF(
             min(x1, x2),
             line.y(),
