@@ -261,11 +261,8 @@ than leaving `py.typed` honestly imperfect.
 - ~~Treat `ui/` internals as lower priority and fix opportunistically per
   file when touched~~ **In progress**, explicit maintainer decision to
   batch through it now rather than wait for opportunistic touches (chat
-  log). Progress: **562 → 511 errors, 65 → 43 files** (two batches: all
-  1-error files, then all 2-error files). Full test suite (370 tests)
-  green after each batch — one regression caught and fixed mid-batch (see
-  below), none shipped. Remaining ~470 errors are concentrated in files
-  with 3+ errors each; next batch would start there.
+  log). Full test suite (370 tests) green after every batch — one
+  regression caught and fixed mid-batch (see below), none shipped.
   - **Bonus finds, not just type-noise:** two real bugs surfaced by
     getting mypy to actually check these files, both pre-existing (not
     introduced by this pass):
@@ -298,6 +295,64 @@ than leaving `py.typed` honestly imperfect.
     optional-capability check — same runtime behavior, but no longer
     depends on an exception swallowing a `AttributeError` that a
     `Protocol` mismatch would otherwise always raise.
+  - **Continued past the small files into the large mixin-composition
+    ones** (explicit maintainer decision, see chat log). Progress overall:
+    **562 → 222 errors, 65 → 23 files.**
+  - `buttons/style_api.py` (77→0) and `buttons/events.py` (61→0): both are
+    bare mixins (`_ButtonStyleApi`, `_ButtonEvents`) folded into
+    `Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents)`
+    — neither declares any base, so every `self.foo` that actually lives
+    on `Button`/`QWidget`/the sibling mixin was unresolvable. **First
+    attempt made both mixins inherit `QWidget` under `TYPE_CHECKING`
+    (same trick as `ThemedWidget`) — this was wrong and caused a
+    regression**: since `Button` itself already lists `QWidget` as a
+    direct base, giving two more of its bases (`_ButtonStyleApi`,
+    `_ButtonEvents`) their own separate `QWidget` ancestry made `Button`'s
+    static MRO ambiguous, which cascaded into ~200 *new* errors across
+    unrelated files that merely construct or subclass `Button`
+    (`rating_item.py`, `calendar_widget/widget.py`, etc.). Reverted
+    immediately (caught before commit, full-suite mypy re-run showed the
+    spike). Correct fix: declare the missing attributes/methods as plain
+    `ClassVar`-style annotations (`_controller: Any`,
+    `update_region: Callable[..., None]`, etc.) directly on the mixin
+    with **no base class change at all** — mypy resolves `self.x` from
+    the annotation without touching `Button`'s real bases. The handful of
+    cases that generically can't be expressed this way (`Signal.emit()`
+    needs a real `QObject`-typed owner; `QWidget.mouseMoveEvent(self, ...)`
+    static super-calls need a real `QWidget`-typed `self`) got narrow
+    `# type: ignore[call-overload]` / `# type: ignore[arg-type]` comments
+    instead — the standard, low-risk escape hatch for exactly this
+    "mixin can't statically prove its host" situation.
+  - `unified_flyout/` (6-way mixin: bootstrap/style/layout/refresh/
+    content/dragdrop composed into `UnifiedFlyout(..., QWidget)`, plus
+    `_UnifiedFlyoutBootstrapMixin` itself extending
+    `_UnifiedFlyoutSessionMixin`): ~125 errors across `layout.py`,
+    `content.py`, `dragdrop.py`, `refresh.py`, `session.py`, `bootstrap.py`
+    → same root cause, same near-miss avoided. Fix: one shared
+    `_UnifiedFlyoutBase` type-only class in `common.py` (plain attribute/
+    `Callable` annotations, **no** `QWidget` inheritance) that every mixin
+    now lists as a base; `UnifiedFlyout` itself gained zero new errors
+    since `_UnifiedFlyoutBase` was never given a real Qt ancestor. Result:
+    unified_flyout package errors 125 → 0 (13 remaining errors in
+    `panel.py` are pre-existing and unrelated to the mixin split).
+  - Runtime-verified both fixes directly (not just via the test suite):
+    constructed a `Button` and a `UnifiedFlyout` in a live `QApplication`,
+    printed `type(x).__mro__`, confirmed both are unchanged from before
+    this pass and that `setEnabled`/`setBadge`/`set_regions` still work.
+  - Two more incidental bug-shaped findings while narrowing types, both
+    fixed: `Button.badge`/`setBadge()` were typed `int | None` while
+    `ButtonRegion.badge` (the region-level source of the same value)
+    allows `int | str | None` — widened `Button`'s badge typing to match
+    rather than narrowing the region's (str badges already render fine
+    via `str(self._badge)`, just weren't reachable through the type
+    system). And `_ButtonEvents._defer_click_ms` was declared `int` during
+    the mixin-annotation pass but the real value (`coerce_defer_click_ms`)
+    is legitimately `int | None` (`None` = "emit synchronously") — fixed
+    the annotation rather than the (correct) code.
+  - Remaining ~222 errors, concentrated in `gpu_fill/liquid_glass_widget.py`
+    (60), `comboboxes/capabilities/gear_drag.py` (38),
+    `gpu_fill/widget.py` (27), `timeline_widget/render.py` (23), and a
+    long tail of smaller files — not yet started.
 - Do not add a CI mypy gate until the count is low enough that it's
   actually enforceable — an aspirational gate that's disabled from day one
   because it's red is worse than no gate.

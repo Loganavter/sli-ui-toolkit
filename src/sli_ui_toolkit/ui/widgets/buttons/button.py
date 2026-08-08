@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QPainter
+from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -78,7 +78,7 @@ class ButtonConfig:
     toggle: bool = False
     long_press: bool = False
     long_press_ms: int = 600
-    badge: int | None = None
+    badge: int | str | None = None
     show_underline: bool = False
     underline_color: Any = None
     underline_thickness: float | None = None
@@ -95,6 +95,11 @@ class ButtonConfig:
     wheel_requires_focus: bool = False
     # ``None`` → process-wide ``get_default_defer_click()``.
     defer_click: bool | int | str | None = None
+
+
+def _to_corner_radii(values) -> tuple[int, int, int, int]:
+    tl, tr, br, bl = values
+    return (int(tl), int(tr), int(br), int(bl))
 
 
 def _state_property(state: ButtonState):
@@ -181,7 +186,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         toggle: bool = False,
         long_press: bool = False,
         long_press_ms: int = 600,
-        badge: int | None = None,
+        badge: int | str | None = None,
         show_underline: bool = False,
         underline_color: Any = None,
         underline_thickness: float | None = None,
@@ -281,7 +286,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._split: SplitLayout = split or SingleRegionSplit()
         self._divider: Divider | None = divider
         self._region_rects: dict[str, QRectF] = {}
-        self._region_paths = {}
+        self._region_paths: dict[str, QPainterPath] = {}
         self._region_ripple: dict[str, RippleEffect] = {}
         self._hovered_region: str | None = None
         self._pressed_region: str | None = None
@@ -307,7 +312,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             corner_radius = 2 if self._has_text else 6
         self._corner_radius_px = corner_radius
         self._corner_radii_px: tuple[int, int, int, int] | None = (
-            tuple(int(r) for r in corner_radii) if corner_radii is not None else None
+            _to_corner_radii(corner_radii) if corner_radii is not None else None
         )
         self._border_color_override: QColor | None = border_color
 
@@ -580,7 +585,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self._corner_radius_px = int(spec.shape.corner_radius)
             self.setProperty("cornerRadiusPx", self._corner_radius_px)
         if spec.shape.corner_radii is not None:
-            self._corner_radii_px = tuple(int(r) for r in spec.shape.corner_radii)
+            self._corner_radii_px = _to_corner_radii(spec.shape.corner_radii)
         else:
             self._corner_radii_px = None
         w, h = spec.shape.size
@@ -756,7 +761,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
                 group=region.group,
                 icon_size_px=region.icon_size_px,
                 corner_radii=(
-                    tuple(int(r) for r in region.corner_radii)
+                    _to_corner_radii(region.corner_radii)
                     if region.corner_radii is not None
                     else None
                 ),

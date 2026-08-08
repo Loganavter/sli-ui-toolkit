@@ -10,10 +10,11 @@ from sli_ui_toolkit.ui.managers.ui_font import paint_font, rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
     FlyoutMode,
     ListItemType,
+    _UnifiedFlyoutBase,
     items_for_list,
 )
 
-class _UnifiedFlyoutLayoutMixin:
+class _UnifiedFlyoutLayoutMixin(_UnifiedFlyoutBase):
     _move_easing = QEasingCurve.Type.OutQuad
 
     def showAsSingle(
@@ -166,7 +167,7 @@ class _UnifiedFlyoutLayoutMixin:
         natural_height: int,
         panel,
     ) -> tuple[int, int]:
-        outer_available = surface_available_rect(self, anchor_widget, self.overlay_layer)
+        outer_available = surface_available_rect(self, anchor_widget, self.overlay_layer)  # type: ignore[arg-type]
         available = outer_available.adjusted(
             self.SHADOW_RADIUS,
             self.SHADOW_RADIUS,
@@ -175,7 +176,7 @@ class _UnifiedFlyoutLayoutMixin:
         )
         if available.height() < 1 or available.width() < 1:
             available = outer_available
-        anchor_rect = surface_anchor_rect(self, anchor_widget, self.overlay_layer)
+        anchor_rect = surface_anchor_rect(self, anchor_widget, self.overlay_layer)  # type: ignore[arg-type]
         natural_height = max(1, int(natural_height))
         min_scroll_height = min(
             natural_height,
@@ -213,7 +214,7 @@ class _UnifiedFlyoutLayoutMixin:
 
     def _clamp_outer_rect(self, outer_rect: QRect, *, allow_resize: bool = False) -> QRect:
         available = surface_available_rect(
-            self,
+            self,  # type: ignore[arg-type]
             self.main_window if isinstance(self.main_window, QWidget) else None,
             self.overlay_layer,
         )
@@ -229,7 +230,7 @@ class _UnifiedFlyoutLayoutMixin:
         return clamp_surface_rect(outer_rect, shadow_expanded, allow_resize=allow_resize)
 
     def _start_show_animation(self, start_pos: QPoint, end_pos: QPoint):
-        self._anim = QPropertyAnimation(self, b"pos", self)
+        self._anim = QPropertyAnimation(self, b"pos", self)  # type: ignore[call-overload]
         self._anim.setDuration(self._move_duration_ms)
         self._anim.setStartValue(start_pos)
         self._anim.setEndValue(end_pos)
@@ -292,7 +293,7 @@ class _UnifiedFlyoutLayoutMixin:
     def _calculate_ideal_geometry(
         self, anchor_widget: QWidget, panel_size: QSize, content_only=False
     ) -> QRect:
-        anchor_rect = surface_anchor_rect(self, anchor_widget, self.overlay_layer)
+        anchor_rect = surface_anchor_rect(self, anchor_widget, self.overlay_layer)  # type: ignore[arg-type]
         content_rect = QRect(
             anchor_rect.x(),
             anchor_rect.y() + anchor_rect.height() + self.SINGLE_PANEL_GAP_Y,

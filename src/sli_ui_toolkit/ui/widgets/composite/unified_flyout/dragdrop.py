@@ -1,8 +1,12 @@
 from PySide6.QtCore import QPointF
 
-from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode, logger
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
+    FlyoutMode,
+    _UnifiedFlyoutBase,
+    logger,
+)
 
-class _UnifiedFlyoutDragDropMixin:
+class _UnifiedFlyoutDragDropMixin(_UnifiedFlyoutBase):
     def can_accept_drop(self, payload: dict) -> bool:
         return self.isVisible()
 

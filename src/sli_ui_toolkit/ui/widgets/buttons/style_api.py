@@ -11,7 +11,7 @@ setProperty, setFixedSize…).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QColor, QCursor
@@ -33,7 +33,8 @@ def normalize_content_padding(
             raise ValueError(
                 f"content_padding tuple must have 4 elements (left, top, right, bottom), got {len(padding)}"
             )
-        return tuple(max(0.0, float(v)) for v in padding)
+        left, top, right, bottom = padding
+        return (max(0.0, float(left)), max(0.0, float(top)), max(0.0, float(right)), max(0.0, float(bottom)))
     value = max(0.0, float(padding))
     return (value, value, value, value)
 
@@ -47,9 +48,37 @@ def _normalize_underline_thickness(thickness: float | None) -> float | None:
 class _ButtonStyleApi:
     """Mixin: визуальные атрибуты + dynamic Qt-property dispatch."""
 
+    # Declared here only so mypy can resolve them across the mixin split —
+    # the real assignments/definitions live in Button.__init__ (button.py),
+    # the sibling _ButtonEvents mixin (events.py), or QWidget itself.
+    # Plain annotations only (no `= value`) so nothing is created at import
+    # time — Button's own MRO still supplies the real objects at runtime.
+    _show_underline: bool
+    _has_text: bool
+    _gap_px: int
+    _content_align: Qt.AlignmentFlag
+    _content_padding: tuple[float, float, float, float]
+    _background_color: QColor | None
+    _controller: Any
+    _checked: bool
+    update_region: Callable[..., None]
+    _region_by_id: Callable[[str | None], Any]
+    update: Callable[[], None]
+    setProperty: Callable[[str, Any], bool]
+    property: Callable[[str], Any]
+    setMinimumWidth: Callable[[int], None]
+    setMaximumWidth: Callable[[int], None]
+    setMinimumHeight: Callable[[int], None]
+    setMaximumHeight: Callable[[int], None]
+    minimumHeight: Callable[[], int]
+    setFixedSize: Callable[..., None]
+    updateGeometry: Callable[[], None]
+    rect: Callable[[], Any]
+    mapFromGlobal: Callable[[Any], Any]
+
     # -------- badge --------
 
-    def setBadge(self, num: int | None):
+    def setBadge(self, num: int | str | None):
         self._badge = num
         self.update()
 

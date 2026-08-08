@@ -1,11 +1,12 @@
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
     FlyoutMode,
     ListItemType,
+    _UnifiedFlyoutBase,
     current_index_for_list,
     items_for_list,
 )
 
-class _UnifiedFlyoutContentMixin:
+class _UnifiedFlyoutContentMixin(_UnifiedFlyoutBase):
     def populate(
         self,
         list_num: int,

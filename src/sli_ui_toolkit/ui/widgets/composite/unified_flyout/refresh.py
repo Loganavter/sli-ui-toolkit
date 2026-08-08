@@ -1,9 +1,10 @@
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
     FlyoutMode,
+    _UnifiedFlyoutBase,
     items_for_list,
 )
 
-class _UnifiedFlyoutRefreshMixin:
+class _UnifiedFlyoutRefreshMixin(_UnifiedFlyoutBase):
     def _do_refresh_geometry(self):
         self.refreshGeometry(immediate=True)
 

@@ -3,10 +3,13 @@ import time
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QPainter
 
-from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import FlyoutMode
+from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
+    FlyoutMode,
+    _UnifiedFlyoutBase,
+)
 from sli_ui_toolkit.ui.widgets.helpers import draw_rounded_shadow
 
-class _UnifiedFlyoutStyleMixin:
+class _UnifiedFlyoutStyleMixin(_UnifiedFlyoutBase):
     def _apply_style(self):
         if self.mode == FlyoutMode.DOUBLE:
             self._container_clip.setEnabled(False)

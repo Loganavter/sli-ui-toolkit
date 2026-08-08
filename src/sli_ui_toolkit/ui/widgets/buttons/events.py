@@ -12,9 +12,12 @@ attach_capability) получают wheel-события без хардкода
 
 from __future__ import annotations
 
+from typing import Any, Callable
+
 import shiboken6 as sip
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtWidgets import QWidget
 
 from .capabilities import LongPressCapability
 from .state import ButtonState
@@ -22,6 +25,40 @@ from .state import ButtonState
 
 class _ButtonEvents:
     """Mixin: input event handlers + click signal flow."""
+
+    # Declared here only so mypy can resolve them across the mixin split —
+    # the real assignments/definitions live in Button.__init__ (button.py),
+    # the sibling _ButtonStyleApi mixin (style_api.py), or QWidget itself.
+    # Plain annotations only (no `= value`) so nothing is created at import
+    # time — Button's own MRO still supplies the real objects at runtime.
+    _controller: Any
+    _regions: list
+    _ripple: Any
+    _capability_map: dict
+    _defer_click_ms: int | None
+    _hovered_region: str | None
+    _flyout_open: bool
+    _has_toggle: bool
+    get_capability: Callable[..., Any]
+    _sync_region_aliases: Callable[[], None]
+    _dispatch_region_behavior: Callable[..., None]
+    _resolve_ripple_colors: Callable[..., Any]
+    region_ripple: Callable[[str], Any]
+    regionClicked: Signal
+    toggled: Signal
+    shortClicked: Signal
+    rightClicked: Signal
+    released: Signal
+    clicked: Signal
+    pressed: Signal
+    middleClicked: Signal
+    regionPressed: Signal
+    regionReleased: Signal
+    regionToggled: Signal
+    shouldHandleWheelEvent: Callable[..., bool]
+    update: Callable[[], None]
+    isEnabled: Callable[[], bool]
+    rect: Callable[[], Any]
 
     # -------- hover (with HoverCoordinator contract) --------
 
@@ -78,7 +115,7 @@ class _ButtonEvents:
     def mouseMoveEvent(self, event: QMouseEvent):
         self._update_hover_region(event.position())
         from PySide6.QtWidgets import QWidget
-        QWidget.mouseMoveEvent(self, event)
+        QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
 
     # -------- mouse --------
 
@@ -102,9 +139,9 @@ class _ButtonEvents:
             if lp_cap:
                 lp_cap.on_press_start()
             if region_id is not None:
-                self.regionPressed.emit(region_id)
+                self.regionPressed.emit(region_id)  # type: ignore[call-overload]
                 if region_id == "_main":
-                    self.pressed.emit()
+                    self.pressed.emit()  # type: ignore[call-overload]
                 # Accept so nested Buttons (e.g. rating +/- on RatingListItem)
                 # do not propagate to the parent row and trigger itemSelected.
                 event.accept()
@@ -118,7 +155,7 @@ class _ButtonEvents:
                 event.accept()
                 return
         from PySide6.QtWidgets import QWidget
-        QWidget.mousePressEvent(self, event)
+        QWidget.mousePressEvent(self, event)  # type: ignore[arg-type]
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -128,9 +165,9 @@ class _ButtonEvents:
                 lp_cap.on_press_end()
             if region_id is not None:
                 self._set_region_state(region_id, ButtonState.PRESSED, False)
-                self.regionReleased.emit(region_id)
+                self.regionReleased.emit(region_id)  # type: ignore[call-overload]
                 if region_id == "_main":
-                    self.released.emit()
+                    self.released.emit()  # type: ignore[call-overload]
 
             lp_triggered = lp_cap.was_long_pressed() if lp_cap else False
             release_region = self._region_at(event.position())
@@ -145,11 +182,11 @@ class _ButtonEvents:
                 if has_toggle:
                     checked = ButtonState.CHECKED not in self._controller.states(region_id)
                     self._set_region_state(region_id, ButtonState.CHECKED, checked)
-                    self.regionToggled.emit(region_id, checked)
+                    self.regionToggled.emit(region_id, checked)  # type: ignore[call-overload]
                     linked = self._linked_region_ids(region_id)
                     if region_id == "_main" or "_main" in linked:
                         self._checked = checked
-                        self.toggled.emit(checked)
+                        self.toggled.emit(checked)  # type: ignore[call-overload]
                 if self._defer_click_ms is not None:
                     clicked_region = region_id
                     QTimer.singleShot(
@@ -158,7 +195,7 @@ class _ButtonEvents:
                     )
                 else:
                     self._dispatch_region_behavior(region_id, "click")
-                    self.regionClicked.emit(region_id)
+                    self.regionClicked.emit(region_id)  # type: ignore[call-overload]
                     if region_id == "_main":
                         self._emit_click_signals()
                         if not sip.isValid(self):
@@ -170,7 +207,7 @@ class _ButtonEvents:
 
         elif event.button() == Qt.MouseButton.RightButton:
             if self._region_at(event.position()) is not None:
-                self.rightClicked.emit()
+                self.rightClicked.emit()  # type: ignore[call-overload]
                 if not sip.isValid(self):
                     return
                 event.accept()
@@ -178,14 +215,14 @@ class _ButtonEvents:
 
         elif event.button() == Qt.MouseButton.MiddleButton:
             if self._region_at(event.position()) is not None:
-                self.middleClicked.emit()
+                self.middleClicked.emit()  # type: ignore[call-overload]
                 if not sip.isValid(self):
                     return
                 event.accept()
                 return
 
         from PySide6.QtWidgets import QWidget
-        QWidget.mouseReleaseEvent(self, event)
+        QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]
 
     def wheelEvent(self, event: QWheelEvent):
         region_id = self._region_at(event.position()) or "_main"
@@ -206,7 +243,7 @@ class _ButtonEvents:
             if cap.handle_wheel_event(event):
                 return
         from PySide6.QtWidgets import QWidget
-        return QWidget.wheelEvent(self, event)
+        return QWidget.wheelEvent(self, event)  # type: ignore[arg-type]
 
     # -------- keyboard --------
 
@@ -265,7 +302,7 @@ class _ButtonEvents:
         self._dispatch_region_behavior(region_id, "click")
         if not sip.isValid(self):
             return
-        self.regionClicked.emit(region_id)
+        self.regionClicked.emit(region_id)  # type: ignore[call-overload]
         if not sip.isValid(self):
             return
         if region_id == "_main" or "_main" in self._linked_region_ids(region_id):
@@ -282,15 +319,15 @@ class _ButtonEvents:
             if getattr(self, "_suppress_next_context_menu", False):
                 self._suppress_next_context_menu = False
             return
-        self.clicked.emit()
+        self.clicked.emit()  # type: ignore[call-overload]
         if not sip.isValid(self):
             return
-        self.shortClicked.emit()
+        self.shortClicked.emit()  # type: ignore[call-overload]
 
     # -------- enabled state --------
 
     def setEnabled(self, enabled: bool):
-        super().setEnabled(enabled)
+        QWidget.setEnabled(self, enabled)  # type: ignore[arg-type]
         if enabled:
             region_enabled = {region.id: region.enabled for region in self._regions}
             for region_id in self._controller.runtime:

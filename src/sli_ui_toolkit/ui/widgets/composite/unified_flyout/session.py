@@ -2,11 +2,12 @@ from PySide6.QtCore import QTimer
 
 from sli_ui_toolkit.config import create_rating_gesture
 from sli_ui_toolkit.ui.widgets.composite.unified_flyout.common import (
+    _UnifiedFlyoutBase,
     current_index_for_list,
     items_for_list,
 )
 
-class _UnifiedFlyoutSessionMixin:
+class _UnifiedFlyoutSessionMixin(_UnifiedFlyoutBase):
     def _schedule_structure_sync(self):
         if self.isVisible() and not getattr(self, "_is_refreshing", False):
             self.sync_from_store()
@@ -32,14 +33,14 @@ class _UnifiedFlyoutSessionMixin:
 
     def _on_item_selected(self, list_num: int, index: int):
         if self._is_simple_mode:
-            self.simple_item_chosen.emit(index)
+            self.simple_item_chosen.emit(index)  # type: ignore[call-overload]
         else:
             session_handler = self._get_session_handler()
             if session_handler is not None and hasattr(
                 session_handler, "on_combobox_changed"
             ):
                 session_handler.on_combobox_changed(list_num, index)
-            self.item_chosen.emit(list_num, index)
+            self.item_chosen.emit(list_num, index)  # type: ignore[call-overload]
         self.start_closing_animation()
 
     def _on_item_right_clicked(self, list_num, index):
