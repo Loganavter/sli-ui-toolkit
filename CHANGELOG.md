@@ -3,15 +3,312 @@
 ## Unreleased
 
 ### Added
+- **Pipe tables in document/markdown mode** — `parse_help_blocks` now
+  parses GFM-style pipe tables (``| a | b |`` rows, optional bold header
+  when the next line is a `---` separator, `\|` escapes, short rows padded)
+  into `TableBlock`; the table layout was generalized from two columns to
+  N columns with an optional header row (header cells bold, divider under
+  the header). Tables render as bordered grids with per-column dividers —
+  the same surface the app's Image Properties dialog uses. `TableBlock` is
+  now exported from `sli_ui_toolkit.ui.widgets.composite.help_document`.
+- **`IconListWidget` in-place search filtering** — `set_search_text(query)` /
+  `set_no_results_text(label)` / `IconListItem.search_texts`: rows stay built,
+  filtering toggles visibility via a ComboBox-style visible-index pool (no
+  per-keystroke widget rebuilds); matching reuses the ComboBox
+  `match_score` fuzzy scorer over pre-normalized texts. `count()`/`item()`/
+  `row_button()`/`setCurrentRow()` operate on visible rows while filtered.
+- **`SidebarDialogShell(resizable_sidebar=True)`** — draggable sidebar |
+  content splitter (`.splitter`); the configured `sidebar_width` becomes the
+  sidebar minimum.
+- **`SidebarDialogShell(sidebar_header=…)`** — optional widget (e.g. a search
+  field) pinned above the nav list; the sidebar column tracks the configured
+  width and stays visible when the nav list is collapsed. Used by the app's
+  Settings and Help in-dialog search.
+- **`TextView`** (`ui/widgets/composite/text_view/`) — unified painted text
+  rendering + editing composite (no stock Qt text widgets). Two modes on the
+  same painted surface:
+  - **Code mode** — monospace lines with Python syntax spans
+    (`python_line_spans` / `python_span_colors`: keywords use the `accent`
+    token, comments/strings/numbers/decorators/`def`-names themed) and a
+    full painted editor: caret, anchor/focus selection (double-click word /
+    triple-click line, drag extension with 4px threshold), undo stack,
+    clipboard, Tab → 4 spaces. API: `set_text`/`text`,
+    `enter_edit_mode`/`exit_edit_mode`/`editor`/`is_editing`,
+    `changed` signal.
+  - **Document mode** — controlled markdown subset (headings, bold/italic,
+    inline code, links, lists, images, figure fences) laid out with the
+    help-document engine (`QTextLayout` wrapping, tables): `set_markdown`,
+    `plain_text`, `is_document`; offset-based selection (drag, Ctrl+A/C);
+    `linkActivated(href)` / `imageActivated(path)` signals, the help image
+    lightbox opens on image click.
+  Exported from `sli_ui_toolkit.widgets` (plus `TextCanvas`,
+  `TextSelection`, `python_line_spans`, `python_span_colors` and the
+  markdown block API). See `docs/user/TEXT_VIEW_API.md` and
+  `docs/dev/TEXT_VIEW_PLAN.md`.
+- **UI inspector** (`ui/inspector/`) — DevTools-style widget inspection:
+  widgets self-describe via co-located `inspect_spec` class attributes
+  (config auto-derived from `__init__`, curated state with labels, token
+  families, Button regions/layers); `inspect_widget()` (spec → duck-typed
+  registry → generic fallback); live theme-token capture through the
+  `get_color`/`try_get_color` funnel; QSS candidate matching + dead-selector
+  analysis; `InspectorWindow` — tabbed panes (TopTabHost, closable via
+  `CloseButtonPolicy.ALL`), sidebar sections that auto-hide when empty
+  (Object/Config/State/Regions/Layers/Theme/QSS/Layout/Constructor/Code),
+  collapsible Layout/Constructor trees with hover highlighting, QSS
+  candidates with source + `[matched]`/`[dead]` markers, the `Code` section
+  on `TextView` (edit/revert/save of the widget's source file), per-region
+  overlay, selection controller. See `docs/dev/FAMILIES.md`.
+
+- `DoubleSpinBox` — float-valued `SpinBox` variant (`single_step`, `decimals`,
+  step-grid snapping, `scaled_px`-aware geometry), exported from
+  `sli_ui_toolkit.widgets`.
+- `UiScale` — process-wide interface scale factor (independent of the OS/Qt
+  display factor). `factor()` / `set_factor(value)` (clamped to 0.5–2.5),
+  `scaled_px(design)`, `scale_changed(float)`; exported from
+  `sli_ui_toolkit.managers` plus the module-level `scaled_px(...)` helper.
+  `configure_toolkit(ui_scale_factor=...)` sets it process-wide.
+- Fonts now scale: `UiFont.base_font()` / `resolve()` multiply the inherited
+  application-font size and design `pixel_size`/`point_size` by the factor;
+  `UiFont.apply()` keeps subscribed widgets in sync with `scale_changed` too.
+- Icon/corner tokens scale: `read_widget_style()` and `icon_size_qsize()`
+  return rendered px (design px × factor); `normalized_icon_pixmap()` cache
+  key includes the factor.
+- Widget geometry scales live: `CheckBox`, `Switch`, `Slider`, `SpinBox`,
+  `CustomLineEdit`, `ComboBox`, `Button` (fixed sizes + `sizeHint`), and
+  `CustomTitleBar` read constants through `scaled_px()` and re-flow on
+  `scale_changed` (`updateGeometry()` + `update()`, `ThemedWidget` idiom).
+- UI scaling is now wired into roughly 80% of the toolkit (widget geometry,
+  fonts, icons, margins/spacing through `scaled_px()`, flyout/panel sizes).
+  The remaining widgets and painter paths are still being migrated — some
+  surfaces may not fully re-flow on a live `UiScale` change yet.
+- `TimelineWidget` lane labels scale: the left-gutter track titles and
+  channel labels now resolve their painter font through `ui_font()` (like
+  the group headers and the ruler already did), so the lane names grow with
+  the UI scale instead of staying at the design size. The ruler pass also
+  restores the painter font afterwards, so the already scale-resolved ruler
+  font no longer leaks into the sticky-gutter label pass (which would have
+  multiplied the factor a second time).
+- `ProcessConsoleWidget` text scales: the console's monospace font (system
+  `FixedFont`) is re-derived with the UiScale factor applied — family kept,
+  size multiplied — and re-applied on `scale_changed`, so the log output
+  and the command input grow with the interface like every other label.
+- Context menus scale: row/separator/section-title heights, icon size,
+  paddings, the check gutter and the trailing shortcut/arrow widths are
+  now derived through `scaled_px()` (previously only the row text went
+  through `ui_font()`, so at UI scale > 1.0 the menu width lagged the
+  text and the fixed 32px row height clipped the scaled labels; the
+  section-title `sizeHint` also re-pinned its font to unscaled 11px,
+  under-sizing the whole menu). The row content layer also paints with
+  `rebase_family()` instead of `paint_font()` — the row font is already
+  scale-resolved (set by the menu's `_relayout_widths`), and `paint_font()`
+  would multiply the UiScale factor a second time, painting labels
+  ~factor² large and pushing them out of the row (the same
+  size-preserving pattern `SimpleOptionsFlyout` rows use).
+- Help-document fallback alt text (missing/malformed image) is now painted
+  with `setFont(ui_font(...))` — plain `drawText` used the raw painter
+  (design-sized) font, so placeholder labels stayed small at UI scale > 1.0.
+- New static scan test (`tests/test_text_paint_scan.py`): every function in
+  the toolkit that calls `drawText` must either call `setFont()` itself,
+  reference a scale-resolving helper (`ui_font`/`paint_font`/`rebase_family`/
+  `rebase_font`/`apply_ui_font`), or carry a documented allowance for
+  painting an already scale-resolved inherited font. It also rejects
+  `paint_font()`/`rebase_font()` inside text paint functions without an
+  explicit allowance (those multiply the factor, so they are only safe on
+  design-sized widget fonts). Allowlists are cross-checked against the live
+  source so they cannot rot. Catches both the unscaled-text and the
+  double-scaled-text failure classes in any widget, present or future.
+
+- Fade show/hide on `BaseFlyout` now hides the live container for the
+  duration of the fade. `paintEvent` composites the pre-rendered `grab()`
+  snapshot at the animated opacity, but Qt kept painting the container (all
+  content widgets) on top at *full* opacity — the panel and shadow faded
+  while the content popped in binarily. The container's own hidden-mark
+  (not `isVisible()`, which is parent-dependent and would skip the sync on
+  the very first show) is driven by `_fade_opacity`, and `_capture_fade_cache`
+  un-hides it before `grab()` so a re-show after a fade-out snapshots the
+  content too.
+
+- `toggle_submenu` re-runs `_relayout_widths()` on the freshly created
+  submenu just before showing it (same as `popup_at`/`show_aligned` do for
+  the top menu). In some hosts the constructor's `set_entries` ->
+  `_relayout_widths` pass left the new rows on the inherited design-sized
+  window font — live in Improve-ImgSLI: the tab-strip context menu's "New
+  Tab" submenu rendered at the unscaled 12pt while the parent menu rows
+  were at 24pt. The second pass reliably pins the scale-resolved UI font
+  on every row before the first paint.
+
+- Context-menu submenu indicator is now a painted chevron polygon instead
+  of the "›" text glyph: the single-arrow character is extremely narrow
+  (≈4px wide at 12pt — half the width of ">"), so it read as a tiny dot at
+  any UI scale and looked like it never scaled. The polygon is derived from
+  `scaled_px()` and stays visually comparable to the row text.
+
+### Changed
+- The help-document layout engine moved into `text_view/` as the single
+  home: `blocks.py` → `text_view/markdown.py`, plus `text_index.py`,
+  `structure.py` and `layout/` (builder, text_layout, paint, hit_test,
+  coords, segment_map, types, constants) relocated; `help_document/` keeps
+  its chrome (`canvas.py`, `view.py`, `image_lightbox.py`) and re-exports
+  the same public API unchanged.
+- The UI inspector's Code section now uses the public `TextView` (the
+  private `_CodeView`/`_CodeCanvas` and `inspector/python_highlight.py`
+  are gone).
+- `TopTabBar`/`TopTabHost` gained close buttons (`close_policy` /
+  `CloseButtonPolicy`, default `NONE`): an embedded close button per tab
+  (painted X, tab-state slot background, hover forwarded to the bar,
+  `tabCloseRequested` signal). The bar's minimum no longer forces the host
+  wider than the content (`minimumSizeHint` no longer equals `sizeHint`).
+- `HelpImageLightbox.eventFilter` is defensive against teardown events (a
+  partially-constructed lightbox no longer raises inside the event loop).
+
+### Changed (breaking)
+- The unified flyout (dual-list picker) and the rating row moved out of the
+  toolkit into the host application (Improve-ImgSLI `src/ui/widgets/`).
+  Removed from the toolkit: `UnifiedFlyout` / `UnifiedFlyoutItem` /
+  `SimpleUnifiedFlyoutStore` / `SimpleUnifiedFlyoutController` /
+  `RatingListItem` and the whole `unified_flyout` package. The generic,
+  reusable part stays as a new public widget: **`ListPanel`** +
+  **`ListRowSpec`** (scrollable multi-select list panel with marquee
+  selection, drag&drop drop indicators and a host-supplied row factory;
+  exported from `sli_ui_toolkit.widgets`). Pure multi-move list helpers
+  moved to `sli_ui_toolkit.ui.widgets.helpers.multi_move`. The demo app's
+  `flyouts_page.py` now shows a `ListPanel`-based assembly example.
+- Title-bar menus moved out of the toolkit. `TitleBarMenu` / `TitleBarMenuStrip`
+  and `CustomTitleBar.set_menu_strip` are **removed**; `TitleBarPresets.app_shell`
+  now takes `leading: QWidget | None` instead of `menus=`. `CustomTitleBar` is a
+  generic shell — hosts inject their own leading-zone widget (e.g. File/Help
+  trigger buttons) via `set_leading`/`app_shell(leading=…)` and open their own
+  dropdowns (toolkit `ContextMenu` with an explicit `surface=`) as the app
+  decides (popup vs in-window). The toolkit no longer knows about
+  `context_menu_surface` for the title bar.
+
+### Added
+- Minimal scrollbar public API trimmed to two names exported from
+  `sli_ui_toolkit.widgets`: `MINIMAL_SCROLLBAR_WIDTH` (the bar's fixed
+  width, for positioning) and `overlay_scrollbar_max_inset()` (the single
+  always-on footprint value = width + gap + margin). Gap, overlay margin,
+  thumb thicknesses and track padding are internal to the bar. The combobox
+  dropdown overlay, flyout list views and the timeline widget now read the
+  public API instead of hardcoding widths; the app-side recent-shelf grid
+  reserve (`ITEMS_MARGIN_RIGHT`) is derived from it too. The timeline's own
+  drawn footer scrollbar keeps its metrics as local named constants.
+- `OverlayScrollArea.overlay_scrollbar_inset()` now returns a single fixed
+  value — the bar's maximum width plus a small margin (was the bare bar
+  width) — so overlay-mode content never sits flush against the thumb in
+  any state (idle/hover/drag) and hosts don't chase the live thickness.
+- `measure_text_width(fm, text)` — the toolkit's text-width normalizer, now
+  public from `sli_ui_toolkit.ui.managers.ui_font` /
+  `sli_ui_toolkit.widgets` (was `_measure_text_width` in
+  `context_menu.models`, kept as a back-compat alias there):
+  `max(horizontalAdvance, boundingRect) + 8px` so panels sized from it never
+  clip painted glyphs.
+- `ButtonRow(size=None)` — render the row with the current default UI font
+  (`ui_font()`) instead of an explicit pixel size, matching the host's normal
+  text (SimpleOptionsFlyout default rows / HUD labels). Explicit pixel sizes
+  unchanged.
+- `SimpleOptionsFlyout.set_rows(rows)` — generic list fill: the composite owns
+  flyout display, long-list scrolling and sizing; hosts supply arbitrary row
+  widgets (any `QWidget`; `clicked`-bearing rows are wired to `item_selected`
+  with the row index). `populate(labels, current_index)` remains the
+  convenience path for plain single-line rows. New `rows()` accessor;
+  `row_widget(index)` now indexes installed rows. Panel sizing follows each
+  row's `sizeHint()` (variable heights supported).
+- `SimpleOptionsFlyout.set_list_padding(padding)` — host-controlled inset
+  between the panel border and the row list (`int` or `(l, t, r, b)`).
+
+### Changed
+- Grouped button fills: a `group=` whose members are all plain rects now paints
+  ONE united fill (first member paints the group rect, siblings paint nothing)
+  instead of per-region abutting fills with a hairline overlap. The old
+  approach left an antialiased seam at the split boundary (and overlap nudges
+  double-tinted it). Ripple is unaffected (it already clipped to the united
+  group rect). Groups with any `corner_radii`/`path_fn` member keep the
+  per-region fill behavior.
+- `BaseFlyout.show_aligned(..., animation="fade")` and
+  `"slide-fade"` — fade-in (opacity 0 → 1, with the existing slide for
+  `"slide-fade"`). Fade is implemented without a `QGraphicsEffect`: a one-shot
+  `grab()` snapshot taken outside `paintEvent` is composited with the
+  animation's opacity in `paintEvent` (a graphics effect on the shell would
+  conflict with the container's `RoundedClipEffect` and the shell's
+  `QPainter(self)` paintEvent on composited windows; `windowOpacity()` does not
+  apply to in-window child widgets).
+  `hide()` mirrors the show: a flyout shown with `"fade"`/`"slide-fade"`
+  fades out on close (new `FlyoutTimingConfig.flyout_fade_out_duration_ms`,
+  default 150 ms) instead of vanishing instantly; `"none"`/`"slide"` shows
+  still hide instantly, and `reposition()` does not reset the close
+  animation. Docs updated in `FLYOUT_SYSTEM.md` / `CONFIGURATION.md`; tests
+  in `tests/test_flyout_fade.py`.
+- `FlyoutTimingConfig.default_flyout_animation` — process-wide default for
+  `show_aligned(..., animation=...)` when the caller omits it (`"none"` unless
+  configured). A host sets `configure_toolkit(timings=FlyoutTimingConfig(
+  default_flyout_animation="slide-fade"))` to fade every default flyout app-wide
+  from one config value; explicit per-call `animation=` always wins.
+- `SimpleOptionsFlyout(parent_widget, animation=...)`, `IconActionFlyout(...,
+  animation=...)`, `IndexedToggleFlyout(..., animation=...)` — per-instance
+  show-animation override for the composite flyouts (takes precedence over the
+  process-wide `default_flyout_animation`, which they now also respect).
+  `SimpleOptionsFlyout.show_below`/`show_above` resolve the same mode as
+  `show_aligned` (fade / slide / slide-fade / none) instead of always sliding,
+  so a global `"fade"` default makes those dropdowns fade in place.
+- `popup_context_menu_for_anchor(..., animation=None)` and
+  `TitleBarMenuStrip`'s File/Help menus now resolve their show animation the
+  same way (explicit value → global `default_flyout_animation` → historical
+  `"slide"`), so an app-wide `"fade"` also fades title-bar / anchor context
+  menus instead of always sliding.
+- `ContextMenu.popup_at(global_pos, *, animation=None)` — cursor-positioned
+  context menus (canvas right-click, popup surface) now also resolve the
+  global animation default: with a fade-bearing mode they fade in at the
+  cursor and fade out on hide, and `aboutToHide`/`deleteLater` fire only
+  after the fade-out actually hides the menu.
+- Consolidated `CustomLineEdit`'s click-outside-clears-focus behavior onto
+  one shared `QApplication` event filter instead of one filter per
+  `CustomLineEdit` instance (`ui/widgets/helpers/editable_text.py`) —
+  same one-filter-many-widgets shape `HoverCoordinator` already uses for
+  hover. Pilot fix for item #9 in `docs/dev/API_CONSISTENCY_AUDIT.md`
+  (app-level `installEventFilter` calls scattered one-per-concern across
+  9 subsystems); the transient ones (`MarqueeBandGesture`, `ComboBox`
+  outside-click) were deliberately left alone this pass — higher risk to
+  merge, lower payoff, see the doc for why.
+- `tests/test_editable_text_outside_click.py` — regression guard for the
+  fix above: asserts every `CustomLineEdit` registers into the same
+  `_OUTSIDE_CLICK` coordinator singleton, that creating 5 instances calls
+  `QApplication.installEventFilter` for the coordinator exactly once (not
+  once per widget — the literal bug being fixed), and an end-to-end
+  `qtbot` check that click-outside-clears-focus / click-inside-keeps-it
+  still behaves correctly through the shared filter.
+- `TimelineWidget(..., accent_color=, canvas_bg=, track_bg=, grid_color=,
+  text_color=)` + matching `set_*` runtime setters, and
+  `CustomTitleBar(..., bg_color=, text_color=)` + `set_background_color`/
+  `set_title_color` — both composites previously had zero per-instance
+  color-override path (100% `ThemeManager`-token-driven), unlike
+  `CalendarWidget`/`BaseFlyout`/`Label`/`Button`, which all follow the same
+  constructor-kwarg-plus-setter shape. See item #8 in
+  `docs/dev/API_CONSISTENCY_AUDIT.md` for the full before/after and why
+  `LogConsoleWidget`/`MinimalistScrollBar`/`ToastManager.spacing`/
+  `DragDropOverlay`'s hardcoded `close_on_*` were left alone this pass.
 - `docs/dev/API_CONSISTENCY_AUDIT.md` — review of 7 public-API consistency
   issues found while writing the per-widget docs, with a done/proposed/
   no-action status per item. Linked from `docs/dev/README.md` and
-  `docs/dev/ROADMAP.md`. Includes an honest follow-up finding: a stock
-  `mypy` run against the newly-`py.typed`-marked package (see below) finds
-  562 errors across 66/202 files — mostly internal `ui/` Optional-attribute
-  noise, but 23 in the public `i18n.py` (`TranslationManager` attribute
-  typing). `py.typed` is kept (PEP 561 doesn't require zero errors), but
-  the gap is now tracked instead of silently assumed clean.
+  `docs/dev/ROADMAP.md`. Includes a follow-up finding: a stock `mypy` run
+  against the newly-`py.typed`-marked package (see below) found 562 errors
+  across 66/202 files — mostly internal `ui/` Optional-attribute noise, but
+  23 in the public `i18n.py` (`TranslationManager` attribute typing). Those
+  562 errors are now fixed (0 remaining across all 201 source files), and
+  `mypy` runs in CI on every push/PR (`.github/workflows/ci.yml`) so the
+  count can't silently regress. `mypy`, `PySide6-stubs`, and `types-Markdown`
+  are new `dev` extras; run `mypy src/sli_ui_toolkit` locally to reproduce
+  the CI check. Remaining PySide6-stubs gaps (`shiboken6.isValid`, `QRhi*`
+  fields/overloads — the stub package lags current PySide6 releases) are
+  suppressed with narrowly-scoped `# type: ignore[<code>]` comments rather
+  than broad ignores.
+- `sli_ui_toolkit.config.reset_toolkit_config()` — resets every
+  `configure_toolkit`-settable value (timings, overlay resolver, rating
+  gesture factory, drag-drop service getter, context menu surface, ripple
+  duration, click deferral, underline fade) back to library defaults in one
+  call. Exported from the top-level `sli_ui_toolkit` package. Intended for
+  test isolation, since `configure_toolkit` state is process-wide;
+  `tests/conftest.py` now calls it in an autouse fixture around every test
+  instead of the previous ad hoc, partial per-file save/restore.
 - `tests/test_config_callback_errors.py` — asserts the new `config.py`
   logging (below) actually fires with `exc_info` on each of the three
   failure paths, and stays silent when the host callback succeeds.
@@ -82,6 +379,64 @@
   `overlay_resolver`/`rating_gesture_factory`/`dragdrop_service_getter`
   used to degrade silently to "no overlay"/etc. with nothing in the logs
   explaining why.
+- `attach_in_window_widget` no longer re-parents a flyout into an overlay
+  host that lives in a *different top-level window* than its anchor.
+  Host overlay resolvers typically walk up the QObject chain, so a flyout
+  anchored inside a dialog whose QObject parent is the main window used to
+  be re-parented to the main window's overlay layer — and Qt paints that
+  child *under* the dialog, making the flyout invisible (only the part
+  sticking out past the dialog edge showed up, looking like a stray popup
+  in the host window's corner). In-window flyouts now keep the same
+  invariant the combo dropdown always had: a plain child of the anchor's
+  own window. Found via ImgSLI's slider value hint in the Settings dialog.
+- Fenced code blocks in document mode (`TextView.set_markdown` / help
+  pages / UI-inspector text views) now paint their rounded background box
+  exactly once per block instead of once per line fragment. Every line of a
+  block shares the same `code_box`, and the `help.code.background` token is
+  semi-transparent — the repeated strokes accumulated alpha, so a block's
+  shade depended on how many lines it had (1-line blocks nearly
+  indistinguishable from the page background, long blocks dark).
+- Text selection is now ONE shared system (`text_view/selection.py`:
+  `SelectionState` core + `TextSelection`/`DocumentSelection` bindings)
+  used by code mode, document mode AND the help-document canvas — the
+  multi-click chain, drag threshold and extend logic were triplicated
+  with divergent behavior. Document mode gained the same multi-click
+  selection as code mode (double-click word, triple-click paragraph/
+  segment, drag extends word-/segment-wise), so the UI inspector's Docs
+  and Code sections select text identically; the help canvas's 4th-rapid-
+  click now starts a fresh chain like everywhere else. Triple-click inside
+  a fenced code block now selects the current line (like the code editor)
+  instead of the whole fence — a code block is one text-index segment, and
+  `segment_bounds_at_offset` resolves multi-line segments to the line at
+  the offset.
+- Code-mode multi-click chain: the same-spot test now runs in widget
+  PIXELS (Qt's double-click distance), not in `(line, col)` space — a
+  click on line 2 followed by a click on line 1 used to count as a
+  double-click and select a word instead of moving the caret.
+- The text caret is hidden while a selection is active (it used to ride
+  inside the selected range during a drag and blink on top of the
+  highlight); it reappears when the selection is cleared.
+- Line-mode selection dragged UP no longer drops the top line: the
+  normalized interval put the focus line at its END, so the top boundary
+  painted empty and the selection was one line short of the drag
+  position. Both boundary lines are now kept whole (keyboard Shift+
+  arrow column edges are untouched).
+- `TextView` no longer expands to a fixed content-derived size: the canvas
+  pins its content height as a MINIMUM and `widgetResizable(True)` makes
+  the scroll area stretch it to the viewport (the view flexes with the
+  window; long content scrolls internally). The document layout now always
+  recomputes at the real canvas width — a pane rendered while the window
+  is hidden (e.g. the inspector's first Docs section) could previously
+  stay laid out at a stale 1px width, producing an absurdly tall column
+  instead of wrapped text. The inspector's Code section keeps filling the
+  page (the editor now stretches in its page layout instead of relying on
+  the canvas's old fixed-height sizeHint; the height clamp is unchanged),
+  so both the Code and Docs areas follow the window and scroll internally.
+- `ui/inspector/code/__init__.py` is now a thin package init: the
+  `CodeSectionEditor` implementation moved to `code/editor.py` (the
+  package previously carried ~830 lines of implementation in its
+  `__init__.py`; the public imports `CodeSectionEditor` /
+  `build_code_section` are unchanged).
 
 ### Changed
 - `show_aligned(..., offset=N)`: any `N < SHADOW_RADIUS` (default 8) was
@@ -458,6 +813,190 @@
   area (rather than via `setWidget` + a Qt layout) reserve exactly the live
   clearance instead of hardcoding a guess at the bar's width that wastes
   space whenever there's nothing to scroll.
+
+### Added
+- `TextView.set_line_number_start(n)` — VS Code-style line-number gutter:
+  right-aligned muted numbers (starting at `n`, e.g. the class's line in
+  its source file so the gutter matches the actual file) plus a thin
+  separator; text, selection, caret and hit-testing shift by the gutter
+  width. `None` (default) disables it. Code mode only — document mode never
+  shows the gutter. Exposed on both `TextView` and its painted `TextCanvas`.
+- UI inspector Code section — ONE unified editable `TextView` (styled like
+  the app's recent-projects shelf: a rounded panel well behind the text,
+  `variant="default"` toggle button) containing the generated
+  **Configuration (live values)** snippet (a synthetic constructor call
+  built from `WidgetInspection.config` — enums render as `Type.MEMBER`,
+  colors as hex, `REF` child widgets as `Type(...)` placeholders, nested
+  field blocks as dicts) followed by the widget class source. Any other
+  code in the source file is collapsed into a plain gap row (`·····`);
+  clicking the row expands that region inline, clicking again collapses
+  it. VS Code-style folding display: the gap row's gutter shows the last
+  line number before the hidden block and the next row its real number
+  right after (e.g. `12` then immediately `17`), a disclosure arrow (`▸`)
+  sits in the gutter left of the gap row's number, and the synthetic
+  config snippet is marked with a dot (`·`) instead of a line number so
+  the file counter never restarts below it. The gutter width (numbers + a
+  constant arrow slot) is identical across compact/expanded/full so the
+  content's left offset never moves. The **Full/Compact** button
+  (top-left) expands/collapses everything at once and flips its own
+  label. **Preview** compiles the edited class and constructs a live
+  instance (the current config values become the constructor kwargs;
+  non-reconstructable values like `REF` placeholders are skipped, and
+  REQUIRED args the widget does not store as attributes — e.g.
+  AdaptiveTabStrip's `add_icon`/`close_icon` — are filled with `None` so
+  the preview still builds; the required-arg resolution walks the MRO, so
+  forwarding subclasses (`__init__(self, *args, **kwargs)`) cannot hide
+  the real parameters) in a panel below the editor; while open, it
+  re-builds on every edit (debounced 300ms), so the effect of a change is
+  visible before saving — compile/construct errors are shown in the panel
+  (with the exact attempted constructor call) instead of crashing.
+  **Apply** hot-patches the LIVE widget class in place (the edited class
+  region's methods/attributes are copied onto the real class — the actual
+  widget changes where it sits, same instance, host wiring intact, all
+  instances of that class affected — and repaints); **Revert** restores
+  the snapshot of the original class taken when the inspection opened.
+  Every Apply/Preview result is reported in the preview panel (auto-opened
+  on failure so nothing is silent) with a debug line: the compiled class,
+  the resolved constructor signature, the kwargs used and the skipped
+  values. Config-snippet kwarg extraction now resolves module-level names
+  through the widget's module namespace (e.g.
+  `CloseButtonPolicy.ALL_WHEN_FIT_ELSE_CURRENT`), so enum-valued config
+  no longer silently drops out of the preview construction.
+- Fixed: `FlyoutFadeController.start_hide_fade` now clears the flyout's
+  `_show_animation` reference after stopping the show animation — a
+  lingering reference pointed at the `deleteLater`-ed C++ animation and
+  crashed the next hide (RuntimeError: Internal C++ object already
+  deleted) in rapid show/hide/reposition cycles (slider-hint style). The
+  gutter numbers the actual file lines (starting at the class statement;
+  the snippet is 1-based). `Save` reconstructs the whole file with the
+  edited class region — the snippet and gap rows are never written to
+  disk.
+- `TextView.set_line_number_map(mapping)` — explicit per-display-line
+  gutter text (for collapsed-gap views; lines missing from the map fall
+  back to `start + index`), `TextCanvas.set_fold_lines(lines)` (gutter
+  disclosure arrows for collapsed rows, left of the line number; an empty
+  set keeps a constant arrow slot reserved, `None` disables it — the
+  content never shifts between states), `TextCanvas.line_at(y)` (display
+  line for a widget-space y — click targeting) and `TextView.canvas()`
+  (the painted surface, for event filters). `TextView.set_panel_fill(color)` paints a
+  rounded panel well behind the text (viewport fill clipped to the frame
+  radius — the recent-projects shelf look); `None` restores the page
+  background.
+
+### Changed
+- Large widget families were decomposed into folders, one concern per
+  module (the `buttons/` folder is the model; all old module paths stay as
+  thin re-export shims, the public API is unchanged):
+  - `base_flyout.py` → `ui/widgets/composite/base_flyout/`: `widget.py`
+    (thin facade), pure placement math in `geometry.py`, fade machinery in
+    `animation.py`, style/builder/placement/lifecycle/manager-contract
+    modules.
+  - `ui/windows/custom_title_bar.py` → `ui/windows/custom_title_bar/`:
+    zones/balance in `zones.py`, `window_controls.py`, `drag.py`,
+    `appearance.py`, thin `widget.py`.
+  - `ui/inspector/view.py` → section rendering in `rendering.py`, the Code
+    section in `code.py`, Layout/Constructor trees in `tree.py`, value
+    formatting in `fields.py`, plus a thin `view.py` (`InspectorWindow` +
+    `_InspectionPane`).
+  - `ui/widgets/composite/adaptive_tab_strip/widget.py` → `widget.py`
+    (thin host), `tab_bar.py` (the painted bar), `close_button.py` (close
+    slot + policy + tab-background layer).
+  - `ui/widgets/composite/list_panel.py` → `ui/widgets/composite/list_panel/`:
+    `widget.py` (facade), `rows.py`, `drag_drop.py`, `selection.py`.
+  - `ui/widgets/composite/sidebar_nav_list.py` →
+    `ui/widgets/composite/sidebar_nav_list/`: `widget.py` (facade),
+    `rows.py`, `icons.py`, `debug.py`.
+  - `ui/widgets/composite/toast.py` → `ui/widgets/composite/toast/`:
+    `progress_bar.py`, `notification.py`, `manager.py`.
+  - `ui/widgets/composite/text_view/canvas.py` → the document-mode
+    interaction moved to `document_mode.py`.
+- The mixin splits were further decoupled into state-owning objects and
+  pure functions with explicit inputs (no shared instance namespace):
+  - `list_panel`: `MarqueeSelectionModel` owns the selection set and
+    band-preview semantics; `drop_target_index()` / `should_hide_indicator()`
+    are pure geometry/decision functions; item/position transforms are pure
+    in `rows.py`. All testable without a widget.
+  - `sidebar_nav_list`: icon resolution (pixmap pairs, invert/replace
+    tinting, selected color) is pure in `icons.py`; the layout debug dump is
+    module functions taking the widget explicitly.
+  - `text_view`: `DocumentSelection` owns the document-mode selection/press/
+    drag state (widget-free); the canvas only delegates and repaints.
+  - `base_flyout`: `FlyoutFadeController` owns ALL fade state (snapshot
+    cache, opacity, hide-fade animation, flags); the widget only references
+    it and passes itself explicitly where the controller must touch it
+    (grab/update/hide children). Subclasses' show paths
+    (ContextMenu/SimpleOptionsFlyout) use the same controller API.
+  - `custom_title_bar`: the min/max/close buttons are now a real
+    self-contained child widget `WindowControlsCluster` — it owns its
+    buttons, deterministic-slot geometry, scaling and window-state icon
+    refresh; the bar wires signals and keeps the corner mask + flyout sweep.
+  - `inspector`: the Code section is a self-contained `CodeSectionEditor`
+    widget (source view, config view, Edit/Revert/Save, dirty tracking);
+    the pane keeps thin compatibility properties for the old private
+    attribute names.
+
+### Fixed
+- `IconListWidget` content shifted sideways when the vertical scrollbar
+  appeared/disappeared (the `ScrollBarAsNeeded` platform bar shrank the
+  viewport, reflowing the rows). The nav list now uses `OverlayScrollArea`
+  with `reserve_scrollbar_space=False`: a floating minimal scrollbar that
+  takes no layout space, so the content width never changes. The bar paints
+  nothing when there is nothing to scroll.
+  `enable_minimal_scrollbar()` is now a no-op (kept for API compatibility —
+  the floating bar is always in use).
+- CSD windows could show a rectangular corner inside the rounded
+  silhouette: the window's transparent corner zone stayed transparent only
+  while no opaque child painted its square corners over it, and that
+  contract was implicit (the UI inspector's `TopTabPane` left square
+  bottom corners in the rounded window). `sync_csd_chrome` now enforces it
+  systematically — `_mask_edge_hosts` masks every direct child that reaches
+  a rounded corner zone (bottom → `apply_bottom_rounded_mask`, top →
+  `apply_top_rounded_mask`, both → `apply_rounded_window_mask`; the title
+  bar and the background layer are skipped because they paint the AA
+  silhouette themselves). Hosts no longer need per-window masking code.
+- UI inspector: section pages (and their scroll areas/content) could stay
+  at their creation size (640×480) while the window grew or shrank —
+  `_InspectionPane` now forces the current page to the stack's size on
+  every stack resize, so the content always follows the window.
+- UI inspector: REF rows could wedge the section content wider than the
+  scroll viewport — the button text was the raw `str(widget)`
+  (`"<PySide6.QtWidgets.X object at 0x...>"`, ~560 px). REF buttons now
+  show `ClassName#objectName`, are bounded with elide (full repr in the
+  tooltip), and value/title labels elide.
+- UI inspector: the source/docs path buttons did not resize with the
+  window; they now use the `text_fit` Button mode (below) and show the
+  full path with a marquee when it overflows.
+
+### Added
+- `Button(text_fit=True)` — grow-to-content sizing for text/rows buttons:
+  `sizeHint` tracks the parent row's available width (margins + preceding
+  siblings) capped at the full text width, `minimumSizeHint` stays tiny so
+  a scroll content can always shrink the button. Pair with a trailing
+  `addStretch(1)` in the row (a stretch/Expanding item right-anchors its
+  widget in Qt) and a row `marquee=True` for overflowing text.
+- `Button` size hints are now rows-aware: a `rows=[ButtonRow(...)]` button
+  reports the widest row's text width (measured with each row's own paint
+  font) instead of the fixed (36, 36) — `text=` and `rows=` size alike.
+- Markdown document mode (help/`TextView`): headings now render on a
+  strictly decreasing font scale (`#` 26px → `######` 13px, design px) —
+  previously `#`/`##` shared one size and `###`…`######` another. Fenced
+  code blocks now render as a shaded rounded box (the long-unused
+  `help.code.background` token) with the text inset and the fence language
+  label in the box header, instead of bare monospace paragraphs.
+- Markdown document mode: fenced code blocks lost their line breaks —
+  `QTextLayout` treats `\n` as a soft break, so without forced wrapping the
+  whole block collapsed into one line. Segment layout now splits on `\n`
+  (one fragment per line; blank lines reserve the font's line height), and
+  inline `` `code` `` spans get the monospace font **and** the
+  `help.code.background` tint instead of a bare font-family change.
+- Markdown document mode: code text could disappear or render with
+  mismatched backgrounds — two stacked PySide6 `QTextLayout` traps:
+  `FormatRange.format` holds a *reference* to the `QTextCharFormat`'s C++
+  object (the layout draws dangling formats once the Python wrapper is
+  collected — formats are now kept alive for the layout's lifetime), and a
+  second `setFormats` on an already-laid-out layout silently breaks its
+  drawing. Fence blocks no longer set a per-character tint at all (the box
+  is their background) instead of stripping it after layout.
 
 ## 3.1.12
 

@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import CloseButtonPolicy
 from sli_ui_toolkit.ui.widgets.composite.top_tab_bar import chrome as pane_chrome
 from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.bar import TopTabBar
 from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.constants import (
@@ -34,6 +35,9 @@ class TopTabHost(QWidget):
     """Folder-tab host: ``TopTabBar`` + bordered content stack (QTabWidget-ish)."""
 
     currentChanged = Signal(int)
+    #: emitted when a tab's close (X) region is clicked — hosts decide what
+    #: to do (typically ``removeTab``); disabled by default (``NONE``).
+    tabCloseRequested = Signal(int)
 
     def __init__(
         self,
@@ -42,6 +46,7 @@ class TopTabHost(QWidget):
         tab_height: int = 32,
         pane_radius: int | tuple[int, int, int, int] = DEFAULT_PANE_RADIUS,
         expand_tabs: bool = False,
+        close_policy: CloseButtonPolicy = CloseButtonPolicy.NONE,
     ) -> None:
         super().__init__(parent)
         self._pane_radii = _normalize_pane_radii(pane_radius)
@@ -66,9 +71,11 @@ class TopTabHost(QWidget):
             expand_tabs=expand_tabs,
             show_indicator=False,
             corner_radius=DEFAULT_TAB_RADIUS,
+            close_policy=close_policy,
         )
         self.tab_bar.setObjectName("TopTabBar")
         root.addWidget(self.tab_bar)
+        self.tab_bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
 
         self._pane = TopTabPane(self)
         pane_layout = QVBoxLayout(self._pane)

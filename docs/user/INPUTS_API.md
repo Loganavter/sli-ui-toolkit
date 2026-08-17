@@ -143,6 +143,26 @@ area.set_reserve_scrollbar_space(False)  # bar floats over content instead of re
 inset = area.overlay_scrollbar_inset()   # px content should leave clear when space isn't reserved
 ```
 
+`overlay_scrollbar_inset()` is a single fixed value — the bar's maximum
+width plus a small margin — so content never sits flush against the thumb in
+any state, and hosts don't have to chase the idle/hover/drag thickness. It
+returns `0` when nothing overflows (or when `reserve_scrollbar_space` is on,
+since the bar then gets its own viewport margin).
+
+The scrollbar's public API is deliberately small:
+
+- `overlay_scrollbar_max_inset()` — the always-on static estimate
+  (bar width + gap + margin) for callers that must reserve space before the
+  bar's visibility is known (column counting that also determines overflow),
+  or when no live `OverlayScrollArea` instance is available.
+- `MINIMAL_SCROLLBAR_WIDTH` — the bar's fixed widget width, for positioning
+  the bar itself. Gap, margin, thumb thicknesses and track padding are
+  internal to the bar.
+
+Widgets that lay out around a `MinimalistScrollBar` — combobox dropdown
+overlays, flyout list views, the timeline widget — read these instead of
+hardcoding widths.
+
 ## Other Atomic
 
 | Widget | Description |

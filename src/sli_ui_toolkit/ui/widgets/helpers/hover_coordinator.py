@@ -28,7 +28,7 @@ def _is_alive(widget: QWidget | None) -> bool:
     if widget is None:
         return False
     try:
-        return bool(shiboken6.isValid(widget))
+        return bool(shiboken6.isValid(widget))  # type: ignore[attr-defined]
     except Exception:
         return False
 

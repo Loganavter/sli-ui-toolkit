@@ -2,25 +2,7 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
 from sli_ui_toolkit import config
-
-
-@pytest.fixture(autouse=True)
-def _reset_config_globals():
-    """configure_toolkit-set globals are process-wide; isolate each test."""
-    saved = (
-        config._overlay_resolver,
-        config._rating_gesture_factory,
-        config._dragdrop_service_getter,
-    )
-    yield
-    (
-        config._overlay_resolver,
-        config._rating_gesture_factory,
-        config._dragdrop_service_getter,
-    ) = saved
 
 
 def test_resolve_overlay_layer_logs_and_falls_back_on_error(caplog):

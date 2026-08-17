@@ -27,7 +27,7 @@ Exports:
 - `get_log_directory`, `get_unique_filepath`, `resource_path`
 - `setup_logging`, `setup_simple_logging`
 - `install_application_tooltips`, `set_application_tooltips_enabled`, `application_tooltips_enabled`
-- `CustomTitleBar`, `TitleBarMenu`, `TitleBarMenuStrip`, `TitleBarPresets`
+- `CustomTitleBar`, `TitleBarPresets`
 - `WindowChrome`, `WindowChromeConfig`, `WindowControlsConfig`
 - `decorate_dialog`, `apply_frameless`, `set_frameless_runtime`
 - Popup menus: `ContextMenu`, `popup_context_menu_for_anchor`, `entries_from_labeled_data` — see **ContextMenu** in widgets catalog
@@ -301,6 +301,7 @@ setters for every widget below: **[INPUTS_API.md](INPUTS_API.md)**.
 | `CheckBox` / `RadioButton` | Custom-painted checkbox/radio. |
 | `Slider` | Custom-painted slider with accent track and optional custom track painter. |
 | `SpinBox` | Custom-painted compact spinbox. |
+| `DoubleSpinBox` | Float-valued `SpinBox` variant — `single_step`/`decimals` for display formatting, values snap to the step grid, scale-aware like `SpinBox`. |
 | `Switch` | Custom-painted toggle switch. |
 | `ComboBox` / `ScrollableComboBox` | Custom-painted combo box family. |
 | `TimeLineEdit` | Compact toolkit-painted `HH:mm` input. |
@@ -330,7 +331,7 @@ tabs. Full constructor options and behavior: **[TABS_API.md](TABS_API.md)**.
 | `SimpleOptionsFlyout` | Flyout displaying a list of clickable text options. |
 | `IconActionFlyout` / `IconAction` | Customizable horizontal flyout for icon action buttons. |
 | `IndexedToggleFlyout` | Flyout with numbered toggle slots (show/hide per instance). |
-| `UnifiedFlyout` | Full-featured dual-pane overlay list with drag-drop reordering, session management, animated open/close. Import: `sli_ui_toolkit.ui.widgets.composite.unified_flyout`. |
+| `ListPanel` | Generic scrollable multi-select list panel (marquee selection, drag&drop indicators); rows via a host row factory. Import: `sli_ui_toolkit.widgets`. |
 
 `BaseFlyout.show_aligned(anchor_widget, anchor_point="bottom-center", flyout_point="top-center", ...)`
 aligns a named point on the anchor to a named point on the flyout. Point strings
@@ -347,10 +348,11 @@ viewers — constructor options and a full wiring example:
 
 | Widget | Description |
 |--------|-------------|
-| `SidebarDialogShell` / `ScrollableDialogPage` | Sidebar + stacked pages dialog container, and a ready-made scrollable content page. |
-| `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. |
+| `SidebarDialogShell` / `ScrollableDialogPage` | Sidebar + stacked pages dialog container (`sidebar_header=` pins a widget above the nav list), and a ready-made scrollable content page. |
+| `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells — in-place search filtering (`set_search_text`, ComboBox-style visible-index pool, no per-keystroke rebuilds; `search_texts` for cross-language haystacks). |
 | `MarkdownHelpDialog` / `MarkdownHelpSection` | Markdown→HTML help dialog (`QTextBrowser`) with anchors, TOC, and `help://slug#anchor` navigation. |
 | `HelpDocumentView` | Native widget-tree help page renderer (controlled markdown subset, figures, kbd, links). |
+| `TextView` | Painted text rendering + editing composite (code mode with Python syntax spans, no stock Qt text widgets). |
 
 ### Console, Logging & Notifications
 
@@ -399,7 +401,7 @@ Row widgets meant to be dropped into a host-owned list/flyout, imported from
 
 | Widget | Description |
 |--------|-------------|
-| `RatingListItem` | Star-rating list item with interactive hover and click. |
+| `EditableListItem` | Row with inline-editable text, an optional checkbox, and a delete button. |
 | `EditableListItem` | Row with inline-editable text, an optional checkbox, and a delete button. |
 
 ---
@@ -447,6 +449,8 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 | Name | Description |
 |------|-------------|
 | `ThemeManager` | Palette + QSS theme application singleton. `set_theme` batches top-level updates across apply + `theme_changed`; `suspend_widget_updates()` is available for nested wrappers. |
+| `UiFont` | Process-wide UI typeface resolver. `resolve(pixel_size=..., point_size=...)` takes **design px** — the current `UiScale` factor is applied exactly once inside; `apply(widget, ...)` keeps the widget in sync with both `font_changed` and `scale_changed`. |
+| `UiScale` | Process-wide interface scale factor. `factor()` / `set_factor(value)` (clamped to 0.5–2.5), `scaled_px(design)` → rendered px (`max(1, round(design * factor))`), `scale_changed(float)` signal. Widgets subscribe to `scale_changed` → `updateGeometry()` + `update()` (same idiom as `ThemedWidget`) for live reflow. Also exported as the module-level `scaled_px(...)` helper. |
 | `FlyoutManager` | Ensures only one registered flyout is active at a time. |
 | `DelayedActionTimer` | Single-shot delayed callback wrapper. |
 | `SettleGate` | Restartable quiet-period gate with optional per-pulse work (resize: cheap refit + deferred heavy pass). |
@@ -494,7 +498,7 @@ reference:
 
 | Function | Module | Description |
 |----------|--------|-------------|
-| `configure_toolkit(timings=..., overlay_resolver=..., dragdrop_service=..., ripple_duration_ms=..., default_defer_click=...)` | `sli_ui_toolkit.config` | Overlay layer resolution, drag-drop, timing constants, button ripple duration + default click deferral. |
+| `configure_toolkit(timings=..., overlay_resolver=..., dragdrop_service=..., ripple_duration_ms=..., default_defer_click=..., ui_scale_factor=...)` | `sli_ui_toolkit.config` | Overlay layer resolution, drag-drop, timing constants, button ripple duration + default click deferral, interface scale factor. |
 | `set_ripple_duration_ms(ms)` / `get_ripple_duration_ms()` | `sli_ui_toolkit` / `widgets` | Process-wide Material ripple length (keeps `RippleEffect.DURATION_MS` in sync). |
 | `set_default_defer_click(value)` / `get_default_defer_click()` | `sli_ui_toolkit` / `widgets` | Process-wide default for `Button(defer_click=None)`. Use `DEFER_CLICK_AWAIT_RIPPLE` to await the system ripple. |
 | `configure_icon_resolver(resolver=..., named_icons=...)` | `sli_ui_toolkit.icons` | Icon resolution strategy. |

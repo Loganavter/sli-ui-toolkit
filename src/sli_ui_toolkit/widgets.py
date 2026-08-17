@@ -1,4 +1,5 @@
 from sli_ui_toolkit.ui.widgets.atomic import (
+    MINIMAL_SCROLLBAR_WIDTH,
     ButtonPainter,
     CheckBox,
     ComboBox,
@@ -17,9 +18,11 @@ from sli_ui_toolkit.ui.widgets.atomic import (
     ScrollableComboBox,
     Slider,
     SpinBox,
+    DoubleSpinBox,
     Switch,
     TimeLineEdit,
     get_label_variant,
+    overlay_scrollbar_max_inset,
     register_label_variant,
 )
 from sli_ui_toolkit.ui.widgets.buttons import (
@@ -62,6 +65,9 @@ from sli_ui_toolkit.ui.widgets.buttons import (
     set_ripple_duration_ms,
 )
 from sli_ui_toolkit.ui.widgets.composite import (
+    TextView,
+    python_line_spans,
+    python_span_colors,
     AdaptiveTabStrip,
     BaseFlyout,
     CloseButtonPolicy,
@@ -73,6 +79,7 @@ from sli_ui_toolkit.ui.widgets.composite import (
     ContextMenuSeparator,
     entries_from_callbacks,
     entries_from_labeled_data,
+    measure_text_width,
     popup_context_menu_for_anchor,
     IconAction,
     IconActionFlyout,
@@ -92,6 +99,8 @@ from sli_ui_toolkit.ui.widgets.composite import (
     SidebarDialogShell,
     SimpleOptionsFlyout,
     CalendarDayButton,
+    ListPanel,
+    ListRowSpec,
     CalendarDayInfo,
     CalendarMonthInfo,
     CalendarViewModel,
@@ -106,10 +115,6 @@ from sli_ui_toolkit.ui.widgets.composite import (
     ToastManager,
     ToastNotification,
     ToastProgressBar,
-    UnifiedFlyout,
-    UnifiedFlyoutItem,
-    SimpleUnifiedFlyoutStore,
-    SimpleUnifiedFlyoutController,
     show_context_menu,
 )
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import (
@@ -124,10 +129,7 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     draw_bottom_underline,
     draw_rounded_shadow,
 )
-from sli_ui_toolkit.ui.widgets.list_items import (
-    EditableListItem,
-    RatingListItem,
-)
+from sli_ui_toolkit.ui.widgets.list_items import EditableListItem
 from sli_ui_toolkit.ui.widgets.overlays import (
     DragDropOverlay,
     MarqueeBandGesture,
@@ -138,6 +140,13 @@ from sli_ui_toolkit.ui.widgets.overlays import (
     map_content_rect_to_window,
 )
 from sli_ui_toolkit.ui.widgets.themed import ThemedWidget
+from sli_ui_toolkit.ui.widgets.virtual_list import (
+    MeasuredHeights,
+    RowPool,
+    VirtualListController,
+    max_scroll_px,
+    visible_window,
+)
 from sli_ui_toolkit.ui.widgets.helpers import (
     apply_marquee,
     draw_marquee_text,
@@ -207,20 +216,26 @@ __all__ = [
     "ContextMenuSeparator",
     "entries_from_callbacks",
     "entries_from_labeled_data",
+    "measure_text_width",
     "popup_context_menu_for_anchor",
     "CustomGroupBuilder",
     "CustomGroupWidget",
     "CustomLineEdit",
     "DropZoneLabel",
     "EditableListItem",
-    "RatingListItem",
     "CheckBox",
     "ComboBox",
     "RadioButton",
     "Slider",
     "SpinBox",
+    "DoubleSpinBox",
     "Switch",
     "Label",
+    "MeasuredHeights",
+    "RowPool",
+    "VirtualListController",
+    "max_scroll_px",
+    "visible_window",
     "LabelConfig",
     "LabelVariantSpec",
     "MarqueeDriver",
@@ -235,6 +250,9 @@ __all__ = [
     "TopTabItem",
     "IndexedToggleFlyout",
     "HelpDocumentView",
+    "TextView",
+    "python_line_spans",
+    "python_span_colors",
     "MarkdownHelpDialog",
     "MarkdownHelpSection",
     "LoadingSpinner",
@@ -244,9 +262,13 @@ __all__ = [
     "ProcessConsoleWidget",
     "MinimalistScrollBar",
     "OverlayScrollArea",
+    "MINIMAL_SCROLLBAR_WIDTH",
+    "overlay_scrollbar_max_inset",
     "ScrollableComboBox",
     "ScrollableDialogPage",
     "SimpleOptionsFlyout",
+    "ListPanel",
+    "ListRowSpec",
     "SidebarDialogShell",
     "TimeLineEdit",
     "get_label_variant",
@@ -266,10 +288,6 @@ __all__ = [
     "ToastManager",
     "ToastNotification",
     "ToastProgressBar",
-    "UnifiedFlyout",
-    "UnifiedFlyoutItem",
-    "SimpleUnifiedFlyoutStore",
-    "SimpleUnifiedFlyoutController",
     "application_tooltips_enabled",
     "install_application_tooltips",
     "set_application_tooltips_enabled",

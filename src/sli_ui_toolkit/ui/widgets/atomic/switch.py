@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, Property, Signal
 from PySide6.QtGui import QBrush, QColor, QCursor, QFontMetrics, QPainter, QPen
@@ -6,6 +7,8 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.i18n import get_current_language, tr, translation_events
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 class Switch(QWidget):
@@ -50,6 +53,14 @@ class Switch(QWidget):
 
         self._theme.theme_changed.connect(self.update)
         register_hover_widget(self)
+        # State text (On/Off) is painted natively with widget.font(); pin the
+        # scaled UI face and re-resolve on font_changed / scale_changed.
+        apply_ui_font(self)
+        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+
+    def on_scale_changed(self, _factor: float) -> None:
+        self.updateGeometry()
+        self.update()
 
     def get_progress(self) -> float:
         return self._progress
@@ -135,15 +146,15 @@ class Switch(QWidget):
             return fallback
 
     def sizeHint(self) -> QSize:
-        base_w = self.TRACK_WIDTH
-        base_h = self.TRACK_HEIGHT
+        base_w = scaled_px(self.TRACK_WIDTH)
+        base_h = scaled_px(self.TRACK_HEIGHT)
         if self._show_text:
             fm = QFontMetrics(self.font())
             text_w = max(
                 fm.horizontalAdvance(self._on_text),
                 fm.horizontalAdvance(self._off_text),
             )
-            base_w += self.TEXT_SPACING + text_w
+            base_w += scaled_px(self.TEXT_SPACING) + text_w
 
             base_h = max(base_h, fm.height())
         return QSize(base_w, base_h)
@@ -221,8 +232,8 @@ class Switch(QWidget):
         fm = QFontMetrics(self.font())
         text = self._on_text if self._checked else self._off_text
         text_w = fm.horizontalAdvance(text) if self._show_text else 0
-        track_w = self.TRACK_WIDTH
-        track_h = self.TRACK_HEIGHT
+        track_w = scaled_px(self.TRACK_WIDTH)
+        track_h = scaled_px(self.TRACK_HEIGHT)
         track_rect = QRectF(0, (h - track_h) / 2.0, float(track_w), float(track_h))
         radius = track_rect.height() / 2.0
 
@@ -244,9 +255,9 @@ class Switch(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(track_rect.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
 
-        knob_d = self.KNOB_DIAMETER
-        x_min = self.PADDING + self.KNOB_MARGIN
-        x_max = track_rect.width() - self.PADDING - self.KNOB_MARGIN - knob_d
+        knob_d = scaled_px(self.KNOB_DIAMETER)
+        x_min = scaled_px(self.PADDING) + scaled_px(self.KNOB_MARGIN)
+        x_max = track_rect.width() - scaled_px(self.PADDING) - scaled_px(self.KNOB_MARGIN) - knob_d
         x = x_min + (x_max - x_min) * self._progress
         y = track_rect.top() + (track_rect.height() - knob_d) / 2.0
 
@@ -259,7 +270,7 @@ class Switch(QWidget):
         if self._show_text and text_w > 0:
             text_color = self._theme.get_color("switch.text")
             painter.setPen(QPen(text_color))
-            text_x = int(track_rect.right()) + self.TEXT_SPACING
+            text_x = int(track_rect.right()) + scaled_px(self.TEXT_SPACING)
             text_y = int((h + fm.ascent() - fm.descent()) / 2)
             painter.drawText(text_x, text_y, text)
 
@@ -291,3 +302,22 @@ class Switch(QWidget):
         self._hover_anim.setStartValue(self._hover)
         self._hover_anim.setEndValue(1.0 if on else 0.0)
         self._hover_anim.start()
+
+Switch.inspect_spec = InspectSpec(
+    family="Switch",
+    state=(
+        SpecField("checked", "isChecked"),
+        SpecField("hover", "_hover", private=True),
+        SpecField("progress", "_progress", private=True),
+        SpecField("show_state_text", "_show_text", private=True),
+        SpecField("on_text", "_on_text", private=True),
+        SpecField("off_text", "_off_text", private=True),
+    ),
+    token_family=(
+        "switch.knob.on",
+        "switch.knob.off",
+        "switch.track.off.border",
+        "accent",
+    ),
+    docs='docs/user/INPUTS_API.md',
+)

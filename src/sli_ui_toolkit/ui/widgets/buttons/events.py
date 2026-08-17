@@ -198,7 +198,7 @@ class _ButtonEvents:
                     self.regionClicked.emit(region_id)  # type: ignore[call-overload]
                     if region_id == "_main":
                         self._emit_click_signals()
-                        if not sip.isValid(self):
+                        if not sip.isValid(self):  # type: ignore[attr-defined]
                             return
             self._pressed_region = None
             if handled:
@@ -208,7 +208,7 @@ class _ButtonEvents:
         elif event.button() == Qt.MouseButton.RightButton:
             if self._region_at(event.position()) is not None:
                 self.rightClicked.emit()  # type: ignore[call-overload]
-                if not sip.isValid(self):
+                if not sip.isValid(self):  # type: ignore[attr-defined]
                     return
                 event.accept()
                 return
@@ -216,7 +216,7 @@ class _ButtonEvents:
         elif event.button() == Qt.MouseButton.MiddleButton:
             if self._region_at(event.position()) is not None:
                 self.middleClicked.emit()  # type: ignore[call-overload]
-                if not sip.isValid(self):
+                if not sip.isValid(self):  # type: ignore[attr-defined]
                     return
                 event.accept()
                 return
@@ -295,21 +295,21 @@ class _ButtonEvents:
 
     def _emit_deferred_region_click(self, region_id: str | None) -> None:
         """Emit region/main click signals after ``defer_click`` delay."""
-        if not sip.isValid(self):
+        if not sip.isValid(self):  # type: ignore[attr-defined]
             return
         if region_id is None:
             return
         self._dispatch_region_behavior(region_id, "click")
-        if not sip.isValid(self):
+        if not sip.isValid(self):  # type: ignore[attr-defined]
             return
         self.regionClicked.emit(region_id)  # type: ignore[call-overload]
-        if not sip.isValid(self):
+        if not sip.isValid(self):  # type: ignore[attr-defined]
             return
         if region_id == "_main" or "_main" in self._linked_region_ids(region_id):
             self._emit_click_signals()
 
     def _emit_click_signals(self) -> None:
-        if not sip.isValid(self):
+        if not sip.isValid(self):  # type: ignore[attr-defined]
             return
         if getattr(self, "_suppress_next_click", False):
             self._suppress_next_click = False
@@ -320,7 +320,7 @@ class _ButtonEvents:
                 self._suppress_next_context_menu = False
             return
         self.clicked.emit()  # type: ignore[call-overload]
-        if not sip.isValid(self):
+        if not sip.isValid(self):  # type: ignore[attr-defined]
             return
         self.shortClicked.emit()  # type: ignore[call-overload]
 

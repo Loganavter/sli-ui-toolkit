@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import logging
 import math
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import QScrollBar, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers import SettleGate
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.widgets import MinimalistScrollBar
 from .models import TimelineCallbacks
 from . import interaction as timeline_interaction
@@ -40,9 +42,25 @@ class TimelineWidget(QWidget):
         parent=None,
         store=None,
         callbacks: TimelineCallbacks | None = None,
+        *,
+        accent_color: QColor | str | None = None,
+        canvas_bg: QColor | str | None = None,
+        track_bg: QColor | str | None = None,
+        grid_color: QColor | str | None = None,
+        text_color: QColor | str | None = None,
     ):
         super().__init__(parent)
         self._callbacks = callbacks or TimelineCallbacks()
+        self._color_overrides: dict[str, QColor] = {}
+        for key, value in (
+            ("accent", accent_color),
+            ("canvas_bg", canvas_bg),
+            ("track_bg", track_bg),
+            ("grid_col", grid_color),
+            ("text_col", text_color),
+        ):
+            if value is not None:
+                self._color_overrides[key] = QColor(value)
 
         if self._callbacks.localize_token is not None:
             timeline_i18n.set_localize_token(self._callbacks.localize_token)
@@ -50,7 +68,7 @@ class TimelineWidget(QWidget):
             timeline_i18n.set_localize_value(self._callbacks.localize_value)
 
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-        self.setMinimumHeight(120)
+        self.setMinimumHeight(scaled_px(120))
         self.setSizePolicy(
             QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred
         )
@@ -101,6 +119,33 @@ class TimelineWidget(QWidget):
         self.HANDLE_HEIGHT = 10
         # Hit slop for selection edge handles (help: «ручки выделения»).
         self.SELECTION_EDGE_HIT_PX = 8
+        # All metrics above are design px. Everything the timeline draws or
+        # lays out derives from them (rows, strips, gutters, handles), so a
+        # single scale application keeps the widget in step with the scaled
+        # dialog chrome and fonts around it.
+        self._metric_base = {
+            name: getattr(self, name)
+            for name in (
+                "RULER_HEIGHT",
+                "STRIP_HEIGHT",
+                "LEFT_GUTTER",
+                "MIN_LEFT_GUTTER",
+                "MAX_LEFT_GUTTER",
+                "GUTTER_RESIZE_MARGIN",
+                "GROUP_HEADER_HEIGHT",
+                "TRACK_ROW_HEIGHT",
+                "CHANNEL_ROW_HEIGHT",
+                "BOTTOM_PADDING",
+                "SCROLLBAR_STRIP_HEIGHT",
+                "HANDLE_SIZE",
+                "HEAD_LINE_WIDTH",
+                "HANDLE_WIDTH",
+                "HANDLE_HEIGHT",
+                "SELECTION_EDGE_HIT_PX",
+            )
+        }
+        self._apply_metric_scale()
+        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
 
         self._zoom_level = 1.0
         self._last_min_zoom = 1.0
@@ -263,7 +308,7 @@ class TimelineWidget(QWidget):
                     track_accent_color=getattr(track, "accent_color", None),
                     channel_accent_color=getattr(visible_chs[0], "accent_color", None),
                 )
-        return QColor(self.theme_manager.get_color("accent"))
+        return timeline_theme.resolve_accent_color(self)
 
     def _group_header_rect(self, left: float, top: float) -> QRectF:
         return QRectF(left, top, self.LEFT_GUTTER, self.GROUP_HEADER_HEIGHT)
@@ -332,6 +377,33 @@ class TimelineWidget(QWidget):
         self._current_index = 0
 
         QTimer.singleShot(0, self.fit_view)
+
+    def _set_color_override(self, key: str, color: QColor | str | None) -> None:
+        if color is None:
+            self._color_overrides.pop(key, None)
+        else:
+            self._color_overrides[key] = QColor(color)
+        self.update()
+
+    def set_accent_color(self, color: QColor | str | None) -> None:
+        """Override the accent color. ``None`` reverts to the theme token."""
+        self._set_color_override("accent", color)
+
+    def set_canvas_background_color(self, color: QColor | str | None) -> None:
+        """Override the canvas fill. ``None`` reverts to the theme token."""
+        self._set_color_override("canvas_bg", color)
+
+    def set_track_background_color(self, color: QColor | str | None) -> None:
+        """Override the track row fill. ``None`` reverts to the theme token."""
+        self._set_color_override("track_bg", color)
+
+    def set_grid_color(self, color: QColor | str | None) -> None:
+        """Override the ruler/grid line color. ``None`` reverts to the theme token."""
+        self._set_color_override("grid_col", color)
+
+    def set_text_color(self, color: QColor | str | None) -> None:
+        """Override label/text color. ``None`` reverts to the theme token."""
+        self._set_color_override("text_col", color)
 
     def set_thumbnails(self, thumbnails: dict):
         old_min_zoom = (
@@ -404,6 +476,18 @@ class TimelineWidget(QWidget):
         # user drags a window edge). Defer the actual recompute to settle
         # instead of redoing it synchronously on each tick.
         self._layout_settle.ping()
+
+    def _apply_metric_scale(self) -> None:
+        for name, base in self._metric_base.items():
+            setattr(self, name, scaled_px(base))
+
+    def _on_scale_changed(self, _factor: float) -> None:
+        self._apply_metric_scale()
+        self._rebuild_row_layout()
+        self._ensure_preferred_height()
+        timeline_viewport.update_fixed_width(self)
+        timeline_viewport.update_vertical_scrollbar(self)
+        self.update()
 
     def _on_layout_settle(self):
         timeline_viewport.update_fixed_width(self)
@@ -535,3 +619,19 @@ class TimelineWidget(QWidget):
         else:
             self._visual_index += diff * self._lerp_factor
         self.update()
+
+TimelineWidget.inspect_spec = InspectSpec(
+    family="TimelineWidget",
+    state=(
+        SpecField("fps", "_fps", private=True),
+        SpecField("duration", "_duration", private=True),
+        SpecField("zoom_level", "_zoom_level", private=True),
+        SpecField("visual_index", "_visual_index", private=True),
+        SpecField("collapsed_groups", "_collapsed_group_ids", private=True),
+        SpecField("total_duration", "get_total_duration"),
+        SpecField("pixels_per_second", "get_pixels_per_second"),
+        SpecField("has_selection", "has_selection"),
+    ),
+    token_family=("accent", "Window", "AlternateBase", "separator.color", "dialog.border", "WindowText"),
+    docs='docs/user/API_CATALOG.md',
+)

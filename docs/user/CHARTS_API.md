@@ -57,13 +57,25 @@ calendar.update_view(
 )
 ```
 
-`TimelineWidget(snapshots=None, parent=None, store=None, callbacks: TimelineCallbacks | None = None)`
+`TimelineWidget(snapshots=None, parent=None, store=None, callbacks: TimelineCallbacks | None = None, *, accent_color=None, canvas_bg=None, track_bg=None, grid_color=None, text_color=None)`
 takes its data hooks through `TimelineCallbacks`, and its actual content
-through `set_data(snapshots, fps=None, timeline_model=None, duration=None)`:
+through `set_data(snapshots, fps=None, timeline_model=None, duration=None)`.
+The five `*_color`/`*_bg` constructor kwargs override the matching
+`ThemeManager` token per-instance (`None`, the default, keeps the theme
+value); each has a matching runtime setter (`set_accent_color`,
+`set_canvas_background_color`, `set_track_background_color`,
+`set_grid_color`, `set_text_color`), same shape as `CalendarWidget`'s
+color kwargs below. Individual tracks/channels can still override the
+accent further via their own `accent_color` field, which wins over the
+widget-level `accent_color`.
 
 ```python
-timeline = TimelineWidget(callbacks=TimelineCallbacks(prominent_track_ids={"opacity"}))
+timeline = TimelineWidget(
+    callbacks=TimelineCallbacks(prominent_track_ids={"opacity"}),
+    accent_color="#3A7AFE",
+)
 timeline.set_data(snapshots, fps=30, duration=12.5)
+timeline.set_grid_color("#444444")
 ```
 
 See also [API_CATALOG.md](API_CATALOG.md) for the full widget index.

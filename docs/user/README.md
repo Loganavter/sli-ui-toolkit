@@ -11,6 +11,7 @@ Documentation for application authors using `sli-ui-toolkit`.
 - [Labels API](LABELS_API.md)
 - [Inputs & atomic controls API](INPUTS_API.md)
 - [Tabs API](TABS_API.md)
+- [Text View API](TEXT_VIEW_API.md)
 - [Dialogs & navigation API](DIALOGS_API.md)
 - [Console, logging & notifications API](FEEDBACK_API.md)
 - [Data visualization API](CHARTS_API.md)

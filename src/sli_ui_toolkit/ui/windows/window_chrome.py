@@ -8,6 +8,7 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QDialog, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.windows.csd_helpers import (
     CsdRoundedBackground,
     TitleBarGeometryFilter,
@@ -65,12 +66,27 @@ class WindowChrome:
     @classmethod
     def install(cls, window: QWidget, *, config: WindowChromeConfig | None = None) -> WindowChrome:
         cfg = config or WindowChromeConfig()
-        if cfg.resize_margin is not None:
-            from sli_ui_toolkit.ui.windows import frameless
+        from sli_ui_toolkit.ui.windows import frameless
 
+        if cfg.resize_margin is not None:
             frameless.RESIZE_MARGIN = int(cfg.resize_margin)
 
-        apply_frameless(window, resizable=cfg.resizable)
+        # Outer resize band: the window surface extends ``band`` px beyond
+        # the visible body on every side (transparent — the rounded body is
+        # inset), so the frameless edge-resize zone straddles the visible
+        # edge and can be grabbed from outside the body, like a native frame.
+        # The app keeps thinking in content size: ``resize``/``setGeometry``
+        # are re-expanded by 2*band (inside ``apply_frameless``), and the
+        # layout/title-bar/body are inset by ``band`` here.
+        band = 0
+        if cfg.resizable:
+            band = (
+                int(cfg.resize_margin)
+                if cfg.resize_margin is not None
+                else int(frameless.RESIZE_MARGIN)
+            )
+
+        apply_frameless(window, resizable=cfg.resizable, outer_band=band or None)
         window.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         window.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         window.setAutoFillBackground(False)
@@ -108,13 +124,31 @@ class WindowChrome:
         title_bar.attach_window(window)
 
         layout = window.layout()
+        base_layout_margins = None
         if layout is not None:
             l, t, r, b = cast("tuple[int, int, int, int]", layout.getContentsMargins())
-            layout.setContentsMargins(l, t + CustomTitleBar.HEIGHT, r, b)
+            # The title bar lives *over* the content: the layout's top
+            # margin compensates for its height. The bar scales with UiScale
+            # (see CustomTitleBar.on_scale_changed), so the compensation
+            # must scale with it too — otherwise the first content row ends
+            # up underneath the bar. The outer resize band insets the whole
+            # content by ``band`` on every side.
+            base_layout_margins = (l, t, r, b)
+            layout.setContentsMargins(
+                l + band,
+                t + scaled_px(CustomTitleBar.HEIGHT) + band,
+                r + band,
+                b + band,
+            )
             if hasattr(window, "adjustSize"):
                 window.adjustSize()
 
-        title_bar.setGeometry(0, 0, window.width(), CustomTitleBar.HEIGHT)
+        title_bar.setGeometry(
+            band,
+            band,
+            max(1, window.width() - 2 * band),
+            scaled_px(CustomTitleBar.HEIGHT),
+        )
         title_bar.show()
         title_bar.raise_()
 
@@ -132,10 +166,73 @@ class WindowChrome:
             bg_token=cfg.bg_token,
         )
         setattr(window, "_window_chrome", chrome)
+        chrome._base_layout_margins = base_layout_margins
         chrome._sync_background()
         # Do not setMask the shell — binary masks destroy AA corners painted
         # by CsdRoundedBackground / the dialog paintEvent.
         window.clearMask()
+
+        def _resync_csd_scale(_factor) -> None:
+            try:
+                layout = window.layout()
+                if layout is None:
+                    return
+                base = chrome._base_layout_margins
+                if base is not None:
+                    l, t, r, b = base
+                    layout.setContentsMargins(
+                        l + band,
+                        t + scaled_px(CustomTitleBar.HEIGHT) + band,
+                        r + band,
+                        b + band,
+                    )
+                title_bar.setGeometry(
+                    band,
+                    band,
+                    max(1, window.width() - 2 * band),
+                    scaled_px(CustomTitleBar.HEIGHT),
+                )
+                title_bar.raise_()
+                window.updateGeometry()
+            except RuntimeError:
+                # The window was destroyed while the (process-wide) UiScale
+                # signal still lives — drop the stale re-sync silently.
+                return
+
+        chrome._csd_scale_connection = UiScale.get_instance().scale_changed.connect(
+            _resync_csd_scale
+        )
+
+        def _drop_csd_scale_resync() -> None:
+            # Best-effort teardown: at shutdown the sender (UiScale) may
+            # already be destroyed; shiboken warns instead of raising.
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                try:
+                    UiScale.get_instance().scale_changed.disconnect(
+                        chrome._csd_scale_connection
+                    )
+                except (RuntimeError, TypeError):
+                    pass
+
+        window.destroyed.connect(_drop_csd_scale_resync)
+
+        if band > 0:
+            # ``apply_frameless`` already installed the geometry patch (via
+            # ``frameless._patch_outer_band_geometry``); the app sized the
+            # window before decorating and ``adjustSize`` may have re-clamped
+            # it — expand the current surface now, or the band (and its
+            # grab-from-outside zone) would not exist until the next resize.
+            try:
+                window._csd_outer_band_patch[0](  # type: ignore[attr-defined]
+                    window.width() + 2 * band,
+                    window.height() + 2 * band,
+                )
+            except Exception:
+                pass
+
         return chrome
 
     def title_bar(self) -> CustomTitleBar:

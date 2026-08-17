@@ -209,5 +209,5 @@ def apply_marquee(
         original_set_text(text)
         label.update()
 
-    label.setText = _set_text  # type: ignore[method-assign]
+    label.setText = _set_text  # type: ignore[assignment]
     return driver

@@ -5,6 +5,8 @@ import math
 from typing import Any
 
 from PySide6.QtCore import QPointF, QRectF
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+
 from . import viewport as timeline_viewport
 
 logger = logging.getLogger(__name__)
@@ -319,11 +321,11 @@ def rows_height(widget) -> int:
 
 def ensure_preferred_height(widget) -> None:
     final_height = max(
-        120,
+        scaled_px(120),
         widget.STRIP_HEIGHT
         + widget.RULER_HEIGHT
         + widget.SCROLLBAR_STRIP_HEIGHT
-        + max(widget.TRACK_ROW_HEIGHT * 2, 40),
+        + max(widget.TRACK_ROW_HEIGHT * 2, scaled_px(40)),
     )
     widget.setMinimumHeight(final_height)
     timeline_viewport.update_vertical_scrollbar(widget)

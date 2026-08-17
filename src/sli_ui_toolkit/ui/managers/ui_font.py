@@ -33,8 +33,10 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
+
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
 
 class UiFont(QObject):
@@ -82,7 +84,13 @@ class UiFont(QObject):
         self._emit_changed()
 
     def base_font(self) -> QFont:
-        """Copy of the current UI face (size from the application font)."""
+        """Copy of the current UI face (size from the application font).
+
+        The inherited size is scaled by ``UiScale``: the application font
+        itself always stays at the design size, and scaling happens here at
+        resolution time. ``resolve()`` / ``rebase()`` build on this, so
+        every UI text path ends up multiplied exactly once.
+        """
         app = QApplication.instance()
         if isinstance(app, QApplication):
             font = QFont(app.font())
@@ -91,6 +99,12 @@ class UiFont(QObject):
         family = self.family()
         if family:
             font.setFamily(family)
+        factor = UiScale.get_instance().factor()
+        if factor != 1.0:
+            if font.pixelSize() > 0:
+                font.setPixelSize(UiScale.get_instance().scaled_px(font.pixelSize()))
+            else:
+                font.setPointSizeF(font.pointSizeF() * factor)
         return font
 
     def resolve(
@@ -105,14 +119,23 @@ class UiFont(QObject):
         family: str | None = None,
         weight: int | None = None,
     ) -> QFont:
-        """Build a font from the UI face with optional local overrides."""
+        """Build a font from the UI face with optional local overrides.
+
+        ``pixel_size`` / ``point_size`` are **design values** — they are
+        multiplied by the current ``UiScale`` factor here (exactly once),
+        so callers pass the 1.0-baseline size and never touch the factor
+        themselves. ``rebase()`` passes source-font sizes through here too;
+        its sources are design-sized (the application font is never scaled
+        in place), so the multiply applies to them exactly once as well.
+        """
+        scale = UiScale.get_instance()
         font = self.base_font()
         if family:
             font.setFamily(family)
         if pixel_size is not None:
-            font.setPixelSize(max(1, int(pixel_size)))
+            font.setPixelSize(scale.scaled_px(pixel_size))
         elif point_size is not None:
-            font.setPointSizeF(float(point_size))
+            font.setPointSizeF(float(point_size) * scale.factor())
         if bold is not None:
             font.setBold(bool(bold))
         if italic is not None:
@@ -189,7 +212,28 @@ class UiFont(QObject):
             widget.setFont(self.resolve(**overrides))
 
         connection = self.font_changed.connect(_resync)
-        widget.destroyed.connect(lambda: self.font_changed.disconnect(connection))
+        scale = UiScale.get_instance()
+        scale_connection = scale.scale_changed.connect(_resync)
+
+        def _cleanup() -> None:
+            # Best-effort teardown: at interpreter/app shutdown the
+            # connection may already be gone (sender destroyed first), and
+            # shiboken emits a RuntimeWarning instead of raising — silence
+            # the harmless noise.
+            import warnings
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                try:
+                    self.font_changed.disconnect(connection)
+                except (RuntimeError, TypeError):
+                    pass
+                try:
+                    scale.scale_changed.disconnect(scale_connection)
+                except (RuntimeError, TypeError):
+                    pass
+
+        widget.destroyed.connect(_cleanup)
         return font
 
     def eventFilter(self, obj, event):  # noqa: N802 — Qt API
@@ -219,6 +263,22 @@ def ui_font(**overrides) -> QFont:
 def rebase_font(source: QFont | None = None, **overrides) -> QFont:
     """Force UI family onto an existing font (or build a fresh UI font)."""
     return UiFont.get_instance().rebase(source, **overrides)
+
+
+def rebase_family(font: QFont | None = None) -> QFont:
+    """Force the UI family onto ``font``, preserving its size exactly.
+
+    ``rebase_font`` treats the source size as design space and multiplies it
+    by the UiScale factor; fonts that are *already* scale-resolved
+    (``paint_font()``/``ui_font()`` results, or live widget metrics such as
+    ``getItemFont()``) must not be scaled a second time — this is the
+    size-preserving, family-only variant for those.
+    """
+    result = QFont(font if font is not None else QFont())
+    family = UiFont.get_instance().family()
+    if family:
+        result.setFamily(family)
+    return result
 
 
 def paint_font(widget: QWidget | None = None, **overrides) -> QFont:
@@ -256,10 +316,29 @@ def apply_text_color(widget: QWidget, color: QColor | None) -> None:
     widget.setAttribute(Qt.WidgetAttribute.WA_SetPalette, True)
 
 
+# Fudge added by measure_text_width so panels sized from it never clip glyphs.
+_TEXT_WIDTH_FUDGE = 8
+
+
+def measure_text_width(fm: QFontMetrics, text: str) -> int:
+    """Layout-safe text width: ``max(horizontalAdvance, boundingRect) + 8px``.
+
+    Plain ``horizontalAdvance`` under-measures some UI fonts (kerning,
+    hinting, wide glyphs like "…"), so a panel sized exactly to it clips the
+    painted text. This is the toolkit's text-width normalizer — rows, menu
+    items and flyout cells should size from it (see ``ButtonRow.size`` /
+    ``ContextMenuRow``), not from raw ``QFontMetrics``.
+    """
+    if not text:
+        return 0
+    return max(fm.horizontalAdvance(text), fm.boundingRect(text).width()) + _TEXT_WIDTH_FUDGE
+
+
 __all__ = [
     "UiFont",
     "apply_text_color",
     "apply_ui_font",
+    "measure_text_width",
     "paint_font",
     "rebase_font",
     "ui_font",

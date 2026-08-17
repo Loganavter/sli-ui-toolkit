@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 from typing import Any
 
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
@@ -32,6 +34,8 @@ from sli_ui_toolkit.ui.widgets.comboboxes.capabilities import GearDragCapability
 
 class _ComboFieldBgLayer(Layer):
     def draw(self, ctx, tm: ThemeManager) -> None:
+        from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+
         widget = ctx.widget
         states = ctx.effective_states
         p = ctx.painter
@@ -43,14 +47,15 @@ class _ComboFieldBgLayer(Layer):
             bg_color = QColor(tm.get_color("list_item.background.hover"))
         else:
             bg_color = QColor(tm.get_color("dialog.input.background"))
+        radius = scaled_px(widget.RADIUS)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(bg_color))
-        p.drawRoundedRect(rectf, widget.RADIUS, widget.RADIUS)
+        p.drawRoundedRect(rectf, radius, radius)
         pen_border = QPen(QColor(tm.get_color("input.border.thin")))
         pen_border.setWidthF(1.0)
         p.setPen(pen_border)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(rectf, widget.RADIUS, widget.RADIUS)
+        p.drawRoundedRect(rectf, radius, radius)
 
 
 class _ComboFieldContentLayer(Layer):
@@ -67,10 +72,11 @@ class _ComboFieldContentLayer(Layer):
         fm = QFontMetrics(paint_font(widget))
         inner_h = widget._item_height()
         inner_top = (rect.height() - inner_h) // 2
+        pad_x = scaled_px(widget.TEXT_HORIZONTAL_PADDING)
         text_rect = QRect(
-            widget.TEXT_HORIZONTAL_PADDING,
+            pad_x,
             inner_top,
-            rect.width() - 2 * widget.TEXT_HORIZONTAL_PADDING,
+            rect.width() - 2 * pad_x,
             inner_h,
         )
         display_text = current_text
@@ -158,16 +164,27 @@ class ComboBox(Button):
         # properties below need cheap, frequent access.
         self._gear = GearDragCapability(
             hold_ms=self.GEAR_HOLD_MS,
-            drag_threshold_px=self.GEAR_DRAG_THRESHOLD_PX,
+            drag_threshold_px=scaled_px(self.GEAR_DRAG_THRESHOLD_PX),
             snap_duration_ms=self.GEAR_SNAP_DURATION_MS,
             snap_hold_ms=self.GEAR_SNAP_HOLD_MS,
         )
         self.attach_capability(self._gear)
 
         self.clicked.connect(self._on_field_clicked)
+        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+
+    def on_scale_changed(self, _factor: float) -> None:
+        super().on_scale_changed(_factor)
+        self._gear.drag_threshold_px = scaled_px(self.GEAR_DRAG_THRESHOLD_PX)
+        self.updateGeometry()
+        self.update()
 
     def _item_height(self) -> int:
-        return max(28, QFontMetrics(self.font()).height() + self.ITEM_VERTICAL_PADDING)
+        return max(
+            scaled_px(28),
+            QFontMetrics(paint_font(self)).height()
+            + scaled_px(self.ITEM_VERTICAL_PADDING),
+        )
 
     @property
     def _gear_active(self) -> bool:
@@ -436,22 +453,25 @@ class ComboBox(Button):
         pass
 
     def _content_width_hint(self) -> int:
-        fm = QFontMetrics(self.font())
+        # Measure with the paint font (design size × UiScale) — the field
+        # layer draws through ``paint_font``, so a raw-font hint under-
+        # measures at scale > 1.0 and long labels elide inside the field.
+        fm = QFontMetrics(paint_font(self))
         text_width = 0
         for item in self._items:
             text_width = max(text_width, fm.horizontalAdvance(item.text))
         if self._minimum_contents_length > 0:
             text_width = max(text_width, fm.horizontalAdvance("M" * self._minimum_contents_length))
-        return max(100, text_width + 24)
+        return max(scaled_px(100), text_width + scaled_px(24))
 
     def sizeHint(self) -> QSize:
-        return QSize(self._content_width_hint(), self.BASE_HEIGHT)
+        return QSize(self._content_width_hint(), scaled_px(self.BASE_HEIGHT))
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(max(80, self._content_width_hint()), self.BASE_HEIGHT)
+        return QSize(max(scaled_px(80), self._content_width_hint()), scaled_px(self.BASE_HEIGHT))
 
     def _field_rect(self) -> QRect:
-        return QRect(0, 0, self.width(), self.BASE_HEIGHT)
+        return QRect(0, 0, self.width(), scaled_px(self.BASE_HEIGHT))
 
     def _ensure_overlay(self):
         window = self.window()
@@ -676,3 +696,21 @@ class ComboBox(Button):
             if not inside_field and not inside_overlay:
                 self.hideDropdown()
         return super().eventFilter(watched, event)
+
+ComboBox.inspect_spec = InspectSpec(
+    family="ComboBox",
+    state=(
+        SpecField("current_index", "currentIndex"),
+        SpecField("current_text", "currentText"),
+        SpecField("count", "count"),
+        SpecField("items", lambda w: [t for t, _d in w.items()]),
+        SpecField("max_visible_items", "maxVisibleItems"),
+    ),
+    token_family=(
+        "dialog.input.background",
+        "input.border.thin",
+        "list_item.background.hover",
+        "flyout.background",
+    ),
+    docs='docs/user/INPUTS_API.md',
+)

@@ -18,14 +18,12 @@ from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 from sli_ui_toolkit.widgets import ContextMenu, ContextMenuAction
 
 
-def test_context_menu_and_unified_list_group_tags():
+def test_context_menu_and_options_group_tags():
     from sli_ui_toolkit.ui.widgets.composite.simple_options_flyout import (
         SimpleOptionsFlyout,
     )
-    from sli_ui_toolkit.ui.widgets.composite.unified_flyout import UnifiedFlyout
 
     assert ContextMenu.flyout_group == "context_menu"
-    assert UnifiedFlyout.flyout_group == "unified_list"
     assert SimpleOptionsFlyout.flyout_group == "options"
 
 

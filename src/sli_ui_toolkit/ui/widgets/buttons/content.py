@@ -20,6 +20,7 @@ from PySide6.QtGui import QColor, QFontMetrics, QImage, QPixmap
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font, ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     draw_marquee_text,
@@ -171,7 +172,10 @@ class TextContent(Content):
 class ButtonRow:
     """Одна строка в RowsContent — размер/жирность/цвет/доля высоты."""
     text: str
-    size: int = 12
+    # ``None`` = the current default UI font (``ui_font()``, point-based app
+    # font) instead of an explicit pixel size — use it for rows that must
+    # match the host's normal text (e.g. SimpleOptionsFlyout default rows).
+    size: int | None = 12
     weight: str = "normal"
     color: QColor | None = None
     ratio: float = 0.5
@@ -335,7 +339,7 @@ class IconContent(Content):
             return
 
         icon_size = int(
-            ctx.region_icon_size_px
+            scaled_px(ctx.region_icon_size_px)
             if ctx.region_icon_size_px is not None
             else (read_widget_style(ctx.widget).icon_size_px or ctx.effective_icon_size_px)
         )
@@ -356,7 +360,7 @@ class IconTextContent(Content):
         rect = _rect(ctx)
         style = read_widget_style(widget)
         icon_px = int(
-            ctx.region_icon_size_px
+            scaled_px(ctx.region_icon_size_px)
             if ctx.region_icon_size_px is not None
             else (style.icon_size_px or ctx.effective_icon_size_px)
         )

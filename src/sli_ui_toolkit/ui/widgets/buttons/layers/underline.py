@@ -6,6 +6,7 @@ from PySide6.QtCore import QRect, QRectF
 from PySide6.QtGui import QColor
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from sli_ui_toolkit.ui.widgets.helpers import UnderlineConfig, draw_bottom_underline
 from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 
@@ -43,9 +44,13 @@ class UnderlineLayer(Layer):
             else:
                 alpha = resolved.alpha() if resolved.alpha() < 255 else 200
 
+        # ctx.corner_radius is already scale-resolved (scaled_px); the
+        # painter treats its arc_radius as design px and scales it by the
+        # factor exactly once — divide the factor back out so the underline
+        # keeps wrapping the painted corner circle at every interface scale.
+        factor = UiScale.get_instance().factor()
         radius = max(0, ctx.corner_radius)
-        scale = max(1.0, widget.rect().height() / 32.0)
-        normalized_radius = radius / scale if scale > 0 else radius
+        design_radius = radius / factor if factor > 0 else radius
 
         thickness = (
             ctx.underline_thickness if ctx.underline_thickness is not None else 1.0
@@ -53,8 +58,6 @@ class UnderlineLayer(Layer):
         thickness = max(0.0, float(thickness))
 
         tongue_reach = ctx.underline_tongue_reach
-        if tongue_reach is not None:
-            tongue_reach = tongue_reach / scale if scale > 0 else tongue_reach
 
         fade = ctx.underline_fade
         if fade is None:
@@ -65,7 +68,7 @@ class UnderlineLayer(Layer):
         cfg = UnderlineConfig(
             thickness=thickness,
             vertical_offset=0.0,
-            arc_radius=normalized_radius,
+            arc_radius=design_radius,
             alpha=alpha,
             color=resolved,
             tongue_reach=tongue_reach,

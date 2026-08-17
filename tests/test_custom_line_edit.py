@@ -22,7 +22,11 @@ def test_custom_line_edit_text_margins_are_horizontal_only(qapp):
     assert margins.right() == CustomLineEdit.H_PADDING
     assert margins.top() == 0
     assert margins.bottom() == 0
-    assert "padding: 0" in edit.styleSheet()
+    # No QSS at all: any stylesheet on the widget (even color-only) makes Qt
+    # ignore setFont() when painting, freezing the text at the design size.
+    # Colors come from the palette instead (apply_text_color + Highlight /
+    # PlaceholderText roles).
+    assert edit.styleSheet() == ""
     edit.deleteLater()
 
 

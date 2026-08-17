@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import time
 
@@ -6,6 +7,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPen, QPolygon
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import (
     BackgroundLayer,
@@ -33,9 +35,9 @@ class _ComboContentLayer(Layer):
         p.setPen(QPen(text_color))
         fm = QFontMetrics(font)
         text_rect = QRect(
-            rect.x() + 12,
+            rect.x() + scaled_px(12),
             rect.y(),
-            max(0, rect.width() - 12 - 28),
+            max(0, rect.width() - scaled_px(12) - scaled_px(28)),
             rect.height(),
         )
         elided = fm.elidedText(
@@ -111,7 +113,9 @@ class ScrollableComboBox(Button):
         current_text_w = fm.horizontalAdvance(self._text or "")
         if current_text_w > max_text_w:
             max_text_w = current_text_w
-        needed = max(80, max_text_w + 60)
+        # Padding/floor are design px combined with the scaled text measure —
+        # scale them so the auto width never lands below the text at factor > 1.
+        needed = max(scaled_px(80), max_text_w + scaled_px(60))
         if self.width() != int(needed):
             self.setFixedWidth(int(needed))
             self.updateGeometry()
@@ -222,3 +226,15 @@ class ScrollableComboBox(Button):
         else:
             self._flyout_open_timestamp = 0.0
         super().setFlyoutOpen(is_open)
+
+ScrollableComboBox.inspect_spec = InspectSpec(
+    family="ScrollableComboBox",
+    state=(
+        SpecField("current_index", "currentIndex"),
+        SpecField("current_text", "currentText"),
+        SpecField("count", "count"),
+        SpecField("items", lambda w: [t for t, _d in w.items()]),
+    ),
+    token_family=("dialog.input.background", "input.border.thin", "dialog.text"),
+    docs='docs/user/INPUTS_API.md',
+)

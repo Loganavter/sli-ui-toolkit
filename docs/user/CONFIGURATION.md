@@ -27,6 +27,12 @@ per-widget entries in [API_CATALOG.md](API_CATALOG.md).
   `configure_toolkit` / `configure_icon_resolver` / `configure_i18n` after
   startup overwrites the previous process-wide values immediately — fine for
   tests or plugin reload, unusual for normal app flow.
+- **Tests that call `configure_toolkit` must reset afterward.** Its state is
+  module-level, so it leaks into unrelated tests otherwise. Call
+  `sli_ui_toolkit.config.reset_toolkit_config()` in a fixture's teardown (this
+  repo's `tests/conftest.py` does it via an autouse fixture around every
+  test). It restores `configure_toolkit`'s defaults, including the ripple
+  duration / click deferral / underline fade shorthands.
 
 ## Full Startup Sequence
 
@@ -121,6 +127,7 @@ configure_toolkit(
     ripple_duration_ms=None,
     default_defer_click=None,
     default_underline_fade=None,
+    ui_scale_factor=None,
 )
 ```
 
@@ -130,7 +137,7 @@ change; unset keywords leave the current process-wide value untouched
 
 | Param | Type | Meaning | If skipped |
 |---|---|---|---|
-| `timings` | `FlyoutTimingConfig` | See table below. | Built-in defaults (180/160/180 ms, 24px drop offset). |
+| `timings` | `FlyoutTimingConfig` | See table below. | Built-in defaults (180/160/180/150 ms, 24px drop offset, `"none"` animation). |
 | `overlay_resolver` | `Callable[[QWidget \| None], QWidget \| None]` | Given a widget, returns the in-window overlay layer to paint flyouts/toasts into (for apps using `sli_ui_toolkit.ui.in_window_surface`). | Flyouts fall back to top-level popup windows. |
 | `rating_gesture_factory` | `Callable[..., object]` | Factory for the drag-rating gesture helper used by rating list items. | Rating items use the toolkit's built-in gesture handling. |
 | `dragdrop_service_getter` | `Callable[[], object \| None]` | Supplies a custom drag-drop service singleton. | `ToolkitDragDropService.get_instance()` (built-in). |
@@ -138,6 +145,7 @@ change; unset keywords leave the current process-wide value untouched
 | `ripple_duration_ms` | `int` | Shorthand for `set_ripple_duration_ms(...)` (button press ripple duration). | `280`. |
 | `default_defer_click` | `bool \| int \| str` | Shorthand for `set_default_defer_click(...)`. | `False` (clicked fires immediately). |
 | `default_underline_fade` | `bool` | Shorthand for `set_default_underline_fade(...)`. | `True`. |
+| `ui_scale_factor` | `float` | Interface scale factor: multiplies fonts, icons, tokens, and widget geometry (logical px, independent of the OS/Qt display scale). Applied live via `UiScale` — subscribed widgets relayout/repaint on the spot. Clamped to the `UiScale` safety range 0.5–2.5 (the Improve-ImgSLI settings UI exposes the full range via "Interface Scale"). | `1.0` (no scaling). |
 
 ### `FlyoutTimingConfig` fields
 
@@ -147,6 +155,8 @@ change; unset keywords leave the current process-wide value untouched
 | `flyout_animation_duration_ms` | `160` | Show/hide slide-fade duration for most flyouts. |
 | `text_settings_flyout_animation_duration_ms` | `180` | Slide-fade duration for text/settings-style flyouts specifically. |
 | `dropdown_drop_offset_px` | `24` | Vertical drop offset for dropdown-style flyouts from their anchor. |
+| `flyout_fade_out_duration_ms` | `150` | Duration of the fade-out when a flyout shown with `animation="fade"`/`"slide-fade"` is hidden. |
+| `default_flyout_animation` | `"none"` | Process-wide default for `BaseFlyout.show_aligned(..., animation=...)` when a caller omits it. Set e.g. `"slide-fade"` to animate every default flyout in the app from one place. Explicit per-call `animation=` always wins. |
 
 Ripple duration, click deferral, and underline fade can also be set directly
 without going through `configure_toolkit`, via

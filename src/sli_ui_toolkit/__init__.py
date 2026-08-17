@@ -1,7 +1,7 @@
 """Reusable PyQt toolkit primitives."""
 
 from sli_ui_toolkit._version import __version__
-from sli_ui_toolkit.config import FlyoutTimingConfig, configure_toolkit
+from sli_ui_toolkit.config import FlyoutTimingConfig, configure_toolkit, reset_toolkit_config
 from sli_ui_toolkit.palettes import FLUENT_LIGHT, FLUENT_DARK
 from sli_ui_toolkit.core.logging import (
     get_log_directory,
@@ -47,8 +47,6 @@ from sli_ui_toolkit.style import (
 )
 from sli_ui_toolkit.ui.windows import (
     CustomTitleBar,
-    TitleBarMenu,
-    TitleBarMenuStrip,
     TitleBarPresets,
     WindowChrome,
     WindowChromeConfig,
@@ -82,6 +80,7 @@ __all__ = [
     "TranslationManager",
     "configure_i18n",
     "configure_toolkit",
+    "reset_toolkit_config",
     "DEFER_CLICK_AWAIT_RIPPLE",
     "emit_language_changed",
     "get_default_defer_click",
@@ -101,8 +100,6 @@ __all__ = [
     "FLUENT_LIGHT",
     "FLUENT_DARK",
     "CustomTitleBar",
-    "TitleBarMenu",
-    "TitleBarMenuStrip",
     "TitleBarPresets",
     "WindowChrome",
     "WindowChromeConfig",

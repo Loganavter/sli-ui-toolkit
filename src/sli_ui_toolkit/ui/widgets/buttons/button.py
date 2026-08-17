@@ -17,6 +17,7 @@ capability API, state/value API и paint plumbing.
 """
 
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import dataclasses
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from sli_ui_toolkit.deprecations import (
     BUTTON_SET_CHECKED_EMIT_SIGNAL,
     warn_deprecated,
 )
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 
 from .capabilities import (
@@ -95,6 +97,9 @@ class ButtonConfig:
     wheel_requires_focus: bool = False
     # ``None`` → process-wide ``get_default_defer_click()``.
     defer_click: bool | int | str | None = None
+    #: grow with the parent layout up to the full text width, compress below
+    #: it (pair with a row ``marquee=True`` for overflowing text)
+    text_fit: bool = False
 
 
 def _to_corner_radii(values) -> tuple[int, int, int, int]:
@@ -154,6 +159,15 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     def focusOutEvent(self, event):
         _ButtonEvents.focusOutEvent(self, event)
 
+    def setEnabled(self, enabled: bool) -> None:
+        """Propagate widget enablement into the paint-state set.
+
+        QWidget.setEnabled would otherwise shadow the events-mixin override
+        (QWidget precedes _ButtonEvents in the MRO), so the DISABLED state
+        never reached the painter and disabled buttons rendered exactly
+        like enabled ones. The mixin still calls QWidget.setEnabled."""
+        _ButtonEvents.setEnabled(self, enabled)
+
     def event(self, event):
         return _ButtonStyleApi.event(self, event)
 
@@ -208,6 +222,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         wheel_requires_focus: bool = False,
         background_color: QColor | None = None,
         defer_click: bool | int | str | None = None,
+        text_fit: bool = False,
         regions: list[ButtonRegion] | None = None,
         split: SplitLayout | None = None,
         divider: Divider | None = None,
@@ -247,6 +262,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             density = config.density
             wheel_requires_focus = config.wheel_requires_focus
             defer_click = config.defer_click
+            text_fit = config.text_fit
 
         if spec is not None:
             regions = spec.to_regions()
@@ -301,6 +317,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._text = text
         self._rows = rows or []
         self._rows_compact = False
+        self._text_fit = bool(text_fit)
 
         self._variant = variant
         self._density = density
@@ -311,9 +328,12 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         if corner_radius is None:
             corner_radius = 2 if self._has_text else 6
         self._corner_radius_px = corner_radius
-        self._corner_radii_px: tuple[int, int, int, int] | None = (
+        # Corner-radii tuples are design px; the scaled copy feeds hit-test
+        # and paint paths consistently and is re-derived in on_scale_changed.
+        self._design_corner_radii: tuple[int, int, int, int] | None = (
             _to_corner_radii(corner_radii) if corner_radii is not None else None
         )
+        self._corner_radii_px = self._scaled_corner_radii()
         self._border_color_override: QColor | None = border_color
 
         self.setProperty("variant", variant)
@@ -348,21 +368,30 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self.setProperty("underlineThicknessPx", self._underline_thickness)
 
         w, h = size
+        # Design px — re-applied scaled in ``on_scale_changed`` so live
+        # factor changes actually resize fixed-size buttons.
+        self._design_fixed_size = (0, 0)
+        self._design_min_height = None
         if self._has_text and w == 36 and h == 36:
-            self.setMinimumHeight(32)
+            self._design_min_height = 32
+            self.setMinimumHeight(scaled_px(32))
             self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         elif w > 0 and h > 0:
-            self.setFixedSize(w, h)
+            self._design_fixed_size = (int(w), int(h))
+            self.setFixedSize(scaled_px(w), scaled_px(h))
         elif h > 0:
-            self.setFixedHeight(h)
+            self._design_fixed_size = (0, int(h))
+            self.setFixedHeight(scaled_px(h))
         elif w > 0:
-            self.setFixedWidth(w)
+            self._design_fixed_size = (int(w), 0)
+            self.setFixedWidth(scaled_px(w))
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         register_hover_widget(self)
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update)
+        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
 
         effective_extra: list[Layer] = []
         if extra_layers:
@@ -419,6 +448,28 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self.set_spec(spec)
         else:
             self.set_regions(regions, split=split, divider=divider)
+
+    def on_scale_changed(self, _factor: float) -> None:
+        if self._design_min_height is not None:
+            self.setMinimumHeight(scaled_px(self._design_min_height))
+        w, h = self._design_fixed_size
+        if w > 0 and h > 0:
+            self.setFixedSize(scaled_px(w), scaled_px(h))
+        elif h > 0:
+            self.setFixedHeight(scaled_px(h))
+        elif w > 0:
+            self.setFixedWidth(scaled_px(w))
+        self._corner_radii_px = self._scaled_corner_radii()
+        self.updateGeometry()
+        self.update()
+
+    def _scaled_corner_radii(self) -> tuple[int, int, int, int] | None:
+        design = getattr(self, "_design_corner_radii", None)
+        if design is None:
+            return None
+        # 0 (square corner) must stay 0 — scaled_px's min-1 clamp would turn
+        # it into a 1px rounding at every factor.
+        return tuple(0 if v == 0 else scaled_px(v) for v in design)
 
     @classmethod
     def from_spec(
@@ -585,16 +636,23 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self._corner_radius_px = int(spec.shape.corner_radius)
             self.setProperty("cornerRadiusPx", self._corner_radius_px)
         if spec.shape.corner_radii is not None:
-            self._corner_radii_px = _to_corner_radii(spec.shape.corner_radii)
+            self._design_corner_radii = _to_corner_radii(spec.shape.corner_radii)
+            self._corner_radii_px = self._scaled_corner_radii()
         else:
             self._corner_radii_px = None
+            self._design_corner_radii = None
         w, h = spec.shape.size
+        self._design_min_height = None
+        self._design_fixed_size = (0, 0)
         if w > 0 and h > 0:
-            self.setFixedSize(int(w), int(h))
+            self._design_fixed_size = (int(w), int(h))
+            self.setFixedSize(scaled_px(w), scaled_px(h))
         elif h > 0:
-            self.setFixedHeight(int(h))
+            self._design_fixed_size = (0, int(h))
+            self.setFixedHeight(scaled_px(h))
         elif w > 0:
-            self.setFixedWidth(int(w))
+            self._design_fixed_size = (int(w), 0)
+            self.setFixedWidth(scaled_px(w))
 
     def _detach_stale_region_capabilities(self, regions: list[ButtonRegion]) -> None:
         """Detach capabilities left over from regions that no longer exist.
@@ -692,17 +750,22 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         return None
 
     def _make_context(self, qpainter: QPainter) -> DrawContext:
+        # corner_radius_px is design px — scale at the paint boundary so a
+        # circular swatch stays circular when the widget itself scales
+        # (sizeHint/setFixedSize already use scaled_px, so a raw radius here
+        # would round a 42px circle down to a 14px-corner square).
+        scaled_radius = max(0, scaled_px(self._corner_radius_px))
         return DrawContext(
             widget=self,
             painter=qpainter,
             rect=QRectF(self.rect()),
             states=frozenset(self._states),
             variant=get_variant(self._variant),
-            corner_radius=max(0, int(self._corner_radius_px)),
+            corner_radius=scaled_radius,
             corner_radii=normalize_corner_radii(
-                self._corner_radius_px,
-                self._corner_radii_px,
-                fallback=max(0, int(self._corner_radius_px)),
+                None,
+                self._scaled_corner_radii(),
+                fallback=scaled_radius,
             ),
             content=self._build_content(),
             override_bg_color=self._override_bg_color,
@@ -761,11 +824,15 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
                 group=region.group,
                 icon_size_px=region.icon_size_px,
                 corner_radii=(
-                    _to_corner_radii(region.corner_radii)
+                    tuple(0 if v == 0 else scaled_px(v) for v in _to_corner_radii(region.corner_radii))
                     if region.corner_radii is not None
                     else None
                 ),
-                clip_content=not bool(getattr(region, "group", None)),
+                clip_content=(
+                    region.clip_content
+                    if region.clip_content is not None
+                    else not bool(region.group)
+                ),
                 ripple_rect=self._controller.ripple_rect(region.id),
             )
 
@@ -863,3 +930,38 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
 
 # Backwards-compat: ButtonRow re-exported from button module.
 __all__ = ["Button", "ButtonConfig", "ButtonRow"]
+
+Button.inspect_spec = InspectSpec(
+    family="Button",
+    config=(
+        SpecField("text"),
+        SpecField("rows"),
+        SpecField("toggle", "_has_toggle", private=True),
+        SpecField("variant"),
+        SpecField("density"),
+        SpecField("content_align"),
+        SpecField("content_padding"),
+        SpecField("corner_radius", "_corner_radius_px", private=True),
+        SpecField("corner_radii", "_corner_radii_px", private=True),
+        SpecField("defer_click", "_defer_click", private=True),
+    ),
+    state=(
+        SpecField("checked", "isChecked"),
+        SpecField("hovered", "_hovered", private=True),
+        SpecField("pressed", "_pressed", private=True),
+        SpecField("hovered_region", "_hovered_region", private=True),
+        SpecField("pressed_region", "_pressed_region", private=True),
+        SpecField("icon_size_px", "iconSizePx"),
+        SpecField("corner_radius_px", "cornerRadiusPx"),
+    ),
+    token_family=(
+        "button.toggle.background.normal",
+        "button.toggle.background.hover",
+        "button.toggle.background.pressed",
+        "button.toggle.background.checked",
+        "button.toggle.background.checked.hover",
+    ),
+    regions=True,
+    layers=True,
+    docs="docs/user/BUTTON_API.md",
+)

@@ -11,12 +11,16 @@ from sli_ui_toolkit.ui.managers import (
     LayerStack,
     SettleGate,
     ThemeManager,
+    MAX_FACTOR,
+    MIN_FACTOR,
     UiFont,
+    UiScale,
     apply_text_color,
     apply_ui_font,
     flyout_group_of,
     paint_font,
     rebase_font,
+    scaled_px,
     ui_font,
 )
 
@@ -33,12 +37,16 @@ __all__ = [
     "LayerStack",
     "SettleGate",
     "ThemeManager",
+    "MAX_FACTOR",
+    "MIN_FACTOR",
     "UiFont",
+    "UiScale",
     "apply_text_color",
     "apply_ui_font",
     "flyout_group_of",
     "paint_font",
     "rebase_font",
+    "scaled_px",
     "ui_font",
 ]
 

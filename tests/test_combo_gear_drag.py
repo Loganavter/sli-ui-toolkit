@@ -109,3 +109,45 @@ def test_overflow_drag_downgrades_to_plain_open(qtbot):
     assert gear._overflow_open_only is True
     assert combo._expanded is True  # opened like a plain click instead
     assert gear._press_pos is None
+
+
+def test_gear_frame_hugs_the_anchored_row_at_every_scale(qtbot):
+    """The fixed outline must cover the anchored row exactly, at any UiScale.
+
+    Regression: the popup centered the anchored row on the field with its
+    own ``int()`` truncation while ``_update_gear_frame`` centered the
+    outline with ``//`` — on half-pixel remainders (odd field/row height
+    diffs) the row landed a full pixel OUTSIDE the outline at the top and
+    sat recessed at the bottom.
+    """
+    from sli_ui_toolkit.managers import UiScale
+
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(400, 400)
+    combo = _make_combo(host, ["A", "B", "C", "D", "E"])
+    combo.setCurrentIndex(2)
+    host.show()
+    qtbot.waitExposed(host)
+
+    try:
+        for factor in (1.0, 1.25, 1.5, 2.0):
+            UiScale.get_instance().set_factor(factor)
+            combo.hideDropdown()  # reposition the popup at the new scale
+            gear = combo._gear
+            gear._press_pos = QPointF(0, 0)
+            gear._anchor_index = combo.currentIndex()
+            gear._begin_drag()
+            combo._overlay._rebind_slots()
+
+            anchored_row = combo._overlay._slots[combo.currentIndex()]
+            frame = combo._overlay._gear_frame
+            row_top = anchored_row.mapToGlobal(anchored_row.rect().topLeft()).y()
+            frame_top = frame.mapToGlobal(frame.rect().topLeft()).y()
+            assert row_top == frame_top, (
+                f"scale {factor}: anchored row top {row_top} != gear frame "
+                f"top {frame_top} — row pokes out of the focus outline"
+            )
+            gear.cancel()
+    finally:
+        UiScale.get_instance().set_factor(1.0)

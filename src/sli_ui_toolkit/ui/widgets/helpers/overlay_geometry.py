@@ -19,6 +19,7 @@ def calculate_centered_overlay_geometry(
     outer_height = content_size.height() + shadow_radius * 2
 
     combo_rect = anchor_widget.rect()
+    field_top_global = anchor_widget.mapToGlobal(combo_rect.topLeft()).y()
     anchor_center = anchor_widget.mapToGlobal(combo_rect.center())
     owner_top_left_global = anchor_widget.mapToGlobal(combo_rect.topLeft())
     window_top_left_global = owner_window.mapToGlobal(QPoint(0, 0))
@@ -30,11 +31,21 @@ def calculate_centered_overlay_geometry(
         visible_index = 0
 
     if scrollable:
-        ideal_y_global = int(anchor_center.y() - outer_height / 2)
+        ideal_y_global = round(anchor_center.y() - outer_height / 2)
     else:
+        # Anchor the anchored row to the field's top edge, NOT its center:
+        # the gear-drag frame (``_GearFrame``) positions itself with the
+        # same ``round((field_h - row_h) / 2)`` offset from the field top.
+        # Center-anchoring with the popup's own rounding (which can agree
+        # or disagree with the frame's on half-pixel remainders depending
+        # on field/row height parity) left the row poking a full pixel out
+        # of the frame at odd scale factors.
         selected_item_offset_y = visible_index * row_height
-        ideal_y_global = int(
-            anchor_center.y() - selected_item_offset_y - row_height / 2 - shadow_radius
+        ideal_y_global = (
+            field_top_global
+            + round((combo_rect.height() - row_height) / 2)
+            - selected_item_offset_y
+            - shadow_radius
         )
 
     ideal_x_global = int(owner_top_left_global.x() - shadow_radius)

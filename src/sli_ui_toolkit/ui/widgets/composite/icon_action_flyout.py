@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 from dataclasses import dataclass
 from typing import Iterable
@@ -8,6 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout
 
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.managers import AnchoredFlyoutAutoHide
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import AnimationAxis, BaseFlyout
 
@@ -34,12 +36,16 @@ class IconActionFlyout(BaseFlyout):
         actions: Iterable[IconAction] | None = None,
         button_size: int = 28,
         icon_size: int = 18,
+        animation: str | None = None,
     ):
         super().__init__(parent)
         self._hovered_element = None
         self._anchor_button = None
         self._button_size = int(button_size)
         self._icon_size = int(icon_size)
+        # Per-instance show-animation override for show_above/show_aligned.
+        # None resolves to the process-wide default_flyout_animation.
+        self._default_animation = animation
         self._actions: dict[str, IconAction] = {}
         self._buttons: dict[str, Button] = {}
 
@@ -51,10 +57,19 @@ class IconActionFlyout(BaseFlyout):
 
         self.h_layout = QHBoxLayout()
         self.h_layout.setContentsMargins(0, 0, 0, 0)
-        self.h_layout.setSpacing(6)
+        self.h_layout.setSpacing(scaled_px(6))
         self.content_layout.addLayout(self.h_layout)
+        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
 
         self.set_actions(actions or [])
+
+    def _on_scale_changed(self, _factor: float) -> None:
+        self.h_layout.setSpacing(scaled_px(6))
+        for button in self._buttons.values():
+            button.setFixedSize(scaled_px(self._button_size), scaled_px(self._button_size))
+            button.setIconSize(QSize(scaled_px(self._icon_size), scaled_px(self._icon_size)))
+        self.updateGeometry()
+        self.update()
 
     def set_actions(self, actions: Iterable[IconAction]) -> None:
         for button in self._buttons.values():
@@ -67,8 +82,8 @@ class IconActionFlyout(BaseFlyout):
         for action in actions:
             spec = action if isinstance(action, IconAction) else IconAction(**action)
             button = Button(spec.icon, parent=self.container)
-            button.setFixedSize(self._button_size, self._button_size)
-            button.setIconSize(QSize(self._icon_size, self._icon_size))
+            button.setFixedSize(scaled_px(self._button_size), scaled_px(self._button_size))
+            button.setIconSize(QSize(scaled_px(self._icon_size), scaled_px(self._icon_size)))
             button.setToolTip(spec.tooltip)
             button.setVisible(spec.visible)
             button.setEnabled(spec.enabled)
@@ -153,7 +168,7 @@ class IconActionFlyout(BaseFlyout):
         *,
         position: str | None = None,
         offset=5,
-        animation: str = "none",
+        animation: str | None = None,
         animation_duration_ms: int | None = None,
         animation_distance: int | None = None,
         animation_axis: AnimationAxis = "auto",
@@ -169,6 +184,9 @@ class IconActionFlyout(BaseFlyout):
             self.hide()
             return
         self._anchor_button = anchor_widget
+        # Per-instance override wins unless the call passed an explicit value.
+        if animation is None:
+            animation = self._default_animation
         super().show_aligned(
             anchor_widget,
             anchor_point=anchor_point,
@@ -193,3 +211,16 @@ class IconActionFlyout(BaseFlyout):
     def hide(self):
         self.cancel_auto_hide()
         super().hide()
+
+IconActionFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
+    family="IconActionFlyout",
+    state=(
+        SpecField("pinned", "pinned"),
+        SpecField("flyout_group", "flyout_group"),
+        SpecField("anchor", "_anchor_widget", private=True),
+        SpecField("fade_opacity", "_fade_opacity_proxy", private=True),
+        SpecField("visible", "isVisible"),
+    ),
+    token_family=("flyout.background", "flyout.border", "shadow.color", "separator.color"),
+    docs='docs/user/FLYOUT_SYSTEM.md',
+)

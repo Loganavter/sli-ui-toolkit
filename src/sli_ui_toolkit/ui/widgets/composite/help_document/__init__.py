@@ -1,6 +1,12 @@
-"""Widget-tree help document renderer (Blender-like illustrated pages)."""
+"""Widget-tree help document renderer (Blender-like illustrated pages).
 
-from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
+The markdown/blocks/layout engine now lives in the sibling ``text_view``
+composite (the unified painted-text system); this package re-exports the
+same public names unchanged.
+"""
+
+from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
+    CodeBlock,
     FigureBlock,
     HeadingBlock,
     HelpBlock,
@@ -9,6 +15,7 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
     InlineSpan,
     ListBlock,
     ParagraphBlock,
+    TableBlock,
     blocks_to_plain_text,
     collect_heading_anchors,
     parse_help_blocks,
@@ -18,6 +25,7 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
 from sli_ui_toolkit.ui.widgets.composite.help_document.view import HelpDocumentView
 
 __all__ = [
+    "CodeBlock",
     "FigureBlock",
     "HeadingBlock",
     "HelpBlock",
@@ -27,6 +35,7 @@ __all__ = [
     "InlineSpan",
     "ListBlock",
     "ParagraphBlock",
+    "TableBlock",
     "blocks_to_plain_text",
     "collect_heading_anchors",
     "parse_help_blocks",

@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+import re
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
@@ -8,7 +9,32 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+
 theme_logger = logging.getLogger("ThemeManager")
+
+
+_QSS_PX_LITERAL = re.compile(r"(-?\d+(?:\.\d+)?)px")
+
+
+def _scale_qss_px(qss: str) -> str:
+    """Multiply ``Npx`` QSS literals by the current ``UiScale`` factor.
+
+    ``1px`` (and sub-px) borders stay untouched — scaling hairlines either
+    does nothing visible or thickens them unevenly; 2px and above scale so
+    padding/radius/sizes follow the interface factor.
+    """
+    factor = UiScale.get_instance().factor()
+    if factor == 1.0:
+        return qss
+
+    def _replace(match: "re.Match[str]") -> str:
+        value = float(match.group(1))
+        if abs(value) < 2:
+            return match.group(0)
+        return f"{int(round(value * factor))}px"
+
+    return _QSS_PX_LITERAL.sub(_replace, qss)
 
 
 def _qapp_instance() -> QApplication | None:
@@ -333,6 +359,8 @@ class ThemeManager(QObject):
                     current_qss = current_qss.replace(
                         placeholder, color.name(QColor.NameFormat.HexArgb)
                     )
+
+        current_qss = _scale_qss_px(current_qss)
 
         # Clear then set in one go — do *not* processEvents between them.
         # A mid-apply flush paints a half-themed tree and lengthens the freeze.

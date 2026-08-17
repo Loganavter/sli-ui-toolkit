@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 from typing import Callable
 
@@ -7,6 +8,7 @@ from PySide6.QtGui import QBrush, QColor, QCursor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSlider
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 
 TrackPainter = Callable[[QPainter, QRectF], None]
@@ -62,6 +64,11 @@ class Slider(WheelScrollPolicyMixin, QSlider):
 
         self.valueChanged.connect(self._update_hover_from_cursor)
         register_hover_widget(self)
+        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+
+    def on_scale_changed(self, _factor: float) -> None:
+        self.updateGeometry()
+        self.update()
 
     def get_inner_scale(self) -> float:
         return self._inner_scale_current
@@ -129,10 +136,10 @@ class Slider(WheelScrollPolicyMixin, QSlider):
     def sizeHint(self) -> QSize:
         base = super().sizeHint()
         fm_h = self.fontMetrics().height()
-        pad = 5
+        pad = scaled_px(5)
         cross = max(
-            2 * self._thumb_radius + 2,
-            self._track_thickness + 2 * pad,
+            scaled_px(2 * self._thumb_radius + 2),
+            scaled_px(self._track_thickness) + 2 * pad,
             fm_h + pad,
         )
         if self._is_horizontal():
@@ -147,12 +154,13 @@ class Slider(WheelScrollPolicyMixin, QSlider):
 
     def _groove_rect(self) -> QRectF:
         r = self.rect()
-        thickness = self._track_thickness
+        thickness = scaled_px(self._track_thickness)
+        margin = scaled_px(self.MARGIN)
         if self._is_horizontal():
             y = r.center().y() - thickness / 2
-            return QRectF(self.MARGIN, y, max(1.0, r.width() - 2 * self.MARGIN), thickness)
+            return QRectF(margin, y, max(1.0, r.width() - 2 * margin), thickness)
         x = r.center().x() - thickness / 2
-        return QRectF(x, self.MARGIN, thickness, max(1.0, r.height() - 2 * self.MARGIN))
+        return QRectF(x, margin, thickness, max(1.0, r.height() - 2 * margin))
 
     def thumbCenter(self) -> QPoint:
         """Public accessor for the thumb's current center, local coordinates."""
@@ -164,7 +172,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         flyout anchored to this widget then tracks the handle as it moves
         along the track rather than staying pinned to the track's center."""
         center = self._thumb_center()
-        r = int(round(self._thumb_radius))
+        r = scaled_px(self._thumb_radius)
         return QRect(center.x() - r, center.y() - r, 2 * r, 2 * r)
 
     def _thumb_center(self) -> QPoint:
@@ -182,7 +190,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         c = self._thumb_center()
         dx = p.x() - c.x()
         dy = p.y() - c.y()
-        hit_r = self._thumb_radius + 4
+        hit_r = scaled_px(self._thumb_radius) + scaled_px(4)
         return (dx * dx + dy * dy) <= (hit_r * hit_r)
 
     def hoverHitTest(self, pos) -> bool:
@@ -343,7 +351,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         painter.drawRoundedRect(rectf, corner, corner)
 
         center = self._thumb_center()
-        outer_r = self._thumb_radius
+        outer_r = scaled_px(self._thumb_radius)
         inner_scale = self._inner_scale_current
 
         outer_color = QColor(tm.get_color("slider.thumb.outer"))
@@ -355,3 +363,18 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(accent))
         painter.drawEllipse(QPointF(float(center.x()), float(center.y())), inner_r, inner_r)
+
+Slider.inspect_spec = InspectSpec(
+    family="Slider",
+    state=(
+        SpecField("value", "value"),
+        SpecField("minimum", "minimum"),
+        SpecField("maximum", "maximum"),
+        SpecField("single_step", "singleStep"),
+        SpecField("orientation", "orientation"),
+        SpecField("hovered", "_hovered", private=True),
+        SpecField("pressed", "_pressed", private=True),
+    ),
+    token_family=("slider.track.unfilled", "slider.thumb.outer", "accent", "dialog.border"),
+    docs='docs/user/INPUTS_API.md',
+)

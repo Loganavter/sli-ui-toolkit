@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
-from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
+from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
     HeadingBlock,
     HelpBlock,
     blocks_to_plain_text,
@@ -150,6 +150,14 @@ class HelpDocumentView(QWidget):
     def scroll_to_anchor(self, anchor: str) -> QWidget | None:
         """Return the widget for ``anchor`` so a parent scroll area can ensure visible."""
         return self._canvas.anchor_widget(anchor)
+
+    def scroll_to_text(self, query: str) -> QWidget | None:
+        """Highlight the first case-insensitive occurrence of ``query`` in the body.
+
+        Returns a scroll-target widget for a parent ``QScrollArea`` to call
+        ``ensureWidgetVisible`` on (``None`` when the query is absent).
+        """
+        return self._canvas.scroll_to_text(query)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)

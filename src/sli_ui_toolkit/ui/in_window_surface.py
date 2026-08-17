@@ -9,8 +9,28 @@ from sli_ui_toolkit.config import resolve_overlay_layer
 from sli_ui_toolkit.ui.widgets.helpers import draw_rounded_shadow
 
 def attach_in_window_widget(widget: QWidget, anchor: QWidget | None) -> object | None:
+    if anchor is None:
+        return None
     overlay_layer = resolve_overlay_layer(anchor)
     if overlay_layer is not None:
+        host = getattr(overlay_layer, "host", None)
+        # Never re-parent a flyout into an overlay host that lives in a
+        # *different top-level window* than its anchor. Resolvers often walk
+        # up the QObject chain and find an ancestor window's overlay layer
+        # (e.g. a flyout anchored inside a dialog whose QObject parent is the
+        # main window): attaching would paint the flyout *under* the dialog.
+        # The combo dropdown stays above the dialog precisely because it is a
+        # plain child of the dialog window; flyouts must keep the same
+        # invariant. Fake/test overlays expose host differently (attribute,
+        # property or callable) -- the guard only applies to real QWidget
+        # hosts, where the window comparison is meaningful.
+        if isinstance(host, QWidget):
+            try:
+                same_window = anchor.window() is host.window()
+            except RuntimeError:
+                same_window = False
+            if not same_window:
+                return None
         overlay_layer.attach(widget)
     return overlay_layer
 

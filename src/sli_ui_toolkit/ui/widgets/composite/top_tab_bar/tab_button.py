@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainterPath, QPen
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QCursor, QFontMetrics, QPainterPath, QPen
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
@@ -13,6 +14,7 @@ from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.constants import (
     DEFAULT_TAB_RADIUS,
     INDICATOR_H,
+    TAB_CLOSE_MARGIN,
     TAB_H_PAD,
     TAB_MIN_WIDTH,
 )
@@ -22,12 +24,18 @@ from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 register_top_tab_variant()
 
 
-class TopTabContent(Content):
-    """Centered label; folder outline or accent underline when selected."""
 
-    def __init__(self, text: str, *, show_indicator: bool = True) -> None:
+class TopTabContent(Content):
+    """Centered label; folder outline or accent underline when selected.
+    ``close_zone`` reserves space at the right edge for an embedded close
+    button (the adaptive-tab slot contract)."""
+
+    def __init__(
+        self, text: str, *, show_indicator: bool = True, close_zone: int = 0
+    ) -> None:
         self.text = text
         self.show_indicator = show_indicator
+        self.close_zone = max(0, int(close_zone))
 
     def draw(self, ctx, tm: ThemeManager) -> None:
         widget = ctx.widget
@@ -52,6 +60,8 @@ class TopTabContent(Content):
         text_rect = QRect(0, 0, widget.width(), widget.height())
         if self.show_indicator and selected:
             text_rect = text_rect.adjusted(0, 0, 0, -INDICATOR_H)
+        if self.close_zone:
+            text_rect = text_rect.adjusted(0, 0, -self.close_zone, 0)
         # Button width already includes TAB_H_PAD; do not subtract it again
         # or long labels (e.g. "Ручной ввод CLI") get falsely elided.
         text = p.fontMetrics().elidedText(
@@ -108,11 +118,19 @@ class TopTabContent(Content):
 
 
 class TopTabButton(Button):
-    """Owner-managed selection (same contract as sidebar nav row buttons)."""
+    """Owner-managed selection (same contract as sidebar nav row buttons).
 
-    def __init__(self, *args, **kwargs) -> None:
+    With ``close_zone > 0`` the tab embeds a close button at its right edge
+    (adaptive-tab close-slot mechanics): the text reserves the zone, the
+    button is a child positioned on resize, and hovering it keeps the tab
+    itself hovered (the hover coordinator only sees the child).
+    """
+
+    def __init__(self, *args, close_zone: int = 0, **kwargs) -> None:
         kwargs["toggle"] = False
         super().__init__(*args, **kwargs)
+        self._close_zone = max(0, int(close_zone))
+        self._close_button: QWidget | None = None
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._show_indicator = True
 
@@ -128,11 +146,61 @@ class TopTabButton(Button):
         self._show_indicator = bool(show)
         self.update()
 
+    def attach_close_button(self, button: QWidget) -> None:
+        """Embed the close button inside the tab, right-aligned."""
+        self._close_button = button
+        button.setParent(self)
+        button.show()
+        button.installEventFilter(self)
+        self._layout_close_button()
+
+    def _layout_close_button(self) -> None:
+        if self._close_button is None:
+            return
+        size = self._close_button.size()
+        x = max(0, self.width() - size.width() - TAB_CLOSE_MARGIN)
+        y = max(0, (self.height() - size.height()) // 2)
+        self._close_button.setGeometry(x, y, size.width(), size.height())
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._layout_close_button()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        # Forward hover over the close button to the tab bar (the adaptive
+        # close-slot contract): the bar owns the hover index and re-paints
+        # the tab + slot states from it.
+        if watched is self._close_button and event.type() in (
+            QEvent.Type.Enter,
+            QEvent.Type.MouseMove,
+            QEvent.Type.Leave,
+        ):
+            if event.type() == QEvent.Type.Leave:
+                global_pos = QCursor.pos()
+            elif hasattr(event, "globalPosition"):
+                global_pos = event.globalPosition().toPoint()
+            else:
+                global_pos = watched.mapToGlobal(event.position().toPoint())
+            bar = self.parentWidget()
+            while bar is not None and not hasattr(bar, "set_hover_from_global"):
+                bar = bar.parentWidget()
+            if bar is not None:
+                bar.set_hover_from_global(global_pos)
+        return super().eventFilter(watched, event)
+
     def _build_content(self):
-        return TopTabContent(self._text, show_indicator=self._show_indicator)
+        return TopTabContent(
+            self._text,
+            show_indicator=self._show_indicator,
+            close_zone=self._close_zone,
+        )
 
     def _build_region_content(self, region):
-        return TopTabContent(self._text, show_indicator=self._show_indicator)
+        return TopTabContent(
+            self._text,
+            show_indicator=self._show_indicator,
+            close_zone=self._close_zone,
+        )
 
     def sizeHint(self) -> QSize:
         fm = QFontMetrics(paint_font(self))
@@ -140,4 +208,4 @@ class TopTabButton(Button):
         # +2 absorbs hinting differences between advance and elidedText.
         width = max(TAB_MIN_WIDTH, text_w + 2 * TAB_H_PAD + 2)
         height = self.minimumHeight() or 32
-        return QSize(width, height)
+        return QSize(width + self._close_zone, height)

@@ -14,9 +14,11 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QColor, QCursor
+from PySide6.QtGui import QColor, QCursor, QFontMetrics
 
 from sli_ui_toolkit.deprecations import BUTTON_PRIMARY_VARIANT, warn_deprecated
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
 
 
@@ -335,17 +337,69 @@ class _ButtonStyleApi:
 
     # -------- size hints --------
 
+    def _content_text_width(self) -> int:
+        """Painted text width of the current content: the ``text=`` label or
+        the widest ``rows=`` row. Measured with each row's own paint font
+        (design size × UiScale) so hints stay correct at any scale."""
+        if self._has_text and self._text:
+            return QFontMetrics(paint_font(self)).horizontalAdvance(self._text)
+        if not self._rows:
+            return 0
+        from sli_ui_toolkit.ui.managers.ui_font import measure_text_width, ui_font
+
+        widths = []
+        for row in self._rows:
+            fm = QFontMetrics(
+                ui_font(
+                    pixel_size=getattr(row, "size", None),
+                    bold=(getattr(row, "weight", "normal") == "bold"),
+                )
+            )
+            widths.append(measure_text_width(fm, getattr(row, "text", "") or ""))
+        return max(widths) if widths else 0
+
     def sizeHint(self):
-        if self._has_text:
-            fm = self.fontMetrics()
-            text_w = fm.horizontalAdvance(self._text) if self._text else 0
-            icon_w = self._icon_size_px + self._gap_px if self._icon_unchecked else 0
-            w = text_w + icon_w + 24
-            h = max(32, fm.height() + 16)
+        text_w = self._content_text_width()
+        icon_w = scaled_px(self._icon_size_px) + scaled_px(self._gap_px) if self._icon_unchecked else 0
+        if self._has_text or self._rows:
+            w = text_w + icon_w + scaled_px(24)
+            fm = QFontMetrics(paint_font(self))
+            h = max(scaled_px(32), fm.height() + scaled_px(16))
+            if self._text_fit:
+                w = self._fit_width(w)
             return QSize(w, h)
-        return QSize(36, 36)
+        return QSize(scaled_px(36), scaled_px(36))
+
+    def _fit_width(self, natural: int) -> int:
+        """``text_fit=True``: grow with the parent row up to the natural
+        text width, compress below it. Reads the parent layout's available
+        width (margins + the siblings before this button), falling back to
+        the natural width when there is no parent/layout. Pair with a
+        trailing ``addStretch(1)`` in the row: a stretch/Expanding item
+        right-anchors its widget in Qt, while a plain sizeHint keeps it
+        left-anchored."""
+        parent = self.parentWidget()
+        layout = parent.layout() if parent is not None else None
+        if layout is None:
+            return natural
+        left, _top, right, _bottom = layout.getContentsMargins()
+        available = parent.width() - left - right
+        spacing = layout.spacing()
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item.widget() is self:
+                break
+            if item.widget() is not None:
+                available -= item.sizeHint().width() + spacing
+        return max(scaled_px(36), min(natural, available))
 
     def minimumSizeHint(self):
+        if self._text_fit:
+            # The default minimum mirrors sizeHint; for text_fit that would
+            # push a scroll content's minimum up to the full text width and
+            # wedge the viewport (no compression). Keep the minimum tiny so
+            # parent layouts can always shrink the button.
+            return QSize(scaled_px(36), scaled_px(36))
         return self.sizeHint()
 
     # -------- variant / density / corner radius / icon size --------

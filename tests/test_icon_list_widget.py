@@ -238,3 +238,42 @@ def test_nav_row_content_elides_text_to_available_width(qapp):
     assert painter.drawn_text is not None
     assert painter.drawn_text != long_text
     assert "…" in painter.drawn_text
+
+
+def test_scrollbar_appearance_does_not_shift_content(qapp):
+    """The nav content keeps its width when the scrollbar appears (the
+    floating overlay scrollbar reserves no layout space)."""
+    from PySide6.QtCore import QEventLoop, QTimer
+    from PySide6.QtWidgets import QWidget, QVBoxLayout
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    host.resize(200, 120)
+    widget = IconListWidget()
+    layout.addWidget(widget)
+    host.show()
+    qapp.processEvents()
+
+    for i in range(10):
+        widget.add_item(f"Item {i}")
+    _spin_event_loop(qapp)
+    assert widget._scroll.custom_v_scrollbar.isVisible()
+    width_with_scrollbar = widget._host.width()
+    assert width_with_scrollbar > 0
+
+    widget.clear()
+    for i in range(1):
+        widget.add_item(f"Item {i}")
+    _spin_event_loop(qapp)
+    assert not widget._scroll.custom_v_scrollbar.isVisible()
+    assert widget._host.width() == width_with_scrollbar
+
+
+def _spin_event_loop(qapp):
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    loop = QEventLoop()
+    QTimer.singleShot(50, loop.quit)
+    loop.exec()
+    qapp.processEvents()

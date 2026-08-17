@@ -16,12 +16,14 @@ from PySide6.QtCore import (
     QRect,
     Qt,
     QTimer,
+    QVariantAnimation,
     Signal,
 )
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.config import get_context_menu_surface, get_flyout_timings
+from sli_ui_toolkit.managers import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons.feedback import get_ripple_duration_ms
 from sli_ui_toolkit.ui.in_window_surface import (
     clamp_surface_rect,
@@ -40,6 +42,7 @@ from sli_ui_toolkit.ui.widgets.composite.base_flyout import (
     AnimationAxis,
     BaseFlyout,
     aligned_flyout_rect,
+    resolve_flyout_animation,
     slide_start_delta,
 )
 from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
@@ -93,6 +96,12 @@ class ContextMenu(BaseFlyout):
         self._is_submenu = _is_submenu
         self._surface = surface if surface is not None else get_context_menu_surface()
         self._logical_parent = parent
+        # Cursor-positioned popup fade-out state (popup_at). Popups are
+        # top-levels, so they don't route hide() through BaseFlyout's in-window
+        # fade path; this tracks the deferred fade-out so aboutToHide /
+        # deleteLater fire only after the widget is actually hidden.
+        self._popup_fade_anim: QVariantAnimation | None = None
+        self._popup_fade_in_progress = False
         # Popup menus must never attach to the host OverlayLayer: attach +
         # setParent(None) reorders overlay children and can shove open flyouts
         # off their geometry. Keep the QWidget parent so Wayland gets a
@@ -148,7 +157,7 @@ class ContextMenu(BaseFlyout):
 
         flat = _trim_flat_separators(self._flatten(tuple(entries)))
         # No check-glyph gutter: current/checkable rows use background highlight only.
-        check_gutter = 12
+        check_gutter = scaled_px(12)
         for item in flat:
             self.content_layout.addWidget(self._build_row(item, check_gutter))
         self._assign_row_positions()
@@ -264,7 +273,7 @@ class ContextMenu(BaseFlyout):
             QTimer.singleShot(
                 get_ripple_duration_ms(),
                 lambda: self._finish_row_click(action_id, data)
-                if sip.isValid(self)
+                if sip.isValid(self)  # type: ignore[attr-defined]
                 else None,
             )
             return
@@ -336,6 +345,12 @@ class ContextMenu(BaseFlyout):
 
     def hide(self):
         submenu_ops.close_submenu(self)
+        if self._should_popup_fade_out():
+            # Popup surface shown with a fade-bearing animation: fade out
+            # first, then really hide + emit aboutToHide + deleteLater once
+            # the widget is off screen (see _on_popup_fade_out_finished).
+            self._start_popup_fade_out()
+            return
         ephemeral = self._is_submenu or self.is_popup_surface()
         if ephemeral:
             QWidget.hide(self)
@@ -408,7 +423,7 @@ class ContextMenu(BaseFlyout):
         *,
         position: str | None = None,
         offset: int = 5,
-        animation: str = "none",
+        animation: str | None = None,
         animation_duration_ms: int | None = None,
         animation_distance: int | None = None,
         animation_axis: AnimationAxis = "auto",
@@ -454,7 +469,10 @@ class ContextMenu(BaseFlyout):
         else:
             ux = uy = 0.0
 
-        mode = animation if animation else "none"
+        mode = animation if animation is not None else (
+            get_flyout_timings().default_flyout_animation or "none"
+        )
+        mode = mode if mode else "none"
         if mode == "none":
             self.setGeometry(final_rect)
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
@@ -507,7 +525,7 @@ class ContextMenu(BaseFlyout):
         self._show_animation = anim
         anim.start()
 
-    def popup_at(self, global_pos: QPoint) -> None:
+    def popup_at(self, global_pos: QPoint, *, animation: str | None = None) -> None:
         submenu_ops.close_submenu(self)
         self._relayout_widths()
         container_layout = self.container.layout()
@@ -517,6 +535,13 @@ class ContextMenu(BaseFlyout):
             self.container.updateGeometry()
         self.adjustSize()
 
+        # Cursor-positioned menus resolve the same animation mode as the rest
+        # (explicit -> global default -> historical "slide"); a fade-bearing
+        # mode fades the menu in at the cursor and fades it out on hide.
+        mode = resolve_flyout_animation(animation)
+        self._fade.fade_out_enabled = "fade" in mode
+        want_fade = "fade" in mode
+
         # Keep the open cursor outside the widget (incl. shadow) so the same
         # spot can dismiss on the next press. Opaque content still sits near
         # the cursor via the shadow inset.
@@ -525,10 +550,26 @@ class ContextMenu(BaseFlyout):
             bind_popup_transient_parent(self, self._logical_parent)
             place_popup_at_global(self, origin, margin=4)
             self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+            # Show FIRST, snapshot second: grab() of a top-level popup window
+            # that was never shown can miss content (corners, shadow — the
+            # "top-left corner pops in opaque" artifact) because the native
+            # surface doesn't exist yet. show() + re-place stay synchronous
+            # (no event-loop pass), so no frame ever paints at full opacity
+            # before the fade takes over.
+            # Show FIRST, snapshot second: grab() of a top-level popup window
+            # that was never shown can miss content (corners, shadow — the
+            # "top-left corner pops in opaque" artifact) because the native
+            # surface doesn't exist yet. show() + re-place stay synchronous
+            # (no event-loop pass), so no frame ever paints at full opacity
+            # before the fade takes over.
             self.show()
             self.raise_()
             # Wayland may ignore pre-show geometry; re-apply once mapped.
             place_popup_at_global(self, origin, margin=4)
+            if want_fade:
+                self._fade.capture(self)
+                self._fade.set_opacity(self, 0.0)
+                self._start_popup_fade_in()
             return
 
         parent = self.parentWidget()
@@ -547,11 +588,77 @@ class ContextMenu(BaseFlyout):
         self.setGeometry(target)
 
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        if want_fade:
+            self._fade.capture(self)
+            self._fade.set_opacity(self, 0.0)
         self.show()
         self.raise_()
+        if want_fade:
+            self._start_popup_fade_in()
         # Do not setFocus(): on Wayland focusing a ContextMenu can emit
         # ApplicationDeactivate, which then closes the menu and jerks QRhi
         # canvases. Escape is handled via FlyoutManager / key filters.
+
+    def _start_popup_fade_in(self) -> None:
+        if self._show_animation is not None:
+            self._show_animation.stop()
+            self._show_animation.deleteLater()
+            self._show_animation = None
+        anim = QVariantAnimation(self)
+        anim.setDuration(get_flyout_timings().flyout_animation_duration_ms)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+        anim.valueChanged.connect(
+            lambda value: self._fade.on_fade_value_changed(self, value)
+        )
+        anim.finished.connect(self._on_popup_fade_in_finished)
+        self._show_animation = anim
+        anim.start()
+
+    def _on_popup_fade_in_finished(self) -> None:
+        if self._show_animation is not None:
+            self._show_animation.deleteLater()
+            self._show_animation = None
+        self._fade.clear()
+        self._fade.opacity = 1.0
+        self.update()
+
+    def _should_popup_fade_out(self) -> bool:
+        return bool(
+            self.is_popup_surface()
+            and not self._is_submenu
+            and self._fade.fade_out_enabled
+            and self.isVisible()
+            and not self._popup_fade_in_progress
+        )
+
+    def _start_popup_fade_out(self) -> None:
+        self._popup_fade_in_progress = True
+        self._fade.capture(self)
+        anim = QVariantAnimation(self)
+        anim.setDuration(get_flyout_timings().flyout_fade_out_duration_ms)
+        anim.setStartValue(self._fade.opacity)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.InQuad)
+        anim.valueChanged.connect(
+            lambda value: self._fade.on_fade_value_changed(self, value)
+        )
+        anim.finished.connect(self._on_popup_fade_out_finished)
+        self._popup_fade_anim = anim
+        anim.start()
+
+    def _on_popup_fade_out_finished(self) -> None:
+        if self._popup_fade_anim is not None:
+            self._popup_fade_anim.deleteLater()
+            self._popup_fade_anim = None
+        self._popup_fade_in_progress = False
+        self._fade.clear()
+        self._fade.opacity = 1.0
+        QWidget.hide(self)
+        self.aboutToHide.emit()
+        if self.is_popup_surface() and not self._is_submenu:
+            self.deleteLater()
 
     def exec_at(self, global_pos: QPoint) -> str | None:
         result: dict[str, str | None] = {"id": None}

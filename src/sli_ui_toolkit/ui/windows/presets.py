@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any
 
 from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.windows.custom_title_bar import CustomTitleBar
-from sli_ui_toolkit.ui.windows.title_bar_menu import TitleBarMenu, TitleBarMenuStrip
 from sli_ui_toolkit.ui.windows.window_controls import WindowControlsConfig
 
 
@@ -35,7 +34,7 @@ class TitleBarPresets:
         title: str,
         *,
         parent=None,
-        menus: Sequence[TitleBarMenu] | TitleBarMenuStrip | None = None,
+        leading: QWidget | None = None,
         controls: WindowControlsConfig | None = None,
         icon: QIcon | None = None,
         minimize_icon: Any = None,
@@ -43,6 +42,14 @@ class TitleBarPresets:
         restore_icon: Any = None,
         close_icon: Any = None,
     ) -> CustomTitleBar:
+        """Build a generic app-shell title bar.
+
+        ``CustomTitleBar`` is a plain container: it hosts whatever leading-zone
+        widget the host app injects (via the ``leading`` argument or by calling
+        ``bar.set_leading`` afterwards). The toolkit does not know about menus —
+        the app owns its title-bar content (e.g. File/Help triggers and how
+        their dropdowns open).
+        """
         cfg = controls or WindowControlsConfig()
         bar = CustomTitleBar(
             parent=parent,
@@ -57,7 +64,6 @@ class TitleBarPresets:
             show_close=cfg.show_close,
             defer_close_click=cfg.defer_close_click,
         )
-        if menus is not None:
-            strip = menus if isinstance(menus, TitleBarMenuStrip) else TitleBarMenuStrip(menus)
-            bar.set_menu_strip(strip)
+        if leading is not None:
+            bar.set_leading(leading)
         return bar

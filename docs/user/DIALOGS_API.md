@@ -22,10 +22,36 @@ Block parsers for `HelpDocumentView` live under
 `sli_ui_toolkit.ui.widgets.composite.help_document`
 (`parse_help_blocks`, `FigureBlock`, …).
 
-`SidebarDialogShell(*, sidebar_width=200, content_margins=(20, 20, 20, 20), content_spacing=10, parent=None)`
+`SidebarDialogShell(*, sidebar_width=200, content_margins=(20, 20, 20, 20), content_spacing=10, sidebar_header=None, resizable_sidebar=False, parent=None)`
 wraps an `IconListWidget` sidebar (exposed as `.sidebar`) plus a
-`QStackedWidget` page area (`.pages_stack`). `ScrollableDialogPage(*, content_margins=(0, 0, 12, 0), content_spacing=15, parent=None)`
+`QStackedWidget` page area (`.pages_stack`). `sidebar_header` pins a widget
+(e.g. a search field) above the nav list: the whole sidebar column tracks
+the configured width and stays visible when the nav list is collapsed.
+`resizable_sidebar=True` puts the sidebar and the content area into a
+draggable `QSplitter` (`.splitter`), so the user can widen/narrow the nav
+column (the configured `sidebar_width` becomes the minimum).
+`ScrollableDialogPage(*, content_margins=(0, 0, 12, 0), content_spacing=15, parent=None)`
 is a single scrollable content column, meant to be pushed into that stack.
+
+`IconListWidget` supports in-place search filtering — the rows stay built,
+only visibility changes per keystroke (ComboBox-style visible-index pool):
+
+```python
+nav.set_no_results_text("No matching items")   # shown when a search hits nothing
+nav.set_items([IconListItem(text="Settings", search_texts=("настройки", "настройка"))])
+nav.set_search_text("настройки")                # filters in place; "" restores all
+```
+
+`search_texts` are pre-normalized alternate match texts (e.g. translations
+in every UI language) — matching uses the same `match_score` scoring as the
+toolkit ComboBox: NFKD-normalized, **non-fuzzy by default** (exact, word
+prefix, or substring hits). Fuzzy subsequence matching is opt-in
+(`fuzzy=True`) and should only be enabled when the UI explicitly advertises
+it — a scatter hit cannot be located on a page, so it silently matches
+almost any short query against long text.
+`count()`/`item()`/`row_button()`/`setCurrentRow()`
+all operate on *visible* rows while a filter is active; `clear()` keeps the
+no-results row across rebuilds (it is hidden until a search needs it).
 
 ```python
 from PySide6.QtCore import QSize
@@ -61,6 +87,13 @@ doc_view = HelpDocumentView(
     toc_title="On this page",
 )
 ```
+
+`HelpDocumentView.scroll_to_text(query)` highlights the first
+case-insensitive occurrence of `query` in the body (via the document's
+accent selection wash) and returns a zero-height scroll-target widget for
+a parent `QScrollArea` to call `ensureWidgetVisible` on — `None` when the
+query is absent. `scroll_to_anchor(anchor)` returns the equivalent target
+for a heading anchor instead.
 
 `selected_icon_mode="invert"` (`IconListWidget`'s default) recolors the row
 icon on selection; `"replace"` swaps in `selected_icon=` /

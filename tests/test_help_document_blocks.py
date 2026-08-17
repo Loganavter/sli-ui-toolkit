@@ -3,15 +3,23 @@
 from __future__ import annotations
 
 from sli_ui_toolkit.ui.widgets.composite.help_document import (
+    CodeBlock,
     FigureBlock,
     HeadingBlock,
     ImageBlock,
     InlineKind,
     ListBlock,
     ParagraphBlock,
+    TableBlock,
+    blocks_to_plain_text,
     collect_heading_anchors,
     parse_help_blocks,
     parse_inline,
+    spans_to_plain,
+)
+from sli_ui_toolkit.ui.widgets.composite.text_view.text_index import (
+    assert_index_matches_blocks,
+    build_text_index,
 )
 
 
@@ -136,7 +144,7 @@ def test_parse_figure_height_px():
 
 
 def test_group_side_figures_ignores_center():
-    from sli_ui_toolkit.ui.widgets.composite.help_document.structure import (
+    from sli_ui_toolkit.ui.widgets.composite.text_view.structure import (
         SideFigureGroup,
         group_side_figures,
     )
@@ -151,3 +159,110 @@ def test_group_side_figures_ignores_center():
     grouped = group_side_figures(blocks)
     assert not any(isinstance(g, SideFigureGroup) for g in grouped)
     assert any(isinstance(b, FigureBlock) and b.side == "center" for b in grouped)
+
+
+def test_level_one_headings():
+    blocks = parse_help_blocks(
+        "# Title\n\n#### Deep {#deep}\n\nParagraph.\n"
+    )
+    assert blocks[0].level == 1
+    assert blocks[0].text == "Title"
+    assert blocks[1].level == 4
+    assert blocks[1].anchor == "deep"
+    assert isinstance(blocks[2], ParagraphBlock)
+
+
+def test_fenced_code_blocks():
+    blocks = parse_help_blocks(
+        "Before.\n\n"
+        "```python\n"
+        "from sli_ui_toolkit.widgets import Button\n"
+        "# comment stays in the block\n"
+        "```\n\n"
+        "After.\n"
+    )
+    assert isinstance(blocks[0], ParagraphBlock)
+    code = blocks[1]
+    assert isinstance(code, CodeBlock)
+    assert code.language == "python"
+    assert code.lines == (
+        "from sli_ui_toolkit.widgets import Button",
+        "# comment stays in the block",
+    )
+    assert isinstance(blocks[2], ParagraphBlock)
+    assert blocks_to_plain_text(blocks) == (
+        "Before.\n\n"
+        "from sli_ui_toolkit.widgets import Button\n"
+        "# comment stays in the block\n\n"
+        "After."
+    )
+
+
+def test_fenced_code_without_language_and_unclosed():
+    blocks = parse_help_blocks("```\nvalue = 42\n```\n\nafter\n")
+    assert isinstance(blocks[0], CodeBlock)
+    assert blocks[0].language == ""
+    assert blocks[0].lines == ("value = 42",)
+    unclosed = parse_help_blocks("```\nleft open\n")
+    assert isinstance(unclosed[0], CodeBlock)
+    assert unclosed[0].lines == ("left open",)
+
+
+def test_parse_pipe_table_with_header():
+    blocks = parse_help_blocks(
+        "| Param | Meaning |\n"
+        "|---|---|\n"
+        "| `alpha` | allow alpha editing |\n"
+        "| hover | keep hover overlays |\n"
+    )
+    tables = [b for b in blocks if isinstance(b, TableBlock)]
+    assert len(tables) == 1
+    table = tables[0]
+    assert [spans_to_plain(c) for c in table.header] == ["Param", "Meaning"]
+    assert len(table.rows) == 2
+    assert spans_to_plain(table.rows[0][0]) == "alpha"
+    assert table.rows[0][0][0].kind == InlineKind.CODE
+    assert spans_to_plain(table.rows[1][1]) == "keep hover overlays"
+
+
+def test_parse_pipe_table_without_header():
+    blocks = parse_help_blocks("| a | b |\n| c | d |\n")
+    tables = [b for b in blocks if isinstance(b, TableBlock)]
+    assert len(tables) == 1
+    assert tables[0].header == ()
+    assert len(tables[0].rows) == 2
+
+
+def test_parse_pipe_table_pads_short_rows():
+    blocks = parse_help_blocks(
+        "| A | B | C |\n|---|---|---|\n| 1 | 2 |\n"
+    )
+    table = next(b for b in blocks if isinstance(b, TableBlock))
+    assert len(table.header) == 3
+    assert len(table.rows[0]) == 3
+    assert spans_to_plain(table.rows[0][2]) == ""
+
+
+def test_parse_pipe_table_escaped_pipe():
+    blocks = parse_help_blocks("| a | b\\|c |\n")
+    table = next(b for b in blocks if isinstance(b, TableBlock))
+    assert [spans_to_plain(c) for c in table.rows[0]] == ["a", "b|c"]
+
+
+def test_pipe_table_does_not_swallow_following_paragraph():
+    blocks = parse_help_blocks(
+        "| a | b |\n|---|---|\n| 1 | 2 |\n\nTrailing paragraph.\n"
+    )
+    tables = [b for b in blocks if isinstance(b, TableBlock)]
+    paragraphs = [b for b in blocks if isinstance(b, ParagraphBlock)]
+    assert len(tables) == 1
+    assert len(paragraphs) == 1
+    assert spans_to_plain(paragraphs[0].spans) == "Trailing paragraph."
+
+
+def test_pipe_table_plain_text_matches_index():
+    blocks = parse_help_blocks(
+        "| Param | Meaning |\n|---|---|\n| `alpha` | allow |\n| b | keep |\n"
+    )
+    index = build_text_index(blocks)
+    assert_index_matches_blocks(blocks, index)

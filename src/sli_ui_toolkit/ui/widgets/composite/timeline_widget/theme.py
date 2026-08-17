@@ -9,7 +9,7 @@ def build_theme_colors(widget) -> dict[str, Any]:
     is_dark = tm.is_dark()
     text_col = tm.get_color("WindowText")
     if is_dark:
-        return {
+        colors = {
             "is_dark": is_dark,
             "accent": tm.get_color("accent"),
             "text_col": text_col,
@@ -25,22 +25,35 @@ def build_theme_colors(widget) -> dict[str, Any]:
             "sb_idle": QColor(255, 255, 255, 55),
             "sb_hover": QColor(255, 255, 255, 85),
         }
-    return {
-        "is_dark": is_dark,
-        "accent": tm.get_color("accent"),
-        "text_col": text_col,
-        "canvas_bg": tm.get_color("Window"),
-        "gutter_bg": QColor(244, 244, 246),
-        "group_bg": QColor(250, 250, 252),
-        "track_bg": QColor(242, 243, 246),
-        "lane_bg": QColor(248, 248, 250),
-        "grid_col": QColor(220, 220, 225),
-        "footer_bg": QColor(236, 238, 242),
-        "sep_strong": QColor(188, 192, 200),
-        "sep_soft": QColor(218, 220, 226),
-        "sb_idle": QColor(0, 0, 0, 65),
-        "sb_hover": QColor(0, 0, 0, 95),
-    }
+    else:
+        colors = {
+            "is_dark": is_dark,
+            "accent": tm.get_color("accent"),
+            "text_col": text_col,
+            "canvas_bg": tm.get_color("Window"),
+            "gutter_bg": QColor(244, 244, 246),
+            "group_bg": QColor(250, 250, 252),
+            "track_bg": QColor(242, 243, 246),
+            "lane_bg": QColor(248, 248, 250),
+            "grid_col": QColor(220, 220, 225),
+            "footer_bg": QColor(236, 238, 242),
+            "sep_strong": QColor(188, 192, 200),
+            "sep_soft": QColor(218, 220, 226),
+            "sb_idle": QColor(0, 0, 0, 65),
+            "sb_hover": QColor(0, 0, 0, 95),
+        }
+    overrides = getattr(widget, "_color_overrides", None)
+    if overrides:
+        colors.update(overrides)
+    return colors
+
+def resolve_accent_color(widget) -> QColor:
+    """Widget-level accent: the ``accent_color=``/``set_accent_color()``
+    override if set, else the theme's ``accent`` token."""
+    override = getattr(widget, "_color_overrides", {}).get("accent")
+    if override is not None:
+        return QColor(override)
+    return QColor(widget.theme_manager.get_color("accent"))
 
 def _explicit_accent_color(*candidates) -> QColor | None:
     for candidate in candidates:
@@ -62,7 +75,7 @@ def track_color(
     explicit = _explicit_accent_color(channel_accent_color, track_accent_color)
     if explicit is not None:
         return explicit
-    accent = QColor(widget.theme_manager.get_color("accent"))
+    accent = resolve_accent_color(widget)
     if channel_kind == "bool" or track_kind == "bool":
         return QColor(0, 140, 198)
     if channel_kind == "enum" or track_kind == "enum":
@@ -131,7 +144,7 @@ def group_content_bg(widget, base_bg: QColor, group, strength: int) -> QColor:
                 )
                 break
         else:
-            accent = QColor(widget.theme_manager.get_color("accent"))
+            accent = resolve_accent_color(widget)
     else:
-        accent = QColor(widget.theme_manager.get_color("accent"))
+        accent = resolve_accent_color(widget)
     return mix_colors(base_bg, accent, strength)

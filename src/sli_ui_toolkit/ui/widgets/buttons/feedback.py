@@ -77,6 +77,14 @@ def get_default_underline_fade() -> bool:
     return _default_underline_fade
 
 
+def reset_feedback_defaults() -> None:
+    """Reset ripple duration, click deferral, and underline fade to defaults."""
+    global _default_defer_click, _default_underline_fade
+    set_ripple_duration_ms(_DEFAULT_RIPPLE_DURATION_MS)
+    _default_defer_click = False
+    _default_underline_fade = True
+
+
 def coerce_defer_click_ms(value: bool | int | str) -> int | None:
     """Normalize a ``defer_click`` policy to a ``QTimer.singleShot`` delay.
 

@@ -343,6 +343,54 @@ def test_grouped_ripple_paints_once_over_united_rect_including_gap(qtbot):
     assert applies == [("left", True), ("right", False)]
 
 
+def test_plain_group_paints_one_united_fill(qtbot):
+    """Plain (rect, no corner_radii) group members share ONE fill.
+
+    The first member's fill path covers the united group rect and the
+    siblings' fill paths are empty — abutting per-region fills left an
+    antialiased seam at the split boundary (and overlap nudges double-tinted
+    it), so the row hover must be a single seamless wash.
+    """
+    from PySide6.QtCore import QRectF
+
+    button = _show(
+        Button(
+            regions=[
+                ButtonRegion(id="main", text="L", group="row", weight=1.0),
+                ButtonRegion(id="shortcut", text="R", group="row", weight=1.0),
+            ],
+            split=HorizontalSplit(),
+            size=(120, 36),
+        ),
+        qtbot,
+    )
+    main_rect = button._controller.rects["main"]
+    shortcut_rect = button._controller.rects["shortcut"]
+
+    main_fill = button._controller.fill_paths["main"]
+    shortcut_fill = button._controller.fill_paths["shortcut"]
+
+    # First member paints the whole group; sibling paints nothing.
+    assert shortcut_fill.isEmpty()
+    expected = main_rect.united(shortcut_rect)
+    actual = main_fill.boundingRect()
+    assert (
+        pytest.approx((actual.x(), actual.y(), actual.width(), actual.height()))
+        == (expected.x(), expected.y(), expected.width(), expected.height())
+    )
+
+    # Ungrouped single-region fill stays the plain region path.
+    solo = _show(Button(text="S", size=(60, 36)), qtbot)
+    solo_fill = solo._controller.fill_paths["_main"]
+    assert not solo_fill.isEmpty()
+    solo_rect = solo._controller.rects["_main"]
+    solo_box = solo_fill.boundingRect()
+    assert (
+        pytest.approx((solo_box.x(), solo_box.y(), solo_box.width(), solo_box.height()))
+        == (solo_rect.x(), solo_rect.y(), solo_rect.width(), solo_rect.height())
+    )
+
+
 def test_grouped_ripple_survives_sibling_background_overpaint(qtbot):
     """Sibling BackgroundLayer must not clip the shared group wave to the owner half.
 

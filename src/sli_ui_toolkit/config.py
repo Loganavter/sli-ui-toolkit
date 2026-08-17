@@ -15,6 +15,12 @@ class FlyoutTimingConfig:
     flyout_animation_duration_ms: int = 160
     text_settings_flyout_animation_duration_ms: int = 180
     dropdown_drop_offset_px: int = 24
+    flyout_fade_out_duration_ms: int = 150
+    # Process-wide default for BaseFlyout.show_aligned's animation when the
+    # caller omits it (one of "none" / "slide" / "fade" / "slide-fade").
+    # "none" preserves the historical behavior; hosts set e.g. "slide-fade" to
+    # animate every default flyout without touching each call site.
+    default_flyout_animation: str = "none"
 
 _timings = FlyoutTimingConfig()
 _overlay_resolver: Callable[[object | None], object | None] | None = None
@@ -32,12 +38,20 @@ def configure_toolkit(
     ripple_duration_ms: int | None = None,
     default_defer_click: bool | int | str | None = None,
     default_underline_fade: bool | None = None,
+    ui_scale_factor: float | None = None,
 ) -> None:
     """Configure process-wide toolkit behaviour.
 
     Button press feedback (ripple duration + default click deferral) can also
     be set via ``set_ripple_duration_ms`` / ``set_default_defer_click``.
     Underline tip fade (``set_default_underline_fade``) likewise.
+
+    ``ui_scale_factor`` applies a logical-px multiplier to fonts, icons,
+    tokens, and widget geometry via ``UiScale`` (clamped to the UiScale
+    safety range 0.5–2.5; the host's settings UI exposes the same range,
+    e.g. Improve-ImgSLI's "Interface Scale" slider 50–250). Live-applies
+    immediately: widgets subscribed to ``UiScale.scale_changed``
+    relayout/repaint on the spot.
     """
     global _timings, _overlay_resolver, _rating_gesture_factory, _dragdrop_service_getter
     global _context_menu_surface
@@ -51,6 +65,10 @@ def configure_toolkit(
         _dragdrop_service_getter = dragdrop_service_getter
     if context_menu_surface is not None:
         _context_menu_surface = context_menu_surface
+    if ui_scale_factor is not None:
+        from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+
+        UiScale.get_instance().set_factor(ui_scale_factor)
     if ripple_duration_ms is not None:
         from sli_ui_toolkit.ui.widgets.buttons.feedback import set_ripple_duration_ms
 
@@ -63,6 +81,30 @@ def configure_toolkit(
         from sli_ui_toolkit.ui.widgets.buttons.feedback import set_default_underline_fade
 
         set_default_underline_fade(default_underline_fade)
+
+def reset_toolkit_config() -> None:
+    """Reset all process-wide toolkit configuration to library defaults.
+
+    ``configure_toolkit`` state is module-level, so tests (or plugin reload)
+    that call it must restore defaults afterward or leak state into
+    unrelated code. This undoes everything ``configure_toolkit`` can set,
+    including the button-feedback shorthands.
+    """
+    global _timings, _overlay_resolver, _rating_gesture_factory, _dragdrop_service_getter
+    global _context_menu_surface
+    _timings = FlyoutTimingConfig()
+    _overlay_resolver = None
+    _rating_gesture_factory = None
+    _dragdrop_service_getter = None
+    _context_menu_surface = "in_window"
+
+    from sli_ui_toolkit.ui.widgets.buttons.feedback import reset_feedback_defaults
+
+    reset_feedback_defaults()
+
+    from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+
+    UiScale.get_instance().set_factor(1.0)
 
 def get_flyout_timings() -> FlyoutTimingConfig:
     return _timings

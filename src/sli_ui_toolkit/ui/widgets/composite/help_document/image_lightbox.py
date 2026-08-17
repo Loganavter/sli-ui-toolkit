@@ -79,7 +79,11 @@ class HelpImageLightbox(QWidget):
         self.closed.emit()
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
-        if watched is self._host and event.type() in {
+        # ``getattr`` guards events that arrive before ``__init__`` finishes
+        # or during teardown (a partially-constructed lightbox must not
+        # raise inside the event loop).
+        host = getattr(self, "_host", None)
+        if host is not None and watched is host and event.type() in {
             QEvent.Type.Resize,
             QEvent.Type.Move,
         }:
@@ -176,7 +180,11 @@ class HelpImageLightbox(QWidget):
         if not title_bar.isVisible():
             return 0
         height = int(title_bar.height())
-        return height if height > 0 else CustomTitleBar.HEIGHT
+        if height > 0:
+            return height
+        from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+
+        return scaled_px(CustomTitleBar.HEIGHT)
 
     def _raise_title_bar_above(self) -> None:
         title_bar = getattr(self._host, "_csd_title_bar", None)

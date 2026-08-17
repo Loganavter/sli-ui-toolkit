@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor
 
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+
 @dataclass(frozen=True)
 class WidgetStyleTokens:
     variant: str = "default"
@@ -70,6 +72,15 @@ def read_widget_style(
         foreground = _as_color(
             widget.property("textColor") if widget is not None else None
         )
+    # Icon/corner sizes are design px (both the explicit ``iconSizePx`` /
+    # ``cornerRadiusPx`` properties and the built-in defaults); the UiScale
+    # factor is applied here so every consumer sees rendered px and never
+    # touches the factor itself.
+    scale = UiScale.get_instance()
+    raw_icon = _as_int(widget.property("iconSizePx") if widget is not None else None, None)
+    raw_radius = _as_int(
+        widget.property("cornerRadiusPx") if widget is not None else None, None
+    )
     return WidgetStyleTokens(
         variant=_as_str(
             widget.property("variant") if widget is not None else None, "default"
@@ -91,13 +102,9 @@ def read_widget_style(
         underline_color=_as_color(
             widget.property("underlineColor") if widget is not None else None
         ),
-        icon_size_px=_as_int(
-            widget.property("iconSizePx") if widget is not None else None,
-            default_icon_size,
-        ),
-        corner_radius_px=_as_int(
-            widget.property("cornerRadiusPx") if widget is not None else None,
-            default_corner_radius,
+        icon_size_px=scale.scaled_px(raw_icon if raw_icon is not None else default_icon_size),
+        corner_radius_px=scale.scaled_px(
+            raw_radius if raw_radius is not None else default_corner_radius
         ),
         show_underline=_as_bool(
             widget.property("showUnderline") if widget is not None else None, None
@@ -125,5 +132,12 @@ def update_widget_style(widget, *, update_geometry: bool = False) -> None:
         widget._sli_style_refreshing = False
 
 def icon_size_qsize(px: int | None, fallback: int = 22) -> QSize:
-    size = max(1, int(px or fallback))
+    """``QSize(size, size)`` for an icon size in rendered px.
+
+    *px* and *fallback* are design values; the UiScale factor is applied
+    here (rendered-out contract, same as ``read_widget_style``).
+    """
+    scale = UiScale.get_instance()
+    design = int(px or fallback)
+    size = scale.scaled_px(design)
     return QSize(size, size)

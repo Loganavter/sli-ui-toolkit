@@ -157,5 +157,129 @@ def test_top_tab_host_applies_rounded_content_clip(qapp):
 
     # Masks were removed — they caused neighbour-framebuffer bleed.
     assert host.pages_stack.mask().isEmpty()
-    assert host._content_inset >= host._pane_radius
-    host.deleteLater()
+
+
+def test_close_policy_disabled_by_default(qapp):
+    bar = TopTabBar()
+    bar.add_item("One")
+    bar.add_item("Two")
+    assert bar._tabs[0].close_button is None
+    assert bar._tabs[1].close_button is None
+    bar.deleteLater()
+
+
+def test_close_button_emits_tab_close_requested_and_does_not_select(qapp):
+    from PySide6.QtWidgets import QWidget
+
+    from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import (
+        CloseButtonPolicy,
+    )
+
+    bar = TopTabBar(close_policy=CloseButtonPolicy.ALL)
+    bar.add_item("One")
+    bar.add_item("Two")
+    bar.resize(bar.sizeHint())
+    bar.show()
+    qapp.processEvents()
+    closed = []
+    bar.tabCloseRequested.connect(closed.append)
+
+    # close is a real button next to the tab: clicking it closes, not selects
+    close0 = bar._tabs[0].close_button
+    assert isinstance(close0, QWidget)
+    close0.click()
+    assert closed == [0]
+    assert bar.currentIndex() == -1
+    # clicking the tab body selects, no close
+    bar._tabs[0].button.click()
+    assert closed == [0]
+    assert bar.currentIndex() == 0
+    bar.deleteLater()
+
+
+def test_close_buttons_widen_the_strip(qapp):
+    from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import (
+        CloseButtonPolicy,
+    )
+
+    plain = TopTabBar()
+    plain.add_item("One")
+    closable = TopTabBar(close_policy=CloseButtonPolicy.ALL)
+    closable.add_item("One")
+    assert closable._content_width() > plain._content_width()
+    assert closable._tabs[0].close_button.width() == closable._close_size
+    plain.deleteLater()
+    closable.deleteLater()
+
+
+def test_close_button_lives_inside_the_tab(qapp):
+    from PySide6.QtCore import QEvent, QPoint, QPointF
+    from PySide6.QtGui import QEnterEvent
+
+    from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import (
+        CloseButtonPolicy,
+    )
+
+    bar = TopTabBar(close_policy=CloseButtonPolicy.ALL)
+    bar.add_item("One")
+    bar.resize(bar.sizeHint())
+    bar.show()
+    qapp.processEvents()
+
+    tab = bar._tabs[0].button
+    close = bar._tabs[0].close_button
+    assert close is not None
+    # the close button is embedded in the tab, at its right edge
+    assert close.parentWidget() is tab
+    assert tab.rect().contains(close.geometry().center())
+    assert close.geometry().right() <= tab.width() - 4
+    # hovering the close button keeps the tab itself hovered
+    over_tab = tab.mapToGlobal(QPoint(10, 10))
+    qapp.sendEvent(
+        close,
+        QEnterEvent(QPointF(5, 5), QPointF(5, 5), QPointF(over_tab)),
+    )
+    assert tab._hovered is True
+    qapp.sendEvent(close, QEvent(QEvent.Type.Leave))
+    bar.deleteLater()
+
+
+def test_close_slot_background_follows_bar_state(qapp):
+    from sli_ui_toolkit.theme import ThemeManager
+
+    tm = ThemeManager.get_instance()
+    tm.register_palettes(
+        {
+            "dialog.input.background": "#123456",
+            "button.toggle.background.hover": "#654321",
+            "Window": "#ffffff",
+            "dialog.text": "#111111",
+        },
+        {
+            "dialog.input.background": "#abcdef",
+            "button.toggle.background.hover": "#fedcba",
+            "Window": "#000000",
+            "dialog.text": "#dddddd",
+        },
+    )
+    tm.set_theme("light", qapp)
+
+    from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import (
+        CloseButtonPolicy,
+    )
+
+    bar = TopTabBar(close_policy=CloseButtonPolicy.ALL)
+    bar.add_item("One")
+    tab = bar._tabs[0].button
+    # unselected, unhovered -> transparent slot
+    assert bar.close_slot_background_color_for(tab) is None
+    # bar hover -> hover token
+    bar._set_hover_index(0)
+    assert bar.close_slot_background_color_for(tab).name() == "#654321"
+    assert tab._hovered is True
+    bar._set_hover_index(-1)
+    assert tab._hovered is False
+    # selected -> tab background token
+    bar.setCurrentIndex(0)
+    assert bar.close_slot_background_color_for(tab).name() == "#123456"
+    bar.deleteLater()

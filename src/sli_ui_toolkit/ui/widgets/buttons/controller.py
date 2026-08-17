@@ -97,30 +97,11 @@ class ButtonController:
             region.id: QRectF(region.rect_fn(rect) if region.rect_fn else region_rect)
             for region, region_rect in zip(self.regions, rects)
         }
-        paths: dict[str, QPainterPath] = {}
-        fill_paths: dict[str, QPainterPath] = {}
-        for region in self.regions:
-            region_rect = self.rects.get(region.id)
-            if region_rect is None:
-                continue
-            if region.path_fn is not None:
-                path = QPainterPath(region.path_fn(rect))
-                paths[region.id] = path
-                fill_paths[region.id] = path
-            else:
-                path = QPainterPath()
-                path.addRect(region_rect)
-                paths[region.id] = path
-                if region.group is not None and region.corner_radii is None:
-                    fill_path = QPainterPath()
-                    fill_path.addRect(region_rect.adjusted(-0.75, -0.75, 0.75, 0.75))
-                    fill_paths[region.id] = fill_path
-                else:
-                    fill_paths[region.id] = path
-        self.paths = paths
-        self.fill_paths = fill_paths
 
+        # Group geometry first: the united rect per group (used by ripple and by
+        # the single-fill background strategy below).
         group_rects: dict[str, QRectF] = {}
+        group_all_plain: dict[str, bool] = {}
         for region in self.regions:
             if not region.group:
                 continue
@@ -129,9 +110,49 @@ class ButtonController:
                 continue
             if region.group in group_rects:
                 group_rects[region.group] = group_rects[region.group].united(region_rect)
+                group_all_plain[region.group] = (
+                    group_all_plain[region.group] and region.corner_radii is None
+                )
             else:
                 group_rects[region.group] = QRectF(region_rect)
+                group_all_plain[region.group] = region.corner_radii is None
         self.group_rects = group_rects
+
+        paths: dict[str, QPainterPath] = {}
+        fill_paths: dict[str, QPainterPath] = {}
+        group_fill_assigned: set[str] = set()
+        for region in self.regions:
+            region_rect = self.rects.get(region.id)
+            if region_rect is None:
+                continue
+            if region.path_fn is not None:
+                path = QPainterPath(region.path_fn(rect))
+                paths[region.id] = path
+                fill_paths[region.id] = path
+                continue
+            path = QPainterPath()
+            path.addRect(region_rect)
+            paths[region.id] = path
+            if region.group is not None and region.corner_radii is None:
+                if (
+                    group_all_plain.get(region.group)
+                    and region.group not in group_fill_assigned
+                ):
+                    # All group members are plain rects: the first member paints
+                    # the whole group rect once and the rest paint nothing.
+                    # Per-region abutting fills left an antialiased seam at the
+                    # split boundary (and overlap nudges double-tinted it);
+                    # one united fill has neither.
+                    group_fill_assigned.add(region.group)
+                    fill_path = QPainterPath()
+                    fill_path.addRect(group_rects[region.group])
+                else:
+                    fill_path = QPainterPath()
+                fill_paths[region.id] = fill_path
+            else:
+                fill_paths[region.id] = path
+        self.paths = paths
+        self.fill_paths = fill_paths
 
     def ripple_rect(self, region_id: str) -> QRectF | None:
         region = next((r for r in self.regions if r.id == region_id), None)

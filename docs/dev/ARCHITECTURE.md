@@ -136,10 +136,35 @@ Examples:
 - `AdaptiveTabStrip`, which owns tab painting, add/close controls, and
   adaptive close-button layout while the host owns document/session lifecycle
 
+`ui/widgets/composite/adaptive_tab_strip/` is split by widget boundary:
+`widget.py` is the thin host facade (row layout, close-button policy, the
+QTabBar-like surface), `tab_bar.py` is the painted tab bar itself, and
+`close_button.py` is the close-slot machinery (`_CloseButtonSlot`,
+`CloseButtonPolicy`, the tab-background layer).
+
+Same pattern for the other folder splits: `list_panel/` (facade in
+`widget.py`; selection is a state-owning `MarqueeSelectionModel` in
+`selection.py`, drop-target math is pure in `drag_drop.py`, item/position
+transforms are pure in `rows.py`), `sidebar_nav_list/` (facade; row
+spec/factory in `rows.py`, pure icon resolution in `icons.py`, geometry
+debug dump as module functions in `debug.py`), `toast/` (one module per
+class: `progress_bar.py`, `notification.py`, `manager.py`),
+`inspector/code.py` (the Code section is a self-contained
+`CodeSectionEditor` widget), and `text_view/document_mode.py` (the
+document-mode selection state is a plain `DocumentSelection` model —
+widget-free, canvas delegates).
+
+`ui/inspector/` follows the same model: `view.py` holds only
+`InspectorWindow` (tabs/toolbar) + the `_InspectionPane` owner; section
+rendering, the Code section, and the Layout/Constructor trees are mixins in
+`rendering.py` / `code.py` / `tree.py`, with value formatting in
+`fields.py`.
+
 ### 5. Specialized UI families
 
 Folders:
 
+- `ui/widgets/composite/base_flyout/`
 - `ui/widgets/composite/calendar_widget/`
 - `ui/widgets/composite/timeline_widget/`
 - `ui/widgets/composite/sunburst_chart/`
@@ -153,6 +178,25 @@ Responsibilities:
 - widgets that are too large to keep as single-module composites.
 
 If a widget family starts needing private helpers, models, renderers, or interaction controllers, it should become a folder like this.
+
+`base_flyout/` is the flyout shell split by concern: `widget.py` is a thin
+facade; `geometry.py` holds the pure placement math (point specs,
+alignment, slide deltas); `animation.py` owns ALL fade state in a
+`FlyoutFadeController` (the widget only references it); style, content
+building, placement, show/hide lifecycle and the FlyoutManager contract
+live in `style.py` / `builder.py` / `placement.py` / `lifecycle.py` /
+`contract.py`. State-owning helpers take the widget as an explicit
+argument where they must touch it (grab/update); decision logic is pure.
+Mixins precede `QWidget` in the MRO so their overrides
+(`show`/`hide`/`raise_`/`paintEvent`) win while `super()` still resolves
+to QWidget's methods.
+
+The same split applies to `ui/windows/custom_title_bar/` (zones/balance in
+`zones.py`, the min/max/close buttons as a real self-contained child
+widget `WindowControlsCluster` in `window_controls.py` — it owns its own
+buttons, slots and window-state refresh — the drag surface in `drag.py`,
+fill/paint/theme hooks in `appearance.py`); the old module path stays a
+thin re-export shim.
 
 ## Directory Map
 

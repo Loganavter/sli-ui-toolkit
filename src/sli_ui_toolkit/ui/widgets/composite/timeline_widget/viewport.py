@@ -6,18 +6,32 @@ from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QScrollArea, QWidget
 
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
+    MINIMAL_SCROLLBAR_WIDTH,
+    overlay_scrollbar_max_inset,
+)
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from . import layout as timeline_layout
 from .i18n import localize_token, localize_value
+from .theme import resolve_accent_color
 
 def footer_height(widget) -> int:
-    return 42 + widget.SCROLLBAR_STRIP_HEIGHT
+    return scaled_px(42) + widget.SCROLLBAR_STRIP_HEIGHT
 
 def vertical_scrollbar_width(widget) -> int:
-    return 10
+    return MINIMAL_SCROLLBAR_WIDTH
 
 def vertical_scrollbar_gutter_width(widget) -> int:
-    return 16
+    # Same "max bar width + margin" footprint the rest of the toolkit uses —
+    # the bar is centered inside this lane, content leaves it clear.
+    return overlay_scrollbar_max_inset()
+
+# Metrics for the timeline's own drawn footer scrollbar. The values mirror
+# the MinimalistScrollBar's visual language (track padding / hover thumb
+# thickness) but are this widget's own, so they stay local.
+_INNER_SB_TRACK_PADDING = 8.0
+_INNER_SB_THICKNESS = 6.0
 
 def right_inset(widget) -> int:
     return vertical_scrollbar_gutter_width(widget) if widget._v_scrollbar.isVisible() else 0
@@ -40,7 +54,7 @@ def update_vertical_scrollbar(widget) -> None:
     widget._v_scrollbar.blockSignals(True)
     widget._v_scrollbar.setRange(0, max_scroll)
     widget._v_scrollbar.setPageStep(max(1, viewport_h))
-    widget._v_scrollbar.setSingleStep(max(12, widget.CHANNEL_ROW_HEIGHT))
+    widget._v_scrollbar.setSingleStep(max(scaled_px(12), widget.CHANNEL_ROW_HEIGHT))
     widget._v_scrollbar.setValue(min(widget._v_scrollbar.value(), max_scroll))
     widget._v_scrollbar.blockSignals(False)
     widget._v_scrollbar.setVisible(max_scroll > 0)
@@ -209,7 +223,7 @@ def format_time(seconds: float, step: float | None = None) -> str:
 def choose_ruler_step(duration: float, logical_width: float) -> float:
     if duration <= 0 or logical_width <= 0:
         return 1.0
-    min_label_spacing_px = 72.0
+    min_label_spacing_px = scaled_px(72.0)
     for step in (
         0.001,
         0.002,
@@ -299,7 +313,7 @@ def get_inner_sb_handle_rect(widget, sb_rect: QRectF) -> QRectF:
     total = h_bar.maximum() - h_bar.minimum() + h_bar.pageStep()
     if total <= 0:
         return QRectF()
-    padding = 8.0
+    padding = _INNER_SB_TRACK_PADDING
     track_w = sb_rect.width() - padding * 2
     if track_w <= 0:
         return QRectF()
@@ -307,7 +321,7 @@ def get_inner_sb_handle_rect(widget, sb_rect: QRectF) -> QRectF:
     scroll_range = h_bar.maximum() - h_bar.minimum()
     ratio = (h_bar.value() - h_bar.minimum()) / scroll_range
     handle_x = sb_rect.left() + padding + ratio * (track_w - handle_w)
-    thickness = 6.0
+    thickness = _INNER_SB_THICKNESS
     handle_y = sb_rect.top() + (sb_rect.height() - thickness) / 2.0
     return QRectF(handle_x, handle_y, handle_w, thickness)
 
@@ -328,7 +342,7 @@ def draw_inner_scrollbar(
     if hover_color is None:
         hover_color = QColor(0, 0, 0, 95)
     if widget._sb_dragging:
-        color = widget.theme_manager.get_color("accent")
+        color = resolve_accent_color(widget)
     elif sb_rect.contains(QPointF(widget.mapFromGlobal(widget.cursor().pos()))):
         color = hover_color
     else:

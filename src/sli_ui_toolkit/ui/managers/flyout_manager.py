@@ -530,6 +530,16 @@ class FlyoutManager(QObject):
                         # comparing against the pre-move snapshot forever.
                         self._schedule_anchor_snapshot(flyout)
                     continue
+                if not getattr(flyout, "close_on_anchor_move", True):
+                    # Host-owned shells (e.g. an assembled list picker that
+                    # re-anchors itself on every refresh) must not be closed
+                    # by anchor movement caused by unrelated layout reflows
+                    # (a label becoming visible shifts the toolbar → the
+                    # trigger combos move by a pixel). Refresh the snapshot
+                    # so the same move is not re-detected on the next event;
+                    # the shell repositions itself.
+                    self._schedule_anchor_snapshot(flyout)
+                    continue
                 for anchor, previous_rect in snapshots:
                     if self._global_rect(anchor) != previous_rect:
                         self._hide_with_family(flyout)

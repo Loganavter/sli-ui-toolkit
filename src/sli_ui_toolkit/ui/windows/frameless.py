@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+import os
 import sys
 
+import shiboken6
 from PySide6.QtCore import QChildEvent, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtGui import QCursor, QHoverEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget
@@ -10,6 +13,32 @@ from PySide6.QtWidgets import QApplication, QWidget
 RESIZE_MARGIN = 4
 # Qt unbound max when maximumWidth/Height were never set.
 QWIDGETSIZE_MAX = 16777215
+
+
+def _resize_debug(message: str, *args) -> None:
+    """Env-gated trace for the frameless resize hit-testing/drag pipeline.
+
+    ``SLI_RESIZE_DEBUG=1`` turns it on; output lands in the host app's
+    ``log.txt`` (``sli_ui_toolkit`` logger has the same handlers). Each line
+    is tagged ``[resize-debug]`` so it can be grepped independently of other
+    debug output.
+    """
+    flag = os.environ.get("SLI_RESIZE_DEBUG", "").strip().lower()
+    if flag in ("", "0", "false", "no", "off"):
+        return
+    try:
+        # Explicit opt-in trace: the host's logger levels must not gate it
+        # (the toolkit logger sits at INFO/WARNING unless the app enables
+        # debug mode). Bump only the sli_ui_toolkit tree, never the app's.
+        parent = logging.getLogger("sli_ui_toolkit")
+        if parent.level > logging.INFO:
+            parent.setLevel(logging.INFO)
+        log = logging.getLogger("sli_ui_toolkit.resize")
+        if log.level > logging.INFO:
+            log.setLevel(logging.INFO)
+        log.info("[resize-debug] " + (message % args if args else message))
+    except Exception:
+        pass
 
 
 def _win_refresh_native_frame(window: QWidget, custom_decorations: bool) -> None:
@@ -102,14 +131,46 @@ def _win_refresh_native_frame(window: QWidget, custom_decorations: bool) -> None
         pass
 
 
-def apply_frameless(window: QWidget, *, resizable: bool = True) -> None:
+def apply_frameless(
+    window: QWidget, *, resizable: bool = True, outer_band: int | None = None
+) -> None:
     flags = window.windowFlags()
     flags |= Qt.WindowType.FramelessWindowHint
     window.setWindowFlags(flags)
     if resizable:
         window.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         window.setMouseTracking(True)
+    if outer_band:
+        # Outer resize band: the surface carries ``outer_band`` transparent
+        # pixels beyond the visible body, so the edge-resize zone can be
+        # grabbed from outside the body like a native frame.
+        window.setProperty("_csd_outer_band", int(outer_band))
     _set_resize_filter(window, enabled=resizable)
+    if outer_band:
+        _patch_outer_band_geometry(window, int(outer_band))
+
+
+def _patch_outer_band_geometry(window: QWidget, band: int) -> None:
+    """Re-expand ``resize``/``setGeometry`` by 2*band so the app keeps
+    thinking in *content* size while the window surface carries the outer
+    resize band (transparent — the visible body is inset by ``band``).
+
+    The frameless manual-resize drag bypasses this patch by calling the
+    base-class setter directly (see ``_update_manual_resize``).
+    """
+    orig_resize = window.resize
+    orig_set_geometry = window.setGeometry
+
+    def _resize(width: int, height: int) -> None:
+        orig_resize(width + 2 * band, height + 2 * band)
+
+    def _set_geometry(x: int, y: int, width: int, height: int) -> None:
+        orig_set_geometry(x, y, width + 2 * band, height + 2 * band)
+
+    window.resize = _resize  # type: ignore[method-assign]
+    window.setGeometry = _set_geometry  # type: ignore[method-assign]
+    # Keep the bound originals alive (they reference the C++ object).
+    window._csd_outer_band_patch = (orig_resize, orig_set_geometry)  # type: ignore[attr-defined]
 
 
 def remove_frameless(window: QWidget) -> None:
@@ -171,6 +232,35 @@ def _set_resize_filter(window: QWidget, *, enabled: bool) -> None:
             app.installEventFilter(f)
         else:
             window.installEventFilter(f)
+        # The filter is a QObject child of the window and dies with it, but
+        # the app-level registration is NOT removed automatically — after
+        # the window is destroyed every app event would still invoke the
+        # dead filter (shiboken "already deleted" storm). The target's
+        # ``destroyed`` fires before its children are deleted, so unhook
+        # and release the override cursor there.
+        def _on_window_destroyed(*_args) -> None:
+            _resize_debug(
+                "window %s destroyed: unhooking resize filter",
+                type(window).__name__,
+            )
+            try:
+                f.clear_cursor()
+            except Exception:
+                pass
+            try:
+                if app is not None:
+                    app.removeEventFilter(f)
+            except Exception:
+                pass
+
+        window.destroyed.connect(_on_window_destroyed)
+        _resize_debug(
+            "filter installed on %s (title=%r) margin=%d visible=%s",
+            type(window).__name__,
+            window.windowTitle(),
+            f._resize_margin,
+            window.isVisible(),
+        )
 
 
 _LEFT = int(Qt.Edge.LeftEdge.value)
@@ -179,8 +269,10 @@ _TOP = int(Qt.Edge.TopEdge.value)
 _BOTTOM = int(Qt.Edge.BottomEdge.value)
 
 
-def _edges_for_pos(rect_w: int, rect_h: int, x: int, y: int) -> int:
-    m = RESIZE_MARGIN
+def _edges_for_pos(
+    rect_w: int, rect_h: int, x: int, y: int, margin: int = RESIZE_MARGIN
+) -> int:
+    m = margin
     value = 0
     if x <= m:
         value |= _LEFT
@@ -219,10 +311,39 @@ class _ResizeFilter(QObject):
     def __init__(self, target: QWidget):
         super().__init__(target)
         self._target = target
+        # Snapshot the module-level margin at install: dialogs re-install
+        # their chrome with a different margin (WindowChrome.install mutates
+        # the process-wide RESIZE_MARGIN), and that must not retroactively
+        # change this window's edge hit zones.
+        band = 0
+        try:
+            band = int(target.property("_csd_outer_band") or 0)
+        except Exception:
+            band = 0
+        # The CSD outer band extends the window surface beyond the visible
+        # body, so the edge zone [0, margin] straddles the visible edge —
+        # RESIZE_MARGIN pixels inside the body plus ``band`` outside it.
+        self._resize_margin = int(RESIZE_MARGIN) + band
         self._cursor_armed = False
+        # Edges the resize cursor is currently showing (0 = none). Coalescing
+        # key: hover/move events re-arrive at the same edge position several
+        # times per pointer position (Wayland re-delivers hover after a cursor
+        # shape change), and re-setting the cursor on every event churns the
+        # shape and repaints — the "cursor flickers frantically on the edge"
+        # symptom. Only arm/change when the value actually differs.
+        self._armed_edges = 0
+        # True while OUR QApplication override cursor is on the top of the
+        # override stack. The edge affordance uses the app-level override
+        # cursor (not per-widget setCursor): child widgets with their own
+        # cursor (buttons, combos, spinboxes, title-bar window controls)
+        # re-apply it in their own hover handlers *after* this app filter,
+        # so a window/child setCursor can never win — the override cursor
+        # beats every widget cursor until it is restored.
+        self._override_pushed = False
         self._manual_edges = 0
         self._manual_origin = QPoint()
         self._manual_geometry = QRect()
+        self._native_resizing = False
         self._ensure_mouse_tracking(target)
 
     def _ensure_mouse_tracking(self, root: QWidget) -> None:
@@ -238,6 +359,13 @@ class _ResizeFilter(QObject):
     def eventFilter(self, obj, event):
         target = getattr(self, "_target", None)
         if target is None:
+            return False
+        try:
+            if not shiboken6.isValid(target):
+                # The window was destroyed; the destroyed->unhook may not
+                # have run before this queued event reached the filter.
+                return False
+        except Exception:
             return False
 
         t = event.type()
@@ -261,8 +389,16 @@ class _ResizeFilter(QObject):
             if obj is target or (
                 t == QEvent.Type.ApplicationDeactivate and obj is QApplication.instance()
             ):
+                _resize_debug(
+                    "abort event %s on %s (was manual=%d native=%s)",
+                    t,
+                    type(target).__name__,
+                    self._manual_edges,
+                    self._native_resizing,
+                )
                 self.end_manual_resize()
-                self._clear_cursor()
+                self._native_resizing = False
+                self._clear_cursor(f"abort event {t}")
             return False
 
         if not isinstance(obj, QWidget):
@@ -273,14 +409,22 @@ class _ResizeFilter(QObject):
         except RuntimeError:
             return False
         if owner is not target:
-            # Pointer moved to another top-level — drop any stuck resize cursor.
-            if self._cursor_armed and not self._manual_edges:
-                self._clear_cursor()
+            # Do NOT clear blindly: overlapping top-levels share events —
+            # occluded widgets of the window underneath (mouse tracking is
+            # forced on) keep delivering HoverMove/MouseMove while the
+            # pointer is over the window on top. Treating every such event
+            # as "pointer moved away" clears the armed resize cursor while
+            # the pointer is still on OUR edge (the arm→clear→arm flicker).
+            # Re-evaluate from the real pointer position instead: clears
+            # only when the pointer genuinely left our window.
+            if not self._manual_edges:
+                self._refresh_cursor_from_global()
             return False
 
         if target.isMaximized() or target.isFullScreen():
             self.end_manual_resize()
-            self._clear_cursor()
+            self._native_resizing = False
+            self._clear_cursor("window maximized/fullscreen")
             return False
 
         if self._manual_edges and t == QEvent.Type.MouseMove and isinstance(
@@ -290,34 +434,93 @@ class _ResizeFilter(QObject):
             event.accept()
             return True
 
-        if self._manual_edges and t == QEvent.Type.MouseButtonRelease and isinstance(
-            event, QMouseEvent
-        ):
+        if t == QEvent.Type.MouseButtonRelease and isinstance(event, QMouseEvent):
             if event.button() == Qt.MouseButton.LeftButton:
-                self.end_manual_resize()
-                event.accept()
-                return True
+                resizing = self._manual_edges or self._native_resizing
+                _resize_debug(
+                    "release on %s: manual=%d native=%s target=%dx%d",
+                    type(target).__name__,
+                    self._manual_edges,
+                    self._native_resizing,
+                    target.width(),
+                    target.height(),
+                )
+                if self._manual_edges:
+                    self.end_manual_resize()
+                self._native_resizing = False
+                if resizing:
+                    # Re-snap hover + edge cursor to the real pointer position:
+                    # after a live resize (native or manual) the window may
+                    # have moved under the pointer, and no motion event fires
+                    # until the user moves the mouse — leaving a stuck resize
+                    # cursor / stale hover. The press was consumed, so consume
+                    # the release too.
+                    self._finish_resize_at(event.globalPosition().toPoint())
+                    event.accept()
+                    return True
+            return False
 
         local = self._local_pos(obj, event)
         if local is None:
             if t in (QEvent.Type.Leave, QEvent.Type.HoverLeave) and obj is target:
-                self._clear_cursor()
+                self._refresh_cursor_from_global()
             return False
 
         if t in (QEvent.Type.HoverMove, QEvent.Type.MouseMove):
             if not self._manual_edges:
-                self._update_cursor(local.x(), local.y())
+                self._update_cursor(local.x(), local.y(), via=obj)
             return False
 
         if t in (QEvent.Type.Leave, QEvent.Type.HoverLeave) and obj is target:
             if not self._manual_edges:
-                self._clear_cursor()
+                # Do NOT clear blindly: with WA_Hover on the whole tree, Qt
+                # delivers HoverLeave to the target whenever the pointer
+                # moves from it onto a WA_Hover child (children cover the
+                # whole window) — the pointer can still be inside the edge
+                # zone. Re-evaluate from the real cursor position instead;
+                # that clears only when the pointer really left the window.
+                self._refresh_cursor_from_global()
+            return False
+
+        if t == QEvent.Type.Resize and obj is target:
+            # Keep the edge zone live while the window changes size (native
+            # compositor drag, programmatic resize, layout-driven grow). The
+            # pointer position may be stale during a compositor grab, but the
+            # release handler below re-snaps it with the real position.
+            # Skipped during a software drag: that path owns the cursor
+            # (always the resize shape) until ``end_manual_resize``.
+            if not self._manual_edges:
+                self._refresh_cursor_from_global()
             return False
 
         if t == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
             if event.button() != Qt.MouseButton.LeftButton:
                 return False
-            value = _edges_for_pos(target.width(), target.height(), local.x(), local.y())
+            value = _edges_for_pos(
+                target.width(), target.height(), local.x(), local.y(),
+                self._resize_margin,
+            )
+            try:
+                is_native_child = bool(
+                    obj.testAttribute(Qt.WidgetAttribute.WA_NativeWindow)
+                )
+            except Exception:
+                is_native_child = False
+            _resize_debug(
+                "press obj=%s%s native=%s local=%s mapped=%s target=%dx%d "
+                "margin=%d -> edges=%d visible=%s max=%s",
+                type(obj).__name__,
+                "" if obj is target else f" (child of {type(target).__name__})",
+                is_native_child,
+                event.position().toPoint(),
+                local,
+                target.width(),
+                target.height(),
+                self._resize_margin,
+                value,
+                target.isVisible(),
+                target.isMaximized() or target.isFullScreen(),
+            )
             if value == 0:
                 return False
             if self._start_resize(value, event.globalPosition().toPoint()):
@@ -346,9 +549,24 @@ class _ResizeFilter(QObject):
         if handle is not None:
             try:
                 if handle.startSystemResize(Qt.Edge(edges)):
+                    self._native_resizing = True
+                    _resize_debug(
+                        "startSystemResize edges=%d -> OK (native resize)",
+                        edges,
+                    )
                     return True
-            except Exception:
-                pass
+                _resize_debug(
+                    "startSystemResize edges=%d -> False, falling back to manual",
+                    edges,
+                )
+            except Exception as exc:
+                _resize_debug(
+                    "startSystemResize edges=%d raised %r, falling back to manual",
+                    edges,
+                    exc,
+                )
+        else:
+            _resize_debug("no windowHandle yet, manual resize edges=%d", edges)
         self._begin_manual_resize(edges, global_pos)
         return True
 
@@ -358,6 +576,13 @@ class _ResizeFilter(QObject):
         self._manual_origin = QPoint(global_pos)
         self._manual_geometry = QRect(target.geometry())
         target.grabMouse()
+        _resize_debug(
+            "begin manual resize edges=%d grabber=%s target=%dx%d",
+            edges,
+            target.mouseGrabber() is target,
+            target.width(),
+            target.height(),
+        )
         self._update_cursor_for_edges(edges)
 
     def _update_manual_resize(self, global_pos: QPoint) -> None:
@@ -412,28 +637,138 @@ class _ResizeFilter(QObject):
             else:
                 geo.setHeight(min_h)
 
-        target.setGeometry(geo)
+        # Bypass the instance-level geometry patch (WindowChrome re-expands
+        # ``setGeometry``/``resize`` by the outer band so the app thinks in
+        # content size) — the manual drag computes the *window frame* rect
+        # and must set it verbatim.
+        from PySide6.QtWidgets import QWidget
+
+        QWidget.setGeometry(target, geo)
+        # The pointer is grabbed by this window during the software drag, so
+        # children never receive HoverMove/MouseMove and the app-wide
+        # HoverCoordinator never reconciles — button hover would stay stale
+        # while the window (and the widgets under the cursor) move. Reconcile
+        # from the real event position so hover tracks the live geometry.
+        self._reconcile_hover(global_pos)
+        _resize_debug(
+            "manual move -> target=%dx%d min=%dx%d",
+            target.width(),
+            target.height(),
+            target.minimumWidth(),
+            target.minimumHeight(),
+        )
 
     def end_manual_resize(self) -> None:
         if not self._manual_edges:
             return
+        _resize_debug("end manual resize (was edges=%d)", self._manual_edges)
         self._manual_edges = 0
         target = self._target
         if target is not None and target.mouseGrabber() is target:
             target.releaseMouse()
 
-    def _update_cursor(self, x: int, y: int) -> None:
-        value = _edges_for_pos(self._target.width(), self._target.height(), x, y)
-        if value == 0:
-            self._clear_cursor()
+    def _update_cursor(self, x: int, y: int, via=None) -> None:
+        target = self._target
+        width = target.width()
+        height = target.height()
+        via_name = type(via).__name__ if via is not None else "?"
+        # ``_edges_for_pos`` treats any position past ``width - RESIZE_MARGIN``
+        # as an edge — without a bounds check the resize cursor stays armed for
+        # positions outside the window (stale global pos after a live resize).
+        if x < 0 or y < 0 or x >= width or y >= height:
+            self._clear_cursor(f"out of bounds at ({x}, {y}) via {via_name}")
             return
+        value = _edges_for_pos(width, height, x, y, self._resize_margin)
+        if value == 0:
+            self._clear_cursor(f"out of zone at ({x}, {y}) via {via_name}")
+            return
+        if value == self._armed_edges and self._cursor_armed:
+            # Already showing the right shape — Qt re-delivers hover events
+            # several times per pointer position (and a cursor-shape change
+            # triggers more on Wayland); re-setting the cursor on every one
+            # of them churns the shape + repaints and visibly flickers.
+            # The app-level override cursor is already pushed, so nothing
+            # can have overridden the shape underneath — no re-arm needed.
+            return
+        _resize_debug(
+            "arm resize cursor at (%d, %d) in %dx%d margin=%d -> edges=%d via %s",
+            x,
+            y,
+            width,
+            height,
+            self._resize_margin,
+            value,
+            via_name,
+        )
         self._update_cursor_for_edges(value)
 
+    def _refresh_cursor_from_global(self) -> None:
+        """Re-evaluate the edge-zone cursor from the current pointer position."""
+        target = self._target
+        if target is None or not target.isVisible():
+            return
+        local = target.mapFromGlobal(QCursor.pos())
+        self._update_cursor(local.x(), local.y())
+
+    def _finish_resize_at(self, global_pos: QPoint) -> None:
+        """Snap edge cursor + hover to the real pointer after a live resize."""
+        target = self._target
+        if target is None:
+            return
+        local = target.mapFromGlobal(global_pos)
+        self._update_cursor(local.x(), local.y())
+        self._reconcile_hover(global_pos)
+
+    def _reconcile_hover(self, global_pos: QPoint) -> None:
+        """Refresh app-wide button hover from a real pointer position.
+
+        Used while the pointer is grabbed by a live-resize drag, when no
+        hover/move events reach the widgets.
+        """
+        target = self._target
+        try:
+            from sli_ui_toolkit.ui.widgets.helpers.hover_coordinator import (
+                hover_coordinator,
+            )
+
+            hover_coordinator().reconcile(global_pos, source_window=target)
+        except Exception:
+            pass
+
     def _update_cursor_for_edges(self, value: int) -> None:
-        self._clear_peer_cursors()
         cursor = QCursor(_cursor_for_edges(value))
-        self._target.setCursor(cursor)
+        # Only one resize cursor may be "showing" app-wide: clear peers'
+        # armed state (and their override-stack entries) before pushing ours,
+        # so the override stack stays exactly one entry deep and each
+        # filter's flags stay in sync with the stack.
+        self._clear_peer_cursors()
+        self._push_override_cursor(cursor)
         self._cursor_armed = True
+        self._armed_edges = value
+
+    def _push_override_cursor(self, cursor: QCursor) -> None:
+        """Put ``cursor`` on top of the app-wide override stack.
+
+        The override cursor is the only mechanism that beats child widgets
+        re-applying their own cursor in their hover handlers (which run
+        after this app-level filter, so window/child ``setCursor`` from here
+        always loses and flickers). Peers were cleared first (see
+        ``_update_cursor_for_edges``), so a restore-then-push keeps exactly
+        one stack entry per arm.
+        """
+        app = QApplication.instance()
+        if not isinstance(app, QApplication):
+            return
+        if self._override_pushed:
+            try:
+                app.restoreOverrideCursor()
+            except Exception:
+                pass
+        try:
+            app.setOverrideCursor(cursor)
+            self._override_pushed = True
+        except Exception:
+            pass
 
     def _clear_peer_cursors(self) -> None:
         """Drop resize cursors left on other top-levels (modal open / Wayland)."""
@@ -446,15 +781,22 @@ class _ResizeFilter(QObject):
                 continue
             peer = widget.findChild(_ResizeFilter)
             if peer is not None and peer is not self:
-                peer.clear_cursor()
+                peer._clear_cursor("superseded by another window")
 
-    def _clear_cursor(self) -> None:
+    def _clear_cursor(self, reason: str = "") -> None:
         if not self._cursor_armed:
             return
-        target = self._target
-        if target is not None:
-            target.unsetCursor()
+        _resize_debug("clear resize cursor (%s)", reason or "unspecified")
+        if self._override_pushed:
+            app = QApplication.instance()
+            if isinstance(app, QApplication):
+                try:
+                    app.restoreOverrideCursor()
+                except Exception:
+                    pass
+            self._override_pushed = False
         self._cursor_armed = False
+        self._armed_edges = 0
 
     def clear_cursor(self) -> None:
         """Public hook for callers that remove the filter while a cursor is set."""

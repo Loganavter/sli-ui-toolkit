@@ -13,6 +13,7 @@ from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
     ContextMenuEntry,
     ContextMenuSection,
     ContextMenuSeparator,
+    measure_text_width,
 )
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "ContextMenuSeparator",
     "entries_from_callbacks",
     "entries_from_labeled_data",
+    "measure_text_width",
     "popup_context_menu_for_anchor",
     "show_context_menu",
 ]

@@ -587,6 +587,7 @@ Button(
     variant: str = "default",
     density: str = "normal",
     defer_click: bool | int | str | None = None,
+    text_fit: bool = False,
     regions: list[ButtonRegion] | None = None,
     split: SplitLayout | None = None,
     divider: Divider | None = None,
@@ -620,6 +621,7 @@ Button(
 | `variant` | `str` | `"default"` | Color variant: "default", "surface", "ghost". Deprecated aliases warn. |
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
 | `defer_click` | `bool \| int \| str \| None` | `None` | `None` inherits `get_default_defer_click()`; `False` sync; `True` next tick; `int` ms; `"ripple"` awaits `get_ripple_duration_ms()` (see [Press animations](#press-animations--blocking-handlers)) |
+| `text_fit` | `bool` | `False` | Grow with the parent row up to the full text width, compress below it. `sizeHint` tracks the parent layout's available width (margins + preceding siblings) capped at the text width; `minimumSizeHint` stays tiny so a scroll content can always shrink the button. Pair with a **trailing `addStretch(1)`** in the row (a stretch/Expanding item right-anchors its widget in Qt) and a row `marquee=True` for overflowing text. `text=` and `rows=` both work. |
 | `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the flat constructor params. |
 | `split` | `SplitLayout` | `None` | Geometry strategy for regions: `HorizontalSplit`, `VerticalSplit`, `GridSplit`, or `CustomSplit`. |
 | `divider` | `Divider` | `None` | Optional whole-widget divider between regions. |
@@ -787,7 +789,7 @@ from sli_ui_toolkit.ui.widgets.buttons import ButtonRow
 
 row = ButtonRow(
     text='Row text',
-    size=12,                                    # Font pixel size
+    size=12,                                    # Font pixel size, or None = default UI font
     weight='normal',                            # 'normal' or 'bold'
     color=QColor('blue'),                       # Text color (optional)
     ratio=0.5,                                  # Height fraction of button
@@ -795,6 +797,14 @@ row = ButtonRow(
     marquee=False,                              # Loop left→right when text overflows
 )
 ```
+
+`size=None` renders the row with the current default UI font
+(`ui_font()`, point-based) instead of an explicit pixel size — use it when the
+row's text must match the host's normal text (e.g. `SimpleOptionsFlyout`
+default rows). Hosts sizing panels around such rows should measure with
+`measure_text_width` (from `sli_ui_toolkit.widgets`) — plain
+`QFontMetrics.horizontalAdvance` under-measures some UI fonts and the panel
+then clips the painted text.
 
 When ``marquee=True`` and the painted text is wider than the row, `Button`
 scrolls that **single** row left→right via the shared
@@ -918,6 +928,31 @@ btn = Button(
     variant='ghost',
 )
 btn.toggled.connect(lambda checked: print(f"Date selected: {checked}"))
+```
+
+### Fit-to-content path button
+
+Grows with the window only until the path fits fully, compresses below it
+(marquee scrolls the overflow), and stays left-anchored in the row:
+
+```python
+from PySide6.QtWidgets import QHBoxLayout, QWidget
+from sli_ui_toolkit.ui.widgets.buttons import Button, ButtonRow
+
+row = QWidget()
+lay = QHBoxLayout(row)
+lay.setContentsMargins(0, 0, 0, 0)
+lay.setSpacing(6)
+lay.addWidget(Label('path', pixel_size=13, bold=True))
+button = Button(
+    rows=[ButtonRow(text='/long/path/to/file.py:42', size=None, ratio=1.0, marquee=True)],
+    variant='surface',
+    size=(0, 26),
+    text_fit=True,
+)
+button.setToolTip('/long/path/to/file.py:42')
+lay.addWidget(button)
+lay.addStretch(1)  # the leftover space goes after the button
 ```
 
 ### Custom Styling

@@ -97,6 +97,14 @@ def toggle_submenu(
     menu._submenu_owner_row = row
     row.set_submenu_open(True)
 
+    # Re-run the width/font pass just before showing, the same way
+    # ``popup_at``/``show_aligned`` do for the top menu: the constructor's
+    # set_entries -> _relayout_widths pass can leave the freshly created
+    # rows on the inherited (design-sized) window font in some hosts (live:
+    # Improve-ImgSLI — submenu rows rendered at the unscaled 12pt while the
+    # parent menu rows were at 24pt), while a second pass reliably pins the
+    # scale-resolved UI font on every row.
+    submenu._relayout_widths()
     position_submenu(menu, submenu, row)
     submenu.show()
     submenu.raise_()

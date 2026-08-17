@@ -158,7 +158,7 @@ Stable toolkit ``flyout_group`` tags (identity only — hosts decide the rules):
 | Widget | ``flyout_group`` |
 | --- | --- |
 | `ContextMenu` | `context_menu` |
-| `UnifiedFlyout` | `unified_list` |
+| `ListPanel` | `unified_list` |
 | `SimpleOptionsFlyout` | `options` |
 | `IndexedToggleFlyout` | `toggle` |
 | `IconActionFlyout` | `actions` |
@@ -299,9 +299,9 @@ flyout, or use one of the prebuilt composites below.
 | `add_row(label, widget, *, label_pixel_size=11, stretch_before_widget=True)` | Label on the left, widget on the right. |
 | `add_radio_row(label, options, *, default=None)` | Label plus inline `RadioButton` group. Returns `(label, QButtonGroup, {value: RadioButton})`. |
 | `make_color_swatch(color, *, size=28, alpha=True)` | Round color-picker swatch widget. |
-| `show_aligned(anchor, anchor_point, flyout_point, *, position=None, offset=5, animation="none"\|"slide", animation_duration_ms=None, animation_distance=24, easing=...)` | The general placement primitive — described below. |
+| `show_aligned(anchor, anchor_point, flyout_point, *, position=None, offset=5, animation="none"\|"slide"\|"fade"\|"slide-fade", animation_duration_ms=None, animation_distance=24, easing=...)` | The general placement primitive — described below. |
 | `reposition()` | Replay the last `show_aligned` call (no animation). For `pinned=True` flyouts — see below. |
-| `hide()` / `show()` | Standard. `hide()` is animated when the flyout was shown with `animation="slide"`. |
+| `hide()` / `show()` | Standard. Shown with `"fade"`/`"slide-fade"`, `hide()` fades out first; otherwise it hides instantly. |
 | `contains_global(p)` / `anchor_contains_global(p)` | Hit-tests for the manager. |
 | `set_background_brush(brush)` / `background_brush()` | Override the panel fill — see "Custom surface style" below. |
 | `set_border_color(color)` / `border_color()` | Override the panel's stroke color. |
@@ -409,6 +409,80 @@ Animations:
   placement, slides down from above the final position).
   `animation_distance` controls how far it travels, `animation_duration_ms`
   the duration; both fall back to `get_flyout_timings()`.
+- `"fade"` — fades in (opacity 0 → 1) at the final position, no movement.
+- `"slide-fade"` — slides and fades in simultaneously.
+
+Fade is implemented without a `QGraphicsEffect`: `BaseFlyout` captures a single
+fully-opaque snapshot of itself (`grab()`, outside `paintEvent`) at fade start,
+then `paintEvent` composites that cached pixmap with the animation's opacity.
+A graphics effect on the shell would conflict with the container's
+`RoundedClipEffect` (nested effects) and the shell's own `QPainter(self)`
+paintEvent on composited windows (surfacing as `QPainter::begin: A paint
+device can only be painted by one painter at a time` / `Unbalanced save/restore`
+warnings), and re-rendering inside `paintEvent` recurses (`Recursive repaint
+detected`). Since in-window flyouts are plain child widgets (not toplevels),
+`windowOpacity()` would not work either — the cached-pixmap composite is the
+only mechanism that fades them. The fade path applies to any in-window flyout
+(including all `BaseFlyout` subclasses that delegate `show_aligned` to the
+base — `SimpleOptionsFlyout`, `IconActionFlyout`, `IndexedToggleFlyout`,
+in-window `ContextMenu`, …); outside an active fade, `paintEvent` takes the
+normal no-copy path.
+
+`hide()` mirrors the show animation: a flyout shown with `"fade"`/`"slide-fade"`
+fades out on close instead of vanishing instantly (duration from
+`FlyoutTimingConfig.flyout_fade_out_duration_ms`, default 150 ms); one shown
+with `"none"`/`"slide"` hides instantly. `reposition()` (which forces
+`animation="none"`) does not reset the close animation — a fade-shown pinned
+HUD still fades out on hide after being repositioned.
+
+#### Global default (fade the whole app from one config value)
+
+`animation` defaults to `None`, which resolves to the process-wide
+`FlyoutTimingConfig.default_flyout_animation` (itself `"none"` unless a host
+sets it). A host that wants every default flyout animated — without touching
+each `show_aligned` call site — sets it once:
+
+```python
+from sli_ui_toolkit.config import FlyoutTimingConfig, configure_toolkit
+
+configure_toolkit(timings=FlyoutTimingConfig(default_flyout_animation="slide-fade"))
+```
+
+An explicit per-call `animation=` (including `"none"`) always wins over the
+global default. This applies to `BaseFlyout.show_aligned` and every subclass
+that forwards to it (`IconActionFlyout`, `SimpleOptionsFlyout`,
+`IndexedToggleFlyout`, in-window `ContextMenu`, …), **and** to the composite
+flyouts with their own show paths — `SimpleOptionsFlyout.show_below`/`show_above`
+resolve the same mode, so e.g. a `"fade"` global default makes those dropdowns
+fade in place instead of sliding.
+
+Per-instance overrides mirror the global one: every composite flyout accepts an
+`animation=` constructor argument that takes precedence over the process-wide
+default for that instance (an explicit per-call `animation=` still beats both):
+
+```python
+flyout = SimpleOptionsFlyout(parent_widget=window, animation="none")   # this one is instant
+other = IconActionFlyout(window, animation="fade")                     # this one fades
+```
+
+`SimpleOptionsFlyout`/`IconActionFlyout`/`IndexedToggleFlyout` all support this
+constructor argument; `None` (the default) defers to the global setting.
+
+Context-menu helpers (`popup_context_menu_for_anchor`) follow the same
+resolution: an explicit
+per-call `animation=`, else the global `default_flyout_animation`, else their
+historical `"slide"` (so hosts that never set a global default keep the
+previous slide-in menus). Cursor-positioned right-click menus (`popup_at`,
+`ContextMenu(...).popup_at(global_pos)`) resolve the same mode — with a
+fade-bearing default they fade in at the cursor and fade out on close, and
+`aboutToHide`/`deleteLater` fire only after the fade-out actually hides the
+menu. `popup_at` also accepts an explicit `animation=` argument.
+
+When a flyout shown via the global default is **already visible** and
+`show_aligned` is called again (repositioning — e.g. a hover flyout that
+re-centers on store changes), the show animation is skipped so the flyout stays
+put instead of re-sliding/fading from its start point; the close animation is
+kept. Explicit per-call animations still re-run on every call.
 
 ### Pinned flyouts (persistent HUDs)
 
@@ -471,6 +545,41 @@ This is meant for chrome that must always be visible while relevant (a zoom
 percent chip, a resolution/filename readout) — not for anything the user
 opens and expects to dismiss by clicking away, which should stay unpinned.
 
+### Diagnosing who closed a flyout
+
+Every flyout close funnels through `BaseFlyout.hide()` — an explicit
+`start_closing_animation()`, `FlyoutManager`'s passive dismiss (outside
+click / outside wheel / window deactivate), `close_all()` /
+`close_if_outside()`, or a direct `.hide()` from host code. To find out
+*who* asked for a close, enable `DEBUG` on the
+`sli_ui_toolkit.ui.widgets.composite.base_flyout` logger (or the
+toolkit-wide `"sli_ui_toolkit"` logger, see `configure_toolkit` /
+`setup_logging`) and reproduce the scenario:
+
+```
+DEBUG:sli_ui_toolkit...base_flyout:BaseFlyout.hide() called by:
+  File ".../host.py", line 42, in on_drop
+  File ".../base_flyout/lifecycle.py", line 56, in hide
+```
+
+The logged stack trace points at the actual caller. Typical findings:
+
+- the picker/shell itself (`start_closing_animation` from a row-click or an
+  empty-list refresh) — intentional UI behavior;
+- `FlyoutManager._dismiss_passive` / `close_all` / `close_if_outside` — a
+  passive-dismiss path fired (e.g. the press that ended a drag&drop outside
+  the panel was also read as an outside click);
+- host code calling `flyout.hide()` directly.
+
+The log is emitted at `DEBUG` level only, so there is zero overhead in
+normal runs.
+
+Shells that do **not** extend `BaseFlyout` (plain `QWidget` popups that
+only *use* the flyout services — e.g. a host-assembled list picker) do not
+route their close through `BaseFlyout.hide()`; trace their `hideEvent`
+override the same way (caller stack at `DEBUG`) to catch closes that bypass
+the library choke point.
+
 ### Subclassing checklist
 
 When you subclass `BaseFlyout`:
@@ -493,8 +602,14 @@ When you subclass `BaseFlyout`:
 
 ### SimpleOptionsFlyout
 
-A scrollable list of single-line option rows. Click a row → emits
-`item_selected(int)` and hides.
+A scrollable in-window list flyout. Two fill modes:
+
+- `populate(labels, current_index=-1)` — convenience: plain single-line option
+  rows. Click a row → emits `item_selected(int)` and hides.
+- `set_rows(rows)` — **generic fill**: the composite owns flyout display,
+  long-list scrolling and sizing; the host supplies arbitrary `QWidget` rows
+  (separators, shortcut-bearing buttons, anything). A row exposing a `clicked`
+  signal is wired to `item_selected` with the row's index.
 
 ```python
 from sli_ui_toolkit import SimpleOptionsFlyout
@@ -503,16 +618,22 @@ flyout = SimpleOptionsFlyout(parent_widget=window)
 flyout.populate(["Nearest", "Bilinear", "Bicubic"], current_index=1)
 flyout.item_selected.connect(lambda i: ...)
 flyout.show_below(combo_anchor, exact_width_match=True)
+
+# Arbitrary rows — the host builds the look, the composite the list.
+flyout.set_rows([SeparatorRow(), MyMenuRow("Open…", "Ctrl+O")])
 ```
 
 | Method | Purpose |
 | --- | --- |
-| `populate(labels, current_index=-1)` | Set items and selection. |
-| `row_widget(index)` | Live row button for Find Action / pulse (or `None`). |
+| `populate(labels, current_index=-1)` | Convenience: default single-line rows. |
+| `set_rows(rows)` | Replace content with arbitrary row widgets (rows report their own `sizeHint()`; widths → widest row, heights sum capped by `set_max_visible_items`/available height → scroll). |
+| `set_list_padding(padding)` | Inset between the panel border and the row list (`int` = all sides, or `(left, top, right, bottom)`). Give rounded row capsules enough room so the first/last row does not sit on the border or get clipped by the rounded corners. |
+| `rows()` | Installed row widgets, in list order. |
+| `row_widget(index)` | Live row at `index` for Find Action / pulse (or `None`). |
 | `set_max_visible_items(n)` | Cap visible rows before scrolling kicks in. |
-| `set_row_height(h)` | Fixed row height in px. |
+| `set_row_height(h)` | Fixed row height in px (default simple rows). |
 | `set_row_font(f)` | Override row font (use this to fix tiny text on dense parents). |
-| `show_below(anchor, exact_width_match=True)` | Width at least the anchor (grows for long labels); centers under the combo. Prefer `show_aligned(..., bottom-left/top-left)` for narrow toolbar buttons. Content-only opens (`populate` + `show_aligned`) size to the longest label — no 180px floor. |
+| `show_below(anchor, exact_width_match=True)` | Width at least the anchor (grows for long labels); centers under the combo. Prefer `show_aligned(..., bottom-left/top-left)` for narrow toolbar buttons. Content-only opens (`populate`/`set_rows` + `show_aligned`) size to the widest row — no 180px floor. |
 
 ### IconActionFlyout
 
@@ -556,45 +677,40 @@ images, presets, or any small fixed set.
 Color picker with a swatch grid + recent colors + an opacity slider. Inherits
 the BaseFlyout shape; emits `color_selected(QColor)`.
 
-### UnifiedFlyout (heavy)
+### ListPanel (generic list panel)
 
-A two-column drag-drop-capable list selector. Substantially larger surface
-than the others; intended for the "swap image 1/2" UI in Improve-ImgSLI.
-
-Quickstart for the standalone form:
+A scrollable multi-select list panel with marquee selection and drag&drop
+drop indicators — the generic building block of a list picker. Rows are
+host-built through a row factory, so the panel itself is app-agnostic:
 
 ```python
-from sli_ui_toolkit import UnifiedFlyout
+from sli_ui_toolkit.widgets import ListPanel, ListRowSpec
 
-flyout = UnifiedFlyout.create_double_list(
-    parent_window=window,
-    anchor_left=btn_image_a,
-    anchor_right=btn_image_b,
-    left_items=["A.png", "B.png"],
-    right_items=["C.png", "D.png"],
-    current_left=0,
-    current_right=1,
+def build_row(spec: ListRowSpec):
+    return MyRow(spec)  # host row widget (Button subclass recommended)
+
+panel = ListPanel(
+    list_num=1,
+    item_height=36,
+    item_font=None,
+    get_current_index=lambda list_num: 0,
+    on_item_selected=lambda list_num, index: ...,
+    on_item_context_menu=lambda list_num, index: ...,
+    on_reorder=lambda *a, **k: None,
+    on_move_between_lists=lambda *a, **k: None,
+    on_update_drop_indicator=lambda pos: None,
+    on_clear_drop_indicator=lambda: None,
 )
-flyout.item_chosen.connect(lambda side, idx: ...)
-# create_double_list wires right-click → remove. Full hosts should connect
-# item_context_menu_requested themselves and show a ContextMenu instead.
+panel.set_row_factory(build_row)
+panel.clear_and_rebuild(items, item_height=36, item_font=None, current_index=0)
 ```
 
-For full integration implement a store/controller pair conforming to its
-protocols — see `unified_flyout/simple_adapter.py` for the minimal contract.
-Right-click emits ``item_context_menu_requested(list_num, index)``; the host
-owns the menu (copy path / properties / remove, etc.).
-When constructing via `UnifiedFlyout(store, controller, main_window)` directly,
-register the two list anchor widgets explicitly:
-
-```python
-flyout = UnifiedFlyout(store, controller, parent_window)
-flyout.set_list_anchors(btn_image_a, btn_image_b)
-```
-
-Geometry, open-state sync, and double-mode layout all read from those anchors —
-the flyout does not reach into application-specific `Ui_*` classes or widget
-names.
+Row protocol (duck-typed): `itemSelected` / `itemSelectionToggled` /
+`itemRightClicked` signals, `index`/`full_path`/`is_current`/`position`
+attributes, a `name_label` for in-place refresh, and `set_selected(bool)` /
+`set_dragging_state(bool)` for selection/drag visuals. The host composes
+the popup shell (e.g. a `BaseFlyout`) around one or two panels; see the
+demo app's `flyouts_page.py` for a complete assembly example.
 
 ---
 
@@ -611,6 +727,12 @@ periodically rechecks; if it has moved by more than a small threshold it
 closes the flyout. You get this for free as long as your subclass returns its
 anchor widget(s) from `anchor_widgets()` (BaseFlyout already does this for the
 widget passed to `show_aligned`).
+
+Hosts that re-anchor themselves (a list picker recomputing its geometry on
+every refresh) can opt out per-instance with `flyout.close_on_anchor_move =
+False` — the manager then skips the anchor-move close (and refreshes the
+snapshot) while everything else, including passive outside-click dismissal,
+keeps working. This is duck-typed, so plain-`QWidget` shells can set it too.
 
 ### Custom dismissal
 Override `hide()` or `hideEvent()` to commit pending state, but **always** call

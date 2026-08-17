@@ -1,3 +1,4 @@
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 import os
 
 from PySide6.QtCore import QRectF, Qt, QTimer, QUrl, Signal
@@ -145,3 +146,14 @@ class DropZoneLabel(Label):
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
+
+DropZoneLabel.inspect_spec = InspectSpec(
+    family="DropZoneLabel",
+    state=(
+        SpecField("text", "get_original_text"),
+        SpecField("drag_active", "_drag_active", private=True),
+        SpecField("hovered", "_hovered", private=True),
+    ),
+    token_family=("accent", "dialog.border"),
+    docs='docs/user/LABELS_API.md',
+)

@@ -522,8 +522,15 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
         return
     step_sec = timeline_viewport.choose_ruler_step(duration, logical_width)
     minor_divisions = timeline_viewport.choose_ruler_subdivisions(step_sec, duration, logical_width)
-    ruler_font = painter.font()
-    ruler_font.setPointSize(max(8, ruler_font.pointSize() - 2))
+    # The painter font is design-sized (the widget inherits the app font
+    # unscaled); ui_font() applies the UiScale factor exactly once. Restore
+    # afterwards: the ruler font must not leak into the sticky-gutter pass
+    # that follows (it is already scale-resolved, and the label painters
+    # would multiply the factor a second time).
+    from sli_ui_toolkit.ui.managers.ui_font import ui_font
+
+    ruler_font = ui_font(point_size=max(8, painter.font().pointSize() - 2))
+    painter.save()
     painter.setFont(ruler_font)
     if minor_divisions > 1:
         minor_step = step_sec / minor_divisions
@@ -550,6 +557,7 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
             painter.drawLine(int(x), ruler_top, int(x), ruler_top + 10)
             text_rect = QRectF(x + 4, ruler_top + 11, 52, max(18, ruler_bottom - ruler_top - 11 - 4))
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label_text)
+    painter.restore()
 
 def draw_sticky_gutter_overlay(widget, painter: QPainter, *, scroll_offset: int, rows_top: int, rows_bottom: int, footer_top: int, gutter_bg: QColor, track_bg: QColor, text_col: QColor, sep_color: QColor | None = None, sep_soft: QColor | None = None) -> None:
     gx = scroll_offset

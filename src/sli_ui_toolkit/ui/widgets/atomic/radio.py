@@ -1,10 +1,13 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
-from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRectF, QSize, Qt, QTimer, Property
+from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRectF, QSize, Qt, Property
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QRadioButton, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 class RadioButton(QRadioButton):
@@ -39,6 +42,14 @@ class RadioButton(QRadioButton):
         except Exception:
             pass
         register_hover_widget(self)
+        # Text is painted natively with widget.font(); pin the scaled UI
+        # face and re-resolve on font_changed / scale_changed.
+        apply_ui_font(self)
+        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+
+    def on_scale_changed(self, _factor: float) -> None:
+        self.updateGeometry()
+        self.update()
 
     def get_hover_progress(self) -> float:
         return self._hover_progress
@@ -50,16 +61,23 @@ class RadioButton(QRadioButton):
     hoverProgress = Property(float, fget=get_hover_progress, fset=set_hover_progress)
 
     def _indicator_rect(self, full_rect: QRectF) -> QRectF:
+        pad_h = scaled_px(self.PADDING_H)
+        size = scaled_px(self.INDICATOR_SIZE)
         return QRectF(
-            full_rect.x() + self.PADDING_H,
-            full_rect.y() + (full_rect.height() - self.INDICATOR_SIZE) / 2,
-            self.INDICATOR_SIZE,
-            self.INDICATOR_SIZE,
+            full_rect.x() + pad_h,
+            full_rect.y() + (full_rect.height() - size) / 2,
+            size,
+            size,
         )
 
     def _text_rect_available(self, full_rect: QRectF, indicator_rect: QRectF) -> QRectF:
-        text_left = indicator_rect.right() + self.SPACING
-        available_w = max(0.0, full_rect.width() - (text_left - full_rect.left()) - self.PADDING_H)
+        text_left = indicator_rect.right() + scaled_px(self.SPACING)
+        available_w = max(
+            0.0,
+            full_rect.width()
+            - (text_left - full_rect.left())
+            - scaled_px(self.PADDING_H),
+        )
         return QRectF(text_left, full_rect.y(), available_w, full_rect.height())
 
     def _text_rect_content(self, full_rect: QRectF, indicator_rect: QRectF, fm: QFontMetrics) -> QRectF:
@@ -109,11 +127,14 @@ class RadioButton(QRadioButton):
         super().mouseReleaseEvent(e)
 
     def focusInEvent(self, e):
-        QTimer.singleShot(0, self.update)
+        # Direct update(): repaint is deferred by Qt itself; a singleShot(0)
+        # kept a live Python wrapper alive past deleteLater and called
+        # update() on the freed C++ widget on the next event-loop turn.
+        self.update()
         super().focusInEvent(e)
 
     def focusOutEvent(self, e):
-        QTimer.singleShot(0, self.update)
+        self.update()
         super().focusOutEvent(e)
 
     def changeEvent(self, e):
@@ -130,14 +151,18 @@ class RadioButton(QRadioButton):
         fm = QFontMetrics(self.font())
         text_width = fm.horizontalAdvance(self.text()) if self.text() else 0
 
-        extra = 4
-        h = max(self.INDICATOR_SIZE + 2 * self.PADDING_V, fm.height() + 2 * self.PADDING_V)
+        indicator = scaled_px(self.INDICATOR_SIZE)
+        pad_v = scaled_px(self.PADDING_V)
+        pad_h = scaled_px(self.PADDING_H)
+        spacing = scaled_px(self.SPACING)
+        extra = scaled_px(4)
+        h = max(indicator + 2 * pad_v, fm.height() + 2 * pad_v)
         w = (
-            self.PADDING_H
-            + self.INDICATOR_SIZE
-            + (self.SPACING if text_width else 0)
+            pad_h
+            + indicator
+            + (spacing if text_width else 0)
             + text_width
-            + self.PADDING_H
+            + pad_h
             + extra
         )
         return QSize(w, h)
@@ -242,3 +267,13 @@ class RadioButton(QRadioButton):
             )
 
         painter.end()
+
+RadioButton.inspect_spec = InspectSpec(
+    family="RadioButton",
+    state=(
+        SpecField("checked", "isChecked"),
+        SpecField("hover_progress", "hoverProgress"),
+    ),
+    token_family=("accent", "dialog.border", "dialog.text", "dialog.button.hover"),
+    docs='docs/user/INPUTS_API.md',
+)

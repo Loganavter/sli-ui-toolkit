@@ -4,3 +4,13 @@ build/bdist.*/
 *.egg-info/
 __pycache__/
 *.pyc
+
+# Test / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated AI context bundles (./launcher.sh context from Improve-ImgSLI)
+context.txt
+app_context.txt
+cloc.txt

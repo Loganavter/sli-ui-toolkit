@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.buttons.layers.background import rounded_rect_path
 from sli_ui_toolkit.ui.widgets.buttons.specs import CornerRadii, normalize_corner_radii
 
@@ -41,14 +42,24 @@ class ButtonGroup(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(10, 8, 10, 18)
-        self._layout.setSpacing(2)
-
+        self._apply_layout_metrics()
         for button in buttons:
             self._layout.addWidget(button)
 
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update)
+        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+
+    def on_scale_changed(self, _factor: float) -> None:
+        self._apply_layout_metrics()
+        self.updateGeometry()
+        self.update()
+
+    def _apply_layout_metrics(self) -> None:
+        self._layout.setContentsMargins(
+            scaled_px(10), scaled_px(8), scaled_px(10), scaled_px(18)
+        )
+        self._layout.setSpacing(scaled_px(2))
 
     def set_label(self, text: str):
         if self._label != text:
@@ -90,8 +101,11 @@ class ButtonGroup(QWidget):
         text_color = self.theme_manager.get_color("WindowText")
 
         rect = self.rect()
-        font = ui_font()
-        font.setPointSize(max(8, font.pointSize() - 2))
+        # ui_font() returns the already-scaled base; back out the factor to
+        # express "2pt smaller" in design space, then re-resolve so the
+        # delta scales proportionally with UiScale.
+        factor = UiScale.get_instance().factor()
+        font = ui_font(point_size=max(8, ui_font().pointSizeF() / factor - 2))
         painter.setFont(font)
         fm = QFontMetrics(font)
         label_height = fm.height() if self._label else 0
@@ -101,19 +115,20 @@ class ButtonGroup(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.translate(0.5, 0.5)
 
-        margin_v = 3
-        margin_h = 6
+        margin_v = scaled_px(3)
+        margin_h = scaled_px(6)
         bottom_y = rect.height() - label_height // 2
         draw_rect = QRect(
             margin_h, margin_v,
             rect.width() - margin_h * 2 - 1,
             bottom_y - margin_v * 2,
         )
-        painter.drawPath(rounded_rect_path(QRectF(draw_rect), self._corner_radii))
+        radii = tuple(0 if v == 0 else scaled_px(v) for v in self._corner_radii)
+        painter.drawPath(rounded_rect_path(QRectF(draw_rect), radii))
         painter.translate(-0.5, -0.5)
 
         if self._label:
-            label_padding = 3
+            label_padding = scaled_px(3)
             center_x = rect.width() // 2
             label_w = fm.horizontalAdvance(self._label)
             label_h = fm.height()

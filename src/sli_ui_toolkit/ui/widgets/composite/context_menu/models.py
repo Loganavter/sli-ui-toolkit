@@ -4,17 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtGui import QColor, QFontMetrics, QKeySequence
+from PySide6.QtGui import QColor, QKeySequence
+
+from sli_ui_toolkit.ui.managers.ui_font import measure_text_width
 
 _DANGER_COLOR = QColor("#e5484d")
 _ROW_H_PADDING = 12
-_TEXT_WIDTH_FUDGE = 8
 
-
-def _measure_text_width(fm: QFontMetrics, text: str) -> int:
-    if not text:
-        return 0
-    return max(fm.horizontalAdvance(text), fm.boundingRect(text).width()) + _TEXT_WIDTH_FUDGE
+# Back-compat alias for callers that imported the helper from here before it
+# moved to the toolkit text home (ui_font.measure_text_width).
+_measure_text_width = measure_text_width
 
 
 @dataclass(slots=True)

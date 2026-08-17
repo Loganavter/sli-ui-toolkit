@@ -106,14 +106,14 @@ class FlyoutGpuFillWidget(QRhiWidget):
             ]
         )
         blend = QRhiGraphicsPipeline.TargetBlend()
-        blend.enable = True
-        # PySide6's TargetBlend.srcColor/etc. stubs type these fields as
-        # plain `int`, not `BlendFactor` — the enum members are int-valued,
-        # so this is a real, working assignment, just under-typed upstream.
-        blend.srcColor = QRhiGraphicsPipeline.BlendFactor.SrcAlpha  # type: ignore[assignment]
-        blend.dstColor = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha  # type: ignore[assignment]
-        blend.srcAlpha = QRhiGraphicsPipeline.BlendFactor.One  # type: ignore[assignment]
-        blend.dstAlpha = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha  # type: ignore[assignment]
+        # PySide6-stubs' TargetBlend binding doesn't declare these fields at
+        # all (attr-defined), even though they're real, working attributes
+        # at runtime — the enum members assigned below are int-valued.
+        blend.enable = True  # type: ignore[attr-defined]
+        blend.srcColor = QRhiGraphicsPipeline.BlendFactor.SrcAlpha  # type: ignore[attr-defined]
+        blend.dstColor = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha  # type: ignore[attr-defined]
+        blend.srcAlpha = QRhiGraphicsPipeline.BlendFactor.One  # type: ignore[attr-defined]
+        blend.dstAlpha = QRhiGraphicsPipeline.BlendFactor.OneMinusSrcAlpha  # type: ignore[attr-defined]
         pipeline.setTargetBlends([blend])
         pipeline.setTopology(QRhiGraphicsPipeline.Topology.Triangles)
         pipeline.setShaderResourceBindings(self._srb)
@@ -153,7 +153,10 @@ class FlyoutGpuFillWidget(QRhiWidget):
         updates = rhi.nextResourceUpdateBatch()
         # _ubuf/_srb are always set together with _pipeline in initialize().
         assert self._ubuf is not None
-        updates.updateDynamicBuffer(self._ubuf, 0, color_bytes)
+        # PySide6-stubs' updateDynamicBuffer overload for a raw bytes payload
+        # is missing/mistyped; the (buffer, offset, data) call below is the
+        # documented, working C++ signature.
+        updates.updateDynamicBuffer(self._ubuf, 0, color_bytes)  # type: ignore[call-arg, arg-type]
 
         clear = QColor(0, 0, 0, 0)
         command_buffer.beginPass(

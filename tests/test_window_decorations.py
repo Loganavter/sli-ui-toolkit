@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit import (
     CustomTitleBar,
     FLUENT_DARK,
     FLUENT_LIGHT,
     ThemeManager,
-    TitleBarMenu,
-    TitleBarMenuStrip,
     TitleBarPresets,
     WindowChrome,
     WindowChromeConfig,
@@ -19,7 +17,6 @@ from sli_ui_toolkit import (
     remove_frameless,
 )
 from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.composite.context_menu import ContextMenuAction
 
 
 def _solid_icon(color: str) -> QIcon:
@@ -58,9 +55,9 @@ def test_custom_title_bar_hides_buttons(qapp):
         show_maximize=False,
         show_close=True,
     )
-    assert bar._min_btn is None
-    assert bar._max_btn is None
-    assert bar._close_btn is not None
+    assert bar._controls._min_btn is None
+    assert bar._controls._max_btn is None
+    assert bar._controls._close_btn is not None
     bar.deleteLater()
 
 
@@ -144,8 +141,8 @@ def test_custom_title_bar_leading_stays_left_when_balance_grows(qapp):
     bar.deleteLater()
 
 
-def test_custom_title_bar_recenters_after_menu_strip_relabel(qapp):
-    """Language rebuild used to sync while leading sizeHint was still 0."""
+def test_custom_title_bar_recenters_after_leading_width_change(qapp):
+    """Leading-zone width change must keep the title centered (balance resync)."""
     _register_palettes(qapp)
     bar = CustomTitleBar(
         title="Improve ImgSLI",
@@ -157,41 +154,23 @@ def test_custom_title_bar_recenters_after_menu_strip_relabel(qapp):
     bar.show()
     qapp.processEvents()
 
-    bar.set_menu_strip(
-        TitleBarMenuStrip(
-            [
-                TitleBarMenu(
-                    label="File",
-                    icon=_solid_icon("#00ff00"),
-                    entries=[ContextMenuAction("a", "A")],
-                ),
-                TitleBarMenu(
-                    label="Help",
-                    entries=[ContextMenuAction("b", "B")],
-                ),
-            ]
-        )
-    )
+    def _leading(label: str) -> QWidget:
+        widget = QWidget(bar)
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(Button(label, variant="ghost", size=(72, 24), parent=widget))
+        layout.addWidget(Button("Help", variant="ghost", size=(64, 24), parent=widget))
+        return widget
+
+    bar.set_leading(_leading("File"))
     qapp.processEvents()
     mid_en = bar._center_host.geometry().center().x()
     assert abs(mid_en - bar.width() // 2) <= 1
 
-    bar.set_menu_strip(
-        TitleBarMenuStrip(
-            [
-                TitleBarMenu(
-                    label="Файл",
-                    icon=_solid_icon("#00ff00"),
-                    entries=[ContextMenuAction("a", "A")],
-                ),
-                TitleBarMenu(
-                    label="Справка",
-                    entries=[ContextMenuAction("b", "B")],
-                ),
-            ]
-        )
-    )
-    # Deferred balance resync must run with the laid-out strip width.
+    # Simulate a language rebuild: swap in a wider leading widget.
+    bar.set_leading(_leading("Файл"))
+    # Deferred balance resync must run with the laid-out widget width.
     qapp.processEvents()
     mid_ru = bar._center_host.geometry().center().x()
     assert abs(mid_ru - bar.width() // 2) <= 1
@@ -221,12 +200,12 @@ def test_custom_title_bar_maximize_refresh_updates_button_region_icon(qapp):
     )
     bar.attach_window(window)
 
-    assert bar._max_btn.region("_main").icon.cacheKey() == maximize_icon.cacheKey()
+    assert bar._controls._max_btn.region("_main").icon.cacheKey() == maximize_icon.cacheKey()
 
     window.maximized = True
-    bar._refresh_maximize_icon()
+    bar._controls.refresh_window_state(window)
 
-    assert bar._max_btn.region("_main").icon.cacheKey() == restore_icon.cacheKey()
+    assert bar._controls._max_btn.region("_main").icon.cacheKey() == restore_icon.cacheKey()
     window.deleteLater()
     bar.deleteLater()
 
@@ -241,41 +220,16 @@ def test_custom_title_bar_leading_button_blocks_drag(qapp):
     bar.deleteLater()
 
 
-def test_title_bar_menu_strip_builds_triggers(qapp):
-    from PySide6.QtGui import QIcon, QPixmap
-
+def test_title_bar_presets_app_shell_hosts_leading_widget(qapp):
     _register_palettes(qapp)
-    icon = QIcon(QPixmap(16, 16))
-    strip = TitleBarMenuStrip(
-        [
-            TitleBarMenu(label="File", icon=icon, entries=[("Quit", lambda: None)]),
-            TitleBarMenu(
-                label="Help",
-                entries=[ContextMenuAction("help", "Show Help")],
-            ),
-        ]
-    )
-    assert len(strip.buttons()) == 2
-    assert strip.buttons()[0]._text == "File"
-    assert strip.buttons()[0]._icon_unchecked is not None
-    assert strip.buttons()[0].getGap() == TitleBarMenuStrip.GAP
-    assert strip.buttons()[1]._text == "Help"
-    expected_h = CustomTitleBar.HEIGHT - 2 * TitleBarMenuStrip.V_INSET
-    assert strip.buttons()[0].height() == expected_h
-    strip.deleteLater()
-
-
-def test_title_bar_presets_app_shell_adds_menu_strip(qapp):
-    _register_palettes(qapp)
-    bar = TitleBarPresets.app_shell(
-        "Improve ImgSLI",
-        menus=[TitleBarMenu(label="File", entries=[("Quit", lambda: None)])],
-    )
+    leading = QWidget()
+    bar = TitleBarPresets.app_shell("Improve ImgSLI", leading=leading)
     assert bar._leading_host.layout().count() == 1
+    assert bar._leading_host.layout().itemAt(0).widget() is leading
     bar.deleteLater()
 
 
-def test_custom_title_bar_app_icon_and_menu_strip(qapp):
+def test_custom_title_bar_app_icon_and_leading_widget(qapp):
     from PySide6.QtGui import QIcon, QPixmap
 
     _register_palettes(qapp)
@@ -285,16 +239,18 @@ def test_custom_title_bar_app_icon_and_menu_strip(qapp):
     bar = TitleBarPresets.app_shell(
         "Improve ImgSLI",
         icon=icon,
-        menus=[TitleBarMenu(label="File", entries=[("Quit", lambda: None)])],
     )
     bar.show()
     assert bar._app_icon_label is not None
     assert not bar._app_icon_label.isHidden()
+    assert bar._leading_host.layout().count() == 1
+    # Icon stays when the leading widget is replaced.
+    first = QWidget()
+    second = QWidget()
+    bar.set_leading(first)
+    assert not bar._app_icon_label.isHidden()
     assert bar._leading_host.layout().count() == 2
-    # Icon stays when menu strip is replaced.
-    bar.set_menu_strip(
-        TitleBarMenuStrip([TitleBarMenu(label="Help", entries=[("About", lambda: None)])])
-    )
+    bar.set_leading(second)
     assert not bar._app_icon_label.isHidden()
     assert bar._leading_host.layout().count() == 2
     bar.deleteLater()
@@ -331,7 +287,7 @@ def test_decorate_dialog_attaches_close(qapp):
     dialog = QDialog()
     QVBoxLayout(dialog)
     bar = decorate_dialog(dialog, title="Hi", show_close=True)
-    assert bar._close_btn is not None
+    assert bar._controls._close_btn is not None
     dialog.deleteLater()
 
 
@@ -346,3 +302,57 @@ def test_window_chrome_theme_refresh_updates_paint_state(qapp):
     assert before != after
     chrome.title_bar().deleteLater()
     dialog.deleteLater()
+
+
+def test_outer_resize_band_insets_chrome_and_expands_geometry(qapp):
+    """The outer resize band: the window surface carries the band
+    (transparent), the rounded body / title bar / layout are inset by it, and
+    resize()/setGeometry() keep content-size semantics by re-expanding."""
+    _register_palettes(qapp)
+    dialog = QDialog()
+    layout = QVBoxLayout(dialog)
+    layout.setContentsMargins(0, 0, 0, 0)
+    inner = QWidget(dialog)
+    layout.addWidget(inner)
+
+    dialog.setMinimumSize(300, 200)
+    dialog.resize(300, 200)
+    chrome = WindowChrome.install(
+        dialog,
+        config=WindowChromeConfig(title="Hi", resizable=True, resize_margin=8),
+    )
+    try:
+        # The already-set size is expanded at install: the surface carries
+        # the band from the very first frame.
+        assert dialog.width() == 300 + 16
+        assert dialog.height() == 200 + 16
+        assert dialog.property("_csd_outer_band") == 8
+        # The layout margin carries the band on every side.
+        margins = layout.contentsMargins()
+        assert margins.left() == 8
+        assert margins.right() == 8
+        assert margins.bottom() == 8
+        # The title bar is inset by the band.
+        bar = dialog._csd_title_bar
+        assert bar.geometry().left() == 8
+        assert bar.geometry().top() == 8
+        # The rounded body layer is inset by the band.
+        bg = dialog._csd_bg_layer
+        dialog.resize(300, 200)
+        qapp.processEvents()
+        assert bg.geometry().left() == 8
+        assert bg.geometry().top() == 8
+        assert bg.width() == 300 - 16
+        assert bg.height() == 200 - 16
+        # resize keeps content-size semantics: the surface grows by 2*band.
+        dialog.resize(340, 240)
+        assert dialog.width() == 340 + 16
+        assert dialog.height() == 240 + 16
+        # The resize filter's edge zone straddles the visible body edge.
+        from sli_ui_toolkit.ui.windows.frameless import _ResizeFilter
+
+        f = dialog.findChild(_ResizeFilter)
+        assert f is not None
+        assert f._resize_margin == 8 + 8
+    finally:
+        dialog.deleteLater()

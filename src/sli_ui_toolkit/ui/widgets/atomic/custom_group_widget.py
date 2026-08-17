@@ -1,3 +1,4 @@
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
@@ -145,3 +146,12 @@ class CustomGroupBuilder:
         title_widget = TitleWidget(group_widget)
         return group_widget, content_layout, title_widget
 
+CustomGroupWidget.inspect_spec = InspectSpec(
+    family="CustomGroupWidget",
+    state=(
+        SpecField("title", "get_title"),
+        SpecField("children", "children"),
+    ),
+    token_family=("dialog.border", "dialog.background", "dialog.text"),
+    docs='docs/user/INPUTS_API.md',
+)

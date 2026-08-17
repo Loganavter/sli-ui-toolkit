@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 from dataclasses import dataclass
 
@@ -8,6 +9,7 @@ from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     draw_marquee_text,
     ensure_marquee_driver,
@@ -171,6 +173,15 @@ class Label(QLabel):
         self._applying_style = False
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
         UiFont.get_instance().font_changed.connect(self._apply_style)
+        # Live UI-scale changes do NOT fire ApplicationFontChange (the app
+        # font itself never changes — only the UiScale factor does), so
+        # font_changed alone would leave every Label at the old size.
+        # scale_changed re-runs _apply_style directly.
+        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        self._apply_style()
+
+    def _on_scale_changed(self, _factor: float) -> None:
+        self._preferred_width_cache = None
         self._apply_style()
 
     def variant(self) -> str:
@@ -452,3 +463,14 @@ class Label(QLabel):
             )
         if self.text() != display_text:
             super().setText(display_text)
+
+Label.inspect_spec = InspectSpec(
+    family="Label",
+    state=(
+        SpecField("text", "get_original_text"),
+        SpecField("variant", "variant"),
+        SpecField("marquee", "marquee"),
+    ),
+    token_family=("dialog.text",),
+    docs='docs/user/LABELS_API.md',
+)

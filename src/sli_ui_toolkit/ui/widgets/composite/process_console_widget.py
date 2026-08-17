@@ -4,9 +4,10 @@ import html
 import os
 
 from PySide6.QtCore import QProcess, Qt, Signal
-from PySide6.QtGui import QColor, QFontDatabase
+from PySide6.QtGui import QColor, QFont, QFontDatabase
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QTextEdit, QVBoxLayout, QWidget
 
+from sli_ui_toolkit.managers import UiScale
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -45,8 +46,8 @@ class ProcessConsoleWidget(QWidget):
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
         self.output.viewport().setCursor(Qt.CursorShape.IBeamCursor)
-        fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        self.output.setFont(fixed_font)
+        self._apply_fixed_font()
+        UiScale.get_instance().scale_changed.connect(self._apply_fixed_font)
 
         scrollbar = MinimalistScrollBar(Qt.Orientation.Vertical, self.output)
         self.output.setVerticalScrollBar(scrollbar)
@@ -62,7 +63,7 @@ class ProcessConsoleWidget(QWidget):
         self.input_edit = CustomLineEdit(self.input_row)
         self.input_edit.setObjectName("ProcessConsoleInput")
         self.input_edit.setPlaceholderText("Enter command")
-        self.input_edit.setFont(fixed_font)
+        self.input_edit.setFont(self._fixed_font)
 
         self.send_button = Button(text="Send", variant="surface", parent=self.input_row)
         self.send_button.clicked.connect(self.submit_current_input)
@@ -82,6 +83,27 @@ class ProcessConsoleWidget(QWidget):
 
         self.theme_manager.theme_changed.connect(self._apply_styles)
         self._apply_styles()
+
+    def _apply_fixed_font(self) -> None:
+        """Resize the console's monospace font with the UI scale.
+
+        The system FixedFont is design-sized; UiScale multiplies its size so
+        the console text grows with the interface like every other label
+        (the monospace family is kept). Applies to both the output edit and
+        the input line.
+        """
+        base = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        factor = UiScale.get_instance().factor()
+        font = QFont(base)
+        if base.pointSizeF() > 0:
+            font.setPointSizeF(base.pointSizeF() * factor)
+        elif base.pixelSize() > 0:
+            font.setPixelSize(max(1, int(round(base.pixelSize() * factor))))
+        self._fixed_font = font
+        self.output.setFont(font)
+        input_edit = getattr(self, "input_edit", None)
+        if input_edit is not None:
+            input_edit.setFont(font)
 
     def set_max_entries(self, max_entries: int) -> None:
         self._max_entries = max(1, int(max_entries))

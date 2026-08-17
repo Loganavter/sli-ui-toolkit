@@ -22,6 +22,7 @@ class TopTabItem:
 class TabSpec:
     text: str
     button: TopTabButton
+    close_button: object | None = None
     data_roles: dict[int, object] = field(default_factory=dict)
 
 

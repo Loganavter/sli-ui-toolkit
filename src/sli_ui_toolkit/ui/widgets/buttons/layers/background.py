@@ -308,12 +308,13 @@ class BackgroundLayer(Layer):
                     region_path = rounded_rect_path(region_rect, region_radii)
                 else:
                     # Use the fill-only path (controller.fill_paths), not the
-                    # hit-test path (controller.paths/ctx.region_path): plain
-                    # rect regions get a hairline overlap there so adjacent
-                    # same-group fills don't leave an antialiased seam at
-                    # non-pixel-aligned split boundaries. The outer clip below
-                    # still trims overflow at the button's true edges, so
-                    # this only affects inner region-to-region seams.
+                    # hit-test path (controller.paths/ctx.region_path). For a
+                    # plain group (all members plain rects) the first member's
+                    # fill is the UNITED group rect and the siblings' fills are
+                    # empty, so the row paints one seamless wash with no seam at
+                    # the split boundary; other subregions keep the per-region
+                    # hairline-overlap path. The outer clip below still trims
+                    # overflow at the button's true edges.
                     region_path = ctx.effective_fill_path
                 p.save()
                 p.setClipPath(outer)

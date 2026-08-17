@@ -65,6 +65,13 @@ class ButtonRegion:
     z_index: int = 0
     corner_radii: tuple[int, int, int, int] | None = None
     group: str | None = None
+    # Clip region content (icon/text/rows) to the region rect. ``None`` keeps
+    # the historical heuristic — clip ungrouped regions, leave grouped ones
+    # unclipped (hover-mirror groups were the original unclipped case). Set
+    # explicitly when a ``group=`` region must still contain its own content
+    # (e.g. a split button whose digit backdrop must not bleed into a
+    # sibling region).
+    clip_content: bool | None = None
 
 
 class SplitLayout(Protocol):

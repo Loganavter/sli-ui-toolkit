@@ -12,7 +12,7 @@ zone painters, and rubber-band selection, all built on one base class.
 | `MarqueeBandGesture` | Wayland-safe drag tracker for `MarqueeBandOverlay` (app event filter; no `grabMouse`). Host supplies hit-testing via `on_update` / `on_finish` content-local rects. |
 | `map_content_rect_to_window(...)` | Map a content-local rect into the host window, optionally clipped to a viewport widget. |
 
-Drag ghosts for UnifiedFlyout are **host-owned** (Improve-ImgSLI
+Drag ghosts for list pickers built on `ListPanel` are **host-owned** (Improve-ImgSLI
 `ui/widgets/drag_ghost_widget.py` + `DragAndDropService`). The toolkit
 `ToolkitDragDropService` coordinates drop targets without painting a ghost;
 apps inject their service via `configure_toolkit(dragdrop_service_getter=...)`

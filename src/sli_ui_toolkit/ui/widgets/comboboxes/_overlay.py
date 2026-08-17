@@ -7,8 +7,14 @@ from PySide6.QtGui import QBrush, QColor, QFontMetrics, QMouseEvent, QPainter, Q
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
-from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
+    MINIMAL_SCROLLBAR_WIDTH,
+    MinimalistScrollBar,
+    overlay_scrollbar_max_inset,
+    sdbg,
+)
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
@@ -17,6 +23,7 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     calculate_centered_overlay_geometry,
     draw_rounded_shadow,
 )
+from sli_ui_toolkit.ui.widgets.virtual_list import RowPool, visible_window
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widgets.comboboxes.combo_box import ComboBox
@@ -157,7 +164,7 @@ class _GearFrame(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         pen = QPen(QColor(tm.get_color("input.border.thin")))
-        pen.setWidthF(2.0)
+        pen.setWidthF(max(1.0, 2.0 * UiScale.get_instance().factor()))
         p.setPen(pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0), radius, radius)
@@ -176,15 +183,14 @@ class _DropdownOverlay(QWidget):
         self._owner = owner
         self._theme = owner._theme
         self.custom_v_scrollbar = MinimalistScrollBar(Qt.Orientation.Vertical, self)
-        self._scrollbar_width = 10
-        self._scrollbar_gap = 0
+        self._scrollbar_width = MINIMAL_SCROLLBAR_WIDTH
         # Rows are children of this viewport (not of the overlay itself) so
         # Qt clips their painting to the list area — needed during a
         # gear-shifter drag, where rows are positioned at sub-item pixel
         # offsets and can briefly extend a few pixels above/below the list.
         self._list_viewport = QWidget(self)
         self._list_viewport.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
-        self._slots: list[_DropdownItemSlot] = []
+        self._pool = RowPool(self._list_viewport, self._make_slot)
         self._gear_frame = _GearFrame(self)
         # See _DropdownItemSlot.enterEvent — true for the duration of a
         # gear-drag gesture (and a beat past its release), to swallow the
@@ -195,6 +201,13 @@ class _DropdownOverlay(QWidget):
         self.setMouseTracking(True)
         self.custom_v_scrollbar.valueChanged.connect(self._on_scrollbar_value_changed)
         self.custom_v_scrollbar.setVisible(False)
+        # True while the overlay is forwarding a scrollbar drag that started on
+        # a press it received itself (i.e. the scrollbar got a synthesized
+        # press instead of a real one and thus has no mouse grab of its own).
+        # While set, every move/release is forwarded to the scrollbar
+        # regardless of geometry so the drag tracks the cursor outside the
+        # 10px column and the release always resets its internal dragging state.
+        self._sb_dragging = False
         self.hide()
 
     def _item_height(self) -> int:
@@ -218,31 +231,37 @@ class _DropdownOverlay(QWidget):
     def _list_rect(self) -> QRect:
         width = self._content_rect().width()
         if self._has_scrollbar():
-            width -= self._scrollbar_width + self._scrollbar_gap
+            width -= overlay_scrollbar_max_inset()
         return QRect(0, 0, max(0, width), self._list_height())
 
-    def _item_rect(self, visible_index: int) -> QRect:
-        list_rect = self._list_rect()
-        return QRect(
-            list_rect.x(),
-            list_rect.y() + visible_index * self._item_height(),
-            list_rect.width(),
-            self._item_height(),
+    # -------- slot pool management (shared VirtualRowPool) --------
+
+    @property
+    def _slots(self) -> list["_DropdownItemSlot"]:
+        """Live pooled slot widgets — see virtual_list.RowPool."""
+        return self._pool.widgets()
+
+    def _make_slot(self) -> "_DropdownItemSlot":
+        slot = _DropdownItemSlot(
+            text_padding=self._owner.TEXT_HORIZONTAL_PADDING,
+            parent=None,
+            overlay=self,
         )
+        slot.clicked.connect(lambda s=slot: self._on_slot_clicked(s))
+        return slot
 
-    # -------- slot pool management --------
-
-    def _ensure_slots(self, count: int) -> None:
-        while len(self._slots) < count:
-            slot = _DropdownItemSlot(
-                text_padding=self._owner.TEXT_HORIZONTAL_PADDING,
-                parent=self._list_viewport,
-                overlay=self,
-            )
-            slot.clicked.connect(lambda s=slot: self._on_slot_clicked(s))
-            self._slots.append(slot)
-        for extra in self._slots[count:]:
-            extra.hide()
+    def _bind_slot(self, visible_pos: int, slot: "_DropdownItemSlot") -> None:
+        owner = self._owner
+        visible_indices = self._visible_item_indices()
+        if not (0 <= visible_pos < len(visible_indices)):
+            return
+        item_index = visible_indices[visible_pos]
+        item = owner._items[item_index]
+        slot.bind(
+            text=item.text,
+            item_index=item_index,
+            is_gear_focus=owner._gear_active and item_index == owner._gear_focus_index,
+        )
 
     def _position_viewport(self) -> None:
         list_rect = self._list_rect()
@@ -263,27 +282,20 @@ class _DropdownOverlay(QWidget):
 
     def _rebind_slots_normal(self) -> None:
         owner = self._owner
-        gear_active = owner._gear_active
-        visible_count = self._visible_items()
         visible_indices = self._visible_item_indices()
-        self._ensure_slots(visible_count)
-        for visible_idx in range(visible_count):
-            source_pos = owner._scroll_offset + visible_idx
-            if source_pos >= len(visible_indices):
-                break
-            item_index = visible_indices[source_pos]
-            item = owner._items[item_index]
-            slot = self._slots[visible_idx]
-            slot.bind(
-                text=item.text,
-                item_index=item_index,
-                is_gear_focus=gear_active and item_index == owner._gear_focus_index,
-            )
-            slot.setGeometry(self._item_rect(visible_idx))
-            slot.show()
-        # Hide unused slots in this round.
-        for slot in self._slots[visible_count:]:
-            slot.hide()
+        item_h = self._item_height()
+        scroll_px = owner._scroll_offset * item_h
+        # The virtual list here is the FILTERED visible-index array: the
+        # window spans [scroll_offset, scroll_offset + maxVisibleItems)
+        # visible positions, each mapped back to a source item index by the
+        # bind callback. visible_window() reproduces that window in px.
+        start, end = visible_window(
+            len(visible_indices), self._list_height(), item_h, scroll_px, overscan=0
+        )
+        self._pool.rebind(
+            start, end, self._bind_slot,
+            row_height=item_h, scroll_offset=scroll_px,
+        )
 
     def _update_gear_frame(self) -> None:
         """Position the fixed outline over the field's real screen rect.
@@ -312,7 +324,10 @@ class _DropdownOverlay(QWidget):
         field_rect = owner.rect()
         field_top_left_global = owner.mapToGlobal(field_rect.topLeft())
         local_top_left = self.mapFromGlobal(field_top_left_global)
-        local_top_left.setY(local_top_left.y() + (field_rect.height() - item_h) // 2)
+        # Round (not floor) the half-pixel remainder: the popup centers the
+        # anchored row with ``round`` too (overlay_geometry), so floor-only
+        # here left the row's top poking a full pixel out of the frame.
+        local_top_left.setY(local_top_left.y() + round((field_rect.height() - item_h) / 2))
         frame_rect = QRect(local_top_left, QSize(field_rect.width(), item_h))
         self._gear_frame.setGeometry(frame_rect)
         self._gear_frame.show()
@@ -468,9 +483,16 @@ class _DropdownOverlay(QWidget):
     # -------- scrollbar pass-through --------
 
     def _forward_to_scrollbar(self, event: QMouseEvent) -> bool:
-        if not (self.custom_v_scrollbar.isVisible() and self.custom_v_scrollbar.geometry().contains(
-            event.position().toPoint()
-        )):
+        sb = self.custom_v_scrollbar
+        sb_geo = sb.geometry()
+        event_pos = event.position().toPoint()
+        hit = sb.isVisible() and (self._sb_dragging or sb_geo.contains(event_pos))
+        sdbg(
+            f"forward {'yes' if hit else 'NO'} evt={int(event.type())} "
+            f"overlay_pos={event_pos} overlay_rect={self.rect()} "
+            f"sb_visible={sb.isVisible()} sb_geo={sb_geo} sb_dragging={self._sb_dragging}"
+        )
+        if not hit:
             return False
         scrollbar_pos = self.custom_v_scrollbar.mapFromGlobal(event.globalPosition().toPoint())
         QApplication.sendEvent(
@@ -488,16 +510,30 @@ class _DropdownOverlay(QWidget):
         return True
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and self._forward_to_scrollbar(event):
-            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._forward_to_scrollbar(event):
+                self._sb_dragging = True
+                return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self._sb_dragging:
+            if self._forward_to_scrollbar(event):
+                return
+            # Drag in progress but the cursor left the overlay window: keep
+            # forwarding while the button is held so the thumb keeps tracking.
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                self._forward_to_scrollbar(event)
+            return
         if self._forward_to_scrollbar(event):
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self._sb_dragging:
+            self._forward_to_scrollbar(event)
+            self._sb_dragging = False
+            return
         if event.button() == Qt.MouseButton.LeftButton and self._forward_to_scrollbar(event):
             return
         super().mouseReleaseEvent(event)

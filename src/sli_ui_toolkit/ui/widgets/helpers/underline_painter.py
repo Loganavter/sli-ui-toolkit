@@ -5,8 +5,9 @@ from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QLinearGradient, QPainterPath
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
-# Physical height (pre-scale px) of the tip alpha-fade — fixed regardless of
+# Physical height (design px) of the tip alpha-fade — fixed regardless of
 # ``thickness``/``tongue_reach`` so it stays a subtle taper instead of
 # consuming a whole short tongue or vanishing against a tall one.
 _TIP_FADE_PX = 4.0
@@ -16,11 +17,14 @@ _TIP_FADE_PX = 4.0
 class UnderlineConfig:
     thickness: float = 0.15
     vertical_offset: float = 0.75
+    # Design px: scaled by the UiScale factor exactly once (same as the
+    # widget's own painted corner radius), so the band's end caps keep
+    # wrapping the corner circle at every interface scale.
     arc_radius: float = 1.33
     alpha: Optional[int] = None
     color: Union[QColor, List[QColor], None] = None
     # How high above the bottom edge the underline's end caps ("tongues")
-    # are allowed to climb, in the same (pre-scale) units as ``arc_radius``.
+    # are allowed to climb, in the same (design px) units as ``arc_radius``.
     # ``None`` keeps the old default of matching ``arc_radius`` exactly (the
     # cap only follows the corner's own rounding, nothing more). ``0`` means
     # no tongues at all — hard square ends right at the bottom edge. A value
@@ -34,12 +38,6 @@ class UnderlineConfig:
     # the two true outer ends are ever affected — interior seams between
     # color zones are always crisp regardless of this flag.
     fade: bool = True
-
-
-def _widget_scale(rect) -> float:
-    """Scale factor based on widget height (baseline: 32px button)."""
-    h = float(rect.height())
-    return max(1.0, h / 32.0)
 
 
 def _rounded_rect_path(rect: QRectF, radius: float) -> QPainterPath:
@@ -89,6 +87,60 @@ def _build_band_path(rect: QRectF, radius: float, thickness: float, reach: float
     return outer_region.subtracted(inner_path)
 
 
+def _resolve_metrics(
+    rect: QRectF, cfg: UnderlineConfig, factor: float
+) -> tuple[float, float, float, float, float]:
+    """Scale design px by ``factor`` and clamp to the band rect.
+
+    Returns ``(arc_radius, thickness, vertical_offset, reach, fade_height)``
+    — the same values the painter consumes, factored out so tests can pin
+    the scaling contract (arc == the widget's painted corner radius) without
+    rendering pixels.
+    """
+    # arc_radius / vertical_offset / tongue_reach are design px, scaled by
+    # the UiScale factor exactly once — the same scaling the widget's own
+    # painted corner radius (scaled_px) uses, so the underline's end caps
+    # keep wrapping the corner circle at every interface scale. (A
+    # height-based heuristic used to be the proxy for this; it diverged as
+    # soon as the corner radius scaled with the factor while the widget's
+    # height did not grow proportionally.)
+    arc_radius = float(cfg.arc_radius) * factor
+    # The band's physical thickness scales with the interface factor (unlike
+    # 1px hairline borders): the underline is an accent element, not a
+    # border, so it must stay proportional to the text it sits under.
+    thickness = max(0.0, float(cfg.thickness) * factor)
+    vertical_offset = cfg.vertical_offset * factor
+
+    left = float(rect.left())
+    right = float(rect.right())
+    top = float(rect.top())
+    bottom = float(rect.bottom()) - vertical_offset
+
+    span = max(0.0, bottom - top)
+    arc_radius = min(arc_radius, span, (right - left) / 2.0)
+    thickness = min(thickness, span)
+
+    reach = (
+        float(cfg.tongue_reach) * factor
+        if cfg.tongue_reach is not None
+        else arc_radius
+    )
+    reach = max(0.0, min(reach, span))
+
+    # Tip fade: fixed physical size (design px, scaled like everything else)
+    # rather than derived from reach/thickness — tying it to those either
+    # drowns a small tongue in fade with no solid part left, or is
+    # imperceptible against a tall one. Only applies while the tongue is an
+    # actual taper (thickness < reach); once thickness saturates the corner
+    # solid, smearing a gradient over a flat block looks like a dirty edge.
+    fade_height = (
+        min(reach, _TIP_FADE_PX * factor)
+        if (cfg.fade and not cfg.ring and thickness < reach)
+        else 0.0
+    )
+    return arc_radius, thickness, vertical_offset, reach, fade_height
+
+
 def draw_bottom_underline(
     painter, rect, theme_manager: ThemeManager, config: UnderlineConfig | None = None
 ):
@@ -119,10 +171,10 @@ def draw_bottom_underline(
     if count == 0:
         return
 
-    scale = _widget_scale(rect)
-    arc_radius = float(cfg.arc_radius) * scale
-    thickness = max(0.0, float(cfg.thickness))
-    vertical_offset = cfg.vertical_offset * scale
+    factor = UiScale.get_instance().factor()
+    arc_radius, thickness, vertical_offset, reach, fade_height = _resolve_metrics(
+        rect, cfg, factor
+    )
 
     left = float(rect.left())
     right = float(rect.right())
@@ -130,39 +182,11 @@ def draw_bottom_underline(
     bottom = float(rect.bottom()) - vertical_offset
     band_rect = QRectF(left, top, right - left, bottom - top)
 
-    span = max(0.0, bottom - top)
-    arc_radius = min(arc_radius, span, (right - left) / 2.0)
-    thickness = min(thickness, span)
-
-    reach = (
-        float(cfg.tongue_reach) * scale if cfg.tongue_reach is not None else arc_radius
-    )
-    reach = max(0.0, min(reach, span))
-
     band_path = _build_band_path(band_rect, arc_radius, thickness, reach, cfg.ring)
     if band_path.isEmpty():
         return
 
     segment_width = (right - left) / count
-
-    # Tip fade: the very ends of the strip (true left/right edges only, not
-    # interior seams between color zones) fade from transparent at the tip
-    # down to full alpha. Fixed physical size (scaled with the widget, like
-    # everything else here) rather than derived from ``reach``/``thickness``
-    # — tying it to those either drowns a small tongue in fade with no solid
-    # part left, or is imperceptible against a tall one.
-    #
-    # Only applies while the tongue is still an actual taper — i.e.
-    # ``thickness < reach``. Once thickness reaches/exceeds reach, the end is
-    # geometrically just a flat block (see _build_band_path: excess
-    # thickness saturates the corner solid rather than narrowing it), and
-    # smearing a gradient over a flat block just looks like a dirty edge,
-    # not a taper.
-    fade_height = (
-        min(reach, _TIP_FADE_PX * scale)
-        if (cfg.fade and not cfg.ring and thickness < reach)
-        else 0.0
-    )
 
     painter.save()
     try:

@@ -135,7 +135,7 @@ def _should_handle_tooltip_widget(watched) -> bool:
     if not isinstance(watched, QWidget):
         return False
     try:
-        if not shiboken6.isValid(watched):
+        if not shiboken6.isValid(watched):  # type: ignore[attr-defined]
             return False
     except Exception:
         return False

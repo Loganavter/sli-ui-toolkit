@@ -9,11 +9,13 @@ from sli_ui_toolkit.ui.widgets.comboboxes.combo_box import ComboBox
 from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton
 from sli_ui_toolkit.ui.widgets.atomic.slider import Slider
 from sli_ui_toolkit.ui.widgets.atomic.switch import Switch
-from sli_ui_toolkit.ui.widgets.atomic.spinbox import SpinBox
+from sli_ui_toolkit.ui.widgets.atomic.spinbox import DoubleSpinBox, SpinBox
 from sli_ui_toolkit.ui.widgets.atomic.loading_spinner import LoadingSpinner
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
+    MINIMAL_SCROLLBAR_WIDTH,
     MinimalistScrollBar,
     OverlayScrollArea,
+    overlay_scrollbar_max_inset,
 )
 from sli_ui_toolkit.ui.widgets.atomic.instances_counter_button import (
     InstancesCounterButton,
@@ -42,6 +44,7 @@ __all__ = [
     "RadioButton",
     "Slider",
     "SpinBox",
+    "DoubleSpinBox",
     "Switch",
     "Label",
     "LabelConfig",
@@ -52,6 +55,8 @@ __all__ = [
     "InstancesCounterButton",
     "MinimalistScrollBar",
     "OverlayScrollArea",
+    "MINIMAL_SCROLLBAR_WIDTH",
+    "overlay_scrollbar_max_inset",
     "ScrollableComboBox",
     "TimeLineEdit",
 ]

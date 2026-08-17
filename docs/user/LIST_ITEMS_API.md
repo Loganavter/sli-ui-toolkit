@@ -5,29 +5,17 @@ a host-owned list/flyout, not a generic list container itself.
 
 | Widget | Description |
 |--------|-------------|
-| `RatingListItem` | Star-rating list item with interactive hover and click. |
 | `EditableListItem` | Row with inline-editable text, an optional checkbox, and a delete button. |
 
 Both import from `sli_ui_toolkit.widgets`.
 
-`RatingListItem` is a `Button` subclass (regions/layers-based row, see
-[BUTTON_API.md](BUTTON_API.md)), not a generic list item — most constructor
-parameters are host callbacks rather than visual config:
+`EditableListItem` is a `Button` subclass (regions/layers-based row, see
+[BUTTON_API.md](BUTTON_API.md)):
 
 ```python
-from sli_ui_toolkit.widgets import RatingListItem
+from sli_ui_toolkit.widgets import EditableListItem
 
-row = RatingListItem(
-    index=0,
-    text="photo.jpg",
-    rating=4,
-    full_path="/path/to/photo.jpg",
-    item_height=36,               # default: 36
-    item_type="image",            # default: "image"
-    position="middle",            # "first"/"middle"/"last" — affects corner rounding
-    wheel_requires_focus=False,
-    get_rating=lambda path: 4,
-    increment_rating=lambda path: ...,
+row = EditableListItem(
     decrement_rating=lambda path: ...,
 )
 ```
