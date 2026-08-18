@@ -34,6 +34,7 @@ class _AdaptiveTabBar(QWidget):
 
     currentChanged = Signal(int)
     tabContextMenuRequested = Signal(int, QPoint)
+    tabCloseRequested = Signal(int)
 
     def __init__(self, *, close_button_width: int, parent=None):
         super().__init__(parent)
@@ -42,6 +43,7 @@ class _AdaptiveTabBar(QWidget):
         self._hover_index = -1
         self._current_index = -1
         self._scroll_offset = 0
+        self._keyboard_focus = False
         # Each entry: {"text": str, "data": Any, "tooltip": str, "buttons": {QTabBar.ButtonPosition: QWidget|None}}
         self._tabs: list[dict] = []
         self._rects: list[QRect] = []
@@ -298,9 +300,27 @@ class _AdaptiveTabBar(QWidget):
             return super().keyPressEvent(event)
         current = self._current_index if self._current_index >= 0 else 0
         if key == Qt.Key.Key_Left:
+            if current == 0:
+                # Past the first tab — hand off to the parent strip
+                # (typically the add button).
+                strip = self.parentWidget()
+                if strip is not None:
+                    add_btn = getattr(strip, "add_button", None)
+                    if add_btn is not None and add_btn.isVisible():
+                        add_btn.setFocus(Qt.FocusReason.OtherFocusReason)
+                        event.accept()
+                        return
             self.setCurrentIndex((current - 1) % count)
             event.accept()
         elif key == Qt.Key.Key_Right:
+            if current == count - 1:
+                strip = self.parentWidget()
+                if strip is not None:
+                    add_btn = getattr(strip, "add_button", None)
+                    if add_btn is not None and add_btn.isVisible():
+                        add_btn.setFocus(Qt.FocusReason.OtherFocusReason)
+                        event.accept()
+                        return
             self.setCurrentIndex((current + 1) % count)
             event.accept()
         elif key == Qt.Key.Key_Home:
@@ -309,6 +329,10 @@ class _AdaptiveTabBar(QWidget):
         elif key == Qt.Key.Key_End:
             self.setCurrentIndex(count - 1)
             event.accept()
+        elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            if 0 <= current < count:
+                self.tabCloseRequested.emit(current)
+                event.accept()
         else:
             super().keyPressEvent(event)
 
@@ -362,6 +386,19 @@ class _AdaptiveTabBar(QWidget):
             self.update()
         super().leaveEvent(event)
 
+    def focusInEvent(self, event):  # noqa: N802
+        # Only show the focus ring for keyboard-granted focus (Tab/arrow),
+        # not for mouse clicks.
+        self._keyboard_focus = event.reason() not in (
+            Qt.FocusReason.MouseFocusReason,
+            Qt.FocusReason.PopupFocusReason,
+        )
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):  # noqa: N802
+        self._keyboard_focus = False
+        super().focusOutEvent(event)
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._clamp_scroll_offset()
@@ -389,7 +426,7 @@ class _AdaptiveTabBar(QWidget):
     def _paint_tab(self, painter: QPainter, index: int, rect: QRect, palette: dict[str, str]) -> None:
         selected = index == self.currentIndex()
         hovered = not selected and index == self._hover_index
-        focused = selected and self.hasFocus()
+        focused = selected and self._keyboard_focus
         tab_rect = self._painted_tab_rect(rect)
         if selected:
             self._paint_selected_shadow(painter, tab_rect)
@@ -398,18 +435,28 @@ class _AdaptiveTabBar(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(palette["hover"]))
             painter.drawRoundedRect(tab_rect, scaled_px(self._RADIUS), scaled_px(self._RADIUS))
-        # Focus indicator: accent-colored background on the FULL tab area
-        # (including close-button slot) so the ring covers all child widgets.
+        # Focus ring: same style as Button's FocusLayer — accent-colored
+        # QPainterPath rounded rect on the FULL tab area (including close
+        # button slot) so the ring covers all child widgets.
         if focused:
-            focus_bg = QColor(palette.get("focus_ring_bg", "#2a6daa"))
-            focus_bg.setAlpha(30)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(focus_bg)
-            painter.drawRoundedRect(rect, scaled_px(self._RADIUS), scaled_px(self._RADIUS))
-            focus_pen = QPen(QColor(palette.get("focus_ring", "#3daee9")), 2)
-            painter.setPen(focus_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(rect, scaled_px(self._RADIUS), scaled_px(self._RADIUS))
+            from PySide6.QtGui import QPainterPath
+
+            factor = UiScale.get_instance().factor()
+            design_radius = self._RADIUS / factor if factor > 0 else self._RADIUS
+            thickness = max(1.0, 2.0 * factor)
+            inset = thickness * 0.5
+            ring = QRectF(rect).adjusted(inset, inset, -inset, -inset)
+            if ring.width() > 0 and ring.height() > 0:
+                path = QPainterPath()
+                path.addRoundedRect(ring, design_radius, design_radius)
+                color = QColor(palette.get("accent", "#3daee9"))
+                color.setAlpha(220)
+                painter.save()
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                painter.setPen(QPen(color, thickness))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPath(path)
+                painter.restore()
 
         text_right = tab_rect.right() - scaled_px(self._SIDE_PADDING)
         close_slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)

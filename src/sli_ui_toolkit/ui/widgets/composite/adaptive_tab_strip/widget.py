@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
 
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
@@ -63,6 +63,7 @@ class AdaptiveTabStrip(QWidget):
             parent=self,
         )
         self.add_button = Button(add_icon, parent=self)
+        self.add_button.installEventFilter(self)
         self._sync_visual_tab_height()
 
         layout = QHBoxLayout(self)
@@ -73,6 +74,7 @@ class AdaptiveTabStrip(QWidget):
 
         self.tab_bar.currentChanged.connect(self._on_current_changed)
         self.tab_bar.tabContextMenuRequested.connect(self.tabContextMenuRequested)
+        self.tab_bar.tabCloseRequested.connect(self.tabCloseRequested)
         self.add_button.clicked.connect(self.addRequested)
         UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
 
@@ -126,6 +128,22 @@ class AdaptiveTabStrip(QWidget):
         if parent is not None and parent.layout() is not None:
             parent.layout().invalidate()
             parent.layout().activate()
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if obj is self.add_button and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Left, Qt.Key.Key_Up):
+                # Left/Up from add button → back to the last tab.
+                bar = self.tab_bar
+                if bar.count() > 0:
+                    target = bar.currentIndex()
+                    if target < 0:
+                        target = bar.count() - 1
+                    bar.setCurrentIndex(target)
+                    bar.setFocus(Qt.FocusReason.OtherFocusReason)
+                    event.accept()
+                    return True
+        return super().eventFilter(obj, event)
 
     def _on_current_changed(self, index: int) -> None:
         self.refresh_close_buttons()
