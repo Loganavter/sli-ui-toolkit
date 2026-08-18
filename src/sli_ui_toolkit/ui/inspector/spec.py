@@ -18,7 +18,7 @@ modules can import it without cycles.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Union
 
 from PySide6.QtWidgets import QWidget
 
@@ -29,6 +29,17 @@ from .extract import (
     from_regions,
     kind_of,
 )
+
+# Lazy import to avoid circular dependency
+_InspectSection = None
+
+
+def _get_inspect_section():
+    global _InspectSection
+    if _InspectSection is None:
+        from sli_ui_toolkit.ui.widget_descriptor import InspectSection
+        _InspectSection = InspectSection
+    return _InspectSection
 
 
 @dataclass(slots=True)
@@ -101,9 +112,12 @@ def _resolve_field(widget: QWidget, field: SpecField):
 
 
 def build_inspection(
-    widget: QWidget, spec: InspectSpec, theme_manager=None
+    widget: QWidget, spec: InspectSpec | Any, theme_manager=None
 ) -> WidgetInspection:
-    """Build a ``WidgetInspection`` from a widget's ``InspectSpec``.
+    """Build a ``WidgetInspection`` from a widget's spec.
+
+    Accepts either ``InspectSpec`` (legacy) or ``InspectSection`` (new
+    ``WidgetDescriptor`` system) — both have the same field shape.
 
     Config auto-derives from the ``__init__`` signature when the spec
     declares none (with ``config_exclude`` honoured), so constructor changes
@@ -209,12 +223,38 @@ def _resolve_docs_path(ref: str) -> str:
     return str(bases[-1] / ref)
 
 
-def spec_of(widget: QWidget) -> InspectSpec | None:
-    """The effective spec for ``widget`` (inherited class attribute)."""
+def spec_of(widget: QWidget) -> InspectSpec | InspectSection | None:
+    """The effective spec for ``widget``.
+
+    Resolution order:
+    1. Instance ``widget_descriptor`` attribute (set in ``__init__``)
+    2. Own-class ``inspect_spec`` (class attribute, not inherited)
+    3. MRO ``inspect_spec`` (legacy, inherited)
+    4. MRO ``widget_descriptor.inspect`` (new system, inherited)
+    """
+    InspectSection = _get_inspect_section()
+
+    # 1. Instance-level widget_descriptor
+    desc = widget.__dict__.get("widget_descriptor")
+    if desc is not None:
+        inspect = getattr(desc, "inspect", None)
+        if inspect is not None:
+            return inspect
+
+    # 2-3. inspect_spec — check each class in MRO (own class first)
     for cls in type(widget).__mro__:
         spec = cls.__dict__.get("inspect_spec")
-        if isinstance(spec, InspectSpec):
+        if isinstance(spec, (InspectSpec, InspectSection)):
             return spec
+
+    # 4. widget_descriptor.inspect — check each class in MRO
+    for cls in type(widget).__mro__:
+        desc = cls.__dict__.get("widget_descriptor")
+        if desc is not None:
+            inspect = getattr(desc, "inspect", None)
+            if inspect is not None:
+                return inspect
+
     return None
 
 
