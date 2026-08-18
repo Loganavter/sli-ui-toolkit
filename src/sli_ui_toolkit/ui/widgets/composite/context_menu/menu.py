@@ -11,7 +11,6 @@ from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
     QEventLoop,
-    QObject,
     QPoint,
     QPropertyAnimation,
     QRect,
@@ -114,6 +113,12 @@ class ContextMenu(BaseFlyout):
         self._is_submenu = _is_submenu
         self._surface = surface if surface is not None else get_context_menu_surface()
         self._logical_parent = parent
+        # Cursor-positioned popup fade-out state (popup_at). Popups are
+        # top-levels, so they don't route hide() through BaseFlyout's in-window
+        # fade path; this tracks the deferred fade-out so aboutToHide /
+        # deleteLater fire only after the widget is actually hidden.
+        self._popup_fade_anim: QVariantAnimation | None = None
+        self._popup_fade_in_progress = False
         # Popup menus must never attach to the host OverlayLayer: attach +
         # setParent(None) reorders overlay children and can shove open flyouts
         # off their geometry. Keep the QWidget parent so Wayland gets a
@@ -129,9 +134,9 @@ class ContextMenu(BaseFlyout):
             bind_popup_transient_parent(self, parent)
         elif _is_submenu:
             self.flyout_manager.unregister_flyout(self)
-        # In-window menus need window-level ESC handling because NoFocus
-        # prevents keyPressEvent from ever firing.
-        self._window_esc_filter_installed = False
+        # Ensure destroyed widgets are removed from the class-level registry
+        # so that close_visible() never operates on a dangling pointer.
+        self.destroyed.connect(lambda: self._visible_menus.discard(self))
         if entries is not None:
             self.set_entries(entries)
 
@@ -407,58 +412,6 @@ class ContextMenu(BaseFlyout):
             return
         super().keyPressEvent(event)
 
-    def showEvent(self, event):  # noqa: N802
-        super().showEvent(event)
-
-    def hideEvent(self, event):  # noqa: N802
-        self._remove_window_esc_filter()
-        super().hideEvent(event)
-
-    def _remove_window_esc_filter(self) -> None:
-        import logging
-        _log = logging.getLogger(__name__)
-        if not self._window_esc_filter_installed:
-            return
-        esc_filter = getattr(self, "_esc_filter", None)
-        _log.debug(
-            "[ESC-FILTER] removing from app: filter=%s menu_id=%s",
-            esc_filter,
-            id(self),
-        )
-        app = QApplication.instance()
-        if app is not None and esc_filter is not None:
-            try:
-                app.removeEventFilter(esc_filter)
-            except RuntimeError:
-                pass
-        self._esc_filter = None
-        self._window_esc_filter_installed = False
-        _log.debug("[ESC-FILTER] removed OK")
-
-    def _install_window_esc_filter(self) -> None:
-        import logging
-        _log = logging.getLogger(__name__)
-        if self.is_popup_surface():
-            _log.debug("[ESC-FILTER] skip install: popup surface")
-            return
-        if self._window_esc_filter_installed:
-            _log.debug("[ESC-FILTER] skip install: already installed")
-            return
-        # Use QApplication-level filter — window-level installEventFilter
-        # silently fails on some Wayland/CSD setups.
-        self._esc_filter = _WindowEscFilter(self)
-        app = QApplication.instance()
-        _log.debug(
-            "[ESC-FILTER] installing on app=%s menu_id=%s visible=%s",
-            app,
-            id(self),
-            self.isVisible(),
-        )
-        if app is not None:
-            app.installEventFilter(self._esc_filter)
-            self._window_esc_filter_installed = True
-            _log.debug("[ESC-FILTER] installed OK on app")
-
     def eventFilter(self, obj, event):  # noqa: N802
         # Rows are child Buttons — they receive presses before the menu widget.
         if (
@@ -493,9 +446,8 @@ class ContextMenu(BaseFlyout):
             flyout_point=flyout_point,
             **kwargs,
         )
-        # NoFocus menus never receive keyPressEvent — install a window-level
-        # filter so Escape dismisses in-window context menus.
-        self._install_window_esc_filter()
+        if not self.is_popup_surface():
+            self._visible_menus.add(self)
 
     def _popup_show_aligned(
         self,
