@@ -714,3 +714,19 @@ ComboBox.inspect_spec = InspectSpec(
     ),
     docs='docs/user/INPUTS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+ComboBox.widget_descriptor = WidgetDescriptor(
+    family=ComboBox.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(ComboBox.inspect_spec, 'config', ()),
+        state=ComboBox.inspect_spec.state,
+        token_family=getattr(ComboBox.inspect_spec, 'token_family', ()),
+        regions=getattr(ComboBox.inspect_spec, 'regions', False),
+        layers=getattr(ComboBox.inspect_spec, 'layers', False),
+        docs=getattr(ComboBox.inspect_spec, 'docs', ''),
+        preview_seed=getattr(ComboBox.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(ComboBox.inspect_spec, 'apply_config_refresh', None),
+    ),
+)

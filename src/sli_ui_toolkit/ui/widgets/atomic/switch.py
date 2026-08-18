@@ -321,3 +321,16 @@ Switch.inspect_spec = InspectSpec(
     ),
     docs='docs/user/INPUTS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+Switch.widget_descriptor = WidgetDescriptor(
+    family=Switch.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(Switch.inspect_spec, 'config', ()),
+        state=Switch.inspect_spec.state,
+        token_family=getattr(Switch.inspect_spec, 'token_family', ()),
+        regions=getattr(Switch.inspect_spec, 'regions', False),
+        layers=getattr(Switch.inspect_spec, 'layers', False),
+        docs=getattr(Switch.inspect_spec, 'docs', ''),
+    ),
+)

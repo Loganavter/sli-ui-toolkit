@@ -375,3 +375,16 @@ CheckBox.inspect_spec = InspectSpec(
     token_family=("accent", "dialog.border", "dialog.text", "dialog.button.hover"),
     docs='docs/user/INPUTS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+CheckBox.widget_descriptor = WidgetDescriptor(
+    family=CheckBox.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(CheckBox.inspect_spec, 'config', ()),
+        state=CheckBox.inspect_spec.state,
+        token_family=getattr(CheckBox.inspect_spec, 'token_family', ()),
+        regions=getattr(CheckBox.inspect_spec, 'regions', False),
+        layers=getattr(CheckBox.inspect_spec, 'layers', False),
+        docs=getattr(CheckBox.inspect_spec, 'docs', ''),
+    ),
+)

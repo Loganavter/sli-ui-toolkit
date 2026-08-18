@@ -273,3 +273,16 @@ CustomLineEdit.inspect_spec = InspectSpec(
     token_family=("dialog.input.background", "input.border.thin", "dialog.text", "accent"),
     docs='docs/user/INPUTS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+CustomLineEdit.widget_descriptor = WidgetDescriptor(
+    family=CustomLineEdit.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(CustomLineEdit.inspect_spec, 'config', ()),
+        state=CustomLineEdit.inspect_spec.state,
+        token_family=getattr(CustomLineEdit.inspect_spec, 'token_family', ()),
+        regions=getattr(CustomLineEdit.inspect_spec, 'regions', False),
+        layers=getattr(CustomLineEdit.inspect_spec, 'layers', False),
+        docs=getattr(CustomLineEdit.inspect_spec, 'docs', ''),
+    ),
+)

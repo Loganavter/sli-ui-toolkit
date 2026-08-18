@@ -157,3 +157,16 @@ DropZoneLabel.inspect_spec = InspectSpec(
     token_family=("accent", "dialog.border"),
     docs='docs/user/LABELS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+DropZoneLabel.widget_descriptor = WidgetDescriptor(
+    family=DropZoneLabel.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(DropZoneLabel.inspect_spec, 'config', ()),
+        state=DropZoneLabel.inspect_spec.state,
+        token_family=getattr(DropZoneLabel.inspect_spec, 'token_family', ()),
+        regions=getattr(DropZoneLabel.inspect_spec, 'regions', False),
+        layers=getattr(DropZoneLabel.inspect_spec, 'layers', False),
+        docs=getattr(DropZoneLabel.inspect_spec, 'docs', ''),
+    ),
+)

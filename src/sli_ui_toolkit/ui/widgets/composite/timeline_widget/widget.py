@@ -635,3 +635,19 @@ TimelineWidget.inspect_spec = InspectSpec(
     token_family=("accent", "Window", "AlternateBase", "separator.color", "dialog.border", "WindowText"),
     docs='docs/user/API_CATALOG.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+TimelineWidget.widget_descriptor = WidgetDescriptor(
+    family=TimelineWidget.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(TimelineWidget.inspect_spec, 'config', ()),
+        state=TimelineWidget.inspect_spec.state,
+        token_family=getattr(TimelineWidget.inspect_spec, 'token_family', ()),
+        regions=getattr(TimelineWidget.inspect_spec, 'regions', False),
+        layers=getattr(TimelineWidget.inspect_spec, 'layers', False),
+        docs=getattr(TimelineWidget.inspect_spec, 'docs', ''),
+        preview_seed=getattr(TimelineWidget.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(TimelineWidget.inspect_spec, 'apply_config_refresh', None),
+    ),
+)

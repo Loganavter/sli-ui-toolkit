@@ -474,3 +474,16 @@ Label.inspect_spec = InspectSpec(
     token_family=("dialog.text",),
     docs='docs/user/LABELS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+Label.widget_descriptor = WidgetDescriptor(
+    family=Label.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(Label.inspect_spec, 'config', ()),
+        state=Label.inspect_spec.state,
+        token_family=getattr(Label.inspect_spec, 'token_family', ()),
+        regions=getattr(Label.inspect_spec, 'regions', False),
+        layers=getattr(Label.inspect_spec, 'layers', False),
+        docs=getattr(Label.inspect_spec, 'docs', ''),
+    ),
+)

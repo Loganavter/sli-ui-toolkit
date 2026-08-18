@@ -144,3 +144,19 @@ IndexedToggleFlyout.inspect_spec = InspectSpec(
     token_family=("flyout.background", "flyout.border", "shadow.color", "separator.color"),
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+IndexedToggleFlyout.widget_descriptor = WidgetDescriptor(
+    family=IndexedToggleFlyout.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(IndexedToggleFlyout.inspect_spec, 'config', ()),
+        state=IndexedToggleFlyout.inspect_spec.state,
+        token_family=getattr(IndexedToggleFlyout.inspect_spec, 'token_family', ()),
+        regions=getattr(IndexedToggleFlyout.inspect_spec, 'regions', False),
+        layers=getattr(IndexedToggleFlyout.inspect_spec, 'layers', False),
+        docs=getattr(IndexedToggleFlyout.inspect_spec, 'docs', ''),
+        preview_seed=getattr(IndexedToggleFlyout.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(IndexedToggleFlyout.inspect_spec, 'apply_config_refresh', None),
+    ),
+)

@@ -277,3 +277,16 @@ RadioButton.inspect_spec = InspectSpec(
     token_family=("accent", "dialog.border", "dialog.text", "dialog.button.hover"),
     docs='docs/user/INPUTS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+RadioButton.widget_descriptor = WidgetDescriptor(
+    family=RadioButton.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(RadioButton.inspect_spec, 'config', ()),
+        state=RadioButton.inspect_spec.state,
+        token_family=getattr(RadioButton.inspect_spec, 'token_family', ()),
+        regions=getattr(RadioButton.inspect_spec, 'regions', False),
+        layers=getattr(RadioButton.inspect_spec, 'layers', False),
+        docs=getattr(RadioButton.inspect_spec, 'docs', ''),
+    ),
+)

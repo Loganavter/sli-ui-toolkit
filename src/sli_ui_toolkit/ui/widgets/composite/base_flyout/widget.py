@@ -201,3 +201,19 @@ BaseFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     token_family=("flyout.background", "flyout.border", "shadow.color", "separator.color"),
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+BaseFlyout.widget_descriptor = WidgetDescriptor(
+    family=BaseFlyout.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(BaseFlyout.inspect_spec, 'config', ()),
+        state=BaseFlyout.inspect_spec.state,
+        token_family=getattr(BaseFlyout.inspect_spec, 'token_family', ()),
+        regions=getattr(BaseFlyout.inspect_spec, 'regions', False),
+        layers=getattr(BaseFlyout.inspect_spec, 'layers', False),
+        docs=getattr(BaseFlyout.inspect_spec, 'docs', ''),
+        preview_seed=getattr(BaseFlyout.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(BaseFlyout.inspect_spec, 'apply_config_refresh', None),
+    ),
+)

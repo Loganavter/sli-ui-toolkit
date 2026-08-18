@@ -411,3 +411,19 @@ ToastNotification.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     ),
     docs='docs/user/FEEDBACK_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+ToastNotification.widget_descriptor = WidgetDescriptor(
+    family=ToastNotification.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(ToastNotification.inspect_spec, 'config', ()),
+        state=ToastNotification.inspect_spec.state,
+        token_family=getattr(ToastNotification.inspect_spec, 'token_family', ()),
+        regions=getattr(ToastNotification.inspect_spec, 'regions', False),
+        layers=getattr(ToastNotification.inspect_spec, 'layers', False),
+        docs=getattr(ToastNotification.inspect_spec, 'docs', ''),
+        preview_seed=getattr(ToastNotification.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(ToastNotification.inspect_spec, 'apply_config_refresh', None),
+    ),
+)

@@ -378,3 +378,16 @@ Slider.inspect_spec = InspectSpec(
     token_family=("slider.track.unfilled", "slider.thumb.outer", "accent", "dialog.border"),
     docs='docs/user/INPUTS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+Slider.widget_descriptor = WidgetDescriptor(
+    family=Slider.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(Slider.inspect_spec, 'config', ()),
+        state=Slider.inspect_spec.state,
+        token_family=getattr(Slider.inspect_spec, 'token_family', ()),
+        regions=getattr(Slider.inspect_spec, 'regions', False),
+        layers=getattr(Slider.inspect_spec, 'layers', False),
+        docs=getattr(Slider.inspect_spec, 'docs', ''),
+    ),
+)

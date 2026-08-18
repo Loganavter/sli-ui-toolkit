@@ -682,3 +682,19 @@ ListPanel.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     token_family=("flyout.background", "flyout.border", "accent"),
     docs='docs/user/LIST_ITEMS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+ListPanel.widget_descriptor = WidgetDescriptor(
+    family=ListPanel.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(ListPanel.inspect_spec, 'config', ()),
+        state=ListPanel.inspect_spec.state,
+        token_family=getattr(ListPanel.inspect_spec, 'token_family', ()),
+        regions=getattr(ListPanel.inspect_spec, 'regions', False),
+        layers=getattr(ListPanel.inspect_spec, 'layers', False),
+        docs=getattr(ListPanel.inspect_spec, 'docs', ''),
+        preview_seed=getattr(ListPanel.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(ListPanel.inspect_spec, 'apply_config_refresh', None),
+    ),
+)

@@ -477,3 +477,19 @@ IconListWidget.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     ),
     docs='docs/user/LIST_ITEMS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+IconListWidget.widget_descriptor = WidgetDescriptor(
+    family=IconListWidget.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(IconListWidget.inspect_spec, 'config', ()),
+        state=IconListWidget.inspect_spec.state,
+        token_family=getattr(IconListWidget.inspect_spec, 'token_family', ()),
+        regions=getattr(IconListWidget.inspect_spec, 'regions', False),
+        layers=getattr(IconListWidget.inspect_spec, 'layers', False),
+        docs=getattr(IconListWidget.inspect_spec, 'docs', ''),
+        preview_seed=getattr(IconListWidget.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(IconListWidget.inspect_spec, 'apply_config_refresh', None),
+    ),
+)

@@ -155,3 +155,16 @@ CustomGroupWidget.inspect_spec = InspectSpec(
     token_family=("dialog.border", "dialog.background", "dialog.text"),
     docs='docs/user/INPUTS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+CustomGroupWidget.widget_descriptor = WidgetDescriptor(
+    family=CustomGroupWidget.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(CustomGroupWidget.inspect_spec, 'config', ()),
+        state=CustomGroupWidget.inspect_spec.state,
+        token_family=getattr(CustomGroupWidget.inspect_spec, 'token_family', ()),
+        regions=getattr(CustomGroupWidget.inspect_spec, 'regions', False),
+        layers=getattr(CustomGroupWidget.inspect_spec, 'layers', False),
+        docs=getattr(CustomGroupWidget.inspect_spec, 'docs', ''),
+    ),
+)
