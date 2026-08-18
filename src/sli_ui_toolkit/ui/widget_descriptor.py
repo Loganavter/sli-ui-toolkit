@@ -150,6 +150,7 @@ class WidgetRegistry:
     def __init__(self) -> None:
         self._descriptors: dict[str, WidgetDescriptor] = {}
         self._by_class: dict[type, WidgetDescriptor] = {}
+        self._inspect_cache: dict[type, WidgetDescriptor] = {}
 
     def register(self, widget_class: type, descriptor: WidgetDescriptor) -> None:
         self._descriptors[descriptor.family] = descriptor
@@ -163,7 +164,29 @@ class WidgetRegistry:
         return self._descriptors.get(family)
 
     def get_for_class(self, widget_class: type) -> WidgetDescriptor | None:
-        return self._by_class.get(widget_class)
+        """Return the descriptor for *widget_class*.
+
+        Checks in order:
+        1. Explicitly registered descriptor (``@widget_descriptor``)
+        2. Instance-level ``widget_descriptor`` attribute (set in ``__init__``)
+        3. Legacy ``inspect_spec`` → auto-converted to ``WidgetDescriptor``
+        """
+        # 1. Explicit registration
+        desc = self._by_class.get(widget_class)
+        if desc is not None:
+            return desc
+
+        # 2. Class-level inspect_spec → auto-convert
+        inspect_spec = getattr(widget_class, "inspect_spec", None)
+        if inspect_spec is not None:
+            cached = self._inspect_cache.get(widget_class)
+            if cached is not None:
+                return cached
+            desc = WidgetDescriptor.from_inspect_spec(inspect_spec)
+            self._inspect_cache[widget_class] = desc
+            return desc
+
+        return None
 
     def all_descriptors(self) -> list[WidgetDescriptor]:
         return list(self._descriptors.values())

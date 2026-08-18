@@ -369,3 +369,16 @@ AdaptiveTabStrip.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     apply_config_refresh=_refresh_config_applied,
     docs='docs/user/TABS_API.md',
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+AdaptiveTabStrip.widget_descriptor = WidgetDescriptor(  # type: ignore[attr-defined]
+    family="AdaptiveTabStrip",
+    inspect=InspectSection(
+        state=AdaptiveTabStrip.inspect_spec.state,
+        token_family=AdaptiveTabStrip.inspect_spec.token_family,
+        preview_seed=AdaptiveTabStrip.inspect_spec.preview_seed,
+        apply_config_refresh=AdaptiveTabStrip.inspect_spec.apply_config_refresh,
+        docs=AdaptiveTabStrip.inspect_spec.docs,
+    ),
+)

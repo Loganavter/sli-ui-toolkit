@@ -297,6 +297,43 @@ Use this layer for singleton-like or coordination objects such as:
 - `ThemeManager`
 - flyout manager / auto-hide coordination
 - delayed action helpers
+- `NavigationManager` — arrow-key navigation coordinator
+- `WidgetDescriptor` / `WidgetRegistry` — unified widget self-description
+
+#### `WidgetDescriptor` (unified widget self-description)
+
+Replaces three parallel systems with one declaration:
+
+| Old system | Section in `WidgetDescriptor` | What it provides |
+|---|---|---|
+| `InspectSpec` | `inspect: InspectSection` | family, config, state, tokens, docs |
+| `NavigationSpec` | `navigation: NavigationSection` | navigate, focus_first, focus_last |
+| `ActionDescriptor` | `action: ActionSection` | action_id, label, shortcut, run |
+
+Widgets declare a `WidgetDescriptor` as a class or instance attribute:
+
+```python
+class MyWidget(QWidget):
+    # Instance-level (set in __init__):
+    def __init__(self):
+        super().__init__()
+        self.widget_descriptor = WidgetDescriptor(
+            family="MyWidget",
+            navigation=NavigationSection(
+                navigate=self._nav_navigate,
+                focus_first=self._nav_focus_first,
+                focus_last=self._nav_focus_last,
+            ),
+        )
+```
+
+The `WidgetRegistry` singleton collects descriptors. Consumers
+(`NavigationManager`, inspector, palette) query the registry.
+
+**Backward compatibility:** `WidgetRegistry.get_for_class()` auto-converts
+existing `inspect_spec = InspectSpec(...)` declarations to `WidgetDescriptor`
+via `WidgetDescriptor.from_inspect_spec()`. No code changes needed for
+widgets that only use `InspectSpec`.
 
 ### `ui/services/`
 

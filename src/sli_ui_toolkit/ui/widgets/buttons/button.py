@@ -965,3 +965,17 @@ Button.inspect_spec = InspectSpec(
     layers=True,
     docs="docs/user/BUTTON_API.md",
 )
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+Button.widget_descriptor = WidgetDescriptor(
+    family="Button",
+    inspect=InspectSection(
+        config=Button.inspect_spec.config,
+        state=Button.inspect_spec.state,
+        token_family=Button.inspect_spec.token_family,
+        regions=Button.inspect_spec.regions,
+        layers=Button.inspect_spec.layers,
+        docs=Button.inspect_spec.docs,
+    ),
+)

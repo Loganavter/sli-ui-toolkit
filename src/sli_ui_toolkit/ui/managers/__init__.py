@@ -19,6 +19,12 @@ from sli_ui_toolkit.ui.managers.navigation_manager import (
 )
 from sli_ui_toolkit.ui.managers.settle_gate import SettleGate
 from sli_ui_toolkit.ui.managers.theme_manager import ThemeManager
+from sli_ui_toolkit.ui.widget_descriptor import (
+    InspectSection,
+    WidgetDescriptor,
+    WidgetRegistry,
+    widget_descriptor,
+)
 
 from sli_ui_toolkit.ui.managers.ui_scale import (
     MAX_FACTOR,
@@ -46,11 +52,15 @@ __all__ = [
     "ExclusiveShowPolicy",
     "FlyoutManager",
     "GroupShowPolicy",
+    "InspectSection",
     "LayerStack",
     "NavigationManager",
     "NavigationSection",
     "SettleGate",
     "ThemeManager",
+    "WidgetDescriptor",
+    "WidgetRegistry",
+    "widget_descriptor",
 
     "MAX_FACTOR",
     "MIN_FACTOR",
