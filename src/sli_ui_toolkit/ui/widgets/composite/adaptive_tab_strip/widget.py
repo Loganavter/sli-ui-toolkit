@@ -8,14 +8,11 @@ itself (tabs, painting, scrolling, hover) lives in ``_AdaptiveTabBar``
 
 from __future__ import annotations
 
-import logging
 import math
 from typing import Any
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
-
-_logger = logging.getLogger(__name__)
 
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
@@ -29,44 +26,12 @@ from .close_button import (
 from .tab_bar import _AdaptiveTabBar
 
 
-def _first_focusable(widget: QWidget) -> QWidget | None:
-    """Recursively find the first descendant with an accepting focus policy.
-
-    Stops recursion into containers that manage their own visible content
-    (QStackedWidget, QAbstractScrollArea) — those are treated as opaque
-    focus targets rather than being traversed into.
-    """
-    from PySide6.QtWidgets import (
-        QAbstractScrollArea,
-        QStackedWidget,
-    )
-
-    for child in widget.children():
-        if not isinstance(child, QWidget):
-            continue
-        # Containers with their own page/scroll management: focus the
-        # container itself, don't recurse into hidden pages/scroll content.
-        if isinstance(child, (QStackedWidget, QAbstractScrollArea)):
-            if child.focusPolicy() != Qt.FocusPolicy.NoFocus:
-                return child
-            continue
-        if child.focusPolicy() in (
-            Qt.FocusPolicy.StrongFocus,
-            Qt.FocusPolicy.ClickFocus,
-            Qt.FocusPolicy.WheelFocus,
-        ):
-            return child
-        found = _first_focusable(child)
-        if found is not None:
-            return found
-    return None
-
-
 class AdaptiveTabStrip(QWidget):
     currentChanged = Signal(int)
     tabCloseRequested = Signal(int)
     tabContextMenuRequested = Signal(int, QPoint)
     addRequested = Signal()
+    navigateOutRequested = Signal(int)  # +1 = down/forward, -1 = up/back
 
     def __init__(
         self,
@@ -107,6 +72,12 @@ class AdaptiveTabStrip(QWidget):
         layout.addWidget(self.tab_bar)
         layout.addWidget(self.add_button, 0, Qt.AlignmentFlag.AlignBottom)
         layout.addStretch(1)
+
+        # Accept focus so the strip participates in Tab traversal between
+        # the content area and the tab bar.  Internal Left/Right/Home/End
+        # navigation is handled by _AdaptiveTabBar; this policy only
+        # makes the strip a valid Tab/Backtab landing point.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self.tab_bar.currentChanged.connect(self._on_current_changed)
         self.tab_bar.tabContextMenuRequested.connect(self.tabContextMenuRequested)
@@ -179,9 +150,9 @@ class AdaptiveTabStrip(QWidget):
                     event.accept()
                     return True
             if key in (Qt.Key.Key_Down, Qt.Key.Key_Right):
-                if self.focusNextChild():
-                    event.accept()
-                    return True
+                self.navigateOutRequested.emit(1)
+                event.accept()
+                return True
         return super().eventFilter(obj, event)
 
     def _on_current_changed(self, index: int) -> None:

@@ -294,14 +294,21 @@ class _AdaptiveTabBar(QWidget):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
-        import logging
-        _log = logging.getLogger(__name__)
         key = event.key()
-        _log.debug("[TAB-BAR] keyPress key=%s count=%s current=%s", key, len(self._tabs), self._current_index)
         count = len(self._tabs)
         if count == 0:
             return super().keyPressEvent(event)
         current = self._current_index if self._current_index >= 0 else 0
+        if key == Qt.Key.Key_Down:
+            # Hand off to the next focusable widget in the app layout
+            # (typically the content area below the tab strip).
+            if self.focusNextChild():
+                event.accept()
+                return
+        if key == Qt.Key.Key_Up:
+            if self.focusPreviousChild():
+                event.accept()
+                return
         if key == Qt.Key.Key_Left:
             if current == 0:
                 # Past the first tab — hand off to the parent strip
@@ -390,23 +397,13 @@ class _AdaptiveTabBar(QWidget):
         super().leaveEvent(event)
 
     def focusInEvent(self, event):  # noqa: N802
-        import logging
-        _log = logging.getLogger(__name__)
         self._keyboard_focus = event.reason() not in (
             Qt.FocusReason.MouseFocusReason,
             Qt.FocusReason.PopupFocusReason,
         )
-        _log.debug(
-            "[TAB-BAR] focusIn reason=%s keyboard=%s",
-            event.reason().name,
-            self._keyboard_focus,
-        )
         super().focusInEvent(event)
 
     def focusOutEvent(self, event):  # noqa: N802
-        import logging
-        _log = logging.getLogger(__name__)
-        _log.debug("[TAB-BAR] focusOut reason=%s", event.reason().name)
         self._keyboard_focus = False
         super().focusOutEvent(event)
 
