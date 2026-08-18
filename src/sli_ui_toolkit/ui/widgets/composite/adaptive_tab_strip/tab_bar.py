@@ -48,6 +48,7 @@ class _AdaptiveTabBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         # Text is painted natively with widget.font(); pin the scaled UI face
         # and re-resolve on font_changed / scale_changed — otherwise tab text
@@ -290,6 +291,27 @@ class _AdaptiveTabBar(QWidget):
                 self.setCurrentIndex(index)
         super().mousePressEvent(event)
 
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        key = event.key()
+        count = len(self._tabs)
+        if count == 0:
+            return super().keyPressEvent(event)
+        current = self._current_index if self._current_index >= 0 else 0
+        if key == Qt.Key.Key_Left:
+            self.setCurrentIndex((current - 1) % count)
+            event.accept()
+        elif key == Qt.Key.Key_Right:
+            self.setCurrentIndex((current + 1) % count)
+            event.accept()
+        elif key == Qt.Key.Key_Home:
+            self.setCurrentIndex(0)
+            event.accept()
+        elif key == Qt.Key.Key_End:
+            self.setCurrentIndex(count - 1)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.RightButton:
             pos = event.position().toPoint()
@@ -367,6 +389,7 @@ class _AdaptiveTabBar(QWidget):
     def _paint_tab(self, painter: QPainter, index: int, rect: QRect, palette: dict[str, str]) -> None:
         selected = index == self.currentIndex()
         hovered = not selected and index == self._hover_index
+        focused = selected and self.hasFocus()
         tab_rect = self._painted_tab_rect(rect)
         if selected:
             self._paint_selected_shadow(painter, tab_rect)
@@ -375,6 +398,18 @@ class _AdaptiveTabBar(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(palette["hover"]))
             painter.drawRoundedRect(tab_rect, scaled_px(self._RADIUS), scaled_px(self._RADIUS))
+        # Focus indicator: accent-colored background on the FULL tab area
+        # (including close-button slot) so the ring covers all child widgets.
+        if focused:
+            focus_bg = QColor(palette.get("focus_ring_bg", "#2a6daa"))
+            focus_bg.setAlpha(30)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(focus_bg)
+            painter.drawRoundedRect(rect, scaled_px(self._RADIUS), scaled_px(self._RADIUS))
+            focus_pen = QPen(QColor(palette.get("focus_ring", "#3daee9")), 2)
+            painter.setPen(focus_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(rect, scaled_px(self._RADIUS), scaled_px(self._RADIUS))
 
         text_right = tab_rect.right() - scaled_px(self._SIDE_PADDING)
         close_slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
