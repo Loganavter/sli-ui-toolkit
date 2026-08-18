@@ -8,6 +8,9 @@ registration stays in sync because these overrides notify it.
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QWidget
+
 import logging
 import traceback
 from typing import Any, Callable
@@ -38,6 +41,7 @@ class _FlyoutLifecycleApi:
     parent: Any
 
     def hide(self):
+        self._unregister_nav_section()
         # Debug aid: every flyout close funnels through here (explicit
         # start_closing_animation, FlyoutManager passive dismiss / close_all,
         # host calls), so logging the caller stack shows WHO closed it.
@@ -135,6 +139,56 @@ class _FlyoutLifecycleApi:
         window = self.parent().window() if self.parent() else None
         self._window_active_on_show = bool(window is not None and window.isActiveWindow())
         QWidget.show(self)  # type: ignore[arg-type]
+        # Register as a NavigationSection so arrow keys are routed here
+        # instead of to the underlying section.
+        self._register_nav_section()
+        # Grab keyboard focus.  Walk the parent chain and temporarily
+        # weaken any StrongFocus ancestor so Qt's focus chain doesn't
+        # redirect focus away from the flyout.
+        self._grab_focus()
+
+    def _grab_focus(self) -> None:
+        """Grant keyboard focus to this flyout, working around Qt's
+        parent-chain focus redirection."""
+        weakened: list[tuple[QWidget, Qt.FocusPolicy]] = []
+        w = self.parentWidget()
+        while w is not None:
+            if w.focusPolicy() == Qt.FocusPolicy.StrongFocus:
+                weakened.append((w, w.focusPolicy()))
+                w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            w = w.parentWidget()
+        try:
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
+        finally:
+            for widget, policy in weakened:
+                widget.setFocusPolicy(policy)
+
+    def _register_nav_section(self) -> None:
+        from sli_ui_toolkit.managers import NavigationManager
+
+        manager = NavigationManager.get_instance()
+        if not hasattr(self, "_nav_section_registered"):
+            self._nav_section_registered = False
+        if not self._nav_section_registered:
+            section = _FlyoutNavigationSection(self)
+            manager.register(self, section)
+            self._nav_section_registered = True
+            # Use setFocusProxy so that when the parent window gets focus
+            # (e.g. via NavigationManager), it routes to the flyout.
+            window = self.window()
+            if window is not None:
+                window.setFocusProxy(self)
+
+    def _unregister_nav_section(self) -> None:
+        if getattr(self, "_nav_section_registered", False):
+            from sli_ui_toolkit.managers import NavigationManager
+
+            # Clear the focus proxy before unregistering.
+            window = self.window()
+            if window is not None and window.focusProxy() is self:
+                window.setFocusProxy(None)
+            NavigationManager.get_instance().unregister(self)
+            self._nav_section_registered = False
 
     def raise_(self) -> None:  # noqa: N802 — Qt API
         QWidget.raise_(self)  # type: ignore[arg-type]
@@ -147,3 +201,27 @@ class _FlyoutLifecycleApi:
                 fm.ensure_overlay_stacking(raised=self)
             except Exception:
                 pass
+
+
+class _FlyoutNavigationSection:
+    """Minimal NavigationSection for flyouts.
+
+    Consumes all arrow keys so the NavigationManager routes them here
+    instead of to the underlying section.  Actual key handling is done
+    by the flyout's own ``keyPressEvent``.
+    """
+
+    def __init__(self, flyout: QWidget) -> None:
+        self._flyout = flyout
+
+    def owns(self, widget: QWidget) -> bool:
+        return widget is self._flyout or self._flyout.isAncestorOf(widget)
+
+    def navigate(self, key: int, widget: QWidget) -> bool:
+        return True
+
+    def focus_first(self) -> bool:
+        return False
+
+    def focus_last(self) -> bool:
+        return False
