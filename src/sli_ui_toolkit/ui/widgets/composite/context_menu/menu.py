@@ -117,6 +117,9 @@ class ContextMenu(BaseFlyout):
             bind_popup_transient_parent(self, parent)
         elif _is_submenu:
             self.flyout_manager.unregister_flyout(self)
+        # In-window menus need window-level ESC handling because NoFocus
+        # prevents keyPressEvent from ever firing.
+        self._window_esc_filter_installed = False
         if entries is not None:
             self.set_entries(entries)
 
@@ -389,6 +392,42 @@ class ContextMenu(BaseFlyout):
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def showEvent(self, event):  # noqa: N802
+        super().showEvent(event)
+        # NoFocus menus never receive keyPressEvent — install a window-level
+        # filter so Escape dismisses in-window context menus.
+        if not self.is_popup_surface() and not self._window_esc_filter_installed:
+            win = self.window()
+            if win is not None:
+                win.installEventFilter(self)
+                self._window_esc_filter_installed = True
+
+    def hideEvent(self, event):  # noqa: N802
+        self._remove_window_esc_filter()
+        super().hideEvent(event)
+
+    def _remove_window_esc_filter(self) -> None:
+        if self._window_esc_filter_installed:
+            win = self.window()
+            if win is not None:
+                try:
+                    win.removeEventFilter(self)
+                except RuntimeError:
+                    pass
+            self._window_esc_filter_installed = False
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        if (
+            not self.is_popup_surface()
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Escape
+            and self.isVisible()
+        ):
+            self.hide()
+            event.accept()
+            return True
+        return super().eventFilter(obj, event)
 
     # -------- public show API --------
 
