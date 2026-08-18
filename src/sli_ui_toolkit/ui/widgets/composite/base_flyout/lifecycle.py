@@ -72,6 +72,7 @@ class _FlyoutLifecycleApi:
         self._finish_hide()
 
     def _finish_hide(self) -> None:
+        self._restore_focus_policies()
         QWidget.hide(self)  # type: ignore[arg-type]
 
         # hide() already called request_hide once (before the fade); re-run it
@@ -155,34 +156,41 @@ class _FlyoutLifecycleApi:
 
     def _grab_focus(self) -> None:
         """Grant keyboard focus to this flyout, working around Qt's
-        parent-chain focus redirection."""
-        weakened: list[tuple[QWidget, Qt.FocusPolicy]] = []
+        parent-chain focus redirection.
+
+        Weakens every StrongFocus ancestor to NoFocus and stores them on
+        ``self._weakened_focus_ancestors`` so they can be restored in
+        :meth:`_finish_hide` — no timers, no deferred hacks.
+        """
+        self._weakened_focus_ancestors: list[tuple[QWidget, Qt.FocusPolicy]] = []
         w = self.parentWidget()
         while w is not None:
             if w.focusPolicy() == Qt.FocusPolicy.StrongFocus:
-                weakened.append((w, w.focusPolicy()))
+                self._weakened_focus_ancestors.append((w, w.focusPolicy()))
                 w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             w = w.parentWidget()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
-        # Defer restoring focus policies so the flyout can process
-        # keyboard events before the window reclaims StrongFocus.
-        from PySide6.QtCore import QTimer
-
-        QTimer.singleShot(
-            0,
-            lambda wlist=weakened: [
-                w_.setFocusPolicy(p) for w_, p in wlist
-            ],
-        )
-        from PySide6.QtWidgets import QApplication
 
         actual = QApplication.focusWidget()
         logger.debug(
             "[flyout-nav] _grab_focus weakened=%d actual=%s is_self=%s",
-            len(weakened),
+            len(self._weakened_focus_ancestors),
             type(actual).__name__ if actual else None,
             actual is self,
         )
+
+    def _restore_focus_policies(self) -> None:
+        """Restore focus policies of ancestors weakened by :meth:`_grab_focus`.
+
+        Called from :meth:`_finish_hide` so the window regains StrongFocus
+        only after the flyout is actually gone — not on a timer.
+        """
+        weakened = getattr(self, "_weakened_focus_ancestors", None)
+        if weakened is None:
+            return
+        for w, policy in weakened:
+            w.setFocusPolicy(policy)
+        weakened.clear()
 
     def _register_nav_section(self) -> None:
         from sli_ui_toolkit.managers import NavigationManager

@@ -3,6 +3,23 @@
 ## Unreleased
 
 ### Added
+- **`CustomTitleBar` keyboard navigation** — `StrongFocus` policy, Left/Right
+  arrow-key navigation between focusable title bar buttons via QApplication
+  event filter. `_focusable_buttons()` collects visible, enabled, StrongFocus
+  descendants. `focus_first_button()` / `focus_last_button()` for programmatic
+  focus. `_set_child_focus()` helper temporarily weakens parent StrongFocus
+  to work around Qt's parent-chain focus redirection.
+- **`NavigationManager` flyout section registration** — `BaseFlyout.show()`
+  now registers the flyout as a `NavigationSection` via
+  `_FlyoutNavigationSection`, and `hide()` unregisters it. This ensures
+  arrow keys are routed to the flyout when it has focus, instead of being
+  claimed by the underlying section via parent-chain `isAncestorOf`.
+- **`BaseFlyout._grab_focus()`** — weakens StrongFocus ancestors, calls
+  `setFocus()`, defers policy restore via `QTimer.singleShot(50)` so the
+  flyout can process keyboard events before the window reclaims focus.
+- **`ContextMenu` keyboard navigation** — `StrongFocus` policy, `keyPressEvent`
+  handles Enter (activate focused row), Escape (close menu or submenu),
+  Up/Down (navigate rows via `_navigate_rows()`).
 - **`AdaptiveTabStrip` keyboard navigation** — `Left`/`Right` between tabs,
   `Home`/`End` for first/last tab, `Delete`/`Backspace` to close the current
   tab (emits `tabCloseRequested`). `Down`/`Up` via `focusNextChild()`/`
@@ -29,6 +46,11 @@
   provides a clean app-integration point instead of per-widget event filters.
 
 ### Changed
+- **`NavigationManager._WidgetNavigationSection.owns()`** — removed parent-chain
+  fallback that incorrectly claimed overlay widgets (flyouts, popups) parented
+  inside a section's widget tree. Flyouts now register their own sections.
+- **`ContextMenu` focus policy** — changed from `NoFocus` to `StrongFocus`
+  so the focus ring renders and keyboard events reach `keyPressEvent`.
 - **`_AdaptiveTabBar` focus policy** — changed from `NoFocus` (QWidget
   default) to `StrongFocus` so the tab bar participates in Tab/Backtab
   traversal and can receive keyboard focus for arrow-key navigation.
