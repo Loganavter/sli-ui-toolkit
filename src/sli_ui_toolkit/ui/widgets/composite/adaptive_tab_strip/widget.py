@@ -8,11 +8,14 @@ itself (tabs, painting, scrolling, hover) lives in ``_AdaptiveTabBar``
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
+
+_logger = logging.getLogger(__name__)
 
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
@@ -24,6 +27,39 @@ from .close_button import (
     _CloseButtonTabBackgroundLayer,
 )
 from .tab_bar import _AdaptiveTabBar
+
+
+def _first_focusable(widget: QWidget) -> QWidget | None:
+    """Recursively find the first descendant with an accepting focus policy.
+
+    Stops recursion into containers that manage their own visible content
+    (QStackedWidget, QAbstractScrollArea) — those are treated as opaque
+    focus targets rather than being traversed into.
+    """
+    from PySide6.QtWidgets import (
+        QAbstractScrollArea,
+        QStackedWidget,
+    )
+
+    for child in widget.children():
+        if not isinstance(child, QWidget):
+            continue
+        # Containers with their own page/scroll management: focus the
+        # container itself, don't recurse into hidden pages/scroll content.
+        if isinstance(child, (QStackedWidget, QAbstractScrollArea)):
+            if child.focusPolicy() != Qt.FocusPolicy.NoFocus:
+                return child
+            continue
+        if child.focusPolicy() in (
+            Qt.FocusPolicy.StrongFocus,
+            Qt.FocusPolicy.ClickFocus,
+            Qt.FocusPolicy.WheelFocus,
+        ):
+            return child
+        found = _first_focusable(child)
+        if found is not None:
+            return found
+    return None
 
 
 class AdaptiveTabStrip(QWidget):
@@ -133,7 +169,6 @@ class AdaptiveTabStrip(QWidget):
         if obj is self.add_button and event.type() == QEvent.Type.KeyPress:
             key = event.key()
             if key in (Qt.Key.Key_Left, Qt.Key.Key_Up):
-                # Left/Up from add button → back to the last tab.
                 bar = self.tab_bar
                 if bar.count() > 0:
                     target = bar.currentIndex()
@@ -141,6 +176,10 @@ class AdaptiveTabStrip(QWidget):
                         target = bar.count() - 1
                     bar.setCurrentIndex(target)
                     bar.setFocus(Qt.FocusReason.OtherFocusReason)
+                    event.accept()
+                    return True
+            if key in (Qt.Key.Key_Down, Qt.Key.Key_Right):
+                if self.focusNextChild():
                     event.accept()
                     return True
         return super().eventFilter(obj, event)

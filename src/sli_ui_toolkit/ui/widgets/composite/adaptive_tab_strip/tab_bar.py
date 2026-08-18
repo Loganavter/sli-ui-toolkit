@@ -50,7 +50,7 @@ class _AdaptiveTabBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setMouseTracking(True)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         # Text is painted natively with widget.font(); pin the scaled UI face
         # and re-resolve on font_changed / scale_changed — otherwise tab text
@@ -294,7 +294,10 @@ class _AdaptiveTabBar(QWidget):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
+        import logging
+        _log = logging.getLogger(__name__)
         key = event.key()
+        _log.debug("[TAB-BAR] keyPress key=%s count=%s current=%s", key, len(self._tabs), self._current_index)
         count = len(self._tabs)
         if count == 0:
             return super().keyPressEvent(event)
@@ -387,15 +390,23 @@ class _AdaptiveTabBar(QWidget):
         super().leaveEvent(event)
 
     def focusInEvent(self, event):  # noqa: N802
-        # Only show the focus ring for keyboard-granted focus (Tab/arrow),
-        # not for mouse clicks.
+        import logging
+        _log = logging.getLogger(__name__)
         self._keyboard_focus = event.reason() not in (
             Qt.FocusReason.MouseFocusReason,
             Qt.FocusReason.PopupFocusReason,
         )
+        _log.debug(
+            "[TAB-BAR] focusIn reason=%s keyboard=%s",
+            event.reason().name,
+            self._keyboard_focus,
+        )
         super().focusInEvent(event)
 
     def focusOutEvent(self, event):  # noqa: N802
+        import logging
+        _log = logging.getLogger(__name__)
+        _log.debug("[TAB-BAR] focusOut reason=%s", event.reason().name)
         self._keyboard_focus = False
         super().focusOutEvent(event)
 
