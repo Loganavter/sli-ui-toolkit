@@ -205,10 +205,13 @@ class NavigationManager(QObject):
                         )
                     return True
 
-            # Section declined and no neighbor took over — consume to
-            # prevent infinite re-delivery by Qt.
-            if _debug:
-                logger.debug("[nav] consumed (no neighbor)")
-            return True
+            # Section declined and no neighbor took over.
+            # Consume Up/Down to prevent infinite re-delivery by Qt.
+            # Let Left/Right pass through to native widget handlers
+            # (e.g. QTabBar's tab switching, add-button reachability).
+            if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                if _debug:
+                    logger.debug("[nav] consumed (no neighbor)")
+                return True
 
         return False
