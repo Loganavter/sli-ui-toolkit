@@ -9,11 +9,14 @@ in ``window_controls.py``) owning its own state; zones/balance live in
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QColor, QIcon
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QWidget
+
+logger = logging.getLogger(__name__)
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
@@ -78,6 +81,7 @@ class CustomTitleBar(
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAutoFillBackground(False)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._maximize_icon = maximize_icon
         self._restore_icon = restore_icon
@@ -179,12 +183,44 @@ class CustomTitleBar(
         self._controls_handle = self._controls.handle()
         self._apply_title_alignment()
         self._sync_balance_spacer()
+        self.installEventFilter(self)
 
         if icon is not None:
             self.set_icon(icon)
 
     def window_controls(self) -> WindowControlsHandle:
         return self._controls_handle
+
+    # -- keyboard focus helpers --------------------------------------------
+
+    def _focusable_buttons(self) -> list[QWidget]:
+        """Visible StrongFocus children in layout order (zone hosts excluded)."""
+        buttons: list[QWidget] = []
+        for child in self.findChildren(QWidget):
+            if (
+                child.isVisible()
+                and child.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                and self.isAncestorOf(child)
+                and child is not self
+            ):
+                buttons.append(child)
+        return buttons
+
+    def focus_first_button(self) -> bool:
+        """Focus the first focusable button in the title bar."""
+        buttons = self._focusable_buttons()
+        if buttons:
+            buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
+            return True
+        return False
+
+    def focus_last_button(self) -> bool:
+        """Focus the last focusable button in the title bar."""
+        buttons = self._focusable_buttons()
+        if buttons:
+            buttons[-1].setFocus(Qt.FocusReason.OtherFocusReason)
+            return True
+        return False
 
     def attach_window(self, window: QWidget) -> None:
         """Wire the controls cluster + this bar to a real window."""
@@ -259,6 +295,26 @@ class CustomTitleBar(
             self._apply_corner_mask()
             if event.type() in (event.Type.Resize, event.Type.Move):
                 self._hide_active_flyouts()
+            return super().eventFilter(obj, event)
+
+        # Left/Right arrow navigation between focusable title bar buttons.
+        if obj is self and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                buttons = self._focusable_buttons()
+                focused = QApplication.focusWidget()
+                idx = next((i for i, b in enumerate(buttons) if b is focused), None)
+                if idx is None and buttons:
+                    buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
+                if idx is not None:
+                    step = -1 if key == Qt.Key.Key_Left else 1
+                    target = idx + step
+                    if 0 <= target < len(buttons):
+                        buttons[target].setFocus(Qt.FocusReason.OtherFocusReason)
+                        return True
+                    return True
+
         return super().eventFilter(obj, event)
 
 
