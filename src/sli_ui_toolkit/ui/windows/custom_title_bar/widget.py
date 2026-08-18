@@ -180,7 +180,6 @@ class CustomTitleBar(
         self._controls_handle = self._controls.handle()
         self._apply_title_alignment()
         self._sync_balance_spacer()
-        self._pending_focus: str | None = None  # "first" or "last"
         # Install on QApplication so we intercept key events targeting child
         # widgets (event filters only see events for the object they are
         # installed on, not descendants).
@@ -211,12 +210,22 @@ class CustomTitleBar(
                 buttons.append(child)
         return buttons
 
+    def _set_child_focus(self, child: QWidget) -> None:
+        """Set keyboard focus on *child*, temporarily weakening the title
+        bar's own focus policy so Qt's focus chain doesn't redirect the
+        focus back to this widget."""
+        policy = self.focusPolicy()
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        try:
+            child.setFocus(Qt.FocusReason.OtherFocusReason)
+        finally:
+            self.setFocusPolicy(policy)
+
     def focus_first_button(self) -> bool:
         """Focus the first focusable button in the title bar."""
         buttons = self._focusable_buttons()
         if buttons:
-            self._pending_focus = "first"
-            self.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._set_child_focus(buttons[0])
             return True
         return False
 
@@ -224,8 +233,7 @@ class CustomTitleBar(
         """Focus the last focusable button in the title bar."""
         buttons = self._focusable_buttons()
         if buttons:
-            self._pending_focus = "last"
-            self.setFocus(Qt.FocusReason.OtherFocusReason)
+            self._set_child_focus(buttons[-1])
             return True
         return False
 
@@ -317,34 +325,15 @@ class CustomTitleBar(
                         (i for i, b in enumerate(buttons) if b is focused), None
                     )
                     if idx is None and buttons:
-                        buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
+                        self._set_child_focus(buttons[0])
                         return True
                     if idx is not None:
                         step = -1 if key == Qt.Key.Key_Left else 1
                         target = idx + step
                         if 0 <= target < len(buttons):
-                            buttons[target].setFocus(
-                                Qt.FocusReason.OtherFocusReason
-                            )
+                            self._set_child_focus(buttons[target])
                             return True
                         return True
-
-        # When the title bar shell itself gets keyboard focus, immediately
-        # redirect to the first focusable button (avoids an extra Right
-        # press to reach the controls).
-        if (
-            event.type() == QEvent.Type.FocusIn
-            and obj is self
-        ):
-            reason = event.reason()
-            if reason not in (
-                Qt.FocusReason.MouseFocusReason,
-                Qt.FocusReason.MenuBarFocusReason,
-            ):
-                buttons = self._focusable_buttons()
-                if buttons:
-                    buttons[0].setFocus(Qt.FocusReason.OtherFocusReason)
-                    return True
 
         return super().eventFilter(obj, event)
 

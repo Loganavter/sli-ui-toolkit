@@ -267,6 +267,25 @@ class NavigationManager(QObject):
                     logger.debug("[nav] consumed (no neighbor)")
                 return True
 
+        # Fallback: no section claimed the focused widget (e.g. focus was
+        # redirected to a child by _set_child_focus).  Check if the focused
+        # widget is inside any section's owner via parent chain.  Do NOT
+        # call navigate() — the section already handled the transition.
+        if focused is not None:
+            for owner, spec in self._sections:
+                w = focused
+                while w is not None:
+                    if spec.owns(w):
+                        if _debug:
+                            logger.debug(
+                                "[nav] key=%s focused=%s fallback → %s",
+                                _key_name(key),
+                                type(focused).__name__,
+                                type(owner).__name__,
+                            )
+                        return True
+                    w = w.parentWidget()
+
         return False
 
 
