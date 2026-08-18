@@ -19,8 +19,9 @@ from PySide6.QtWidgets import QApplication
 logger = logging.getLogger(__name__)
 
 _ARROWS = frozenset({Qt.Key.Key_Down, Qt.Key.Key_Up, Qt.Key.Key_Left, Qt.Key.Key_Right})
-_EXIT_DOWN = frozenset({Qt.Key.Key_Down, Qt.Key.Key_Right})
-_EXIT_UP = frozenset({Qt.Key.Key_Up, Qt.Key.Key_Left})
+_EXIT_DOWN = frozenset({Qt.Key.Key_Down})
+_EXIT_UP = frozenset({Qt.Key.Key_Up})
+_HORIZONTAL = frozenset({Qt.Key.Key_Left, Qt.Key.Key_Right})
 
 _KEY_NAMES = {v: k.split(".")[-1] for k, v in Qt.Key.__members__.items()}
 
@@ -146,6 +147,11 @@ class NavigationManager(QObject):
 
         key = event.key()
         if key not in _ARROWS:
+            return False
+
+        # Left/Right: never intercept — let native widget handlers
+        # (QTabBar, QSpinBox, etc.) process them.
+        if key in _HORIZONTAL:
             return False
 
         focused = QApplication.focusWidget()
