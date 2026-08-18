@@ -18,7 +18,7 @@ import logging
 from typing import Protocol, runtime_checkable
 
 from PySide6.QtCore import QEvent, Qt, QObject
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 logger = logging.getLogger(__name__)
 
