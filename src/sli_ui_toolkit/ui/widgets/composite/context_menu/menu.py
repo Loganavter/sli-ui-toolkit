@@ -128,7 +128,7 @@ class ContextMenu(BaseFlyout):
         self._rows: list[ContextMenuRow] = []
         # Menus must not steal window activation (Wayland / QRhi).
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         if self.is_popup_surface():
             configure_popup_widget(self)
             bind_popup_transient_parent(self, parent)
@@ -406,11 +406,48 @@ class ContextMenu(BaseFlyout):
         return False
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape and self._open_submenu is not None:
-            submenu_ops.close_submenu(self)
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            logger.debug("[ctx-menu] Escape pressed, submenu=%s", self._open_submenu is not None)
+            if self._open_submenu is not None:
+                submenu_ops.close_submenu(self)
+                event.accept()
+                return
+            self.hide()
+            event.accept()
+            return
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            focused = QApplication.focusWidget()
+            logger.debug("[ctx-menu] Enter pressed, focused=%s rows=%d", type(focused).__name__ if focused else None, len(self._rows))
+            if focused is not None:
+                for row in self._rows:
+                    if row is focused or row.isAncestorOf(focused):
+                        spec = getattr(row, "_spec", None)
+                        if spec is not None:
+                            logger.debug("[ctx-menu] Enter -> activate row action_id=%s", spec.action_id)
+                            self._on_row_clicked(row, spec)
+                            event.accept()
+                            return
+            event.accept()
+            return
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            logger.debug("[ctx-menu] %s pressed", "Down" if key == Qt.Key.Key_Down else "Up")
+            self._navigate_rows(1 if key == Qt.Key.Key_Down else -1)
             event.accept()
             return
         super().keyPressEvent(event)
+
+    def _navigate_rows(self, step: int) -> None:
+        """Move focus between visible rows."""
+        if not self._rows:
+            return
+        focused = QApplication.focusWidget()
+        idx = next((i for i, r in enumerate(self._rows) if r is focused), None)
+        if idx is None:
+            target = 0 if step > 0 else len(self._rows) - 1
+        else:
+            target = (idx + step) % len(self._rows)
+        self._rows[target].setFocus(Qt.FocusReason.OtherFocusReason)
 
     def eventFilter(self, obj, event):  # noqa: N802
         # Rows are child Buttons — they receive presses before the menu widget.

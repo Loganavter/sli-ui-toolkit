@@ -146,6 +146,12 @@ class _FlyoutLifecycleApi:
         # weaken any StrongFocus ancestor so Qt's focus chain doesn't
         # redirect focus away from the flyout.
         self._grab_focus()
+        # WA_ShowWithoutActivating suppresses window activation which
+        # blocks keyboard events.  Activate the window so the flyout
+        # receives keyboard input.
+        w = self.window()
+        if w is not None and not w.isActiveWindow():
+            w.activateWindow()
 
     def _grab_focus(self) -> None:
         """Grant keyboard focus to this flyout, working around Qt's
@@ -157,11 +163,26 @@ class _FlyoutLifecycleApi:
                 weakened.append((w, w.focusPolicy()))
                 w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             w = w.parentWidget()
-        try:
-            self.setFocus(Qt.FocusReason.OtherFocusReason)
-        finally:
-            for widget, policy in weakened:
-                widget.setFocusPolicy(policy)
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        # Defer restoring focus policies so the flyout can process
+        # keyboard events before the window reclaims StrongFocus.
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(
+            0,
+            lambda wlist=weakened: [
+                w_.setFocusPolicy(p) for w_, p in wlist
+            ],
+        )
+        from PySide6.QtWidgets import QApplication
+
+        actual = QApplication.focusWidget()
+        logger.debug(
+            "[flyout-nav] _grab_focus weakened=%d actual=%s is_self=%s",
+            len(weakened),
+            type(actual).__name__ if actual else None,
+            actual is self,
+        )
 
     def _register_nav_section(self) -> None:
         from sli_ui_toolkit.managers import NavigationManager
@@ -173,22 +194,25 @@ class _FlyoutLifecycleApi:
             section = _FlyoutNavigationSection(self)
             manager.register(self, section)
             self._nav_section_registered = True
-            # Use setFocusProxy so that when the parent window gets focus
-            # (e.g. via NavigationManager), it routes to the flyout.
             window = self.window()
             if window is not None:
                 window.setFocusProxy(self)
+            logger.debug(
+                "[flyout-nav] registered %s", type(self).__name__,
+            )
 
     def _unregister_nav_section(self) -> None:
         if getattr(self, "_nav_section_registered", False):
             from sli_ui_toolkit.managers import NavigationManager
 
-            # Clear the focus proxy before unregistering.
             window = self.window()
             if window is not None and window.focusProxy() is self:
                 window.setFocusProxy(None)
             NavigationManager.get_instance().unregister(self)
             self._nav_section_registered = False
+            logger.debug(
+                "[flyout-nav] unregistered %s", type(self).__name__,
+            )
 
     def raise_(self) -> None:  # noqa: N802 — Qt API
         QWidget.raise_(self)  # type: ignore[arg-type]
@@ -215,10 +239,25 @@ class _FlyoutNavigationSection:
         self._flyout = flyout
 
     def owns(self, widget: QWidget) -> bool:
-        return widget is self._flyout or self._flyout.isAncestorOf(widget)
+        result = widget is self._flyout or self._flyout.isAncestorOf(widget)
+        if result:
+            logger.debug(
+                "[flyout-nav] owns(%s) → True (flyout=%s)",
+                type(widget).__name__, type(self._flyout).__name__,
+            )
+        return result
 
     def navigate(self, key: int, widget: QWidget) -> bool:
-        return True
+        # Arrow keys: consumed — flyout handles internally.
+        # Enter/Escape: yield — let the flyout's own keyPressEvent handle them.
+        from PySide6.QtCore import Qt
+
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
+            return True
+        logger.debug(
+            "[flyout-nav] navigate key=%s → yield (flyout handles)", key
+        )
+        return False
 
     def focus_first(self) -> bool:
         return False
