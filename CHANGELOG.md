@@ -3,6 +3,35 @@
 ## Unreleased
 
 ### Added
+- **`AdaptiveTabStrip` keyboard navigation** — `Left`/`Right` between tabs,
+  `Home`/`End` for first/last tab, `Delete`/`Backspace` to close the current
+  tab (emits `tabCloseRequested`). `Down`/`Up` via `focusNextChild()`/`
+  `focusPreviousChild()` for cross-widget traversal. `StrongFocus` policy
+  on the strip for Tab/Backtab traversal. Focus ring (accent-colored
+  `QPainterPath` outline) visible only for keyboard-granted focus (matches
+  `Button`'s `FocusLayer` style). `navigateOutRequested(+1)` signal emitted
+  when `Down` is pressed on the add button — the host app connects to this
+  to focus the content area.
+- **`RecentHeaderBar` keyboard navigation** — `Left`/`Right` between header
+  control buttons. `Down` on the last button hands off to the panel's
+  `focus_recent_item()`. `Up` on the first button propagates to the parent
+  (session picker create-cards). `Enter`/`Return` activates the focused
+  button via `clicked.emit()`.
+- **`ContextMenu._visible_menus` registry** — class-level `set` tracking
+  currently visible in-window context menus. `close_visible()` classmethod
+  closes the most-recently-shown menu and returns `True`. The host app
+  queries this in its global `EventHandler` to dismiss context menus on
+  `Escape` before the keyboard handler consumes the event. Follows the same
+  pattern as `FlyoutManager` for outside-click dismissal.
+- **`ContextMenu` ESC dismissal for in-window menus** — since in-window
+  menus have `NoFocus` policy (required for Wayland/QRhi activation
+  stability), `keyPressEvent` never fires. The `_visible_menus` registry
+  provides a clean app-integration point instead of per-widget event filters.
+
+### Changed
+- **`_AdaptiveTabBar` focus policy** — changed from `NoFocus` (QWidget
+  default) to `StrongFocus` so the tab bar participates in Tab/Backtab
+  traversal and can receive keyboard focus for arrow-key navigation.
 - **Pipe tables in document/markdown mode** — `parse_help_blocks` now
   parses GFM-style pipe tables (``| a | b |`` rows, optional bold header
   when the next line is a `---` separator, `\|` escapes, short rows padded)
