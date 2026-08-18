@@ -11,6 +11,7 @@ from .underline import UnderlineLayer
 from .strikethrough import StrikethroughLayer
 from .divider import DividerLayer
 from .overlay import OverlayPainterCallback, OverlayPainterLayer
+from .focus import FocusLayer
 
 __all__ = [
     "BackgroundLayer",
@@ -23,4 +24,5 @@ __all__ = [
     "DividerLayer",
     "OverlayPainterCallback",
     "OverlayPainterLayer",
+    "FocusLayer",
 ]

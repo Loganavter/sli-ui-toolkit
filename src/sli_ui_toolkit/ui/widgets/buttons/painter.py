@@ -25,6 +25,7 @@ from .layers import (
     UnderlineLayer,
     StrikethroughLayer,
     DividerLayer,
+    FocusLayer,
 )
 from .layers._base import Layer
 
@@ -38,6 +39,7 @@ def default_layers() -> list[Layer]:
         UnderlineLayer(),
         DividerLayer(),
         StrikethroughLayer(),
+        FocusLayer(),
     ]
 
 

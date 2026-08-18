@@ -257,11 +257,19 @@ class _ButtonEvents:
         QWidget.keyPressEvent(self, event)
 
     def focusInEvent(self, event):
+        # The FocusLayer only paints for keyboard-granted focus, so a mouse
+        # click does not flash a ring while Tab/arrow navigation does.
+        reason = getattr(event, "reason", lambda: None)()
+        self._keyboard_focus = reason not in (
+            Qt.FocusReason.MouseFocusReason,
+            Qt.FocusReason.MenuBarFocusReason,
+        )
         self.update()
         from PySide6.QtWidgets import QWidget
         QWidget.focusInEvent(self, event)
 
     def focusOutEvent(self, event):
+        self._keyboard_focus = False
         self.update()
         from PySide6.QtWidgets import QWidget
         QWidget.focusOutEvent(self, event)
