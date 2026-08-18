@@ -13,6 +13,10 @@ from sli_ui_toolkit.ui.managers.flyout_timer_service import (
     DelayedActionTimer,
 )
 from sli_ui_toolkit.ui.managers.layer_stack import LayerStack
+from sli_ui_toolkit.ui.managers.navigation_manager import (
+    NavigationManager,
+    NavigationSection,
+)
 from sli_ui_toolkit.ui.managers.settle_gate import SettleGate
 from sli_ui_toolkit.ui.managers.theme_manager import ThemeManager
 
@@ -43,6 +47,8 @@ __all__ = [
     "FlyoutManager",
     "GroupShowPolicy",
     "LayerStack",
+    "NavigationManager",
+    "NavigationSection",
     "SettleGate",
     "ThemeManager",
 
