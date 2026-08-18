@@ -7,16 +7,15 @@ problem at its root.
 Follows the same singleton + register/unregister pattern as
 ``FlyoutManager``.
 
-Widgets declare a ``NavigationSpec`` (attached as ``navigation_spec`` class
-attribute) that tells the manager how to navigate within them.  The manager
-is generic — it knows nothing about cards, tabs, or panels.
+Widgets declare navigation behavior through ``WidgetDescriptor`` (see
+``ui/widget_descriptor.py``).  The manager discovers sections from the
+``WidgetRegistry`` or accepts direct registration.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
-from typing import Callable, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from PySide6.QtCore import QEvent, Qt, QObject
 from PySide6.QtWidgets import QApplication
@@ -36,39 +35,7 @@ def _key_name(key: int) -> str:
 
 
 # ------------------------------------------------------------------
-# Navigation spec — widgets attach this as a class attribute
-# ------------------------------------------------------------------
-
-
-@dataclass(slots=True)
-class NavigationSpec:
-    """Self-description for keyboard navigation, attached to a widget class
-    as ``navigation_spec``.
-
-    Follows the same pattern as ``InspectSpec``: the widget declares how
-    it navigates, the manager delegates to it.
-
-    Example::
-
-        class MyWidget(QWidget):
-            navigation_spec = NavigationSpec(
-                navigate=_my_navigate,
-                focus_first=_my_focus_first,
-                focus_last=_my_focus_last,
-            )
-    """
-
-    #: ``(key, widget) -> bool``: handle arrow key while *widget* is focused.
-    #: Return True if consumed, False to yield to adjacent section.
-    navigate: Callable[[int, QObject], bool] = field(repr=False)
-    #: ``() -> bool``: focus the first widget.  Return success.
-    focus_first: Callable[[], bool] = field(repr=False)
-    #: ``() -> bool``: focus the last widget.  Return success.
-    focus_last: Callable[[], bool] = field(repr=False)
-
-
-# ------------------------------------------------------------------
-# Legacy protocol (kept for backward compat)
+# Section protocol (backward compat + lightweight alternative)
 # ------------------------------------------------------------------
 
 
@@ -76,10 +43,25 @@ class NavigationSpec:
 class NavigationSection(Protocol):
     """Protocol for a navigable UI section."""
 
-    def owns(self, widget: QObject) -> bool: ...
-    def navigate(self, key: int, widget: QObject) -> bool: ...
-    def focus_first(self) -> bool: ...
-    def focus_last(self) -> bool: ...
+    def owns(self, widget: QObject) -> bool:
+        """Return ``True`` if *widget* belongs to this section."""
+        ...
+
+    def navigate(self, key: int, widget: QObject) -> bool:
+        """Handle *key* press while *widget* is focused.
+
+        Return ``True`` if the event was consumed.
+        Return ``False`` if the section wants to yield to an adjacent section.
+        """
+        ...
+
+    def focus_first(self) -> bool:
+        """Move focus to the first widget in this section.  Return success."""
+        ...
+
+    def focus_last(self) -> bool:
+        """Move focus to the last widget in this section.  Return success."""
+        ...
 
 
 # ------------------------------------------------------------------
@@ -113,30 +95,61 @@ class NavigationManager(QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self._sections: list[tuple[QObject, NavigationSection | NavigationSpec]] = []
+        self._sections: list[tuple[QObject, NavigationSection]] = []
         self._event_filter_installed = False
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    def register(self, owner: QObject, spec: NavigationSection | NavigationSpec) -> None:
-        """Register a navigation section/spec for *owner*.
+    def register(self, owner: QObject, spec: NavigationSection | None = None) -> None:
+        """Register a navigation section.
 
-        *owner* is the widget that ``owns()`` checks are relative to
-        (for ``NavigationSpec``, ownership is ``owner.isAncestorOf(w) or w is owner``).
+        ``(owner, spec)`` — new style: owner is the widget, spec is the section.
+        ``(section,)`` — legacy style: section implements ``NavigationSection``
+        protocol and is used as both owner and spec.
         """
+        if spec is None:
+            # Legacy: single arg — section is its own owner
+            spec = owner  # type: ignore[assignment]
         if owner not in [o for o, _ in self._sections]:
             self._sections.append((owner, spec))
             self._install_event_filter()
 
     def unregister(self, owner: QObject) -> None:
-        try:
-            self._sections = [(o, s) for o, s in self._sections if o is not owner]
-        except ValueError:
-            return
+        self._sections = [(o, s) for o, s in self._sections if o is not owner]
         if not self._sections:
             self._uninstall_event_filter()
+
+    def auto_register_from_descriptors(self) -> None:
+        """Discover and register widgets with navigation specs.
+
+        Scans all top-level widgets and their children for instances that
+        have a ``widget_descriptor`` attribute with a ``navigation`` section.
+        """
+        app = QApplication.instance()
+        if app is None:
+            return
+
+        seen: set[int] = set()
+
+        def _scan(widget: QObject) -> None:
+            wid = id(widget)
+            if wid in seen:
+                return
+            seen.add(wid)
+
+            desc = getattr(widget, "widget_descriptor", None)
+            if desc is not None and getattr(desc, "navigation", None) is not None:
+                section = _WidgetNavigationSection(widget, desc.navigation)
+                self.register(widget, section)
+
+            for child in widget.children():
+                if isinstance(child, QWidget):
+                    _scan(child)
+
+        for w in app.topLevelWidgets():
+            _scan(w)
 
     # ------------------------------------------------------------------
     # Cross-section navigation helpers
@@ -148,7 +161,7 @@ class NavigationManager(QObject):
                 return i
         return None
 
-    def _neighbor(self, owner: QObject, direction: int) -> tuple[QObject, NavigationSection | NavigationSpec] | None:
+    def _neighbor(self, owner: QObject, direction: int) -> tuple[QObject, NavigationSection] | None:
         idx = self._section_index(owner)
         if idx is None:
             return None
@@ -156,20 +169,6 @@ class NavigationManager(QObject):
         if 0 <= target < len(self._sections):
             return self._sections[target]
         return None
-
-    def _owns(self, owner: QObject, spec: NavigationSection | NavigationSpec, widget: QObject) -> bool:
-        if isinstance(spec, NavigationSpec):
-            return owner.isAncestorOf(widget) or widget is owner
-        return spec.owns(widget)
-
-    def _navigate(self, spec: NavigationSection | NavigationSpec, key: int, widget: QObject) -> bool:
-        return spec.navigate(key, widget)
-
-    def _focus_first(self, spec: NavigationSection | NavigationSpec) -> bool:
-        return spec.focus_first()
-
-    def _focus_last(self, spec: NavigationSection | NavigationSpec) -> bool:
-        return spec.focus_last()
 
     # ------------------------------------------------------------------
     # Event filter
@@ -211,7 +210,7 @@ class NavigationManager(QObject):
         _debug = logger.isEnabledFor(logging.DEBUG)
 
         for owner, spec in self._sections:
-            if not self._owns(owner, spec, focused):
+            if not spec.owns(focused):
                 continue
 
             if _debug:
@@ -222,7 +221,7 @@ class NavigationManager(QObject):
                     getattr(focused, "objectName", lambda: "")() or "",
                     type(owner).__name__,
                 )
-            if self._navigate(spec, key, focused):
+            if spec.navigate(key, focused):
                 if _debug:
                     new_focus = QApplication.focusWidget()
                     if new_focus is not focused:
@@ -238,7 +237,7 @@ class NavigationManager(QObject):
             # Section declined — try adjacent section on boundary keys.
             if key in _EXIT_DOWN:
                 neighbor = self._neighbor(owner, +1)
-                if neighbor is not None and self._focus_first(neighbor[1]):
+                if neighbor is not None and neighbor[1].focus_first():
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
@@ -250,7 +249,7 @@ class NavigationManager(QObject):
                     return True
             elif key in _EXIT_UP:
                 neighbor = self._neighbor(owner, -1)
-                if neighbor is not None and self._focus_last(neighbor[1]):
+                if neighbor is not None and neighbor[1].focus_last():
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
@@ -269,3 +268,29 @@ class NavigationManager(QObject):
                 return True
 
         return False
+
+
+# ------------------------------------------------------------------
+# Internal: wraps class-level NavigationSection callables with instance
+# ------------------------------------------------------------------
+
+
+class _WidgetNavigationSection:
+    """Adapts a ``WidgetDescriptor``'s ``NavigationSection`` to work with
+    a specific widget instance."""
+
+    def __init__(self, widget: QWidget, nav_section) -> None:
+        self._widget = widget
+        self._nav = nav_section
+
+    def owns(self, widget: QObject) -> bool:
+        return self._widget.isAncestorOf(widget) or widget is self._widget
+
+    def navigate(self, key: int, widget: QObject) -> bool:
+        return self._nav.navigate(key, widget)
+
+    def focus_first(self) -> bool:
+        return self._nav.focus_first()
+
+    def focus_last(self) -> bool:
+        return self._nav.focus_last()
