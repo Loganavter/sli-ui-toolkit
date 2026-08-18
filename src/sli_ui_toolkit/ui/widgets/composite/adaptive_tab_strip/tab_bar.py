@@ -294,7 +294,10 @@ class _AdaptiveTabBar(QWidget):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
+        import logging
+        _log = logging.getLogger(__name__)
         key = event.key()
+        _log.debug("[TAB-BAR] key=%s count=%s current=%s", key, len(self._tabs), self._current_index)
         count = len(self._tabs)
         if count == 0:
             return super().keyPressEvent(event)
