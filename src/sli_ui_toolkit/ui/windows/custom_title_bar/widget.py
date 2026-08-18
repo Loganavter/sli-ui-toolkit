@@ -198,11 +198,12 @@ class CustomTitleBar(
     # -- keyboard focus helpers --------------------------------------------
 
     def _focusable_buttons(self) -> list[QWidget]:
-        """Visible StrongFocus children in layout order (zone hosts excluded)."""
+        """Visible, enabled, StrongFocus children in layout order."""
         buttons: list[QWidget] = []
         for child in self.findChildren(QWidget):
             if (
                 child.isVisible()
+                and child.isEnabled()
                 and child.focusPolicy() == Qt.FocusPolicy.StrongFocus
                 and self.isAncestorOf(child)
                 and child is not self
@@ -211,15 +212,16 @@ class CustomTitleBar(
         return buttons
 
     def _set_child_focus(self, child: QWidget) -> None:
-        """Set keyboard focus on *child*, temporarily weakening the title
-        bar's own focus policy so Qt's focus chain doesn't redirect the
-        focus back to this widget."""
-        policy = self.focusPolicy()
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        try:
-            child.setFocus(Qt.FocusReason.OtherFocusReason)
-        finally:
-            self.setFocusPolicy(policy)
+        """Set keyboard focus on *child* via ``setFocusProxy``.
+
+        Qt's focus chain normally redirects ``setFocus()`` on a child
+        widget to a StrongFocus ancestor.  ``setFocusProxy`` bypasses
+        this by making the child the effective focus target when the
+        title bar receives focus.
+        """
+        self.setFocusProxy(child)
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.setFocusProxy(None)
 
     def focus_first_button(self) -> bool:
         """Focus the first focusable button in the title bar."""
