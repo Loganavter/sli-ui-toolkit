@@ -109,10 +109,27 @@ class NavigationManager(QObject):
         self._sections: list[tuple[QObject, NavigationSection]] = []
         self._event_filter_installed = False
         self._last_keyboard_focus: QWidget | None = None
+        # True until the first mouse click; flips on every MouseButtonPress
+        # / KeyPress after that. Lets focus-restore code (e.g. BaseFlyout
+        # closing after an outside click) pick MouseFocusReason vs
+        # OtherFocusReason based on how the user is *currently* driving the
+        # app, instead of hardcoding a keyboard reason regardless of cause.
+        self._last_input_keyboard: bool = True
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def last_input_was_keyboard(self) -> bool:
+        """Return ``True`` if the most recent mouse-click-or-keypress was a
+        keypress, ``False`` if it was a mouse click.
+
+        Used to pick the right ``Qt.FocusReason`` when programmatically
+        restoring focus (e.g. after a flyout closes) — restoring with
+        ``OtherFocusReason`` unconditionally would light up the keyboard
+        focus ring even when the close was mouse-driven.
+        """
+        return self._last_input_keyboard
 
     def last_keyboard_focus(self) -> QWidget | None:
         """Return the last widget that received focus via keyboard
@@ -243,6 +260,7 @@ class NavigationManager(QObject):
             # focused widget again, or clicking a non-focusable area) — in
             # both cases no FocusIn/FocusOut fires, so the ring-suppression
             # in Button.focusInEvent never runs on its own.
+            self._last_input_keyboard = False
             focused = QApplication.focusWidget()
             _debug = logger.isEnabledFor(logging.DEBUG)
             if _debug:
@@ -267,6 +285,7 @@ class NavigationManager(QObject):
         if event.type() != QEvent.Type.KeyPress:
             return False
 
+        self._last_input_keyboard = True
         key = event.key()
         _debug = logger.isEnabledFor(logging.DEBUG)
 

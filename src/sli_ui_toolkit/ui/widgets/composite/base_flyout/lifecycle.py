@@ -282,7 +282,17 @@ class _FlyoutLifecycleApi:
             type(actual_before).__name__ if actual_before else None,
         )
         if target is not None and target.isVisible() and target.isEnabled():
-            target.setFocus(Qt.FocusReason.OtherFocusReason)
+            # OtherFocusReason unconditionally would light up the keyboard
+            # focus ring on the trigger even when the flyout closed because
+            # of an outside mouse click — key off whether the user is
+            # currently driving the app with the keyboard or the mouse.
+            from sli_ui_toolkit.managers import NavigationManager
+            restore_reason = (
+                Qt.FocusReason.OtherFocusReason
+                if NavigationManager.get_instance().last_input_was_keyboard()
+                else Qt.FocusReason.MouseFocusReason
+            )
+            target.setFocus(restore_reason)
             QApplication.processEvents()
             actual_after = QApplication.focusWidget()
             logger.debug(
