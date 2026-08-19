@@ -1,6 +1,7 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
+import time
 from typing import Callable
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt, Property
@@ -31,6 +32,16 @@ class Slider(WheelScrollPolicyMixin, QSlider):
     RADIUS = 8
     MARGIN = 10
 
+    # Held-arrow-key step acceleration: a single tap moves by the
+    # configured singleStep (fine adjustment), but holding the key ramps
+    # the effective step up over _ACCEL_RAMP_SECONDS, so crossing a wide
+    # range (e.g. 1..1000) doesn't take dozens of individual key-repeat
+    # ticks. Quadratic ease-in keeps the first ~150-200ms of a hold at
+    # close to the base step (still feels like discrete nudges) before
+    # accelerating hard toward _ACCEL_MAX_MULTIPLIER.
+    _ACCEL_RAMP_SECONDS = 1.5
+    _ACCEL_MAX_MULTIPLIER = 30.0
+
     def __init__(
         self,
         orientation: Qt.Orientation = Qt.Orientation.Horizontal,
@@ -48,6 +59,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._hovered = False
         self._pressed = False
+        self._keyboard_focus = False
         self._track_thickness = float(track_thickness) if track_thickness is not None else float(self.TRACK_HEIGHT)
         self._thumb_radius = float(thumb_radius) if thumb_radius is not None else float(self.RADIUS)
         self._track_painter = track_painter
@@ -286,6 +298,56 @@ class Slider(WheelScrollPolicyMixin, QSlider):
             self.setValue(max(self.minimum(), self.value() - step))
         e.accept()
 
+    def focusInEvent(self, event):
+        # Mirrors Button's own focusInEvent (events.py): only a genuine
+        # keyboard focus grant (Tab/arrow navigation) should flash the
+        # ring, not a mouse click/drag on the thumb.
+        reason = getattr(event, "reason", lambda: None)()
+        self._keyboard_focus = reason not in (
+            Qt.FocusReason.MouseFocusReason,
+            Qt.FocusReason.MenuBarFocusReason,
+        )
+        self.update()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        self._keyboard_focus = False
+        self.update()
+        super().focusOutEvent(event)
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            # Up/Down are reserved for routing between controls (row/panel
+            # navigation, see NavigationManager/ToolbarRowsSection/
+            # _FlyoutNavigationSection) -- never value-adjustment here, even
+            # though QAbstractSlider's own default keyPressEvent would
+            # otherwise happily step the value on them too. Leave the event
+            # unaccepted (don't call super().keyPressEvent(), which is what
+            # would consume it) so it stays available for routing.
+            event.ignore()
+            return
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            now = time.monotonic()
+            if not event.isAutoRepeat():
+                self._accel_hold_start = now
+            elapsed = now - getattr(self, "_accel_hold_start", now)
+            t = min(1.0, elapsed / self._ACCEL_RAMP_SECONDS)
+            multiplier = 1.0 + (t * t) * (self._ACCEL_MAX_MULTIPLIER - 1.0)
+            base_step = self.singleStep()
+            accel_step = max(base_step, int(round(base_step * multiplier)))
+            # Borrow QAbstractSlider's own key-to-direction handling
+            # (respects orientation/invertedAppearance/invertedControls)
+            # by temporarily widening singleStep for this one event instead
+            # of reimplementing that mapping here.
+            self.setSingleStep(accel_step)
+            try:
+                super().keyPressEvent(event)
+            finally:
+                self.setSingleStep(base_step)
+            return
+        super().keyPressEvent(event)
+
     def _set_value_from_pos(self, coord: float):
         groove = self._groove_rect()
         if self._is_horizontal():
@@ -363,6 +425,41 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(accent))
         painter.drawEllipse(QPointF(float(center.x()), float(center.y())), inner_r, inner_r)
+
+        if self._keyboard_focus and self.hasFocus():
+            self._paint_focus_ring(painter, tm)
+
+    def _paint_focus_ring(self, painter: QPainter, tm: ThemeManager) -> None:
+        """Keyboard focus ring around the whole widget, matching Button's
+        ``FocusLayer`` (same accent color/alpha, thickness, inset) -- Slider
+        has no layer-pipeline of its own to attach that to, so this is a
+        direct paintEvent extension instead.
+        """
+        factor = UiScale.get_instance().factor()
+        thickness = max(1.0, 2.0 * factor)
+        inset = thickness * 0.5
+        ring = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
+        if ring.width() <= 0 or ring.height() <= 0:
+            return
+        # Pill-shaped ring (fully rounded on the short axis) since the
+        # widget itself has no other "corner radius" concept to reuse.
+        radius = min(ring.width(), ring.height()) / 2.0
+
+        path = QPainterPath()
+        path.addRoundedRect(ring, radius, radius)
+
+        color = QColor(tm.get_color("accent"))
+        color.setAlpha(220)
+
+        painter.save()
+        try:
+            pen = QPen(color)
+            pen.setWidthF(thickness)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+        finally:
+            painter.restore()
 
 Slider.inspect_spec = InspectSpec(
     family="Slider",
