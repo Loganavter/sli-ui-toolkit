@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Protocol, runtime_checkable
 
+import shiboken6
 from PySide6.QtCore import QEvent, Qt, QObject
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -107,10 +108,25 @@ class NavigationManager(QObject):
         super().__init__()
         self._sections: list[tuple[QObject, NavigationSection]] = []
         self._event_filter_installed = False
+        self._last_keyboard_focus: QWidget | None = None
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def last_keyboard_focus(self) -> QWidget | None:
+        """Return the last widget that received focus via keyboard
+        (arrow/Tab/OtherFocusReason), or ``None``.
+
+        Used by flyouts to determine whether the trigger was
+        keyboard-activated (ring should show inside) vs mouse-activated
+        (ring should not).
+        """
+        w = self._last_keyboard_focus
+        if w is not None and not shiboken6.isValid(w):
+            self._last_keyboard_focus = None
+            return None
+        return self._last_keyboard_focus
 
     def should_intercept(self, key: int, focused: QWidget | None = None) -> bool:
         """Return ``True`` if a registered section wants to intercept *key*.
@@ -197,6 +213,30 @@ class NavigationManager(QObject):
         self._event_filter_installed = False
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        if event.type() == QEvent.Type.FocusIn:
+            # Track the last widget that received focus via keyboard
+            # (OtherFocusReason / TabFocusReason / ActiveWindowFocusReason)
+            # so flyouts can query it at open time.
+            reason = event.reason()
+            widget = event.widget()
+            if reason in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+            ):
+                # Mouse click — clear keyboard focus tracking so flyouts
+                # opened from mouse don't show the ring inside.
+                self._last_keyboard_focus = None
+            elif widget is not None:
+                self._last_keyboard_focus = widget
+                _debug = logger.isEnabledFor(logging.DEBUG)
+                if _debug:
+                    logger.debug(
+                        "[nav] FocusIn keyboard reason=%s widget=%s",
+                        reason.name,
+                        type(widget).__name__,
+                    )
+            return False  # never consume FocusIn
+
         if event.type() != QEvent.Type.KeyPress:
             return False
 

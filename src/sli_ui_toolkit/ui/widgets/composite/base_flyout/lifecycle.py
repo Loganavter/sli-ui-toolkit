@@ -47,11 +47,6 @@ class _FlyoutLifecycleApi:
             self._fade.should_fade_out(self),
         )
         self._unregister_nav_section()
-        # Restore focus immediately — before fade animation starts.
-        # The fade defers _finish_hide() for ~100ms, during which Qt's
-        # focus chain moves focus to CsdMenuTrigger.  Restoring here
-        # avoids that intermediate jump.
-        self._restore_focus_policies()
         # Debug aid: every flyout close funnels through here (explicit
         # start_closing_animation, FlyoutManager passive dismiss / close_all,
         # host calls), so logging the caller stack shows WHO closed it.

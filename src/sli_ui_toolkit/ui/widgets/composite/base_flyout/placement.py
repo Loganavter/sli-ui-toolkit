@@ -149,15 +149,24 @@ class _FlyoutPlacementApi:
             offset=offset,
         )
         self._anchor_widget = anchor_widget
-        # Snapshot keyboard-focus state of the trigger NOW, before
-        # request_show / show / setFocusProxy shift focus and clear it.
+        # Determine keyboard-focus state of the trigger.
+        # Prefer explicit focus_reason parameter, then the anchor widget's
+        # persisted _last_focus_reason (survives CSD title bar clearing
+        # _keyboard_focus), then _keyboard_focus itself.
         if focus_reason is not None:
             self._anchor_keyboard_focus = focus_reason not in (
                 Qt.FocusReason.MouseFocusReason,
                 Qt.FocusReason.MenuBarFocusReason,
             )
         else:
-            self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+            raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+            if raw_reason is not None:
+                self._anchor_keyboard_focus = raw_reason not in (
+                    Qt.FocusReason.MouseFocusReason,
+                    Qt.FocusReason.MenuBarFocusReason,
+                )
+            else:
+                self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
 
         self.flyout_manager.request_show(self)
