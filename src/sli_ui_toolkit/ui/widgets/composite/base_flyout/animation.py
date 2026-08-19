@@ -225,6 +225,10 @@ class FlyoutFadeController:
             self.hide_animation.deleteLater()
             self.hide_animation = None
         self.hide_fade_in_progress = False
+        # Hide the flyout FIRST — before clearing snapshot / restoring
+        # children.  A repaint between clear() and hide() would show
+        # the flyout at full opacity for 1 frame.
+        QWidget.hide(flyout)
         # Reset for the next show; paintEvent is bypassed once hidden.
         self.clear()
         self.opacity = 1.0

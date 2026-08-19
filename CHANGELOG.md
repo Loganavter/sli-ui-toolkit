@@ -14,12 +14,40 @@
   `_FlyoutNavigationSection`, and `hide()` unregisters it. This ensures
   arrow keys are routed to the flyout when it has focus, instead of being
   claimed by the underlying section via parent-chain `isAncestorOf`.
-- **`BaseFlyout._grab_focus()`** — weakens StrongFocus ancestors, calls
-  `setFocus()`, defers policy restore via `QTimer.singleShot(50)` so the
-  flyout can process keyboard events before the window reclaims focus.
+- **`BaseFlyout._grab_focus()`** — weakens StrongFocus ancestors, focuses
+  the first leaf StrongFocus child (skipping containers like QScrollArea),
+  uses `MouseFocusReason` so no focus ring appears on mouse-initiated
+  show. Saves `_previous_focus_widget` before `_register_nav_section()`
+  so the original trigger widget is correctly restored on hide.
+- **`BaseFlyout` generic keyboard navigation** — `keyPressEvent` handles
+  Up/Down/Left/Right (move focus between StrongFocus children with
+  wrap-around) and Enter/Return (click on `QAbstractButton` children).
+  All flyout subclasses (SimpleOptionsFlyout, IconActionFlyout,
+  IndexedToggleFlyout, FontSettingsFlyout) get keyboard navigation for
+  free without custom `keyPressEvent` overrides.
 - **`ContextMenu` keyboard navigation** — `StrongFocus` policy, `keyPressEvent`
   handles Enter (activate focused row), Escape (close menu or submenu),
   Up/Down (navigate rows via `_navigate_rows()`).
+- **`ContextMenu._spec` on rows** — rows store their `ContextMenuAction`
+  spec for Enter key activation in `keyPressEvent`.
+- **`NavigationSection.extra_keys`** — protocol property (default
+  `frozenset()`). Flyout sections declare additional keys (Enter, Escape)
+  they want intercepted. `NavigationManager.eventFilter()` checks
+  `extra_keys` for non-arrow keys and routes them through `navigate()`.
+- **`NavigationManager.should_intercept(key, focused)`** — public API for
+  app-level event handlers to check if a registered section wants to
+  intercept a key. Used by `app_event_handler.py` to yield Escape to
+  flyout sections instead of consuming it locally.
+- **`BaseFlyout.focus restoration`** — `_restore_focus_policies()` restores
+  focus to `_previous_focus_widget` with `MouseFocusReason` (no ring).
+  Focus is restored in `hide()` before fade animation starts to avoid
+  intermediate CsdMenuTrigger flash.
+- **`BaseFlyout.on_hide_fade_finished()`** — hides flyout BEFORE clearing
+  snapshot / restoring children to prevent 1-frame flash at full opacity.
+- **`Button` auto-appends `FocusLayer`** — even with custom `layers=`
+  parameter, `FocusLayer()` is appended if not already present. Subclasses
+  with custom layer pipelines (ContextMenuRow, _SimpleRow) get focus ring
+  without explicit `FocusLayer()` in their layer list.
 - **`AdaptiveTabStrip` keyboard navigation** — `Left`/`Right` between tabs,
   `Home`/`End` for first/last tab, `Delete`/`Backspace` to close the current
   tab (emits `tabCloseRequested`). `Down`/`Up` via `focusNextChild()`/`
@@ -49,6 +77,21 @@
 - **`NavigationManager._WidgetNavigationSection.owns()`** — removed parent-chain
   fallback that incorrectly claimed overlay widgets (flyouts, popups) parented
   inside a section's widget tree. Flyouts now register their own sections.
+- **`_FlyoutNavigationSection.navigate()`** — creates synthetic `QKeyEvent`
+  and delivers it directly to the flyout's `keyPressEvent()`, bypassing
+  `WA_ShowWithoutActivating` which prevents normal Qt keyboard routing.
+  All handled keys (arrows, Enter, Escape) are consumed.
+- **`NavigationManager.eventFilter()`** — expanded to intercept non-arrow
+  keys (Enter, Escape) via `extra_keys` on registered sections. Only
+  consumed if a section's `navigate()` returns `True`.
+- **`BaseFlyout._grab_focus()`** — no more `QTimer.singleShot`. Weakens
+  ancestors, stores them on `self._weakened_focus_ancestors`, restores
+  in `_restore_focus_policies()` called from `_finish_hide()`. Focuses
+  first leaf StrongFocus child using `MouseFocusReason`.
+- **`BaseFlyout.show()`** — saves `_previous_focus_widget` BEFORE
+  `_register_nav_section()` to correctly capture the trigger widget.
+- **`BaseFlyout.hide()`** — restores focus BEFORE fade animation starts
+  to avoid intermediate focus jump to CsdMenuTrigger.
 - **`ContextMenu` focus policy** — changed from `NoFocus` to `StrongFocus`
   so the focus ring renders and keyboard events reach `keyPressEvent`.
 - **`_AdaptiveTabBar` focus policy** — changed from `NoFocus` (QWidget
