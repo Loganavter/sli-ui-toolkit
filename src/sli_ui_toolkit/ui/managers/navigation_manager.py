@@ -205,8 +205,19 @@ class NavigationManager(QObject):
         if idx is None:
             return None
         target = idx + direction
-        if 0 <= target < len(self._sections):
-            return self._sections[target]
+        while 0 <= target < len(self._sections):
+            candidate_owner, candidate_section = self._sections[target]
+            # A section whose owner isn't currently visible belongs to a
+            # background tab/page (e.g. a long-lived section registered
+            # once at startup, like the session picker, that stays
+            # registered while another workspace tab is active). Handing
+            # focus to it would move Qt's focus widget onto something
+            # off-screen — hasFocus() still reports True, but nothing ever
+            # paints, so the focus ring silently vanishes app-wide. Skip
+            # past it to the next section in the same direction instead.
+            if not (isinstance(candidate_owner, QWidget) and not candidate_owner.isVisible()):
+                return self._sections[target]
+            target += direction
         return None
 
     # ------------------------------------------------------------------
