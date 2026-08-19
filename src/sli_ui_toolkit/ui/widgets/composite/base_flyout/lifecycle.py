@@ -41,6 +41,11 @@ class _FlyoutLifecycleApi:
 
     def hide(self):
         self._unregister_nav_section()
+        # Restore focus immediately — before fade animation starts.
+        # The fade defers _finish_hide() for ~100ms, during which Qt's
+        # focus chain moves focus to CsdMenuTrigger.  Restoring here
+        # avoids that intermediate jump.
+        self._restore_focus_policies()
         # Debug aid: every flyout close funnels through here (explicit
         # start_closing_animation, FlyoutManager passive dismiss / close_all,
         # host calls), so logging the caller stack shows WHO closed it.
@@ -71,6 +76,10 @@ class _FlyoutLifecycleApi:
         self._finish_hide()
 
     def _finish_hide(self) -> None:
+        # Restore focus BEFORE hiding — setFocus() during hide causes a
+        # synchronous focus jump that Qt processes via the event loop,
+        # resulting in an intermediate CsdMenuTrigger flash. Restoring
+        # before hide avoids this.
         self._restore_focus_policies()
         QWidget.hide(self)  # type: ignore[arg-type]
 
@@ -170,6 +179,10 @@ class _FlyoutLifecycleApi:
         no focusable child is found.
         """
         self._previous_focus_widget = QApplication.focusWidget()
+        logger.debug(
+            "[flyout-nav] _grab_focus: saved previous_focus=%s",
+            type(self._previous_focus_widget).__name__ if self._previous_focus_widget else None,
+        )
         self._weakened_focus_ancestors: list[tuple[QWidget, Qt.FocusPolicy]] = []
         w = self.parentWidget()
         while w is not None:
@@ -207,13 +220,28 @@ class _FlyoutLifecycleApi:
         """
         weakened = getattr(self, "_weakened_focus_ancestors", None)
         if weakened is None:
+            logger.debug("[flyout-nav] _restore_focus_policies: no weakened list")
             return
         for w, policy in weakened:
             w.setFocusPolicy(policy)
         weakened.clear()
         prev = getattr(self, "_previous_focus_widget", None)
+        actual_before = QApplication.focusWidget()
+        logger.debug(
+            "[flyout-nav] _restore_focus_policies: prev=%s actual_before=%s prev_visible=%s prev_enabled=%s",
+            type(prev).__name__ if prev else None,
+            type(actual_before).__name__ if actual_before else None,
+            prev.isVisible() if prev else None,
+            prev.isEnabled() if prev else None,
+        )
         if prev is not None and prev.isVisible() and prev.isEnabled():
             prev.setFocus(Qt.FocusReason.OtherFocusReason)
+            QApplication.processEvents()
+            actual_after = QApplication.focusWidget()
+            logger.debug(
+                "[flyout-nav] _restore_focus_policies: setFocus → actual_after=%s",
+                type(actual_after).__name__ if actual_after else None,
+            )
 
     def _register_nav_section(self) -> None:
         from sli_ui_toolkit.managers import NavigationManager
