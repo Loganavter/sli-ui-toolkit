@@ -210,7 +210,7 @@ class BaseFlyout(
             target = children[(idx + 1) % len(children)] if idx is not None else children[0]
         else:
             target = children[(idx - 1) % len(children)] if idx is not None else children[-1]
-        target.setFocus(Qt.FocusReason.MouseFocusReason)
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
         return True
 
     def eventFilter(self, obj, event):  # noqa: N802 — Qt API
