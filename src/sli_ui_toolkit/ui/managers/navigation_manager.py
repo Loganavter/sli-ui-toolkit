@@ -174,12 +174,30 @@ class NavigationManager(QObject):
         if owner not in [o for o, _ in self._sections]:
             self._sections.append((owner, spec))
             self._install_event_filter()
+            # Callers are not always able to guarantee a matching
+            # unregister() before the owner's C++ side is destroyed (e.g. a
+            # widget torn down by a parent's deleteLater(), or test code
+            # that never runs a tab's on_deactivated()/dispose()). Without
+            # this, a stale entry sits in _sections pointing at a deleted
+            # QObject; any later navigation touching it — owns(), the
+            # visibility check in _neighbor() — deref's a dead C++ object,
+            # which doesn't raise a catchable Python exception, it can
+            # corrupt the interpreter. Auto-unregister on destruction closes
+            # that gap regardless of what the caller does.
+            if isinstance(owner, QWidget):
+                owner.destroyed.connect(lambda _obj=None, o=owner: self.unregister(o))
             logger.debug(
                 "[nav] registered section %s (owner=%s) total=%d",
                 type(spec).__name__, type(owner).__name__, len(self._sections),
             )
 
     def unregister(self, owner: QObject) -> None:
+        # A late destroyed-signal callback (see register()) can fire during
+        # interpreter shutdown, after this singleton's own C++ side is
+        # already gone — touching self._sections or app.removeEventFilter
+        # at that point raises, harmlessly but noisily. Bail out quietly.
+        if not shiboken6.isValid(self):
+            return
         prev_count = len(self._sections)
         self._sections = [(o, s) for o, s in self._sections if o is not owner]
         if len(self._sections) != prev_count:
@@ -215,7 +233,18 @@ class NavigationManager(QObject):
             # off-screen — hasFocus() still reports True, but nothing ever
             # paints, so the focus ring silently vanishes app-wide. Skip
             # past it to the next section in the same direction instead.
-            if not (isinstance(candidate_owner, QWidget) and not candidate_owner.isVisible()):
+            #
+            # shiboken6.isValid() guards a widget whose C++ side was
+            # deleted without a matching unregister() (e.g. a test that
+            # resets NavigationManager._instance without tearing down
+            # every registered section first) — isVisible() on such a
+            # widget doesn't raise a catchable Python exception, it can
+            # corrupt the interpreter, so it must never be called at all
+            # once the object is known-invalid.
+            if isinstance(candidate_owner, QWidget) and not shiboken6.isValid(candidate_owner):
+                target += direction
+                continue
+            if not isinstance(candidate_owner, QWidget) or candidate_owner.isVisible():
                 return self._sections[target]
             target += direction
         return None
