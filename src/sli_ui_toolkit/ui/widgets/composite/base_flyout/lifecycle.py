@@ -163,6 +163,11 @@ class _FlyoutLifecycleApi:
         # Capture focus BEFORE register/setFocusProxy — they redirect focus
         # to the flyout, losing the original trigger widget.
         self._previous_focus_widget = QApplication.focusWidget()
+        logger.debug(
+            "[flyout-nav] show() _previous_focus_widget=%s anchor_widget=%s",
+            type(self._previous_focus_widget).__name__ if self._previous_focus_widget else None,
+            type(getattr(self, "_anchor_widget", None)).__name__ if getattr(self, "_anchor_widget", None) else None,
+        )
         window = self.parent().window() if self.parent() else None
         self._window_active_on_show = bool(window is not None and window.isActiveWindow())
         QWidget.show(self)  # type: ignore[arg-type]
@@ -239,7 +244,10 @@ class _FlyoutLifecycleApi:
 
         Called from :meth:`_finish_hide` so the window regains StrongFocus
         only after the flyout is actually gone — not on a timer.
-        Restores focus to the widget that had it before the flyout opened.
+        Restores focus to the widget that had it before the flyout opened,
+        preferring the anchor widget (the explicit trigger) over the
+        captured ``_previous_focus_widget`` which may point to MainWindow
+        if focus shifted between the trigger click and ``show()``.
         """
         weakened = getattr(self, "_weakened_focus_ancestors", None)
         if weakened is None:
@@ -248,17 +256,22 @@ class _FlyoutLifecycleApi:
         for w, policy in weakened:
             w.setFocusPolicy(policy)
         weakened.clear()
+        # Prefer _anchor_widget (the explicit trigger passed to show_aligned)
+        # over _previous_focus_widget (QApplication.focusWidget() at show()
+        # time — may already be MainWindow if focus shifted).
+        anchor = getattr(self, "_anchor_widget", None)
         prev = getattr(self, "_previous_focus_widget", None)
+        target = anchor if (anchor is not None and anchor.isVisible() and anchor.isEnabled()) else prev
         actual_before = QApplication.focusWidget()
         logger.debug(
-            "[flyout-nav] _restore_focus_policies: prev=%s actual_before=%s prev_visible=%s prev_enabled=%s",
+            "[flyout-nav] _restore_focus_policies: anchor=%s prev=%s target=%s actual_before=%s",
+            type(anchor).__name__ if anchor else None,
             type(prev).__name__ if prev else None,
+            type(target).__name__ if target else None,
             type(actual_before).__name__ if actual_before else None,
-            prev.isVisible() if prev else None,
-            prev.isEnabled() if prev else None,
         )
-        if prev is not None and prev.isVisible() and prev.isEnabled():
-            prev.setFocus(Qt.FocusReason.OtherFocusReason)
+        if target is not None and target.isVisible() and target.isEnabled():
+            target.setFocus(Qt.FocusReason.OtherFocusReason)
             QApplication.processEvents()
             actual_after = QApplication.focusWidget()
             logger.debug(
