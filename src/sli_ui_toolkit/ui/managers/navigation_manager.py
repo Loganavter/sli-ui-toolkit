@@ -237,6 +237,33 @@ class NavigationManager(QObject):
                     )
             return False  # never consume FocusIn
 
+        if event.type() == QEvent.Type.MouseButtonPress:
+            # A mouse click anywhere must kill the keyboard focus ring even
+            # when it doesn't change focus at all (clicking the already-
+            # focused widget again, or clicking a non-focusable area) — in
+            # both cases no FocusIn/FocusOut fires, so the ring-suppression
+            # in Button.focusInEvent never runs on its own.
+            focused = QApplication.focusWidget()
+            _debug = logger.isEnabledFor(logging.DEBUG)
+            if _debug:
+                logger.debug(
+                    "[nav] MouseButtonPress focused=%s keyboard_focus=%s",
+                    type(focused).__name__ if focused else None,
+                    getattr(focused, "_keyboard_focus", None) if focused else None,
+                )
+            if focused is not None and getattr(focused, "_keyboard_focus", False):
+                focused._keyboard_focus = False
+                if hasattr(focused, "_last_focus_reason"):
+                    focused._last_focus_reason = Qt.FocusReason.MouseFocusReason
+                focused.update()
+                if _debug:
+                    logger.debug(
+                        "[nav] MouseButtonPress cleared ring on %s",
+                        type(focused).__name__,
+                    )
+            self._last_keyboard_focus = None
+            return False  # never consume MouseButtonPress
+
         if event.type() != QEvent.Type.KeyPress:
             return False
 

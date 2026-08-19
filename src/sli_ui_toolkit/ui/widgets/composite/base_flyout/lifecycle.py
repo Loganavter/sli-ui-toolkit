@@ -215,6 +215,13 @@ class _FlyoutLifecycleApi:
             target.setFocus(reason)
         else:
             self.setFocus(reason)
+        # Remembered so a fade-in's mid-animation child-hiding (see
+        # FlyoutFadeController.sync_container_visibility) — which forces Qt
+        # to yank focus off `target` onto the flyout itself, since Qt clears
+        # focus from any widget in a subtree that gets hidden — can be
+        # undone once the children are shown again (_on_show_animation_finished).
+        self._grab_focus_target = target
+        self._grab_focus_reason = reason
 
         logger.debug(
             "[flyout-nav] _grab_focus weakened=%d target=%s reason=%s anchor_kbd=%s",

@@ -183,7 +183,12 @@ class BaseFlyout(
             focused = QApplication.focusWidget()
             if focused is not None and focused is not self:
                 from PySide6.QtWidgets import QAbstractButton
-                if isinstance(focused, QAbstractButton):
+
+                from sli_ui_toolkit.ui.widgets.buttons.button import Button
+                # Flyout rows (e.g. CsdMenuRow) are the toolkit's own Button,
+                # not QAbstractButton — it isn't a Qt button subclass, but it
+                # exposes a QAbstractButton.click()-parity method.
+                if isinstance(focused, (QAbstractButton, Button)):
                     focused.click()
                     event.accept()
                     return

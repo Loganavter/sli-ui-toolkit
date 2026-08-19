@@ -11,6 +11,8 @@ from __future__ import annotations
 import math
 from typing import Any, Callable, cast
 
+import shiboken6
+
 from PySide6.QtCore import (
     QEasingCurve,
     QObject,
@@ -370,6 +372,17 @@ class _FlyoutPlacementApi:
             self._show_animation = None
         self._fade.clear()
         self._fade.set_opacity(self, 1.0)
+        # set_opacity(1.0) just unhid the container that sync_container_
+        # visibility hid for the fade — if that hide forced Qt to steal
+        # focus off the row _grab_focus originally granted it to (hiding a
+        # focused widget's ancestor always clears its focus), reclaim it now
+        # that the row is visible again. Without this the focus ring shows
+        # correctly during the fade (baked into the snapshot) and then
+        # vanishes the instant the fade finishes and live children resume.
+        target = getattr(self, "_grab_focus_target", None)
+        if target is not None and shiboken6.isValid(target) and not target.hasFocus():
+            reason = getattr(self, "_grab_focus_reason", Qt.FocusReason.OtherFocusReason)
+            target.setFocus(reason)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         try:
             from sli_ui_toolkit.ui.widgets.helpers import hover_coordinator
