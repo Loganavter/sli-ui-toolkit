@@ -280,6 +280,30 @@ class _FlyoutLifecycleApi:
                     return child
         return None
 
+    def focus_first_child(self) -> bool:
+        """Move keyboard focus to this flyout's first focusable control.
+
+        Public counterpart to :meth:`_grab_focus` for callers that want to
+        focus into an already-visible, not-yet-focused flyout on demand
+        (e.g. a ``NavigationSection`` entering a linked flyout via
+        :func:`~sli_ui_toolkit.managers.NavigationManager.extension_below`)
+        without going through the full show()/register/weaken-ancestors
+        flow. Returns ``False`` if the flyout has no focusable content.
+        """
+        target = self._first_focusable(self)
+        if target is None:
+            return False
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def focus_last_child(self) -> bool:
+        """Same as :meth:`focus_first_child`, landing on the last control."""
+        target = self._first_focusable(self, reverse=True)
+        if target is None:
+            return False
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
     def _restore_focus_policies(self) -> None:
         """Restore focus policies of ancestors weakened by :meth:`_grab_focus`.
 
@@ -432,18 +456,10 @@ class _FlyoutNavigationSection:
         return event.isAccepted()
 
     def focus_first(self) -> bool:
-        target = _FlyoutLifecycleApi._first_focusable(self._flyout)
-        if target is None:
-            return False
-        target.setFocus(Qt.FocusReason.OtherFocusReason)
-        return True
+        return self._flyout.focus_first_child()
 
     def focus_last(self) -> bool:
-        target = _FlyoutLifecycleApi._first_focusable(self._flyout, reverse=True)
-        if target is None:
-            return False
-        target.setFocus(Qt.FocusReason.OtherFocusReason)
-        return True
+        return self._flyout.focus_last_child()
 
     @property
     def extra_keys(self) -> frozenset[int]:

@@ -211,6 +211,27 @@ class BaseFlyout(
             return False
         focused = QApplication.focusWidget()
         idx = next((i for i, c in enumerate(children) if c is focused), None)
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            # Up/Down normally wrap within this flyout's own children (see
+            # the fallback below) -- fine for a flyout that's just a
+            # self-contained popover. But a flyout linked below a specific
+            # widget (NavigationManager.link_below, e.g.
+            # ToolbarRowsSection entering it via extension_below) reads as
+            # a *continuation* of that widget rather than an isolated
+            # overlay -- Up at this flyout's first control (or Down at its
+            # last) should step back out to the linked owner instead of
+            # wrapping around its own content. Only flyouts that opted
+            # into a link have an owner here, so unlinked flyouts keep
+            # wrapping exactly as before.
+            at_top = idx is not None and idx == 0
+            at_bottom = idx is not None and idx == len(children) - 1
+            if (key == Qt.Key.Key_Up and at_top) or (key == Qt.Key.Key_Down and at_bottom):
+                from sli_ui_toolkit.managers import NavigationManager
+
+                owner = NavigationManager.get_instance().extension_owner(self)
+                if owner is not None:
+                    owner.setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
         if key in (Qt.Key.Key_Down, Qt.Key.Key_Right):
             target = children[(idx + 1) % len(children)] if idx is not None else children[0]
         else:

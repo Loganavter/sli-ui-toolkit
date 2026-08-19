@@ -120,6 +120,23 @@ class ToolbarRowsSection:
             if self._widget_handles(key, widget):
                 return True
         if key == Qt.Key.Key_Down:
+            # A widget can have a flyout linked directly below it (see
+            # NavigationManager.link_below) -- a persistent, ambient panel
+            # that reads as part of the toolbar rather than a modal
+            # popover (e.g. a hover-driven settings panel for a button
+            # group). Entering it takes priority over jumping to the next
+            # toolbar row, same priority as _widget_handles above: without
+            # this, Down would skip straight over a panel that's visibly
+            # sitting right there beneath the focused button.
+            from sli_ui_toolkit.managers import NavigationManager
+
+            extension = NavigationManager.get_instance().extension_below(widget)
+            if (
+                extension is not None
+                and hasattr(extension, "focus_first_child")
+                and extension.focus_first_child()
+            ):
+                return True
             if idx < len(rows) - 1:
                 return self._focus_near_in(rows[idx + 1], widget)
             # Last row — yield (e.g. canvas/no further row below).

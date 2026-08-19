@@ -107,6 +107,8 @@ class NavigationManager(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._sections: list[tuple[QObject, NavigationSection]] = []
+        self._extensions_below: dict[QWidget, QWidget] = {}
+        self._extension_owners: dict[QWidget, QWidget] = {}
         self._event_filter_installed = False
         self._last_keyboard_focus: QWidget | None = None
         # True until the first mouse click; flips on every MouseButtonPress
@@ -207,6 +209,80 @@ class NavigationManager(QObject):
             )
         if not self._sections:
             self._uninstall_event_filter()
+
+    def link_below(self, owner: QWidget, flyout: QWidget) -> None:
+        """Register *flyout* as the keyboard-navigable continuation
+        directly below *owner*.
+
+        Mirrors ``FlyoutManager.link()``'s registry style — a plain
+        owner→flyout (and reverse) lookup table, not a callback threaded
+        through some section's constructor, so any ``NavigationSection``
+        can offer this without knowing which specific flyout (if any) is
+        currently attached to a given widget, and any flyout can find its
+        way back to the exact widget it's attached to.
+
+        Intended use: a section whose ``navigate()`` would otherwise move
+        past *owner* on a boundary key (e.g. ``ToolbarRowsSection`` jumping
+        to the next row on ``Key_Down``) should first check
+        :meth:`extension_below` and, if set, focus into the flyout instead.
+        The flyout's own boundary handling (e.g. Up from its first control)
+        can symmetrically check :meth:`extension_owner` to return focus to
+        *owner* specifically — generic section adjacency
+        (:meth:`_neighbor`) has no notion that a flyout belongs to one
+        particular widget rather than to the whole row/section.
+
+        Several widgets can link the *same* flyout (e.g. every button in a
+        group, all opening one shared panel below the group) — the reverse
+        lookup :meth:`extension_owner` therefore isn't fixed at link time;
+        it tracks whichever owner was most recently used to actually enter
+        the flyout (stamped by :meth:`extension_below` itself, since that's
+        only ever called right before entering), not just any arbitrary one
+        of the widgets linked to it.
+
+        The link is a static registration, not tied to *flyout*'s current
+        visibility — :meth:`extension_below` filters on that at lookup
+        time, so callers don't need to unlink on every hide, only when the
+        pairing itself goes away (or never, for a long-lived owner+flyout
+        pair — both sides auto-drop on destruction, same as
+        :meth:`register`).
+        """
+        if isinstance(owner, QObject):
+            owner.destroyed.connect(lambda _obj=None, o=owner: self.unlink_below(o))
+        if isinstance(flyout, QObject):
+            flyout.destroyed.connect(lambda _obj=None, o=owner: self.unlink_below(o))
+        self._extensions_below[owner] = flyout
+
+    def unlink_below(self, owner: QWidget) -> None:
+        flyout = self._extensions_below.pop(owner, None)
+        if flyout is not None and self._extension_owners.get(flyout) is owner:
+            self._extension_owners.pop(flyout, None)
+
+    def extension_below(self, owner: QWidget) -> QWidget | None:
+        """Return the flyout linked below *owner* via :meth:`link_below`,
+        if one is registered, valid, and currently visible — else ``None``.
+
+        Also stamps *owner* as this flyout's current :meth:`extension_owner`
+        — see the note on multiple owners in :meth:`link_below`.
+        """
+        flyout = self._extensions_below.get(owner)
+        if flyout is None:
+            return None
+        if not shiboken6.isValid(flyout) or not flyout.isVisible():
+            return None
+        self._extension_owners[flyout] = owner
+        return flyout
+
+    def extension_owner(self, flyout: QWidget) -> QWidget | None:
+        """Return the widget *flyout* was linked below via
+        :meth:`link_below`, if it's still valid and visible — else
+        ``None``.
+        """
+        owner = self._extension_owners.get(flyout)
+        if owner is None:
+            return None
+        if not shiboken6.isValid(owner) or not owner.isVisible():
+            return None
+        return owner
 
     # ------------------------------------------------------------------
     # Cross-section navigation helpers
