@@ -40,6 +40,12 @@ class _FlyoutLifecycleApi:
     parent: Any
 
     def hide(self):
+        logger.debug(
+            "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s",
+            type(self).__name__, id(self),
+            self._fade.hide_fade_in_progress,
+            self._fade.should_fade_out(self),
+        )
         self._unregister_nav_section()
         # Restore focus immediately — before fade animation starts.
         # The fade defers _finish_hide() for ~100ms, during which Qt's
@@ -76,6 +82,9 @@ class _FlyoutLifecycleApi:
         self._finish_hide()
 
     def _finish_hide(self) -> None:
+        logger.debug(
+            "[flyout-nav] _finish_hide %s id=%s", type(self).__name__, id(self)
+        )
         # Restore focus BEFORE hiding — setFocus() during hide causes a
         # synchronous focus jump that Qt processes via the event loop,
         # resulting in an intermediate CsdMenuTrigger flash. Restoring
@@ -139,9 +148,15 @@ class _FlyoutLifecycleApi:
     # the sibling _FlyoutManagerApi mixin.
 
     def _on_hide_fade_finished(self) -> None:
+        logger.debug(
+            "[flyout-nav] _on_hide_fade_finished %s id=%s", type(self).__name__, id(self)
+        )
         self._fade.on_hide_fade_finished(self, on_finished=self._finish_hide)
 
     def show(self):
+        logger.debug(
+            "[flyout-nav] show() called on %s id=%s", type(self).__name__, id(self)
+        )
         fm = getattr(self, "flyout_manager", None)
         if fm is not None:
             fm.request_show(self)
@@ -190,9 +205,9 @@ class _FlyoutLifecycleApi:
             w = w.parentWidget()
         target = self._first_focusable(self)
         if target is not None:
-            target.setFocus(Qt.FocusReason.OtherFocusReason)
+            target.setFocus(Qt.FocusReason.MouseFocusReason)
         else:
-            self.setFocus(Qt.FocusReason.OtherFocusReason)
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
 
         logger.debug(
             "[flyout-nav] _grab_focus weakened=%d target=%s",

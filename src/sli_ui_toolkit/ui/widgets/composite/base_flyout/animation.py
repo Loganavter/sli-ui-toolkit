@@ -14,6 +14,7 @@ itself stores nothing about the fade beyond the controller reference.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
 
 from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation
@@ -21,6 +22,8 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.config import get_flyout_timings
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_flyout_animation(animation: str | None) -> str:
@@ -142,7 +145,12 @@ class FlyoutFadeController:
     def should_fade_out(self, flyout: QWidget) -> bool:
         if not flyout.isVisible():
             return False
-        return bool(self.fade_out_enabled)
+        result = bool(self.fade_out_enabled)
+        logger.debug(
+            "[flyout-fade] should_fade_out %s id=%s → %s",
+            type(flyout).__name__, id(flyout), result,
+        )
+        return result
 
     def start_hide_fade(
         self,
@@ -151,14 +159,12 @@ class FlyoutFadeController:
         on_finished: Callable[[], None],
         show_animation,
     ) -> None:
-        """Fade the flyout out; ``on_finished`` runs after the real hide.
-
-        The flyout's ``_show_animation`` reference must be cleared here:
-        the animation was passed by value, and after ``deleteLater`` a
-        lingering reference would point at a deleted C++ object and crash
-        the next hide (the show animation is owned by the placement side,
-        which only sees it through this argument).
-        """
+        """Fade the flyout out; ``on_finished`` runs after the real hide."""
+        logger.debug(
+            "[flyout-fade] start_hide_fade %s id=%s hide_animation=%s",
+            type(flyout).__name__, id(flyout),
+            "active" if self.hide_animation is not None else "none",
+        )
         if show_animation is not None:
             try:
                 show_animation.stop()
@@ -190,6 +196,11 @@ class FlyoutFadeController:
         anim.start()
 
     def cancel(self, flyout: QWidget) -> None:
+        logger.debug(
+            "[flyout-fade] cancel %s id=%s hide_animation=%s",
+            type(flyout).__name__, id(flyout),
+            "active" if self.hide_animation is not None else "none",
+        )
         if self.hide_animation is not None:
             self.hide_animation.stop()
             self.hide_animation.deleteLater()
@@ -206,6 +217,10 @@ class FlyoutFadeController:
         self.sync_container_visibility(flyout)
 
     def on_hide_fade_finished(self, flyout: QWidget, on_finished: Callable[[], None]) -> None:
+        logger.debug(
+            "[flyout-fade] on_hide_fade_finished %s id=%s",
+            type(flyout).__name__, id(flyout),
+        )
         if self.hide_animation is not None:
             self.hide_animation.deleteLater()
             self.hide_animation = None
