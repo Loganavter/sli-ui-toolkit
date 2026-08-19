@@ -339,9 +339,15 @@ class NavigationManager(QObject):
                 [(type(s).__name__, type(o).__name__) for o, s in self._sections],
             )
 
-        if key not in _ARROWS:
-            # Not an arrow — only intercept if a section that owns the
-            # focused widget explicitly requests this key via extra_keys.
+        if key not in _ARROWS or key in _HORIZONTAL:
+            # Not a plain vertical arrow — only intercept if a section that
+            # owns the focused widget explicitly requests this key via
+            # extra_keys. This covers both non-arrow extra keys (Enter/
+            # Escape for flyouts) and Left/Right: by default Left/Right are
+            # left alone for native widget handlers (QTabBar, QSpinBox,
+            # etc.), but a section can opt in (e.g. ToolbarRowsSection, to
+            # move focus within a toolbar row) by listing them in
+            # extra_keys — nothing changes for sections that don't.
             focused = QApplication.focusWidget()
             if focused is None:
                 return False
@@ -360,10 +366,6 @@ class NavigationManager(QObject):
             if not wants_key:
                 return False
         else:
-            # Left/Right: never intercept — let native widget handlers
-            # (QTabBar, QSpinBox, etc.) process them.
-            if key in _HORIZONTAL:
-                return False
             focused = QApplication.focusWidget()
             if focused is None:
                 return False
