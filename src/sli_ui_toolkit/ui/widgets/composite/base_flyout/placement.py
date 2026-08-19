@@ -32,8 +32,6 @@ from sli_ui_toolkit.ui.in_window_surface import (
     surface_available_rect,
 )
 
-from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
-
 from .animation import resolve_flyout_animation
 from .geometry import AnimationAxis, aligned_flyout_rect, slide_start_delta
 
@@ -152,19 +150,30 @@ class _FlyoutPlacementApi:
         )
         self._anchor_widget = anchor_widget
         # Determine keyboard-focus state of the trigger.
-        # Prefer explicit focus_reason parameter, then NavigationManager's
-        # app-wide FocusIn tracking (survives CSD title bar clearing
-        # _keyboard_focus between signal emission and this call), then
-        # _keyboard_focus itself.
+        # Prefer explicit focus_reason parameter, then the anchor widget's
+        # persisted _last_focus_reason (survives CSD title bar clearing
+        # _keyboard_focus), then _keyboard_focus itself.
+        #
+        # NavigationManager.last_keyboard_focus() is NOT a substitute here:
+        # it's a single global slot that gets overwritten by ANY widget's
+        # FocusIn, including the transient MainWindow focus that CSD title
+        # bar handling produces between the trigger's click/Enter and this
+        # call. The per-widget persisted attribute survives that because it
+        # is scoped to the trigger widget itself.
         if focus_reason is not None:
             self._anchor_keyboard_focus = focus_reason not in (
                 Qt.FocusReason.MouseFocusReason,
                 Qt.FocusReason.MenuBarFocusReason,
             )
-        elif NavigationManager.get_instance().last_keyboard_focus() is anchor_widget:
-            self._anchor_keyboard_focus = True
         else:
-            self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+            raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+            if raw_reason is not None:
+                self._anchor_keyboard_focus = raw_reason not in (
+                    Qt.FocusReason.MouseFocusReason,
+                    Qt.FocusReason.MenuBarFocusReason,
+                )
+            else:
+                self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
 
         self.flyout_manager.request_show(self)
@@ -280,12 +289,21 @@ class _FlyoutPlacementApi:
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         if want_fade:
-            # Snapshot the fully-opaque flyout before the first paint so
-            # paintEvent only ever composites the cache (no render-in-paint).
+            # self.show() below grants keyboard focus to the first row
+            # (_grab_focus, via the overridden show()) — capture the
+            # snapshot AFTER that so a keyboard-opened flyout's focus ring
+            # is baked into the cache the fade-in composites. Capturing
+            # before show() (as before) snapshots the flyout with no focus
+            # yet granted, so the ring is invisible for the whole fade-in
+            # and only starts showing once the fade finishes and cache is
+            # cleared — visible as "ring missing on open, present on close".
+            # No event-loop turn happens between show() and capture(), so
+            # nothing paints to screen at full opacity in between.
+            self.show()
             self._fade.capture(self)
             self._fade.set_opacity(self, 0.0)
-
-        self.show()
+        else:
+            self.show()
         self.raise_()
 
         anim: QParallelAnimationGroup | QPropertyAnimation | QVariantAnimation

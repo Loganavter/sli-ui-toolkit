@@ -267,6 +267,9 @@ class _ButtonEvents:
             Qt.FocusReason.MouseFocusReason,
             Qt.FocusReason.MenuBarFocusReason,
         )
+        # Persist the raw reason so flyouts can read it even after
+        # _keyboard_focus is cleared by CSD/title bar event handling.
+        self._last_focus_reason = reason
         logger.debug(
             "[button-focus] %s focusIn reason=%s keyboard_focus=%s",
             type(self).__name__, reason, self._keyboard_focus,
