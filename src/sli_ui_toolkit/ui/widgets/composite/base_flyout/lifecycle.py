@@ -8,14 +8,13 @@ registration stays in sync because these overrides notify it.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 import logging
 import traceback
 from typing import Any, Callable
-
-from PySide6.QtWidgets import QApplication, QWidget
 
 logger = logging.getLogger(__name__)
 
@@ -238,37 +237,55 @@ class _FlyoutLifecycleApi:
 class _FlyoutNavigationSection:
     """Minimal NavigationSection for flyouts.
 
-    Consumes all arrow keys so the NavigationManager routes them here
-    instead of to the underlying section.  Actual key handling is done
-    by the flyout's own ``keyPressEvent``.
+    Consumes all navigation-relevant keys and delivers them directly to the
+    flyout's ``keyPressEvent``.  This bypasses ``WA_ShowWithoutActivating``
+    which prevents Qt from routing keyboard events to the widget normally.
     """
+
+    _NAV_KEYS: frozenset[int] = frozenset({
+        0x01000012,  # Key_Left
+        0x01000014,  # Key_Right
+        0x01000013,  # Key_Up
+        0x01000015,  # Key_Down
+    })
+
+    _EXTRA_KEYS: frozenset[int] = frozenset({
+        0x01000005,  # Key_Return
+        0x01000004,  # Key_Enter
+        0x01000000,  # Key_Escape
+    })
 
     def __init__(self, flyout: QWidget) -> None:
         self._flyout = flyout
 
     def owns(self, widget: QWidget) -> bool:
         result = widget is self._flyout or self._flyout.isAncestorOf(widget)
-        if result:
-            logger.debug(
-                "[flyout-nav] owns(%s) → True (flyout=%s)",
-                type(widget).__name__, type(self._flyout).__name__,
-            )
+        logger.debug(
+            "[flyout-nav] owns(%s) → %s (flyout=%s id_match=%s)",
+            type(widget).__name__, result, type(self._flyout).__name__,
+            widget is self._flyout,
+        )
         return result
 
     def navigate(self, key: int, widget: QWidget) -> bool:
-        # Arrow keys: consumed — flyout handles internally.
-        # Enter/Escape: yield — let the flyout's own keyPressEvent handle them.
-        from PySide6.QtCore import Qt
-
-        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
-            return True
-        logger.debug(
-            "[flyout-nav] navigate key=%s → yield (flyout handles)", key
+        if key not in self._NAV_KEYS and key not in self._EXTRA_KEYS:
+            return False
+        event = QKeyEvent(
+            QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier,
         )
-        return False
+        self._flyout.keyPressEvent(event)
+        logger.debug(
+            "[flyout-nav] navigate key=%s → delivered to %s (accepted=%s)",
+            hex(key), type(self._flyout).__name__, event.isAccepted(),
+        )
+        return True
 
     def focus_first(self) -> bool:
         return False
 
     def focus_last(self) -> bool:
         return False
+
+    @property
+    def extra_keys(self) -> frozenset[int]:
+        return self._EXTRA_KEYS

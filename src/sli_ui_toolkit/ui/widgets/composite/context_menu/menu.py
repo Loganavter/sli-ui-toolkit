@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Callable, Iterable, Literal, Sequence
+
+logger = logging.getLogger(__name__)
 
 import shiboken6 as sip
 

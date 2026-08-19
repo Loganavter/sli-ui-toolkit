@@ -63,6 +63,16 @@ class NavigationSection(Protocol):
         """Move focus to the last widget in this section.  Return success."""
         ...
 
+    @property
+    def extra_keys(self) -> frozenset[int]:
+        """Additional keys this section wants intercepted beyond arrows.
+
+        Flyout sections return ``{Key_Return, Key_Enter, Key_Escape}``
+        so the manager routes them through ``navigate()`` — necessary
+        because ``WA_ShowWithoutActivating`` blocks normal Qt routing.
+        """
+        return frozenset()
+
 
 # ------------------------------------------------------------------
 # Manager
@@ -191,23 +201,50 @@ class NavigationManager(QObject):
         self._event_filter_installed = False
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
+        _debug = logger.isEnabledFor(logging.DEBUG)
+
+        if _debug and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            if key == Qt.Key.Key_Escape:
+                logger.debug(
+                    "[nav] eventFilter HIT: Escape obj=%s focused=%s",
+                    type(obj).__name__,
+                    type(QApplication.focusWidget()).__name__ if QApplication.focusWidget() else None,
+                )
+
         if event.type() != QEvent.Type.KeyPress:
             return False
 
         key = event.key()
+
         if key not in _ARROWS:
-            return False
-
-        # Left/Right: never intercept — let native widget handlers
-        # (QTabBar, QSpinBox, etc.) process them.
-        if key in _HORIZONTAL:
-            return False
-
-        focused = QApplication.focusWidget()
-        if focused is None:
-            return False
-
-        _debug = logger.isEnabledFor(logging.DEBUG)
+            # Not an arrow — only intercept if a section that owns the
+            # focused widget explicitly requests this key via extra_keys.
+            focused = QApplication.focusWidget()
+            if focused is None:
+                return False
+            wants_key = any(
+                key in getattr(spec, "extra_keys", frozenset())
+                for owner, spec in self._sections
+                if spec.owns(focused)
+            )
+            if _debug and not wants_key:
+                logger.debug(
+                    "[nav] extra_keys: key=%s focused=%s wants_key=False sections=%d",
+                    _key_name(key),
+                    type(focused).__name__ if focused else None,
+                    len(self._sections),
+                )
+            if not wants_key:
+                return False
+        else:
+            # Left/Right: never intercept — let native widget handlers
+            # (QTabBar, QSpinBox, etc.) process them.
+            if key in _HORIZONTAL:
+                return False
+            focused = QApplication.focusWidget()
+            if focused is None:
+                return False
 
         for owner, spec in self._sections:
             if not spec.owns(focused):
@@ -298,3 +335,7 @@ class _WidgetNavigationSection:
 
     def focus_last(self) -> bool:
         return self._nav.focus_last()
+
+    @property
+    def extra_keys(self) -> frozenset[int]:
+        return getattr(self._nav, "extra_keys", frozenset())
