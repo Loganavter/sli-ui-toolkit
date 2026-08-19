@@ -99,6 +99,7 @@ class _FlyoutPlacementApi:
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
         focus_reason: Qt.FocusReason | None = None,
         grab_focus: bool = True,
+        register_nav_section: bool | None = None,
     ):
         """Align a point on the flyout to a point on ``anchor_widget``.
 
@@ -149,11 +150,24 @@ class _FlyoutPlacementApi:
         already interacting with — a content-free flyout falls back to
         focusing itself, which silently breaks any further keyboard
         interaction with the widget the user was just on.
+
+        ``register_nav_section`` defaults to ``None``, which just follows
+        ``grab_focus`` (existing behavior: registering and grabbing are the
+        same decision). Pass ``True`` together with ``grab_focus=False`` for
+        a flyout that must not steal focus but should still be reachable —
+        arrow keys can move into its content and its own Escape/Enter
+        handling still applies — instead of being invisible to keyboard
+        navigation the way a true ``grab_focus=False`` popup is.
         """
         # A pending fade-out must not survive a re-show (e.g. a rapid
         # click-to-toggle reopen mid-animation).
         self._fade.cancel(self)
         self._skip_focus_grab = not grab_focus
+        self._skip_nav_register = (
+            self._skip_focus_grab
+            if register_nav_section is None
+            else not register_nav_section
+        )
         self._last_align_kwargs = dict(
             anchor_widget=anchor_widget,
             anchor_point=anchor_point,

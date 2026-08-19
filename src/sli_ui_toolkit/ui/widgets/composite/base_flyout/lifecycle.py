@@ -176,14 +176,27 @@ class _FlyoutLifecycleApi:
         window = self.parent().window() if self.parent() else None
         self._window_active_on_show = bool(window is not None and window.isActiveWindow())
         QWidget.show(self)  # type: ignore[arg-type]
+        # show_aligned(grab_focus=False) sets _skip_focus_grab, which by
+        # default also skips nav-section registration -- a purely
+        # informational flyout (e.g. a value-preview pill) must not steal
+        # keyboard focus *or* arrow-key routing from whatever the user was
+        # already on. register_nav_section=True (also from show_aligned)
+        # opts a grab_focus=False flyout back into registration without
+        # grabbing focus -- for a flyout meant to read as a seamless
+        # extension of its anchor's own controls (e.g.
+        # MagnifierSettingsFlyout): the user keeps freely navigating the
+        # anchor's buttons, and can still arrow (Up/Down) or click into this
+        # flyout's own content, instead of arrow keys skipping over it
+        # entirely to whatever's next in the app's unrelated tab order.
+        skip_register = getattr(
+            self, "_skip_nav_register", getattr(self, "_skip_focus_grab", False)
+        )
+        if not skip_register:
+            # Register as a NavigationSection so arrow keys are routed here
+            # instead of to the underlying section.
+            self._register_nav_section()
         if getattr(self, "_skip_focus_grab", False):
-            # show_aligned(grab_focus=False): a purely informational flyout
-            # (e.g. a value-preview pill) must not steal keyboard focus or
-            # arrow-key routing from whatever the user was already on.
             return
-        # Register as a NavigationSection so arrow keys are routed here
-        # instead of to the underlying section.
-        self._register_nav_section()
         # Grab keyboard focus.  Walk the parent chain and temporarily
         # weaken any StrongFocus ancestor so Qt's focus chain doesn't
         # redirect focus away from the flyout.
@@ -246,15 +259,18 @@ class _FlyoutLifecycleApi:
         )
 
     @staticmethod
-    def _first_focusable(widget: QWidget) -> QWidget | None:
-        """Return the first leaf StrongFocus descendant in layout order,
-        or ``None``.
+    def _first_focusable(widget: QWidget, *, reverse: bool = False) -> QWidget | None:
+        """Return the first (or, with ``reverse=True``, last) leaf
+        StrongFocus descendant in layout order, or ``None``.
 
         A "leaf" is a StrongFocus widget that has no StrongFocus children —
         this skips containers like QScrollArea and finds the actual
         interactive buttons/rows.
         """
-        for child in widget.findChildren(QWidget):
+        children = widget.findChildren(QWidget)
+        if reverse:
+            children = list(reversed(children))
+        for child in children:
             if child.focusPolicy() == Qt.FocusPolicy.StrongFocus:
                 has_strong_child = any(
                     c.focusPolicy() == Qt.FocusPolicy.StrongFocus
@@ -401,13 +417,33 @@ class _FlyoutNavigationSection:
             "[flyout-nav] navigate key=%s → delivered to %s (accepted=%s)",
             hex(key), type(self._flyout).__name__, event.isAccepted(),
         )
-        return True
+        # Reporting True unconditionally here used to trap Up/Down inside
+        # any flyout permanently: NavigationManager's own boundary hand-off
+        # to an adjacent registered section (_neighbor(), see
+        # navigation_manager.py) only triggers when the owning section
+        # *declines* the key by returning False. A flyout whose own
+        # keyPressEvent already moved focus to its next/previous internal
+        # control (or "clicked" a focused row on Enter) did accept the
+        # event, so this still reports True for those cases exactly as
+        # before -- it only starts reporting False once the flyout's own
+        # navigation runs out of children to move to, letting Up/Down
+        # escape back out at that boundary instead of being silently
+        # swallowed forever.
+        return event.isAccepted()
 
     def focus_first(self) -> bool:
-        return False
+        target = _FlyoutLifecycleApi._first_focusable(self._flyout)
+        if target is None:
+            return False
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
 
     def focus_last(self) -> bool:
-        return False
+        target = _FlyoutLifecycleApi._first_focusable(self._flyout, reverse=True)
+        if target is None:
+            return False
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
 
     @property
     def extra_keys(self) -> frozenset[int]:
