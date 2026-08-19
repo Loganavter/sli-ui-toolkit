@@ -46,7 +46,6 @@ class _FlyoutLifecycleApi:
             self._fade.hide_fade_in_progress,
             self._fade.should_fade_out(self),
         )
-        self._unregister_nav_section()
         # Debug aid: every flyout close funnels through here (explicit
         # start_closing_animation, FlyoutManager passive dismiss / close_all,
         # host calls), so logging the caller stack shows WHO closed it.
@@ -85,6 +84,16 @@ class _FlyoutLifecycleApi:
         # resulting in an intermediate CsdMenuTrigger flash. Restoring
         # before hide avoids this.
         self._restore_focus_policies()
+        # _unregister_nav_section() clears window.setFocusProxy(self)
+        # synchronously, which makes Qt fall back to focusing the window's
+        # first tab-order widget (CsdMenuTrigger) right then and there. It
+        # used to run at the top of hide(), well before this method's fade
+        # animation finishes -- so that fallback focus jump happened first,
+        # and _restore_focus_policies() above only corrected it ~100ms
+        # later once the fade completed, producing a visible CsdMenuTrigger
+        # flash on every keyboard-driven close (e.g. Escape). Running it
+        # after the restore closes that window.
+        self._unregister_nav_section()
         QWidget.hide(self)  # type: ignore[arg-type]
 
         # hide() already called request_hide once (before the fade); re-run it
