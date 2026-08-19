@@ -218,7 +218,7 @@ class NavigationManager(QObject):
             # (OtherFocusReason / TabFocusReason / ActiveWindowFocusReason)
             # so flyouts can query it at open time.
             reason = event.reason()
-            widget = event.widget()
+            widget = obj if isinstance(obj, QWidget) else None
             if reason in (
                 Qt.FocusReason.MouseFocusReason,
                 Qt.FocusReason.MenuBarFocusReason,

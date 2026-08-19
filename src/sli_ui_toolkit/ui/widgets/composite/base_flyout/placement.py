@@ -32,6 +32,8 @@ from sli_ui_toolkit.ui.in_window_surface import (
     surface_available_rect,
 )
 
+from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+
 from .animation import resolve_flyout_animation
 from .geometry import AnimationAxis, aligned_flyout_rect, slide_start_delta
 
@@ -150,23 +152,19 @@ class _FlyoutPlacementApi:
         )
         self._anchor_widget = anchor_widget
         # Determine keyboard-focus state of the trigger.
-        # Prefer explicit focus_reason parameter, then the anchor widget's
-        # persisted _last_focus_reason (survives CSD title bar clearing
-        # _keyboard_focus), then _keyboard_focus itself.
+        # Prefer explicit focus_reason parameter, then NavigationManager's
+        # app-wide FocusIn tracking (survives CSD title bar clearing
+        # _keyboard_focus between signal emission and this call), then
+        # _keyboard_focus itself.
         if focus_reason is not None:
             self._anchor_keyboard_focus = focus_reason not in (
                 Qt.FocusReason.MouseFocusReason,
                 Qt.FocusReason.MenuBarFocusReason,
             )
+        elif NavigationManager.get_instance().last_keyboard_focus() is anchor_widget:
+            self._anchor_keyboard_focus = True
         else:
-            raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
-            if raw_reason is not None:
-                self._anchor_keyboard_focus = raw_reason not in (
-                    Qt.FocusReason.MouseFocusReason,
-                    Qt.FocusReason.MenuBarFocusReason,
-                )
-            else:
-                self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+            self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
 
         self.flyout_manager.request_show(self)
