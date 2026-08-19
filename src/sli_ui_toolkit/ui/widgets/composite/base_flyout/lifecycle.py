@@ -145,6 +145,9 @@ class _FlyoutLifecycleApi:
         fm = getattr(self, "flyout_manager", None)
         if fm is not None:
             fm.request_show(self)
+        # Capture focus BEFORE register/setFocusProxy — they redirect focus
+        # to the flyout, losing the original trigger widget.
+        self._previous_focus_widget = QApplication.focusWidget()
         window = self.parent().window() if self.parent() else None
         self._window_active_on_show = bool(window is not None and window.isActiveWindow())
         QWidget.show(self)  # type: ignore[arg-type]
@@ -178,11 +181,6 @@ class _FlyoutLifecycleApi:
         extra navigation step.  Falls back to ``self.setFocus()`` when
         no focusable child is found.
         """
-        self._previous_focus_widget = QApplication.focusWidget()
-        logger.debug(
-            "[flyout-nav] _grab_focus: saved previous_focus=%s",
-            type(self._previous_focus_widget).__name__ if self._previous_focus_widget else None,
-        )
         self._weakened_focus_ancestors: list[tuple[QWidget, Qt.FocusPolicy]] = []
         w = self.parentWidget()
         while w is not None:
@@ -204,11 +202,21 @@ class _FlyoutLifecycleApi:
 
     @staticmethod
     def _first_focusable(widget: QWidget) -> QWidget | None:
-        """Return the first StrongFocus descendant in layout order,
-        or ``None``."""
+        """Return the first leaf StrongFocus descendant in layout order,
+        or ``None``.
+
+        A "leaf" is a StrongFocus widget that has no StrongFocus children —
+        this skips containers like QScrollArea and finds the actual
+        interactive buttons/rows.
+        """
         for child in widget.findChildren(QWidget):
             if child.focusPolicy() == Qt.FocusPolicy.StrongFocus:
-                return child
+                has_strong_child = any(
+                    c.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                    for c in child.findChildren(QWidget)
+                )
+                if not has_strong_child:
+                    return child
         return None
 
     def _restore_focus_policies(self) -> None:

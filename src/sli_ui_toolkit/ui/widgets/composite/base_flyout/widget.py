@@ -23,7 +23,7 @@ from PySide6.QtCore import (
     QVariantAnimation,
 )
 from PySide6.QtGui import QBrush, QColor, QPixmap
-from PySide6.QtWidgets import QRhiWidget, QWidget
+from PySide6.QtWidgets import QApplication, QRhiWidget, QWidget
 
 from sli_ui_toolkit.managers import FlyoutManager
 from sli_ui_toolkit.theme import ThemeManager
@@ -167,11 +167,51 @@ class BaseFlyout(
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape:
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
             self.hide()
             event.accept()
             return
+        if key in (
+            Qt.Key.Key_Up, Qt.Key.Key_Down,
+            Qt.Key.Key_Left, Qt.Key.Key_Right,
+        ):
+            if self._navigate_focusable(key):
+                event.accept()
+                return
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            focused = QApplication.focusWidget()
+            if focused is not None and focused is not self:
+                from PySide6.QtWidgets import QAbstractButton
+                if isinstance(focused, QAbstractButton):
+                    focused.click()
+                    event.accept()
+                    return
         super().keyPressEvent(event)
+
+    def _navigate_focusable(self, key: int) -> bool:
+        """Move focus to the next/previous StrongFocus child.
+
+        Returns ``True`` if focus was moved, ``False`` to yield.
+        """
+        children = [
+            c for c in self.findChildren(QWidget)
+            if (
+                c.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                and c.isVisible()
+                and c.isEnabled()
+            )
+        ]
+        if not children:
+            return False
+        focused = QApplication.focusWidget()
+        idx = next((i for i, c in enumerate(children) if c is focused), None)
+        if key in (Qt.Key.Key_Down, Qt.Key.Key_Right):
+            target = children[(idx + 1) % len(children)] if idx is not None else children[0]
+        else:
+            target = children[(idx - 1) % len(children)] if idx is not None else children[-1]
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
 
     def eventFilter(self, obj, event):  # noqa: N802 — Qt API
         if (
