@@ -1,9 +1,8 @@
 """Unified widget self-description.
 
-Single source of truth that replaces three parallel systems:
+Single source of truth that replaces two parallel systems:
 
 - ``InspectSpec`` (UI inspector) → ``inspect`` section
-- ``NavigationSpec`` (arrow-key nav) → ``navigation`` section
 - ``ActionTarget`` / ``ActionDescriptor`` (command palette) → ``action`` section
 
 Widget classes attach a ``WidgetDescriptor`` as a class attribute::
@@ -13,7 +12,6 @@ Widget classes attach a ``WidgetDescriptor`` as a class attribute::
             family="MyWidget",
             label="My Widget",
             inspect=InspectSection(state=(...)),
-            navigation=NavigationSection(navigate=..., focus_first=...),
             action=ActionSection(run=..., shortcut="Ctrl+M"),
         )
 
@@ -25,8 +23,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable
-
-from PySide6.QtCore import QObject
 
 logger = logging.getLogger(__name__)
 
@@ -49,19 +45,6 @@ class InspectSection:
     docs: str = ""
     preview_seed: Callable[[Any, Any], None] | None = None
     apply_config_refresh: Callable[[Any, tuple[str, ...]], None] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NavigationSection:
-    """How arrow-key navigation works within this widget.
-
-    ``navigate(key, widget)``: handle arrow key while *widget* is focused.
-    Return True if consumed, False to yield to adjacent section.
-    """
-
-    navigate: Callable[[int, QObject], bool]
-    focus_first: Callable[[], bool]
-    focus_last: Callable[[], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,9 +82,6 @@ class WidgetDescriptor:
 
     #: Inspector section — state/config for the UI inspector.
     inspect: InspectSection | None = None
-
-    #: Navigation section — arrow-key routing.
-    navigation: NavigationSection | None = None
 
     #: Action section — command palette / shortcut.
     action: ActionSection | None = None
@@ -191,14 +171,6 @@ class WidgetRegistry:
     def all_descriptors(self) -> list[WidgetDescriptor]:
         return list(self._descriptors.values())
 
-    def navigable(self) -> list[tuple[str, WidgetDescriptor]]:
-        """All descriptors with a navigation section, in registration order."""
-        return [
-            (family, desc)
-            for family, desc in self._descriptors.items()
-            if desc.navigation is not None
-        ]
-
     def searchable(self) -> list[tuple[str, WidgetDescriptor]]:
         """All descriptors with an action section, for command palette."""
         return [
@@ -220,7 +192,7 @@ def widget_descriptor(descriptor: WidgetDescriptor) -> Callable[[type], type]:
 
         @widget_descriptor(WidgetDescriptor(
             family="MyWidget",
-            navigation=NavigationSection(...),
+            action=ActionSection(run=..., shortcut="Ctrl+M"),
         ))
         class MyWidget(QWidget):
             ...
