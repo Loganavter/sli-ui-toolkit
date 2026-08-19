@@ -17,6 +17,7 @@ from sli_ui_toolkit.ui.managers.navigation_manager import (
     NavigationManager,
     NavigationSection,
 )
+from sli_ui_toolkit.ui.managers.navigation_sections import ToolbarRowsSection
 from sli_ui_toolkit.ui.managers.settle_gate import SettleGate
 from sli_ui_toolkit.ui.managers.theme_manager import ThemeManager
 from sli_ui_toolkit.ui.widget_descriptor import (
@@ -58,6 +59,7 @@ __all__ = [
     "NavigationSection",
     "SettleGate",
     "ThemeManager",
+    "ToolbarRowsSection",
     "WidgetDescriptor",
     "WidgetRegistry",
     "widget_descriptor",

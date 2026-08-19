@@ -167,6 +167,11 @@ class _FlyoutLifecycleApi:
         window = self.parent().window() if self.parent() else None
         self._window_active_on_show = bool(window is not None and window.isActiveWindow())
         QWidget.show(self)  # type: ignore[arg-type]
+        if getattr(self, "_skip_focus_grab", False):
+            # show_aligned(grab_focus=False): a purely informational flyout
+            # (e.g. a value-preview pill) must not steal keyboard focus or
+            # arrow-key routing from whatever the user was already on.
+            return
         # Register as a NavigationSection so arrow keys are routed here
         # instead of to the underlying section.
         self._register_nav_section()

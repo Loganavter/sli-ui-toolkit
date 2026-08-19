@@ -98,6 +98,7 @@ class _FlyoutPlacementApi:
         animation_axis: AnimationAxis = "auto",
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
         focus_reason: Qt.FocusReason | None = None,
+        grab_focus: bool = True,
     ):
         """Align a point on the flyout to a point on ``anchor_widget``.
 
@@ -139,10 +140,20 @@ class _FlyoutPlacementApi:
               across a single vector like ``"auto"``) — for a corner-aligned
               flyout where you want a clearly visible slide on both axes
               regardless of how the anchor/flyout sizes compare.
+
+        ``grab_focus`` defaults to ``True`` (existing behavior — the flyout
+        takes keyboard focus, landing on its first focusable child or, if it
+        has none, on the flyout itself). Pass ``False`` for a purely
+        informational popup (e.g. a value-preview pill with no interactive
+        content) that must not steal focus from whatever the user was
+        already interacting with — a content-free flyout falls back to
+        focusing itself, which silently breaks any further keyboard
+        interaction with the widget the user was just on.
         """
         # A pending fade-out must not survive a re-show (e.g. a rapid
         # click-to-toggle reopen mid-animation).
         self._fade.cancel(self)
+        self._skip_focus_grab = not grab_focus
         self._last_align_kwargs = dict(
             anchor_widget=anchor_widget,
             anchor_point=anchor_point,
@@ -354,8 +365,11 @@ class _FlyoutPlacementApi:
             return
         # reposition() forces animation="none" (a no-animation replay), but
         # that must not reset the flyout's close animation — a fade-shown HUD
-        # should still fade out on hide after being repositioned.
+        # should still fade out on hide after being repositioned. Likewise
+        # a flyout shown with grab_focus=False must not have this re-grab
+        # focus just because reposition()'s call doesn't pass it along.
         fade_out = self._fade.fade_out_enabled
+        grab_focus = not getattr(self, "_skip_focus_grab", False)
         self.show_aligned(
             anchor_widget,
             kwargs.get("anchor_point", "bottom-center"),
@@ -363,6 +377,7 @@ class _FlyoutPlacementApi:
             position=kwargs.get("position"),
             offset=kwargs.get("offset", 5),
             animation="none",
+            grab_focus=grab_focus,
         )
         self._fade.fade_out_enabled = fade_out
 
