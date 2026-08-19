@@ -258,7 +258,7 @@ class _FlyoutLifecycleApi:
             prev.isEnabled() if prev else None,
         )
         if prev is not None and prev.isVisible() and prev.isEnabled():
-            prev.setFocus(Qt.FocusReason.MouseFocusReason)
+            prev.setFocus(Qt.FocusReason.OtherFocusReason)
             QApplication.processEvents()
             actual_after = QApplication.focusWidget()
             logger.debug(

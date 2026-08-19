@@ -12,7 +12,10 @@ attach_capability) получают wheel-события без хардкода
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 import shiboken6 as sip
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
@@ -264,11 +267,19 @@ class _ButtonEvents:
             Qt.FocusReason.MouseFocusReason,
             Qt.FocusReason.MenuBarFocusReason,
         )
+        logger.debug(
+            "[button-focus] %s focusIn reason=%s keyboard_focus=%s",
+            type(self).__name__, reason, self._keyboard_focus,
+        )
         self.update()
         from PySide6.QtWidgets import QWidget
         QWidget.focusInEvent(self, event)
 
     def focusOutEvent(self, event):
+        logger.debug(
+            "[button-focus] %s focusOut keyboard_focus=False",
+            type(self).__name__,
+        )
         self._keyboard_focus = False
         self.update()
         from PySide6.QtWidgets import QWidget
