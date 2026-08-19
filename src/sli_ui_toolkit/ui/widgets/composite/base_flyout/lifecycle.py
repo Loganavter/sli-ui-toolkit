@@ -19,6 +19,15 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 
+def _is_alive_and_enabled(widget: QWidget | None) -> bool:
+    if widget is None:
+        return False
+    try:
+        return bool(widget.isVisible() and widget.isEnabled())
+    except RuntimeError:
+        return False
+
+
 class _FlyoutLifecycleApi:
     """Mixin: hide / show / raise_ overrides + the real-hide completion.
 
@@ -323,10 +332,15 @@ class _FlyoutLifecycleApi:
         weakened.clear()
         # Prefer _anchor_widget (the explicit trigger passed to show_aligned)
         # over _previous_focus_widget (QApplication.focusWidget() at show()
-        # time — may already be MainWindow if focus shifted).
+        # time — may already be MainWindow if focus shifted). Either can
+        # reference a widget whose underlying C++ object was since deleted
+        # (e.g. its host tore down while this flyout was still open) --
+        # querying isVisible()/isEnabled() on that raises RuntimeError from
+        # shiboken rather than returning False, so guard both like
+        # InterpolationFlyoutController._is_alive_and_visible does.
         anchor = getattr(self, "_anchor_widget", None)
         prev = getattr(self, "_previous_focus_widget", None)
-        target = anchor if (anchor is not None and anchor.isVisible() and anchor.isEnabled()) else prev
+        target = anchor if _is_alive_and_enabled(anchor) else prev
         actual_before = QApplication.focusWidget()
         logger.debug(
             "[flyout-nav] _restore_focus_policies: anchor=%s prev=%s target=%s actual_before=%s",
@@ -335,7 +349,7 @@ class _FlyoutLifecycleApi:
             type(target).__name__ if target else None,
             type(actual_before).__name__ if actual_before else None,
         )
-        if target is not None and target.isVisible() and target.isEnabled():
+        if _is_alive_and_enabled(target):
             # OtherFocusReason unconditionally would light up the keyboard
             # focus ring on the trigger even when the flyout closed because
             # of an outside mouse click — key off whether the user is

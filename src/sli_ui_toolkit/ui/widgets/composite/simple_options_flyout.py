@@ -460,6 +460,21 @@ class SimpleOptionsFlyout(BaseFlyout):
             return
 
         self._anchor_widget = anchor_widget
+        # Mirrors BaseFlyout.show_aligned's keyboard-vs-mouse trigger check
+        # (see there for the full rationale) -- _grab_focus reads this flag
+        # to pick OtherFocusReason (draws the ring) vs MouseFocusReason
+        # (suppresses it). Without it, the flag stays at its getattr default
+        # of False even when Enter/Space opened this dropdown, so the first
+        # row grabs focus silently and no ring appears until an arrow key
+        # explicitly moves focus (which does set OtherFocusReason itself).
+        raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+        if raw_reason is not None:
+            self._anchor_keyboard_focus = raw_reason not in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+            )
+        else:
+            self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
         self.flyout_manager.request_show(self)
 
@@ -618,9 +633,16 @@ class SimpleOptionsFlyout(BaseFlyout):
             self._fade.set_opacity(self, 0.0)
 
         # Prefer QWidget.show so BaseFlyout registration / active state stay in
-        # sync (request_show already ran above; BaseFlyout.show would re-enter).
+        # sync (request_show already ran above; BaseFlyout.show would re-enter
+        # it). But BaseFlyout.show() is also where nav-section registration
+        # and keyboard-focus grabbing happen -- skipping it entirely left a
+        # show_below()'d flyout (e.g. the interpolation dropdown) visible but
+        # invisible to keyboard nav: Tab/arrows never delivered a single key
+        # to it and it never took focus, so the user could open it but never
+        # reach its rows without a mouse. Redo just those two steps here.
         from PySide6.QtWidgets import QWidget as _QWidget
 
+        self._previous_focus_widget = QApplication.focusWidget()
         _QWidget.show(self)
         self.raise_()
 
@@ -629,6 +651,14 @@ class SimpleOptionsFlyout(BaseFlyout):
                 "SimpleOptionsFlyout: Widget failed to become visible after show()"
             )
             self.show()
+
+        if not getattr(self, "_skip_nav_register", False):
+            self._register_nav_section()
+        if not getattr(self, "_skip_focus_grab", False):
+            self._grab_focus()
+            w = self.window()
+            if w is not None and not w.isActiveWindow():
+                w.activateWindow()
 
         QApplication.processEvents()
 
