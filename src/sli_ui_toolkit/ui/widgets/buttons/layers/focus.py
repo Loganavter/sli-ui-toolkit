@@ -8,6 +8,8 @@ click does not flash the ring while Tab/arrow navigation does.
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
@@ -17,13 +19,24 @@ from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from ..context import DrawContext
 from ._base import Layer
 
+logger = logging.getLogger(__name__)
+
 
 class FocusLayer(Layer):
     scope = "widget"
 
     def applies(self, ctx: DrawContext) -> bool:
         widget = ctx.widget
-        return bool(getattr(widget, "_keyboard_focus", False)) and widget.hasFocus()
+        result = bool(getattr(widget, "_keyboard_focus", False)) and widget.hasFocus()
+        if result:
+            logger.debug(
+                "[focus-ring] applies! widget=%s(%s) keyboard_focus=%s hasFocus=%s",
+                type(widget).__name__,
+                getattr(widget, "objectName", lambda: "")() or "",
+                getattr(widget, "_keyboard_focus", None),
+                widget.hasFocus(),
+            )
+        return result
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
         factor = UiScale.get_instance().factor()

@@ -164,9 +164,10 @@ class _FlyoutLifecycleApi:
         # to the flyout, losing the original trigger widget.
         self._previous_focus_widget = QApplication.focusWidget()
         logger.debug(
-            "[flyout-nav] show() _previous_focus_widget=%s anchor_widget=%s",
+            "[flyout-nav] show() _previous_focus_widget=%s anchor_widget=%s anchor_kbd=%s",
             type(self._previous_focus_widget).__name__ if self._previous_focus_widget else None,
             type(getattr(self, "_anchor_widget", None)).__name__ if getattr(self, "_anchor_widget", None) else None,
+            getattr(self, "_anchor_keyboard_focus", None),
         )
         window = self.parent().window() if self.parent() else None
         self._window_active_on_show = bool(window is not None and window.isActiveWindow())
@@ -209,15 +210,23 @@ class _FlyoutLifecycleApi:
                 w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             w = w.parentWidget()
         target = self._first_focusable(self)
+        # If the trigger had keyboard focus (arrow/Tab navigation), grant
+        # the first child an OtherFocusReason so the focus ring is drawn
+        # inside the flyout.  Mouse-opened flyouts keep MouseFocusReason
+        # to suppress the ring.
+        anchor_kbd = getattr(self, "_anchor_keyboard_focus", False)
+        reason = Qt.FocusReason.OtherFocusReason if anchor_kbd else Qt.FocusReason.MouseFocusReason
         if target is not None:
-            target.setFocus(Qt.FocusReason.MouseFocusReason)
+            target.setFocus(reason)
         else:
-            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            self.setFocus(reason)
 
         logger.debug(
-            "[flyout-nav] _grab_focus weakened=%d target=%s",
+            "[flyout-nav] _grab_focus weakened=%d target=%s reason=%s anchor_kbd=%s",
             len(self._weakened_focus_ancestors),
             type(target).__name__ if target else "self",
+            reason.name,
+            anchor_kbd,
         )
 
     @staticmethod

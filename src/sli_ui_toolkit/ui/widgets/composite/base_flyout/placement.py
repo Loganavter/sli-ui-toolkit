@@ -95,6 +95,7 @@ class _FlyoutPlacementApi:
         animation_distance: int | None = None,
         animation_axis: AnimationAxis = "auto",
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
+        focus_reason: Qt.FocusReason | None = None,
     ):
         """Align a point on the flyout to a point on ``anchor_widget``.
 
@@ -148,6 +149,15 @@ class _FlyoutPlacementApi:
             offset=offset,
         )
         self._anchor_widget = anchor_widget
+        # Snapshot keyboard-focus state of the trigger NOW, before
+        # request_show / show / setFocusProxy shift focus and clear it.
+        if focus_reason is not None:
+            self._anchor_keyboard_focus = focus_reason not in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+            )
+        else:
+            self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
 
         self.flyout_manager.request_show(self)
