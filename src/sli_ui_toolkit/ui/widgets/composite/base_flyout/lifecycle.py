@@ -161,12 +161,15 @@ class _FlyoutLifecycleApi:
         ``self._weakened_focus_ancestors`` so they can be restored in
         :meth:`_finish_hide` — no timers, no deferred hacks.
 
-        Uses ``setFocusProxy`` to redirect focus to the first focusable
-        child (StrongFocus descendant) instead of the flyout container
-        itself, skipping the extra navigation step — same pattern as the
-        CSD title bar.  Falls back to ``self.setFocus()`` when no
-        focusable child is found.
+        Saves the previously focused widget so :meth:`_finish_hide` can
+        restore focus to it.
+
+        Focuses the first focusable child (StrongFocus descendant)
+        directly instead of the flyout container itself, skipping the
+        extra navigation step.  Falls back to ``self.setFocus()`` when
+        no focusable child is found.
         """
+        self._previous_focus_widget = QApplication.focusWidget()
         self._weakened_focus_ancestors: list[tuple[QWidget, Qt.FocusPolicy]] = []
         w = self.parentWidget()
         while w is not None:
@@ -176,28 +179,20 @@ class _FlyoutLifecycleApi:
             w = w.parentWidget()
         target = self._first_focusable(self)
         if target is not None:
-            self.setFocusProxy(target)
-            self.setFocus(Qt.FocusReason.OtherFocusReason)
+            target.setFocus(Qt.FocusReason.OtherFocusReason)
         else:
             self.setFocus(Qt.FocusReason.OtherFocusReason)
 
-        actual = QApplication.focusWidget()
         logger.debug(
-            "[flyout-nav] _grab_focus weakened=%d target=%s actual=%s",
+            "[flyout-nav] _grab_focus weakened=%d target=%s",
             len(self._weakened_focus_ancestors),
             type(target).__name__ if target else "self",
-            type(actual).__name__ if actual else None,
         )
 
     @staticmethod
     def _first_focusable(widget: QWidget) -> QWidget | None:
         """Return the first StrongFocus descendant in layout order,
-        or ``None``.
-
-        Unlike ``isVisible()`` checks, this finds children that are
-        registered in the layout and will be visible once the event
-        loop processes the show.
-        """
+        or ``None``."""
         for child in widget.findChildren(QWidget):
             if child.focusPolicy() == Qt.FocusPolicy.StrongFocus:
                 return child
@@ -208,6 +203,7 @@ class _FlyoutLifecycleApi:
 
         Called from :meth:`_finish_hide` so the window regains StrongFocus
         only after the flyout is actually gone — not on a timer.
+        Restores focus to the widget that had it before the flyout opened.
         """
         weakened = getattr(self, "_weakened_focus_ancestors", None)
         if weakened is None:
@@ -215,6 +211,9 @@ class _FlyoutLifecycleApi:
         for w, policy in weakened:
             w.setFocusPolicy(policy)
         weakened.clear()
+        prev = getattr(self, "_previous_focus_widget", None)
+        if prev is not None and prev.isVisible() and prev.isEnabled():
+            prev.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _register_nav_section(self) -> None:
         from sli_ui_toolkit.managers import NavigationManager

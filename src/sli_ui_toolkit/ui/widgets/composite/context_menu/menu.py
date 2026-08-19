@@ -276,6 +276,7 @@ class ContextMenu(BaseFlyout):
         if isinstance(item, _SectionTitle):
             return SectionTitleRow(item.text, self.container)
         row = ContextMenuRow(item, check_gutter=check_gutter, parent=self.container)
+        row._spec = item
         row.clicked.connect(lambda checked=False, r=row, spec=item: self._on_row_clicked(r, spec))
         row.installEventFilter(self)
         self._rows.append(row)
