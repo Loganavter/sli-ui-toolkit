@@ -141,9 +141,19 @@ class NavigationManager(QObject):
         if owner not in [o for o, _ in self._sections]:
             self._sections.append((owner, spec))
             self._install_event_filter()
+            logger.debug(
+                "[nav] registered section %s (owner=%s) total=%d",
+                type(spec).__name__, type(owner).__name__, len(self._sections),
+            )
 
     def unregister(self, owner: QObject) -> None:
+        prev_count = len(self._sections)
         self._sections = [(o, s) for o, s in self._sections if o is not owner]
+        if len(self._sections) != prev_count:
+            logger.debug(
+                "[nav] unregistered section %s total=%d",
+                type(owner).__name__, len(self._sections),
+            )
         if not self._sections:
             self._uninstall_event_filter()
 
@@ -192,6 +202,16 @@ class NavigationManager(QObject):
 
         key = event.key()
         _debug = logger.isEnabledFor(logging.DEBUG)
+
+        if _debug and key in _ARROWS:
+            focused = QApplication.focusWidget()
+            logger.debug(
+                "[nav] eventFilter key=%s focused=%s sections=%d %s",
+                _key_name(key),
+                type(focused).__name__ if focused else None,
+                len(self._sections),
+                [(type(s).__name__, type(o).__name__) for o, s in self._sections],
+            )
 
         if key not in _ARROWS:
             # Not an arrow — only intercept if a section that owns the
@@ -260,6 +280,13 @@ class NavigationManager(QObject):
                             type(neighbor[0]).__name__,
                         )
                     return True
+                if _debug:
+                    idx = self._section_index(owner)
+                    logger.debug(
+                        "[nav] no neighbor DOWN for %s idx=%s sections=%s",
+                        type(owner).__name__, idx,
+                        [(type(o).__name__, id(o)) for o, _ in self._sections],
+                    )
             elif key in _EXIT_UP:
                 neighbor = self._neighbor(owner, -1)
                 if neighbor is not None and neighbor[1].focus_last():
@@ -272,6 +299,13 @@ class NavigationManager(QObject):
                             type(neighbor[0]).__name__,
                         )
                     return True
+                if _debug:
+                    idx = self._section_index(owner)
+                    logger.debug(
+                        "[nav] no neighbor UP for %s idx=%s sections=%s",
+                        type(owner).__name__, idx,
+                        [(type(o).__name__, id(o)) for o, _ in self._sections],
+                    )
 
             # Section declined and no neighbor took over — consume
             # Up/Down to prevent infinite re-delivery by Qt.
