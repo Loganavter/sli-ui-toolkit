@@ -112,6 +112,25 @@ class NavigationManager(QObject):
     # Public API
     # ------------------------------------------------------------------
 
+    def should_intercept(self, key: int, focused: QWidget | None = None) -> bool:
+        """Return ``True`` if a registered section wants to intercept *key*.
+
+        Checks whether any section that owns *focused* (or
+        ``QApplication.focusWidget()`` when *focused* is ``None``) has
+        *key* in its ``extra_keys``.  Use this in app-level event
+        handlers to decide whether to yield a key to the navigation
+        system instead of consuming it locally.
+        """
+        if focused is None:
+            focused = QApplication.focusWidget()
+        if focused is None:
+            return False
+        return any(
+            key in getattr(spec, "extra_keys", frozenset())
+            for _owner, spec in self._sections
+            if spec.owns(focused)
+        )
+
     def register(self, owner: QObject, spec: NavigationSection | None = None) -> None:
         """Register a navigation section.
 
@@ -201,21 +220,11 @@ class NavigationManager(QObject):
         self._event_filter_installed = False
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        _debug = logger.isEnabledFor(logging.DEBUG)
-
-        if _debug and event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            if key == Qt.Key.Key_Escape:
-                logger.debug(
-                    "[nav] eventFilter HIT: Escape obj=%s focused=%s",
-                    type(obj).__name__,
-                    type(QApplication.focusWidget()).__name__ if QApplication.focusWidget() else None,
-                )
-
         if event.type() != QEvent.Type.KeyPress:
             return False
 
         key = event.key()
+        _debug = logger.isEnabledFor(logging.DEBUG)
 
         if key not in _ARROWS:
             # Not an arrow — only intercept if a section that owns the

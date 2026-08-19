@@ -53,6 +53,7 @@ from .controller import ButtonController
 from .context import DrawContext
 from .events import _ButtonEvents
 from .layers._base import Layer
+from .layers.focus import FocusLayer
 from .layers.overlay import OverlayPainterCallback, OverlayPainterLayer
 from .layers.ripple import RippleEffect
 from .feedback import (
@@ -405,6 +406,14 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             final_layers = default_layers() + effective_extra
         else:
             final_layers = None
+
+        # FocusLayer is always required for keyboard focus ring rendering.
+        # Append it automatically when not already present so subclasses
+        # that pass custom layers don't lose focus ring behavior.
+        if final_layers is not None and not any(
+            isinstance(l, FocusLayer) for l in final_layers
+        ):
+            final_layers.append(FocusLayer())
 
         self._painter = Painter(self.theme_manager, layers=final_layers)
         self._ripple = RippleEffect(self)

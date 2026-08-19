@@ -172,6 +172,9 @@ class InspectorController(QObject):
                 self._window.hide()
             return True
         if key == Qt.Key.Key_Escape and self._enabled:
+            from sli_ui_toolkit.managers import NavigationManager
+            if NavigationManager.get_instance().should_intercept(Qt.Key.Key_Escape):
+                return False
             logger.debug("Escape: clearing selection")
             self._reset_selection()
             return True

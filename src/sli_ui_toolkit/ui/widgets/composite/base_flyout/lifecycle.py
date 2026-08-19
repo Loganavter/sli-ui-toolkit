@@ -160,6 +160,12 @@ class _FlyoutLifecycleApi:
         Weakens every StrongFocus ancestor to NoFocus and stores them on
         ``self._weakened_focus_ancestors`` so they can be restored in
         :meth:`_finish_hide` — no timers, no deferred hacks.
+
+        Uses ``setFocusProxy`` to redirect focus to the first focusable
+        child (StrongFocus descendant) instead of the flyout container
+        itself, skipping the extra navigation step — same pattern as the
+        CSD title bar.  Falls back to ``self.setFocus()`` when no
+        focusable child is found.
         """
         self._weakened_focus_ancestors: list[tuple[QWidget, Qt.FocusPolicy]] = []
         w = self.parentWidget()
@@ -168,15 +174,34 @@ class _FlyoutLifecycleApi:
                 self._weakened_focus_ancestors.append((w, w.focusPolicy()))
                 w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             w = w.parentWidget()
-        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        target = self._first_focusable(self)
+        if target is not None:
+            self.setFocusProxy(target)
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
+        else:
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
 
         actual = QApplication.focusWidget()
         logger.debug(
-            "[flyout-nav] _grab_focus weakened=%d actual=%s is_self=%s",
+            "[flyout-nav] _grab_focus weakened=%d target=%s actual=%s",
             len(self._weakened_focus_ancestors),
+            type(target).__name__ if target else "self",
             type(actual).__name__ if actual else None,
-            actual is self,
         )
+
+    @staticmethod
+    def _first_focusable(widget: QWidget) -> QWidget | None:
+        """Return the first StrongFocus descendant in layout order,
+        or ``None``.
+
+        Unlike ``isVisible()`` checks, this finds children that are
+        registered in the layout and will be visible once the event
+        loop processes the show.
+        """
+        for child in widget.findChildren(QWidget):
+            if child.focusPolicy() == Qt.FocusPolicy.StrongFocus:
+                return child
+        return None
 
     def _restore_focus_policies(self) -> None:
         """Restore focus policies of ancestors weakened by :meth:`_grab_focus`.
@@ -260,11 +285,11 @@ class _FlyoutNavigationSection:
 
     def owns(self, widget: QWidget) -> bool:
         result = widget is self._flyout or self._flyout.isAncestorOf(widget)
-        logger.debug(
-            "[flyout-nav] owns(%s) → %s (flyout=%s id_match=%s)",
-            type(widget).__name__, result, type(self._flyout).__name__,
-            widget is self._flyout,
-        )
+        if result:
+            logger.debug(
+                "[flyout-nav] owns(%s) → True (flyout=%s)",
+                type(widget).__name__, type(self._flyout).__name__,
+            )
         return result
 
     def navigate(self, key: int, widget: QWidget) -> bool:
