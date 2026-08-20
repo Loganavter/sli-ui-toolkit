@@ -125,12 +125,11 @@ class NavigationManager(QObject):
         self._extension_owners: dict[QWidget, QWidget] = {}
         self._event_filter_installed = False
         self._last_keyboard_focus: QWidget | None = None
-        # True until the first mouse click; flips on every MouseButtonPress
-        # / KeyPress after that. Lets focus-restore code (e.g. BaseFlyout
-        # closing after an outside click) pick MouseFocusReason vs
-        # OtherFocusReason based on how the user is *currently* driving the
-        # app, instead of hardcoding a keyboard reason regardless of cause.
-        self._last_input_keyboard: bool = True
+        # False until first keyboard input; flips on every MouseButtonPress
+        # / KeyPress after that. Prevents initial ActiveWindowFocusReason
+        # on first window show (CsdMenuTrigger) from flashing the focus ring
+        # before the user ever touched the keyboard (log 20:00:45 ActiveWindow).
+        self._last_input_keyboard: bool = False
         # Click-to-keyboard realign state (last click position, whether a
         # realign is still pending) -- see ClickRealignCoordinator's own
         # docstring in realign.py for the full rationale.

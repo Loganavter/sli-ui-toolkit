@@ -524,12 +524,19 @@ class _FlyoutNavigationSection:
     def navigate(self, key: int, widget: QWidget) -> bool:
         if key not in self._NAV_KEYS and key not in self._EXTRA_KEYS:
             return False
-        # PanelVisibilityFlyout: only intercept arrows after explicit Enter
+        # PanelVisibilityFlyout: only intercept Left/Right after explicit Enter,
+        # but always allow Up (at top) / Down (at bottom) to leave, even when
+        # not yet entered via Enter — otherwise the user is trapped inside
+        # after Down via extension_below with preview's _keyboard_navigation_active=False.
         if getattr(self._flyout, "flyout_group", None) == "toggle":
             if not getattr(self._flyout, "_keyboard_navigation_active", False):
-                # Not yet entered via Enter — let toolbar navigation handle arrows
-                if key in self._NAV_KEYS:
+                if key in (0x01000012, 0x01000014):  # Left/Right
                     return False
+                # For Up/Down, let the flyout's own _navigate_focusable decide
+                # if it's at the boundary (Up at top / Down at bottom) to return
+                # to the anchor. If not at boundary, don't intercept.
+                # Fall through to the normal handling below which will check
+                # _navigate_focusable and extension_owner.
         # Give the actually-focused descendant first refusal on the
         # non-arrow extra keys (Return/Enter/Escape) -- its own native
         # keyPressEvent may do something specific to it (a combo box

@@ -233,9 +233,23 @@ class BaseFlyout(
             # wrapping around its own content. Only flyouts that opted
             # into a link have an owner here, so unlinked flyouts keep
             # wrapping exactly as before.
+            # For PanelVisibility (toggle, single horizontal row) Up from *any*
+            # button should return to anchor (otherwise only leftmost can leave,
+            # bug seen as "only rightmost index can leave").
+            is_toggle = getattr(self, "flyout_group", None) == "toggle"
+            if is_toggle and key == Qt.Key.Key_Up:
+                from sli_ui_toolkit.managers import NavigationManager
+
+                owner = NavigationManager.get_instance().extension_owner(self)
+                if owner is not None:
+                    owner.setFocus(Qt.FocusReason.OtherFocusReason)
+                    return True
             at_top = idx is not None and idx == 0
             at_bottom = idx is not None and idx == len(children) - 1
             if (key == Qt.Key.Key_Up and at_top) or (key == Qt.Key.Key_Down and at_bottom):
+                # For toggle, Up already handled above; Down at last still needs owner return
+                if is_toggle and key == Qt.Key.Key_Up:
+                    return True  # already handled
                 from sli_ui_toolkit.managers import NavigationManager
 
                 owner = NavigationManager.get_instance().extension_owner(self)
