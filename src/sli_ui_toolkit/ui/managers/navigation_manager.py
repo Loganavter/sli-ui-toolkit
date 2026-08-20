@@ -539,15 +539,12 @@ class NavigationManager(QObject):
 
     @staticmethod
     def _nearest_focusable(owner: QWidget, pos) -> QWidget | None:
-        """Find the focusable descendant of *owner* closest to *pos*.
-
-        Used as a generic realign target when the section doesn't provide
-        ``focus_nearest``.  Picks the widget whose global center is
-        nearest to the click in any direction — no "above" bias, so
-        clicking on a shelf keeps focus on the shelf rather than jumping
-        to a card above it.
+        """Find the focusable descendant of *owner* closest to *pos*,
+        but only if the click is at or below the topmost candidate.
+        Clicks above all focusable widgets should not trigger a realign.
         """
-        click_y = pos.y()
+        local_pos = owner.mapFromGlobal(pos)
+        local_y = local_pos.y()
         candidates = [
             w
             for w in owner.findChildren(QWidget)
@@ -559,9 +556,18 @@ class NavigationManager(QObject):
         ]
         if not candidates:
             return None
+        topmost = min(
+            candidates,
+            key=lambda w: w.mapTo(owner, w.rect().center()).y(),
+        )
+        topmost_y = topmost.mapTo(owner, topmost.rect().center()).y()
+        if local_y < topmost_y:
+            return None
         best = min(
             candidates,
-            key=lambda w: abs(w.mapToGlobal(w.rect().center()).y() - click_y),
+            key=lambda w: abs(
+                w.mapTo(owner, w.rect().center()).y() - local_y
+            ),
         )
         return best
 
