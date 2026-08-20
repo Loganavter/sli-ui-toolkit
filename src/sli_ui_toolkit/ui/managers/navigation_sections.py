@@ -71,13 +71,20 @@ class ToolbarRowsSection:
 
     @staticmethod
     def _focusable(row: QWidget) -> list[QWidget]:
-        return [
+        # Sorted by on-screen x, not findChildren()'s construction/reparent
+        # order -- a widget added to the row's layout late (e.g. grouped
+        # into a sub-container after other buttons were already built) can
+        # sit anywhere in the QObject child list regardless of where it
+        # actually renders, which would make Left/Right jump to a screen
+        # position that doesn't match the arrow direction.
+        items = [
             c for c in row.findChildren(QWidget)
             if (
                 c.focusPolicy() == Qt.FocusPolicy.StrongFocus
                 and c.isVisible() and c.isEnabled()
             )
         ]
+        return sorted(items, key=lambda w: w.mapToGlobal(w.rect().center()).x())
 
     @staticmethod
     def _widget_handles(key: int, widget: QWidget) -> bool:

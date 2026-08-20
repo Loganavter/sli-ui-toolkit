@@ -198,7 +198,14 @@ class CustomTitleBar(
     # -- keyboard focus helpers --------------------------------------------
 
     def _focusable_buttons(self) -> list[QWidget]:
-        """Visible, enabled, StrongFocus children in layout order."""
+        """Visible, enabled, StrongFocus children sorted by on-screen x.
+
+        findChildren() order reflects construction/reparent order, not
+        layout position -- a button parented before being grouped into a
+        sub-container can land anywhere in the QObject child list
+        regardless of where it actually renders, which would make
+        focus_first_button()/focus_last_button() land on the wrong end.
+        """
         buttons: list[QWidget] = []
         for child in self.findChildren(QWidget):
             if (
@@ -209,7 +216,7 @@ class CustomTitleBar(
                 and child is not self
             ):
                 buttons.append(child)
-        return buttons
+        return sorted(buttons, key=lambda w: w.mapToGlobal(w.rect().center()).x())
 
     def _set_child_focus(self, child: QWidget) -> None:
         """Set keyboard focus on *child* via ``setFocusProxy``.
