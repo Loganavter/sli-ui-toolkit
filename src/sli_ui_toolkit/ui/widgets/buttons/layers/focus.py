@@ -25,7 +25,7 @@ from ._base import Layer
 # Gated on its own opt-in flag, off by default even under --debug -- same
 # convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
 logger = logging.getLogger(__name__)
-if os.environ.get("SLI_UI_NAV_DEBUG", "").strip().lower() in (
+if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
     "",
     "0",
     "false",
