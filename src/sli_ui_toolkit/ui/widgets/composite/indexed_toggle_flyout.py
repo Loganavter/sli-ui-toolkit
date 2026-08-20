@@ -110,14 +110,19 @@ class IndexedToggleFlyout(BaseFlyout):
         *,
         grab_focus: bool = True,
         register_nav_section: bool | None = None,
+        animation: str | None = None,
     ):
         def _do_show():
             self._anchor_button = anchor_btn
+            # In-app preview must be instant (animation="none") — same fix as
+            # slider_hint: fade snapshots hide children and would show an empty
+            # box while compositing; host default is "fade" (80ms).
+            resolved_anim = animation if animation is not None else self._default_animation
             self.show_aligned(
                 anchor_btn,
                 "top-center",
                 "bottom-center",
-                animation=self._default_animation,
+                animation=resolved_anim,
                 grab_focus=grab_focus,
                 register_nav_section=register_nav_section,
             )
