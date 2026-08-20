@@ -74,8 +74,30 @@ class AnchoredFlyoutAutoHide(QObject):
             return
 
         from PySide6.QtGui import QCursor
+        from PySide6.QtWidgets import QApplication
 
         cursor_pos = QCursor.pos()
+
+        # Keyboard navigation inside flyout — keep open even if cursor not over
+        try:
+            focused = QApplication.focusWidget()
+            if focused is not None and (
+                self._flyout.isAncestorOf(focused) or focused is self._flyout
+            ):
+                self.schedule(self._retry_ms)
+                return
+            anchor = self._anchor_getter()
+            if anchor is not None and focused is not None:
+                if anchor.isAncestorOf(focused) or focused is anchor:
+                    self.schedule(self._retry_ms)
+                    return
+            # PanelVisibilityFlyout opened via Enter — keep open while keyboard
+            # navigation is active, even if focus is on toolbar outside flyout
+            if getattr(self._flyout, "_keyboard_navigation_active", False):
+                self.schedule(self._retry_ms)
+                return
+        except Exception:
+            pass
 
         try:
             if self._flyout.contains_global(cursor_pos):
