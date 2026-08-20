@@ -9,6 +9,7 @@ click does not flash the ring while Tab/arrow navigation does.
 from __future__ import annotations
 
 import logging
+import os
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
@@ -19,7 +20,21 @@ from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from ..context import DrawContext
 from ._base import Layer
 
+# [focus-ring] trace lines fire on every paint of a focused widget once the
+# host app's --debug is on, drowning out other subsystems' debug output.
+# Gated on its own opt-in flag, off by default even under --debug -- same
+# convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
 logger = logging.getLogger(__name__)
+if os.environ.get("SLI_UI_NAV_DEBUG", "").strip().lower() in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+):
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.DEBUG)
 
 
 class FocusLayer(Layer):

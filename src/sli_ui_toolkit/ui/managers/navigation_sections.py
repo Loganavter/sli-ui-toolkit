@@ -8,13 +8,28 @@ this toolkit.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Callable
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget
 
+# [nav-*] trace lines fire on every arrow-key navigate() call once the host
+# app's --debug is on, drowning out other subsystems' debug output. Gated
+# on its own opt-in flag, off by default even under --debug -- same
+# convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
 logger = logging.getLogger(__name__)
+if os.environ.get("SLI_UI_NAV_DEBUG", "").strip().lower() in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+):
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.DEBUG)
 
 
 class ToolbarRowsSection:
