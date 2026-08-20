@@ -87,7 +87,7 @@ _PAINT_FONT_ALLOWED: dict[tuple[str, str], str] = {
         "dropdown slot text paints with paint_font(widget) over the "
         "combobox's design-sized font"
     ),
-    ("ui/widgets/comboboxes/combo_box.py", "draw"): (
+    ("ui/widgets/comboboxes/_layers.py", "draw"): (
         "field text paints with paint_font(widget) over the design-sized font"
     ),
     ("ui/widgets/comboboxes/scrollable_combobox.py", "draw"): (

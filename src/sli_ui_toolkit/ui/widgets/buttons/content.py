@@ -349,6 +349,44 @@ class IconContent(Content):
         p.drawPixmap(x, y, pixmap)
 
 
+def build_button_content(button) -> "Content | None":
+    """Content for the button's ``_main`` region, from its own text/icon/rows state."""
+    if button._rows:
+        return RowsContent(rows=button._rows, compact=button._rows_compact)
+    if button._has_text and button._text and button._icon_unchecked:
+        return IconTextContent(icon=button._icon_unchecked, text=button._text)
+    if button._has_text and button._text:
+        return TextContent(text=button._text)
+    if button._icon_unchecked or button._icon_checked:
+        return IconContent(icon_unchecked=button._icon_unchecked, icon_checked=button._icon_checked)
+    return None
+
+
+def build_region_content(button, region) -> "Content | None":
+    """Content for one multi-region button's region, from its own field set."""
+    rows = region.rows or []
+    if rows:
+        return RowsContent(rows=rows, compact=button._rows_compact)
+    pixmap = getattr(region, "pixmap", None)
+    if pixmap is not None:
+        return PixmapContent(
+            pixmap=pixmap,
+            image_fill=getattr(region, "image_fill", "cover") or "cover",
+        )
+    icon = region.icon
+    if isinstance(icon, (tuple, list)) and len(icon) >= 2:
+        icon_unchecked, icon_checked = icon[0], icon[1]
+    else:
+        icon_unchecked = icon_checked = icon
+    if region.text and icon_unchecked:
+        return IconTextContent(icon=icon_unchecked, text=region.text)
+    if region.text:
+        return TextContent(text=region.text)
+    if icon_unchecked or icon_checked:
+        return IconContent(icon_unchecked=icon_unchecked, icon_checked=icon_checked)
+    return None
+
+
 @dataclass
 class IconTextContent(Content):
     icon: Any

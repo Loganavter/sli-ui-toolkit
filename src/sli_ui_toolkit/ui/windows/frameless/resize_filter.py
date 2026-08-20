@@ -1,18 +1,33 @@
+"""Edge-resize hit testing for frameless windows.
+
+``_ResizeFilter`` owns all manual-resize drag state, the app-wide override
+cursor stack, and hover reconciliation. It reads the *live* resize margin
+off the ``frameless`` package namespace (not off ``geometry.RESIZE_MARGIN``
+directly) because ``window_chrome.py`` reconfigures the margin per-window by
+mutating ``frameless.RESIZE_MARGIN`` on that package object; snapshotting it
+here at instantiation time keeps that host override working exactly as it
+did when this was one module.
+"""
+
 from __future__ import annotations
 
 import logging
 import os
-import sys
 
 import shiboken6
 from PySide6.QtCore import QChildEvent, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtGui import QCursor, QHoverEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
-
-RESIZE_MARGIN = 4
-# Qt unbound max when maximumWidth/Height were never set.
-QWIDGETSIZE_MAX = 16777215
+from .geometry import (
+    QWIDGETSIZE_MAX,
+    _BOTTOM,
+    _LEFT,
+    _RIGHT,
+    _TOP,
+    _cursor_for_edges,
+    _edges_for_pos,
+)
 
 
 def _resize_debug(message: str, *args) -> None:
@@ -41,264 +56,6 @@ def _resize_debug(message: str, *args) -> None:
         pass
 
 
-def _win_refresh_native_frame(window: QWidget, custom_decorations: bool) -> None:
-    if sys.platform != "win32":
-        return
-    handle = window.windowHandle()
-    if handle is None:
-        return
-    try:
-        import ctypes
-        from ctypes import wintypes
-    except Exception:
-        return
-
-    try:
-        hwnd = wintypes.HWND(int(handle.winId()))
-    except Exception:
-        return
-
-    user32 = ctypes.windll.user32
-
-    GWL_STYLE = -16
-    WS_CAPTION = 0x00C00000
-    WS_THICKFRAME = 0x00040000
-    SWP_NOSIZE = 0x0001
-    SWP_NOMOVE = 0x0002
-    SWP_NOZORDER = 0x0004
-    SWP_NOACTIVATE = 0x0010
-    SWP_FRAMECHANGED = 0x0020
-
-    if not custom_decorations:
-        # Re-assert caption+thick frame so Aero Snap works after Qt stripped them.
-        get_long = getattr(user32, "GetWindowLongPtrW", None) or user32.GetWindowLongW
-        set_long = getattr(user32, "SetWindowLongPtrW", None) or user32.SetWindowLongW
-        get_long.argtypes = [wintypes.HWND, ctypes.c_int]
-        get_long.restype = ctypes.c_ssize_t
-        set_long.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
-        set_long.restype = ctypes.c_ssize_t
-        try:
-            style = get_long(hwnd, GWL_STYLE)
-            set_long(hwnd, GWL_STYLE, style | WS_CAPTION | WS_THICKFRAME)
-        except Exception:
-            pass
-
-    # Win11 DWM corner preference: round natively, no-round in custom mode
-    # (we paint our own rounded shape there).
-    try:
-        dwmapi = ctypes.windll.dwmapi
-        DWMWA_WINDOW_CORNER_PREFERENCE = 33
-        DWMWCP_DEFAULT = 0
-        DWMWCP_DONOTROUND = 1
-        preference = ctypes.c_int(
-            DWMWCP_DONOTROUND if custom_decorations else DWMWCP_DEFAULT
-        )
-        dwmapi.DwmSetWindowAttribute(
-            hwnd,
-            wintypes.DWORD(DWMWA_WINDOW_CORNER_PREFERENCE),
-            ctypes.byref(preference),
-            wintypes.DWORD(ctypes.sizeof(preference)),
-        )
-    except Exception:
-        pass
-
-    # Force DWM to recompute non-client area for the new flags.
-    try:
-        user32.SetWindowPos.argtypes = [
-            wintypes.HWND,
-            wintypes.HWND,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            wintypes.UINT,
-        ]
-        user32.SetWindowPos.restype = wintypes.BOOL
-        user32.SetWindowPos(
-            hwnd,
-            wintypes.HWND(0),
-            0,
-            0,
-            0,
-            0,
-            SWP_FRAMECHANGED
-            | SWP_NOMOVE
-            | SWP_NOSIZE
-            | SWP_NOZORDER
-            | SWP_NOACTIVATE,
-        )
-    except Exception:
-        pass
-
-
-def apply_frameless(
-    window: QWidget, *, resizable: bool = True, outer_band: int | None = None
-) -> None:
-    flags = window.windowFlags()
-    flags |= Qt.WindowType.FramelessWindowHint
-    window.setWindowFlags(flags)
-    if resizable:
-        window.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-        window.setMouseTracking(True)
-    if outer_band:
-        # Outer resize band: the surface carries ``outer_band`` transparent
-        # pixels beyond the visible body, so the edge-resize zone can be
-        # grabbed from outside the body like a native frame.
-        window.setProperty("_csd_outer_band", int(outer_band))
-    _set_resize_filter(window, enabled=resizable)
-    if outer_band:
-        _patch_outer_band_geometry(window, int(outer_band))
-
-
-def _patch_outer_band_geometry(window: QWidget, band: int) -> None:
-    """Re-expand ``resize``/``setGeometry`` by 2*band so the app keeps
-    thinking in *content* size while the window surface carries the outer
-    resize band (transparent — the visible body is inset by ``band``).
-
-    The frameless manual-resize drag bypasses this patch by calling the
-    base-class setter directly (see ``_update_manual_resize``).
-    """
-    orig_resize = window.resize
-    orig_set_geometry = window.setGeometry
-
-    def _resize(width: int, height: int) -> None:
-        orig_resize(width + 2 * band, height + 2 * band)
-
-    def _set_geometry(x: int, y: int, width: int, height: int) -> None:
-        orig_set_geometry(x, y, width + 2 * band, height + 2 * band)
-
-    window.resize = _resize  # type: ignore[method-assign]
-    window.setGeometry = _set_geometry  # type: ignore[method-assign]
-    # Keep the bound originals alive (they reference the C++ object).
-    window._csd_outer_band_patch = (orig_resize, orig_set_geometry)  # type: ignore[attr-defined]
-
-
-def remove_frameless(window: QWidget) -> None:
-    flags = window.windowFlags() & ~Qt.WindowType.FramelessWindowHint
-    window.setWindowFlags(flags)
-    _set_resize_filter(window, enabled=False)
-
-
-def set_frameless_runtime(window: QWidget, enabled: bool) -> None:
-    """Toggle FramelessWindowHint without recreating the native QWindow.
-
-    QWidget.setWindowFlags() on a visible window triggers a hide/recreate/show
-    cycle that the user perceives as the window "blinking" or "restarting".
-    QWindow.setFlag (accessed via windowHandle()) updates the flags on the
-    already-created platform window — no native surface recreation.
-
-    Falls back to setWindowFlags if the window has not been shown yet
-    (windowHandle() returns None pre-show; recreation is invisible then).
-    """
-    handle = window.windowHandle()
-    if handle is not None:
-        handle.setFlag(Qt.WindowType.FramelessWindowHint, enabled)
-    else:
-        flags = window.windowFlags()
-        if enabled:
-            flags |= Qt.WindowType.FramelessWindowHint
-        else:
-            flags &= ~Qt.WindowType.FramelessWindowHint
-        window.setWindowFlags(flags)
-
-    if enabled:
-        window.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-        window.setMouseTracking(True)
-        _set_resize_filter(window, enabled=True)
-    else:
-        _set_resize_filter(window, enabled=False)
-
-    _win_refresh_native_frame(window, custom_decorations=enabled)
-
-
-def _set_resize_filter(window: QWidget, *, enabled: bool) -> None:
-    existing = window.findChild(_ResizeFilter)
-    app = QApplication.instance()
-    if not enabled:
-        if existing is not None:
-            existing.clear_cursor()
-            existing.end_manual_resize()
-            if app is not None:
-                app.removeEventFilter(existing)
-            window.removeEventFilter(existing)
-            existing.setParent(None)
-            existing.deleteLater()
-        return
-    if existing is None:
-        f = _ResizeFilter(window)
-        # App-level filter so title-bar / content children cannot steal the
-        # edge zone. Installing on both app and window would double-fire.
-        if app is not None:
-            app.installEventFilter(f)
-        else:
-            window.installEventFilter(f)
-        # The filter is a QObject child of the window and dies with it, but
-        # the app-level registration is NOT removed automatically — after
-        # the window is destroyed every app event would still invoke the
-        # dead filter (shiboken "already deleted" storm). The target's
-        # ``destroyed`` fires before its children are deleted, so unhook
-        # and release the override cursor there.
-        def _on_window_destroyed(*_args) -> None:
-            _resize_debug(
-                "window %s destroyed: unhooking resize filter",
-                type(window).__name__,
-            )
-            try:
-                f.clear_cursor()
-            except Exception:
-                pass
-            try:
-                if app is not None:
-                    app.removeEventFilter(f)
-            except Exception:
-                pass
-
-        window.destroyed.connect(_on_window_destroyed)
-        _resize_debug(
-            "filter installed on %s (title=%r) margin=%d visible=%s",
-            type(window).__name__,
-            window.windowTitle(),
-            f._resize_margin,
-            window.isVisible(),
-        )
-
-
-_LEFT = int(Qt.Edge.LeftEdge.value)
-_RIGHT = int(Qt.Edge.RightEdge.value)
-_TOP = int(Qt.Edge.TopEdge.value)
-_BOTTOM = int(Qt.Edge.BottomEdge.value)
-
-
-def _edges_for_pos(
-    rect_w: int, rect_h: int, x: int, y: int, margin: int = RESIZE_MARGIN
-) -> int:
-    m = margin
-    value = 0
-    if x <= m:
-        value |= _LEFT
-    elif x >= rect_w - m:
-        value |= _RIGHT
-    if y <= m:
-        value |= _TOP
-    elif y >= rect_h - m:
-        value |= _BOTTOM
-    return value
-
-
-def _cursor_for_edges(value: int) -> Qt.CursorShape:
-    left = bool(value & _LEFT)
-    right = bool(value & _RIGHT)
-    top = bool(value & _TOP)
-    bottom = bool(value & _BOTTOM)
-    if (top and left) or (bottom and right):
-        return Qt.CursorShape.SizeFDiagCursor
-    if (top and right) or (bottom and left):
-        return Qt.CursorShape.SizeBDiagCursor
-    if left or right:
-        return Qt.CursorShape.SizeHorCursor
-    return Qt.CursorShape.SizeVerCursor
-
-
 class _ResizeFilter(QObject):
     """Edge-resize hit testing for frameless windows.
 
@@ -311,10 +68,14 @@ class _ResizeFilter(QObject):
     def __init__(self, target: QWidget):
         super().__init__(target)
         self._target = target
-        # Snapshot the module-level margin at install: dialogs re-install
-        # their chrome with a different margin (WindowChrome.install mutates
-        # the process-wide RESIZE_MARGIN), and that must not retroactively
-        # change this window's edge hit zones.
+        # Snapshot the *live* margin at install: dialogs re-install their
+        # chrome with a different margin (WindowChrome.install mutates the
+        # process-wide ``frameless.RESIZE_MARGIN``), and that must not
+        # retroactively change this window's edge hit zones. Read off the
+        # package namespace (not geometry.RESIZE_MARGIN) so a host override
+        # via ``frameless.RESIZE_MARGIN = X`` is honored here.
+        from sli_ui_toolkit.ui.windows import frameless as _frameless_pkg
+
         band = 0
         try:
             band = int(target.property("_csd_outer_band") or 0)
@@ -323,7 +84,7 @@ class _ResizeFilter(QObject):
         # The CSD outer band extends the window surface beyond the visible
         # body, so the edge zone [0, margin] straddles the visible edge —
         # RESIZE_MARGIN pixels inside the body plus ``band`` outside it.
-        self._resize_margin = int(RESIZE_MARGIN) + band
+        self._resize_margin = int(_frameless_pkg.RESIZE_MARGIN) + band
         self._cursor_armed = False
         # Edges the resize cursor is currently showing (0 = none). Coalescing
         # key: hover/move events re-arrive at the same edge position several
@@ -801,4 +562,3 @@ class _ResizeFilter(QObject):
     def clear_cursor(self) -> None:
         """Public hook for callers that remove the filter while a cursor is set."""
         self._clear_cursor()
-

@@ -33,6 +33,7 @@ from sli_ui_toolkit.ui.widgets.overlays.marquee_band_gesture import MarqueeBandG
 from sli_ui_toolkit.ui.widgets.virtual_list import VirtualListController
 
 from .drag_drop import _DropIndicator, drop_target_index, should_hide_indicator
+from .pool import bind_row, make_row_widget, row_pitch, template_spec
 from .rows import (
     ListRowSpec,
     RowFactory,
@@ -43,6 +44,8 @@ from .selection import (
     indices_intersecting_rect,
     sync_row_visuals,
 )
+from .sizing import constrained_height, deferred_scrollbar_sync, recalculate_and_set_height
+from .style import apply_style
 
 
 class ListPanel(QWidget):
@@ -184,93 +187,21 @@ class ListPanel(QWidget):
         return QSize(width_hint, self._container_height)
 
     def _apply_style(self):
-        try:
-            accent = self.theme_manager.get_color("accent")
-        except Exception:
-            accent = QColor("#00b7ff")
-        self.drop_overlay.set_color(accent)
-
-        # Paint the panel surface ourselves so the widget renders correctly
-        # without a host-supplied QSS sheet. Selector keyed on the widget's
-        # own objectName — subclasses that keep their legacy name (e.g. the
-        # flyout panel) still match their own rule.
-        try:
-            bg_color = self.theme_manager.get_color("flyout.background").name(
-                QColor.NameFormat.HexArgb
-            )
-            border_color = self.theme_manager.get_color("flyout.border").name(
-                QColor.NameFormat.HexArgb
-            )
-        except Exception:
-            return
-        self.setStyleSheet(
-            f"#{self.objectName()} {{"
-            f"background-color: {bg_color};"
-            f"border: 1px solid {border_color};"
-            "border-radius: 8px;"
-            "}"
-        )
-        try:
-            self.scroll_area.setStyleSheet(
-                "background-color: transparent; border: none;"
-            )
-            self.content_widget.setStyleSheet("background: transparent;")
-        except Exception:
-            pass
+        apply_style(self)
 
     # -------- row building / list content --------
 
     def _row_pitch(self) -> int:
-        """Vertical pitch between row tops: row height + row gap."""
-        row_h = self.item_height if self.item_height > 0 else 36
-        return max(1, row_h) + scaled_px(self._content_spacing_px)
+        return row_pitch(self)
 
     def _template_spec(self) -> ListRowSpec:
-        """Static spec fields shared by every pooled row; dynamic data
-        (index/text/rating/position/is_current) is pushed by ``_bind_row``."""
-        return ListRowSpec(
-            index=0,
-            text="",
-            full_path="",
-            list_num=self.list_num,
-            is_current=False,
-            item_height=self.item_height,
-            item_font=self.item_font,
-            item_type=self._list_type or "default",
-            position="only",
-            on_update_drop_indicator=self._on_update_drop_indicator,
-            on_clear_drop_indicator=self._on_clear_drop_indicator,
-            rating=0,
-        )
+        return template_spec(self)
 
     def _make_row_widget(self):
-        """Pool factory: build one row widget and wire its signals once.
-
-        Signals are connected here (not per rebind) because the pooled rows
-        emit their own ``index`` attribute at emit time — rebinding just
-        updates ``widget.index`` and the same connections stay correct.
-        """
-        factory = self._row_factory
-        if factory is None:
-            raise RuntimeError(
-                "ListPanel has no row factory — call set_row_factory() before "
-                "populating (list_num=%s)" % self.list_num
-            )
-        item_widget = factory(self._template_spec())
-        item_widget.itemSelected.connect(self._on_item_clicked)
-        item_widget.itemSelectionToggled.connect(self._on_item_selection_toggled)
-        item_widget.itemRightClicked.connect(self._on_context_menu)
-        return item_widget
+        return make_row_widget(self)
 
     def _bind_row(self, index: int, widget) -> None:
-        """Push item ``index``'s data onto a pooled row widget."""
-        if not (0 <= index < len(self._items)):
-            return
-        total = len(self._items)
-        apply_item_data(
-            widget, index, self._items[index], self._current_app_index, total
-        )
-        sync_row_visuals([widget], self._selection.indices())
+        bind_row(self, index, widget)
 
     def clear_and_rebuild(
         self,
@@ -354,73 +285,13 @@ class ListPanel(QWidget):
     # -------- sizing --------
 
     def recalculate_and_set_height(self, max_height: int | None = None):
-        """Size the panel: natural height up to 8 rows, else MAX_VISIBLE_ITEMS.
-
-        The virtual-list controller owns the content height and row
-        positioning; this only clamps the panel/scroll-area viewport height.
-        """
-        num_items = self._controller.count
-
-        if num_items <= 0:
-            row_h = self.item_height if self.item_height > 0 else 36
-            final_height = self._constrained_height(row_h, max_height)
-            self._container_height = final_height
-            self.setMinimumHeight(0)
-            self.setMaximumHeight(final_height)
-            self.scroll_area.setMinimumHeight(0)
-            self.scroll_area.setMaximumHeight(final_height)
-            self._deferred_scrollbar_sync()
-            return final_height
-
-        pitch = self._row_pitch()
-
-        if num_items <= 8:
-            natural_h = num_items * pitch + 10
-            final_h = self._constrained_height(natural_h, max_height)
-            self._container_height = final_h
-            self.setMinimumHeight(0 if final_h < natural_h else final_h)
-            self.setMaximumHeight(final_h)
-            self.scroll_area.setMinimumHeight(0 if final_h < natural_h else final_h)
-            self.scroll_area.setMaximumHeight(final_h)
-        else:
-            visible_items = min(num_items, self.MAX_VISIBLE_ITEMS)
-            max_h = visible_items * pitch + 10
-            final_h = self._constrained_height(max_h, max_height)
-            self._container_height = final_h
-            self.setMinimumHeight(0)
-            self.setMaximumHeight(final_h)
-            self.scroll_area.setMinimumHeight(0)
-            self.scroll_area.setMaximumHeight(final_h)
-
-        self._deferred_scrollbar_sync()
-        return final_h
+        return recalculate_and_set_height(self, max_height)
 
     def _deferred_scrollbar_sync(self):
-        # The viewport height settles on the next layout pass; re-derive the
-        # visible window + scrollbar range after it does. The singleShot is
-        # not cancelled by widget destruction — guard against it (same
-        # pattern as SimpleOptionsFlyout._deferred_update_size).
-        def _rebind():
-            try:
-                import shiboken6  # type: ignore[attr-defined]
-
-                if not shiboken6.Shiboken.isValid(self):
-                    return
-            except Exception:
-                pass
-            controller = self._controller
-            if controller is not None:
-                try:
-                    controller.rebind()
-                except RuntimeError:
-                    pass
-
-        QTimer.singleShot(20, _rebind)
+        deferred_scrollbar_sync(self)
 
     def _constrained_height(self, height: int, max_height: int | None) -> int:
-        if max_height is None:
-            return height
-        return max(1, min(height, int(max_height)))
+        return constrained_height(height, max_height)
 
     # -------- drag&drop --------
 

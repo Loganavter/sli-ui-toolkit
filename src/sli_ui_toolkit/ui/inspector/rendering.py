@@ -3,7 +3,7 @@
 One page per concern: Object identity, Config/State field rows,
 Button-family Regions/Layers, Theme tokens (+live capture), and the
 shared row/title/source-row helpers. QSS rules are assembled into a
-synthetic code block at the top of the Code page (see ``code.editor._qss_snippet``).
+synthetic code block at the top of the Code page (see ``code.factory._qss_snippet``).
 The Code section and the Layout/Constructor trees live in their own mixins.
 """
 

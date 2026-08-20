@@ -17,12 +17,10 @@ from PySide6.QtCore import (
     QVariantAnimation,
     Signal,
 )
-from PySide6.QtGui import QBrush, QFont, QFontMetrics, QGuiApplication, QPainter, QPen
+from PySide6.QtGui import QFont, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
-    QHBoxLayout,
-    QLabel,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -30,152 +28,20 @@ from PySide6.QtWidgets import (
 
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
-from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_font import UiFont, rebase_family, rebase_font, ui_font
+from sli_ui_toolkit.ui.managers.ui_font import UiFont, rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
-from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
-from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
-from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import (
     BaseFlyout,
     resolve_flyout_animation,
     slide_start_delta,
 )
 
+from . import animation as _animation
+from . import geometry as _geometry
+from .row import _SimpleRow, _design_font
+
 logger = logging.getLogger(__name__)
 
-
-def _design_font(source: QFont) -> QFont:
-    """Design-space version of a scale-resolved font (divide the factor out).
-
-    ``ui_font()`` already multiplies the factor once, while
-    ``SimpleOptionsFlyout`` row fonts are design-space and re-resolved per
-    UiScale change — this converts one into the other.
-    """
-    design = QFont(source)
-    factor = UiScale.get_instance().factor()
-    if factor <= 0:
-        return design
-    if design.pixelSize() > 0:
-        design.setPixelSize(max(1, round(design.pixelSize() / factor)))
-    elif design.pointSizeF() > 0:
-        design.setPointSizeF(design.pointSizeF() / factor)
-    return design
-
-
-class _RowBackgroundLayer(Layer):
-    """Inset rounded background, list_item.* tokens, hover/current → hover color."""
-
-    def draw(self, ctx, tm: ThemeManager) -> None:
-        widget = ctx.widget
-        states = ctx.effective_states
-        is_active = (
-            widget.is_current
-            or ButtonState.HOVERED in states
-            or ButtonState.PRESSED in states
-        )
-        key = "list_item.background.hover" if is_active else "list_item.background.normal"
-        rect = ctx.rect.toRect().adjusted(2, 2, -2, -2)
-        p = ctx.painter
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(tm.get_color(key)))
-        p.drawRoundedRect(rect, 5, 5)
-
-
-class _CurrentIndicatorLayer(Layer):
-    """Левый accent-индикатор для current row."""
-
-    def applies(self, ctx) -> bool:
-        return bool(getattr(ctx.widget, "is_current", False))
-
-    def draw(self, ctx, tm: ThemeManager) -> None:
-        rect = ctx.rect.toRect()
-        pen = QPen(tm.get_color("accent"))
-        pen.setWidth(scaled_px(3))
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        p = ctx.painter
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(pen)
-        x = rect.left() + pen.width()
-        p.drawLine(x, rect.top() + scaled_px(7), x, rect.bottom() - scaled_px(7))
-
-
-class _SimpleRow(Button):
-    rowClicked = Signal(int)
-
-    def __init__(
-        self,
-        index: int,
-        text: str,
-        is_current: bool,
-        item_height: int,
-        item_font: QFont,
-        parent: QWidget | None = None,
-    ):
-        super().__init__(
-            text="",
-            size=(0, item_height),
-            corner_radius=5,
-            layers=[_RowBackgroundLayer(), RippleLayer(), _CurrentIndicatorLayer()],
-            parent=parent,
-        )
-        self.index = index
-        self.text = text
-        self.is_current = is_current
-        self._item_height = item_height
-        # item_font is design-space: resolve the scaled label font here and
-        # again on every UiScale change (_apply_scale), so the row's text
-        # follows live interface-scale changes instead of staying at the
-        # size captured when the row was built.
-        self._design_font = item_font
-        layout = QHBoxLayout(self)
-        # Accent indicator draws inside the left pad; keep pad tight to the label.
-        layout.setContentsMargins(scaled_px(8), 0, scaled_px(8), 0)
-        self.label = QLabel(text)
-        self.label.setFont(rebase_font(item_font))
-        self.label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        layout.addWidget(self.label)
-        try:
-            self.theme_manager.theme_changed.connect(self._apply_label_style)
-        except Exception:
-            pass
-        self._apply_label_style()
-        self.clicked.connect(lambda: self.rowClicked.emit(self.index))
-        UiScale.get_instance().scale_changed.connect(self._apply_scale)
-
-    def sizeHint(self) -> QSize:
-        row_layout = self.layout()
-        margins = row_layout.contentsMargins() if row_layout is not None else None
-        pad = (
-            (margins.left() + margins.right())
-            if margins is not None
-            else 16
-        )
-        label_w = self.label.sizeHint().width() if self.label is not None else 0
-        # Design item height, scaled exactly once — same value Button's own
-        # setFixedHeight(scaled_px(item_height)) applies, so the flyout's
-        # container sizing matches the row widgets at any UiScale factor.
-        return QSize(max(1, label_w + pad), scaled_px(self._item_height))
-
-    def minimumSizeHint(self) -> QSize:
-        return self.sizeHint()
-
-    def _apply_label_style(self):
-        # Force the UI family without touching the size: the label font was
-        # already scale-resolved once (rebase_font of the design font below),
-        # so feeding it back through rebase_font would multiply the factor
-        # a second time and blow the row up ~factor^2 at high UI scale.
-        self.label.setFont(rebase_family(self.label.font()))
-        self.label.setProperty("class", "option-label")
-
-    def _apply_scale(self, _factor: float) -> None:
-        # Re-resolve the design font at the new factor; keeps the row's text
-        # (and its sizeHint, via the scaled label) live with the UI scale.
-        self.label.setFont(rebase_font(self._design_font))
-        self.updateGeometry()
-        self.update()
 
 class SimpleOptionsFlyout(BaseFlyout):
     item_chosen = Signal(int)
@@ -382,67 +248,12 @@ class SimpleOptionsFlyout(BaseFlyout):
         exact_match: bool = False,
         available_height: int | None = None,
     ):
-        """Size the panel to the longest row, optionally at least ``match_width``.
-
-        ``exact_match`` is kept for ``show_below`` call-site compatibility; when
-        ``match_width`` is set, width is ``max(content, anchor)`` (no 180px floor).
-        Row heights are taken from each installed row's ``sizeHint()``, so
-        arbitrary widgets (variable heights) size the panel correctly.
-        """
-        del exact_match
-        rows = self._rows
-        spacing = self._rows_layout.spacing()
-        outer_margins = self.content_layout.contentsMargins()
-        margins_v = outer_margins.top() + outer_margins.bottom()
-        margins_h = outer_margins.left() + outer_margins.right()
-
-        if not rows:
-            content_h = 50
-        else:
-            heights = [max(1, row.sizeHint().height()) for row in rows]
-            visible = min(len(rows), self._max_visible_items)
-            if available_height is not None:
-                # Subtract flyout outer margins + inner row container margins.
-                budget = available_height - 2 * self.MARGIN - margins_v
-                if budget > 0:
-                    count = 0
-                    running = 0
-                    for h in heights:
-                        add = h + (spacing if count else 0)
-                        if running + add > budget:
-                            break
-                        running += add
-                        count += 1
-                    visible = min(visible, max(1, count))
-            content_h = sum(heights[:visible]) + spacing * max(0, visible - 1)
-
-        container_h = content_h + margins_v
-
-        # Prefer live row sizeHints (label + row pad). Font metrics are a
-        # fallback before rows exist / while updates are disabled mid-populate.
-        content_w = 0
-        for row in rows:
-            hint = row.sizeHint()
-            if hint.isValid():
-                content_w = max(content_w, hint.width())
-        if content_w <= 0:
-            fm = QFontMetrics(self._item_font)
-            text_w = max(
-                (fm.boundingRect(text).width() for text in self._options),
-                default=0,
-            )
-            content_w = text_w + 16
-        content_w = content_w + margins_h
-
-        if match_width > 0:
-            target_container_width = max(1, match_width - (self.MARGIN * 2))
-            width = max(content_w, target_container_width)
-        else:
-            width = max(1, content_w)
-
-        self.container.setFixedSize(width, container_h)
-        total_width = width + self.MARGIN * 2
-        self.setFixedSize(total_width, container_h + self.MARGIN * 2)
+        _geometry.update_size(
+            self,
+            match_width=match_width,
+            exact_match=exact_match,
+            available_height=available_height,
+        )
 
     def show_aligned(self, *args, **kwargs):
         # Re-fit after populate so BaseFlyout.adjustSize cannot keep a stale
@@ -671,56 +482,10 @@ class SimpleOptionsFlyout(BaseFlyout):
                 )
                 self.setFixedSize(total_width, total_height)
 
-        if want_slide and want_fade:
-            group = QParallelAnimationGroup(self)
-            anim_pos = QPropertyAnimation(self, b"pos", self)
-            anim_pos.setDuration(self._move_duration_ms)
-            anim_pos.setStartValue(start_pos)
-            anim_pos.setEndValue(end_pos)
-            anim_pos.setEasingCurve(self._move_easing)
-            fade_anim = QVariantAnimation(self)
-            fade_anim.setDuration(self._move_duration_ms)
-            fade_anim.setStartValue(0.0)
-            fade_anim.setEndValue(1.0)
-            fade_anim.setEasingCurve(self._move_easing)
-            fade_anim.valueChanged.connect(
-                lambda value: self._fade.on_fade_value_changed(self, value)
-            )
-            group.addAnimation(anim_pos)
-            group.addAnimation(fade_anim)
-            group.finished.connect(self._on_animation_finished)
-            self._anim = group
-            group.start()
-        elif want_slide:
-            anim_pos = QPropertyAnimation(self, b"pos", self)
-            anim_pos.setDuration(self._move_duration_ms)
-            anim_pos.setStartValue(start_pos)
-            anim_pos.setEndValue(end_pos)
-            anim_pos.setEasingCurve(self._move_easing)
-            anim_pos.finished.connect(self._on_animation_finished)
-            self._anim = anim_pos
-            anim_pos.start()
-        elif want_fade:
-            fade_anim = QVariantAnimation(self)
-            fade_anim.setDuration(self._move_duration_ms)
-            fade_anim.setStartValue(0.0)
-            fade_anim.setEndValue(1.0)
-            fade_anim.setEasingCurve(self._move_easing)
-            fade_anim.valueChanged.connect(
-                lambda value: self._fade.on_fade_value_changed(self, value)
-            )
-            fade_anim.finished.connect(self._on_animation_finished)
-            self._anim = fade_anim
-            fade_anim.start()
+        _animation.start_show_animation(self, want_slide, want_fade, start_pos, end_pos)
 
     def _on_animation_finished(self):
-        if self._anim:
-            anim_obj = self._anim
-            self._anim = None
-            anim_obj.deleteLater()
-        # A completed fade-in must drop the snapshot so live content (hover
-        # rows, re-populate) shows again instead of the stale cached frame.
-        self._fade.clear()
+        _animation.on_animation_finished(self)
 
     def _on_row_clicked(self, idx: int):
         self.item_chosen.emit(idx)

@@ -20,7 +20,6 @@ from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import dataclasses
-from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
@@ -40,14 +39,7 @@ from .capabilities import (
     ButtonCapability,
     LongPressCapability,
 )
-from .content import (
-    ButtonRow,
-    IconContent,
-    IconTextContent,
-    PixmapContent,
-    RowsContent,
-    TextContent,
-)
+from .content import ButtonRow, build_button_content, build_region_content
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import ensure_marquee_driver
 from .controller import ButtonController
 from .context import DrawContext
@@ -60,52 +52,16 @@ from .feedback import (
     coerce_defer_click_ms,
     get_default_defer_click,
 )
+from . import painter as _painter_module
 from .painter import Painter, default_layers
 from .regions import ButtonRegion, Divider, RegionHandle, SingleRegionSplit, SplitLayout
-from .specs import ButtonSpec, ShapeSpec, normalize_corner_radii
+from .specs import ButtonConfig, ButtonSpec, ShapeSpec, _to_corner_radii
 from .state import ButtonState
 from .style_api import (
     _ButtonStyleApi,
     _normalize_underline_thickness,
     normalize_content_padding,
 )
-from .variants import get_variant
-
-
-@dataclass
-class ButtonConfig:
-    """Декларативная конфигурация — альтернатива kwargs."""
-    icon: Any = None
-    text: str = ""
-    rows: list[ButtonRow] | None = None
-    toggle: bool = False
-    long_press: bool = False
-    long_press_ms: int = 600
-    badge: int | str | None = None
-    show_underline: bool = False
-    underline_color: Any = None
-    underline_thickness: float | None = None
-    underline_tongue_reach: float | None = None
-    underline_ring: bool = False
-    underline_fade: bool | None = None
-    size: tuple[int, int] = (36, 36)
-    icon_size: int = 22
-    corner_radius: int | None = None
-    corner_radii: tuple[int, int, int, int] | None = None
-    border_color: QColor | None = None
-    variant: str = "default"
-    density: str = "normal"
-    wheel_requires_focus: bool = False
-    # ``None`` → process-wide ``get_default_defer_click()``.
-    defer_click: bool | int | str | None = None
-    #: grow with the parent layout up to the full text width, compress below
-    #: it (pair with a row ``marquee=True`` for overflowing text)
-    text_fit: bool = False
-
-
-def _to_corner_radii(values) -> tuple[int, int, int, int]:
-    tl, tr, br, bl = values
-    return (int(tl), int(tr), int(br), int(bl))
 
 
 def _state_property(state: ButtonState):
@@ -241,29 +197,30 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         QWidget.__init__(self, parent)
 
         if config is not None:
-            icon = config.icon
-            text = config.text
-            rows = config.rows
-            toggle = config.toggle
-            long_press = config.long_press
-            long_press_ms = config.long_press_ms
-            badge = config.badge
-            show_underline = config.show_underline
-            underline_color = config.underline_color
-            underline_thickness = config.underline_thickness
-            underline_tongue_reach = config.underline_tongue_reach
-            underline_ring = config.underline_ring
-            underline_fade = config.underline_fade
-            size = config.size
-            icon_size = config.icon_size
-            corner_radius = config.corner_radius
-            corner_radii = config.corner_radii
-            border_color = config.border_color
-            variant = config.variant
-            density = config.density
-            wheel_requires_focus = config.wheel_requires_focus
-            defer_click = config.defer_click
-            text_fit = config.text_fit
+            cfg = config.to_kwargs()
+            icon = cfg["icon"]
+            text = cfg["text"]
+            rows = cfg["rows"]
+            toggle = cfg["toggle"]
+            long_press = cfg["long_press"]
+            long_press_ms = cfg["long_press_ms"]
+            badge = cfg["badge"]
+            show_underline = cfg["show_underline"]
+            underline_color = cfg["underline_color"]
+            underline_thickness = cfg["underline_thickness"]
+            underline_tongue_reach = cfg["underline_tongue_reach"]
+            underline_ring = cfg["underline_ring"]
+            underline_fade = cfg["underline_fade"]
+            size = cfg["size"]
+            icon_size = cfg["icon_size"]
+            corner_radius = cfg["corner_radius"]
+            corner_radii = cfg["corner_radii"]
+            border_color = cfg["border_color"]
+            variant = cfg["variant"]
+            density = cfg["density"]
+            wheel_requires_focus = cfg["wheel_requires_focus"]
+            defer_click = cfg["defer_click"]
+            text_fit = cfg["text_fit"]
 
         if spec is not None:
             regions = spec.to_regions()
@@ -724,126 +681,16 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     # -------- paint --------
 
     def _build_content(self):
-        if self._rows:
-            return RowsContent(rows=self._rows, compact=self._rows_compact)
-        if self._has_text and self._text and self._icon_unchecked:
-            return IconTextContent(icon=self._icon_unchecked, text=self._text)
-        if self._has_text and self._text:
-            return TextContent(text=self._text)
-        if self._icon_unchecked or self._icon_checked:
-            return IconContent(icon_unchecked=self._icon_unchecked,
-                               icon_checked=self._icon_checked)
-        return None
+        return build_button_content(self)
 
     def _build_region_content(self, region: ButtonRegion):
-        rows = region.rows or []
-        if rows:
-            return RowsContent(rows=rows, compact=self._rows_compact)
-        pixmap = getattr(region, "pixmap", None)
-        if pixmap is not None:
-            return PixmapContent(
-                pixmap=pixmap,
-                image_fill=getattr(region, "image_fill", "cover") or "cover",
-            )
-        icon = region.icon
-        if isinstance(icon, (tuple, list)) and len(icon) >= 2:
-            icon_unchecked, icon_checked = icon[0], icon[1]
-        else:
-            icon_unchecked = icon_checked = icon
-        if region.text and icon_unchecked:
-            return IconTextContent(icon=icon_unchecked, text=region.text)
-        if region.text:
-            return TextContent(text=region.text)
-        if icon_unchecked or icon_checked:
-            return IconContent(icon_unchecked=icon_unchecked, icon_checked=icon_checked)
-        return None
+        return build_region_content(self, region)
 
     def _make_context(self, qpainter: QPainter) -> DrawContext:
-        # corner_radius_px is design px — scale at the paint boundary so a
-        # circular swatch stays circular when the widget itself scales
-        # (sizeHint/setFixedSize already use scaled_px, so a raw radius here
-        # would round a 42px circle down to a 14px-corner square).
-        scaled_radius = max(0, scaled_px(self._corner_radius_px))
-        return DrawContext(
-            widget=self,
-            painter=qpainter,
-            rect=QRectF(self.rect()),
-            states=frozenset(self._states),
-            variant=get_variant(self._variant),
-            corner_radius=scaled_radius,
-            corner_radii=normalize_corner_radii(
-                None,
-                self._scaled_corner_radii(),
-                fallback=scaled_radius,
-            ),
-            content=self._build_content(),
-            override_bg_color=self._override_bg_color,
-            custom_bg_color=self._custom_bg_color,
-            override_border_color=self._border_color_override,
-            hover_color=getattr(self, "_hover_color", None),
-            hover_compose=getattr(self, "_hover_compose", "replace"),
-            bg_locked=bool(getattr(self, "_bg_locked", False)),
-            hovered_region_id=getattr(self, "_hovered_region", None),
-            badge_text=str(self._badge) if self._badge is not None else None,
-            show_underline=self._show_underline,
-            underline_color=self._underline_config_color,
-            underline_thickness=self._underline_thickness,
-            underline_tongue_reach=self._underline_tongue_reach,
-            underline_ring=self._underline_ring,
-            underline_fade=self._underline_fade,
-            show_strike_through=self._is_strike_through(),
-            is_footer=self._is_footer,
-            icon_size_px=self._icon_size_px,
-            content_padding=self._content_padding,
-            gap_px=self._gap_px,
-            content_align=self._content_align,
-        )
+        return _painter_module.make_draw_context(self, qpainter)
 
     def iter_regions(self, ctx: DrawContext):
-        if not self._controller.rects:
-            self._controller.recompute_rects()
-            self._sync_region_aliases()
-        ordered_regions = sorted(
-            enumerate(self._controller.regions),
-            key=lambda item: (item[1].z_index, item[0]),
-        )
-        for _index, region in ordered_regions:
-            rect = self._controller.rects.get(region.id)
-            if rect is None:
-                continue
-            states = frozenset(self._controller.states(region.id))
-            yield ctx.scoped_to(
-                region_id=region.id,
-                rect=rect,
-                path=self._controller.paths.get(region.id),
-                fill_path=self._controller.fill_paths.get(region.id),
-                states=states,
-                content=self._build_region_content(region),
-                variant=get_variant(region.variant or self._variant),
-                override_bg_color=region.override_bg_color,
-                custom_bg_color=region.custom_bg_color,
-                override_border_color=region.override_border_color,
-                hover_color=(
-                    region.hover_color
-                    if region.hover_color is not None
-                    else getattr(self, "_hover_color", None)
-                ),
-                hover_compose=region.hover_compose or getattr(self, "_hover_compose", "replace"),
-                bg_locked=bool(region.bg_locked) or bool(getattr(self, "_bg_locked", False)),
-                group=region.group,
-                icon_size_px=region.icon_size_px,
-                corner_radii=(
-                    tuple(0 if v == 0 else scaled_px(v) for v in _to_corner_radii(region.corner_radii))
-                    if region.corner_radii is not None
-                    else None
-                ),
-                clip_content=(
-                    region.clip_content
-                    if region.clip_content is not None
-                    else not bool(region.group)
-                ),
-                ripple_rect=self._controller.ripple_rect(region.id),
-            )
+        yield from _painter_module.iter_button_regions(self, ctx)
 
     def region_states(self, region_id: str) -> frozenset[ButtonState]:
         return frozenset(self._controller.states(region_id))

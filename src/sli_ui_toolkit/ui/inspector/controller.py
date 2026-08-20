@@ -13,6 +13,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QWidget
 
+from . import modality, overlay_state, tree_walk
 from .capture import capture_tokens
 from .overlay import InspectorOverlay
 from .qss_scan import QssIndex
@@ -301,62 +302,10 @@ class InspectorController(QObject):
         return False
 
     def _lift_modality_for(self, window: QWidget) -> None:
-        try:
-            modality = window.windowModality()
-        except RuntimeError:
-            return
-        logger.debug(
-            "modality lift: window=%s#%s modality=%s",
-            type(window).__name__,
-            window.objectName(),
-            modality,
-        )
-        self._restore_modality()
-        if modality == Qt.WindowModality.NonModal:
-            return
-        # setParent(parent, flags) *replaces* the widget's window flags with
-        # the passed ones — hand the original flags back, or the inspector's
-        # CSD/frameless setup (InspectorWindow is a decorated QDialog) breaks.
-        flags = self._window.windowFlags()
-        self._lifted_modal = (window, flags)
-        # Qt's modal input filter blocks every top-level except the modal
-        # window and its descendants. Reparenting the inspector window as a
-        # *child window* of the modal makes it fully interactive without any
-        # hide/show — hiding the modal would visibly close and reopen it (the
-        # modal stack only pops on hide).
-        try:
-            global_pos = self._window.mapToGlobal(QPoint(0, 0))
-            self._window.setParent(window, flags)
-            self._window.move(window.mapFromGlobal(global_pos))
-            self._window.show()
-        except RuntimeError:
-            self._lifted_modal = None
-        logger.debug(
-            "modal lift via child-window: inspector parent=%s#%s flags=0x%x",
-            type(window).__name__,
-            window.objectName(),
-            int(flags.value) if hasattr(flags, "value") else 0,
-        )
+        modality.lift_modality_for(self, window)
 
     def _restore_modality(self) -> None:
-        if self._lifted_modal is None:
-            return
-        window, flags = self._lifted_modal
-        self._lifted_modal = None
-        logger.debug(
-            "modality restore: inspector parent=%s#%s",
-            type(window).__name__,
-            window.objectName(),
-        )
-        try:
-            # Put the inspector window back as an independent top-level with
-            # its original flags (CSD/frameless must survive the round trip).
-            global_pos = self._window.mapToGlobal(QPoint(0, 0))
-            self._window.setParent(None, flags)
-            self._window.move(global_pos)
-            self._window.show()
-        except RuntimeError:
-            pass
+        modality.restore_modality(self)
 
     def _reset_selection(self) -> None:
         logger.debug(
@@ -573,35 +522,11 @@ class InspectorController(QObject):
         return len(self._app_widgets())
 
     def _layout_nodes_for(self, widget: QWidget) -> None:
-        if not self._is_valid_widget(widget):
-            return
-        nodes: list[tuple[str, object, int]] = []
-
-        def walk(current: QWidget, depth: int) -> None:
-            nodes.append((type(current).__name__, current, depth))
-            for child in current.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
-                if self._is_inspector_widget(child):
-                    continue
-                walk(child, depth + 1)
-
-        walk(widget.window(), 0)
-        self._window.set_layout_nodes(tuple(nodes))
+        tree_walk.layout_nodes_for(self, widget)
 
     def _constructor_nodes_for(self, widget: QWidget) -> None:
         """Every widget inside the selected widget (its own subtree)."""
-        if not self._is_valid_widget(widget):
-            return
-        nodes: list[tuple[str, object, int]] = []
-
-        def walk(current: QWidget, depth: int) -> None:
-            nodes.append((type(current).__name__, current, depth))
-            for child in current.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
-                if self._is_inspector_widget(child):
-                    continue
-                walk(child, depth + 1)
-
-        walk(widget, 0)
-        self._window.set_constructor_nodes(tuple(nodes))
+        tree_walk.constructor_nodes_for(self, widget)
 
     # -- hover --------------------------------------------------------------
 
@@ -620,61 +545,13 @@ class InspectorController(QObject):
         self._refresh_overlay()
 
     def _refresh_overlay(self) -> None:
-        if self._overlay_suspended:
-            # The highlight is hidden while the user works in the inspected
-            # window — tree hovers / region clicks / refresh paths must not
-            # silently re-light it (that made the highlight look "stuck").
-            logger.debug(
-                "overlay refresh skipped (suspended; hover=%s committed=%s)",
-                type(self._hover_widget).__name__
-                if self._hover_widget is not None
-                else None,
-                type(self._committed_widget).__name__
-                if self._committed_widget is not None
-                else None,
-            )
-            return
-        target = self._hover_widget or self._committed_widget
-        if not self._is_valid_widget(target):
-            self._reset_selection()
-            return
-        overlay = self._overlay_for(target.window())
-        rect = _map_widget_rect(target, overlay.parentWidget())
-        label = self._label_for(target)
-        if self._active_overlay is not None and self._active_overlay is not overlay:
-            self._active_overlay.clear_target()
-            self._active_overlay.hide()
-        self._active_overlay = overlay
-        overlay.set_target(rect, label)
-        overlay.set_regions(self._mapped_regions(target, overlay), self._hovered_region)
+        overlay_state.refresh_overlay(self)
 
     def _mapped_regions(self, widget: QWidget, overlay: InspectorOverlay):
-        if self._hover_widget is not widget and self._committed_widget is not widget:
-            return []
-        try:
-            inspection = inspect_widget(widget, self._theme_manager)
-        except Exception:
-            return []
-        if not inspection.regions:
-            return []
-        origin = widget.mapTo(overlay.parentWidget(), QPoint(0, 0))
-        out = []
-        for region in inspection.regions:
-            if region.rect is None:
-                continue
-            out.append((region.id, region.rect.translated(origin)))
-        return out
+        return overlay_state.mapped_regions(self, widget, overlay)
 
     def _clear_active_overlay(self) -> None:
-        overlay = self._active_overlay
-        self._active_overlay = None
-        if overlay is None:
-            return
-        try:
-            overlay.clear_target()
-            overlay.hide()
-        except RuntimeError:
-            pass
+        overlay_state.clear_active_overlay(self)
 
     def _label_for(self, widget: QWidget) -> str:
         label = type(widget).__name__
@@ -692,43 +569,19 @@ class InspectorController(QObject):
         return False
 
     def _overlay_for(self, window: QWidget) -> InspectorOverlay:
-        overlay = self._overlays.get(window)
-        if overlay is None:
-            overlay = InspectorOverlay(window)
-            self._overlays[window] = overlay
-            window.installEventFilter(self)
-        overlay.setGeometry(window.rect())
-        overlay.raise_()
-        return overlay
+        return overlay_state.overlay_for(self, window)
 
     def _sync_overlay_for(self, widget: QWidget) -> None:
-        overlay = self._overlays.get(widget)
-        if overlay is None:
-            return
-        try:
-            overlay.setGeometry(widget.rect())
-            overlay.raise_()
-        except RuntimeError:
-            pass
+        overlay_state.sync_overlay_for(self, widget)
 
     def _hide_overlays(self) -> None:
-        for overlay in self._overlays.values():
-            try:
-                overlay.hide()
-            except RuntimeError:
-                pass
-        self._active_overlay = None
+        overlay_state.hide_overlays(self)
 
 
 def _event_global_pos(event) -> QPoint:
     if hasattr(event, "globalPosition"):
         return event.globalPosition().toPoint()
     return event.globalPos()
-
-
-def _map_widget_rect(widget: QWidget, target_parent: QWidget):
-    top_left = widget.mapTo(target_parent, QPoint(0, 0))
-    return widget.rect().translated(top_left)
 
 
 def _resolve_meaningful_widget(widget: QWidget | None) -> QWidget | None:
