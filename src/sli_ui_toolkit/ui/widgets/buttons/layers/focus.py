@@ -42,18 +42,45 @@ class FocusLayer(Layer):
 
     def applies(self, ctx: DrawContext) -> bool:
         widget = ctx.widget
-        result = bool(getattr(widget, "_keyboard_focus", False)) and widget.hasFocus()
-        if result:
-            logger.debug(
-                "[focus-ring] applies! widget=%s(%s) keyboard_focus=%s hasFocus=%s",
-                type(widget).__name__,
-                getattr(widget, "objectName", lambda: "")() or "",
-                getattr(widget, "_keyboard_focus", None),
-                widget.hasFocus(),
-            )
-        return result
+        return bool(getattr(widget, "_keyboard_focus", False)) and widget.hasFocus()
+
+    def _debug_draw(self, ctx: DrawContext) -> None:
+        # Log where the ring is actually painted, not just where applies() was true.
+        # hasFocus() can flip between applies() and draw() due to focus guard
+        # redirects, so log the real focused widget at draw time.
+        try:
+            from PySide6.QtWidgets import QApplication
+
+            focused = QApplication.focusWidget()
+        except Exception:
+            focused = None
+        widget = ctx.widget
+        try:
+            rect = ctx.rect
+            if hasattr(rect, "toAlignedRect"):
+                rect = rect.toAlignedRect()
+            global_pos = widget.mapToGlobal(rect.center()) if widget.isVisible() else None
+            global_str = f"({global_pos.x()},{global_pos.y()})" if global_pos else "n/a"
+            rect_str = f"{rect.x()},{rect.y()} {rect.width()}x{rect.height()}"
+        except Exception:
+            rect_str = str(getattr(ctx, "rect", "n/a"))
+            global_str = "n/a"
+        logger.debug(
+            "[focus-ring] draw widget=%s(%s) rect=%s global=%s keyboard_focus=%s hasFocus=%s focused=%s",
+            type(widget).__name__,
+            getattr(widget, "objectName", lambda: "")() or "",
+            rect_str,
+            global_str,
+            getattr(widget, "_keyboard_focus", None),
+            widget.hasFocus(),
+            type(focused).__name__ if focused else "None",
+        )
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
+        # Log where ring is actually drawn (applies() and draw() can diverge
+        # due to focus guard redirects between the two calls).
+        if logger.isEnabledFor(10):  # DEBUG
+            self._debug_draw(ctx)
         factor = UiScale.get_instance().factor()
         radius = max(0, ctx.corner_radius)
         # ctx.corner_radius is already scale-resolved (scaled_px); the

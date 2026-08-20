@@ -206,14 +206,17 @@ class BaseFlyout(
 
         Returns ``True`` if focus was moved, ``False`` to yield.
         """
-        children = [
-            c for c in self.findChildren(QWidget)
-            if (
-                c.focusPolicy() == Qt.FocusPolicy.StrongFocus
-                and c.isVisible()
-                and c.isEnabled()
-            )
-        ]
+        children = sorted(
+            [
+                c for c in self.findChildren(QWidget)
+                if (
+                    c.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                    and c.isVisible()
+                    and c.isEnabled()
+                )
+            ],
+            key=lambda w: w.mapToGlobal(w.rect().center()).x(),
+        )
         if not children:
             return False
         focused = QApplication.focusWidget()

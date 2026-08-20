@@ -103,12 +103,23 @@ class IndexedToggleFlyout(BaseFlyout):
         self.adjustSize()
 
     def show_for_button(
-        self, anchor_btn: QWidget, parent_widget: QWidget | None = None, hover_delay_ms: int = 0
+        self,
+        anchor_btn: QWidget,
+        parent_widget: QWidget | None = None,
+        hover_delay_ms: int = 0,
+        *,
+        grab_focus: bool = True,
+        register_nav_section: bool | None = None,
     ):
         def _do_show():
             self._anchor_button = anchor_btn
             self.show_aligned(
-                anchor_btn, "top-center", "bottom-center", animation=self._default_animation
+                anchor_btn,
+                "top-center",
+                "bottom-center",
+                animation=self._default_animation,
+                grab_focus=grab_focus,
+                register_nav_section=register_nav_section,
             )
 
         if hover_delay_ms > 0:
