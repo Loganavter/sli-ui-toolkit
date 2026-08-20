@@ -522,25 +522,42 @@ class _FlyoutNavigationSection:
         # special-cases clicking a focused Button -- any other focused
         # control's own Enter handling was silently unreachable.
         #
-        # Deliberately scoped to _EXTRA_KEYS only, NOT _NAV_KEYS (arrows):
-        # QAbstractSlider natively accepts all four arrow keys regardless
-        # of orientation, so a Slider given first refusal on Up/Down would
-        # always win and step its own value -- silently breaking row-to-row
-        # / extension_below navigation (see ToolbarRowsSection,
-        # NavigationManager.link_below) for any slider inside a flyout.
-        # Arrow keys keep going straight to this flyout's own
-        # _navigate_focusable, matching the existing, established behavior.
-        if key in self._EXTRA_KEYS and widget is not None and widget is not self._flyout:
-            child_event = QKeyEvent(
-                QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier,
-            )
-            widget.keyPressEvent(child_event)
-            if child_event.isAccepted():
-                logger.debug(
-                    "[flyout-nav] navigate key=%s → delivered to focused %s (accepted)",
-                    hex(key), type(widget).__name__,
+        # For arrows, Left/Right are also given first refusal for value-
+        # adjusting controls (Slider, ScrollValueButton) so keyboard
+        # navigation on scrollable buttons doesn't close the flyout.
+        # Up/Down remain for row-to-row navigation (see ToolbarRowsSection),
+        # so they are not delegated — QAbstractSlider would otherwise steal
+        # them and break extension_below.
+        if key in (self._EXTRA_KEYS | {0x01000012, 0x01000014}) and widget is not None and widget is not self._flyout:
+            # Left/Right → value controls get first refusal (Slider,
+            # ScrollValueButton) so keyboard navigation on scrollable
+            # buttons doesn't close the flyout. Up/Down remain for row
+            # navigation. For PanelVisibilityFlyout, only handle arrows
+            # after explicit Enter (keyboard_navigation_active).
+            if key in (0x01000012, 0x01000014):
+                # PanelVisibilityFlyout: only intercept Left/Right after Enter
+                if getattr(self._flyout, "flyout_group", None) == "toggle":
+                    if not getattr(self._flyout, "_keyboard_navigation_active", False):
+                        return False
+                from PySide6.QtCore import QEvent
+                from PySide6.QtGui import QKeyEvent
+
+                trial = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+                widget.keyPressEvent(trial)
+                if trial.isAccepted():
+                    return True
+                # Not handled → fall through to flyout's row navigation
+            else:
+                child_event = QKeyEvent(
+                    QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier,
                 )
-                return True
+                widget.keyPressEvent(child_event)
+                if child_event.isAccepted():
+                    logger.debug(
+                        "[flyout-nav] navigate key=%s → delivered to focused %s (accepted)",
+                        hex(key), type(widget).__name__,
+                    )
+                    return True
         event = QKeyEvent(
             QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier,
         )
