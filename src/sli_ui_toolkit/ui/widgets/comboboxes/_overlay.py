@@ -69,6 +69,12 @@ class _CurrentIndexRingLayer(Layer):
     This is the same visual (ring geometry/color) driven off the combo's own
     current-index state instead, and yields to the gear-drag frame's own
     highlight while a drag is active.
+
+    Gated on ``owner._keyboard_focus`` (set by ``Button.focusInEvent`` —
+    True for Tab/arrow-granted focus, False for a mouse click), same
+    convention as every other flyout's own focus ring: a mouse-opened
+    dropdown must not flash a ring any more than a mouse-opened
+    ``BaseFlyout`` does (``BaseFlyout._grab_focus``'s ``anchor_kbd``).
     """
 
     def applies(self, ctx) -> bool:
@@ -77,6 +83,7 @@ class _CurrentIndexRingLayer(Layer):
         return (
             owner._expanded
             and not owner._gear_active
+            and bool(getattr(owner, "_keyboard_focus", False))
             and widget._item_index == owner.currentIndex()
         )
 

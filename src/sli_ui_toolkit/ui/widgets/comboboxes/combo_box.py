@@ -685,15 +685,14 @@ class ComboBox(Button):
             self._overlay.show_for_owner()
             return False
 
-        # Deactivate always dismisses. Hide/Close only when *this* combo's
-        # host is leaving — an app-wide filter would otherwise collapse the
-        # list when Find Action's pulse overlay hides after its blink timer.
-        if event.type() in (
-            QEvent.Type.WindowDeactivate,
-            QEvent.Type.ApplicationDeactivate,
-        ):
-            self.hideDropdown()
-            return False
+        # Outside-click and window/app deactivate dismiss are now handled by
+        # FlyoutManager._dismiss_passive — _DropdownOverlay is a registered
+        # BaseFlyout (see docs/legacy/plan_combobox_baseflyout_unification.md
+        # Phase 2). Hide/Close still needs handling here: FlyoutManager
+        # doesn't listen for QEvent.Type.Close at all, and only this combo's
+        # own host leaving should collapse it — an app-wide filter would
+        # otherwise collapse the list when Find Action's pulse overlay hides
+        # after its blink timer.
         if event.type() in (QEvent.Type.Hide, QEvent.Type.Close) and watched in (
             self,
             self._overlay,
@@ -702,12 +701,6 @@ class ComboBox(Button):
             self.hideDropdown()
             return False
 
-        if event.type() == QEvent.Type.MouseButtonPress:
-            global_pos = event.globalPosition().toPoint()
-            inside_field = self.rect().contains(self.mapFromGlobal(global_pos))
-            inside_overlay = self._overlay.geometry().contains(self._overlay.parentWidget().mapFromGlobal(global_pos))
-            if not inside_field and not inside_overlay:
-                self.hideDropdown()
         return super().eventFilter(watched, event)
 
 ComboBox.inspect_spec = InspectSpec(
