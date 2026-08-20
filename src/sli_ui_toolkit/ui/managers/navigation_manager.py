@@ -19,7 +19,7 @@ import os
 from typing import Protocol, runtime_checkable
 
 import shiboken6
-from PySide6.QtCore import QEvent, Qt, QObject
+from PySide6.QtCore import QEvent, Qt, QObject, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
 # [nav] trace lines fire on every focus/key event once the host app's
@@ -220,6 +220,28 @@ class NavigationManager(QObject):
                 "[nav] registered section %s (owner=%s) total=%d",
                 type(spec).__name__, type(owner).__name__, len(self._sections),
             )
+            # A host typically calls setFocus() on the bare owner widget
+            # right around registration (e.g. a tab's on_activated()) --
+            # but that widget usually has no FocusLayer ring of its own, so
+            # until the user presses an arrow key (which the eventFilter's
+            # bootstrap-on-owner handles, see navigate()) nothing visibly
+            # reads as focused. Land the ring immediately instead of
+            # waiting for that first keypress. Deferred one tick: right at
+            # registration the section's own content (toolbar buttons,
+            # etc.) is often not yet isVisible() (layout/show still
+            # pending), so an eager focus_first() here would just find
+            # nothing -- by the next event-loop iteration it has.
+            QTimer.singleShot(0, lambda o=owner, s=spec: self._bootstrap_if_still_owner(o, s))
+
+    def _bootstrap_if_still_owner(self, owner: QObject, spec: NavigationSection) -> None:
+        if not shiboken6.isValid(self) or (owner, spec) not in self._sections:
+            return
+        if QApplication.focusWidget() is not owner:
+            # Something else already grabbed focus since registration
+            # (user clicked elsewhere, another section bootstrapped, tab
+            # switched away again) -- don't steal it back.
+            return
+        spec.focus_first()
 
     def unregister(self, owner: QObject) -> None:
         # A late destroyed-signal callback (see register()) can fire during
@@ -458,7 +480,7 @@ class NavigationManager(QObject):
             wants_key = any(
                 key in getattr(spec, "extra_keys", frozenset())
                 for owner, spec in self._sections
-                if spec.owns(focused)
+                if spec.owns(focused) or focused is owner
             )
             if _debug and not wants_key:
                 logger.debug(
@@ -476,6 +498,26 @@ class NavigationManager(QObject):
 
         for owner, spec in self._sections:
             if not spec.owns(focused):
+                # The registered owner widget itself can legitimately hold
+                # focus (e.g. right after its page becomes active, before
+                # anything inside it has been explicitly focused) without
+                # `owns()` claiming it -- a section's `owns()` typically
+                # matches its *content* (rows/children), not the bare
+                # owner. Bootstrap into the section on any arrow key
+                # instead of silently dropping it: this also sidesteps
+                # activation-time races where the content wasn't focusable
+                # yet (hidden/disabled) when the owner first got focus.
+                if focused is owner and key in _ARROWS and spec.focus_first():
+                    if _debug:
+                        new_focus = QApplication.focusWidget()
+                        logger.debug(
+                            "[nav] %s bootstrap -> %s(%s) via %s",
+                            _key_name(key),
+                            type(new_focus).__name__,
+                            getattr(new_focus, "objectName", lambda: "")() or "",
+                            type(owner).__name__,
+                        )
+                    return True
                 continue
 
             if _debug:
