@@ -211,6 +211,11 @@ class ToolbarRowsSection:
             # (title bar / tab strip).
             return False
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            # Scrollable controls (ScrollValueButton, Slider, SpinBox) handle
+            # Left/Right themselves to adjust value — don't steal focus.
+            # Same trial-dispatch as Up/Down above.
+            if self._widget_handles(key, widget):
+                return True
             items = self._focusable(row)
             if widget not in items:
                 return False
@@ -220,11 +225,13 @@ class ToolbarRowsSection:
             if 0 <= target < len(items):
                 items[target].setFocus(reason)
                 return True
-            if (
-                key == Qt.Key.Key_Left
-                and self._on_exit_left is not None
-                and self._on_exit_left()
-            ):
+            if key == Qt.Key.Key_Left and self._on_exit_left is not None:
+                try:
+                    if self._on_exit_left(reason):  # 4.0: reason required
+                        return True
+                except TypeError:
+                    if self._on_exit_left():
+                        return True
                 return True
             # Row edge (no handoff, or none configured/declined): consume
             # anyway (don't fall through to native handling, which does

@@ -218,7 +218,7 @@ class CustomTitleBar(
                 buttons.append(child)
         return sorted(buttons, key=lambda w: w.mapToGlobal(w.rect().center()).x())
 
-    def _set_child_focus(self, child: QWidget) -> None:
+    def _set_child_focus(self, child: QWidget, reason: Qt.FocusReason | None = None) -> None:
         """Set keyboard focus on *child* via ``setFocusProxy``.
 
         Qt's focus chain normally redirects ``setFocus()`` on a child
@@ -226,27 +226,34 @@ class CustomTitleBar(
         this by making the child the effective focus target when the
         title bar receives focus.
         """
+        if reason is None:
+            try:
+                from sli_ui_toolkit.ui.managers.nav_graph import focus_reason
+
+                reason = focus_reason()
+            except Exception:
+                reason = Qt.FocusReason.OtherFocusReason
         self.setFocusProxy(child)
-        self.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.setFocus(reason)
         self.setFocusProxy(None)
 
-    def focus_first_button(self) -> bool:
+    def focus_first_button(self, reason: Qt.FocusReason | None = None) -> bool:
         """Focus the first focusable button in the title bar."""
         buttons = self._focusable_buttons()
         if buttons:
-            self._set_child_focus(buttons[0])
+            self._set_child_focus(buttons[0], reason=reason)
             return True
         return False
 
-    def focus_last_button(self) -> bool:
+    def focus_last_button(self, reason: Qt.FocusReason | None = None) -> bool:
         """Focus the last focusable button in the title bar."""
         buttons = self._focusable_buttons()
         if buttons:
-            self._set_child_focus(buttons[-1])
+            self._set_child_focus(buttons[-1], reason=reason)
             return True
         return False
 
-    def focus_nearest_button(self, ref_x: float) -> bool:
+    def focus_nearest_button(self, ref_x: float, reason: Qt.FocusReason | None = None) -> bool:
         """Focus whichever button sits closest to global x ``ref_x``.
 
         Used for a keyboard-driven cross-section handoff (e.g. Up from the
@@ -260,7 +267,7 @@ class CustomTitleBar(
             buttons,
             key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x),
         )
-        self._set_child_focus(target)
+        self._set_child_focus(target, reason=reason)
         return True
 
     def attach_window(self, window: QWidget) -> None:
