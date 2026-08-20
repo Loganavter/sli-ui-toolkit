@@ -460,6 +460,17 @@ class NavigationManager(QObject):
         if found is None:
             return False
         owner, spec = found
+        # A second click landing on the same nearest widget as before (e.g.
+        # clicking the same toolbar spot twice) makes setFocus() below a
+        # no-op *from Qt's point of view* -- focus doesn't actually change,
+        # so no FocusIn fires, so the ring-reveal that normally rides on
+        # FocusIn (Button.focusInEvent flipping _keyboard_focus back on)
+        # never runs. Without this, the ring stays stuck in the
+        # MouseButtonPress-suppressed state forever: every subsequent
+        # reveal-only press looks like it did nothing, because nothing
+        # about that widget actually changed. Compare focus before/after
+        # below and force the ring back on manually when it didn't.
+        previously_focused = QApplication.focusWidget()
         # The clicked widget itself is the nearest candidate by definition
         # -- prefer it directly over asking the section to guess from an
         # x-coordinate alone, which only ever considers its first/last row.
@@ -485,6 +496,7 @@ class NavigationManager(QObject):
                     "[nav] realign: click -> %s directly",
                     widget_label(clicked),
                 )
+            self._force_ring_if_focus_unchanged(previously_focused)
             return True
         # focus_first(ref_x)/focus_last(ref_x) always pick a *fixed* row
         # (topmost/bottommost) -- they model "entering this section from
@@ -502,6 +514,7 @@ class NavigationManager(QObject):
                     "[nav] realign: click -> nearest (2D) in %s",
                     type(owner).__name__,
                 )
+            self._force_ring_if_focus_unchanged(previously_focused)
             return True
         if spec.focus_first(pos.x()):
             if logger.isEnabledFor(logging.DEBUG):
@@ -509,8 +522,27 @@ class NavigationManager(QObject):
                     "[nav] realign: click -> nearest in %s",
                     type(owner).__name__,
                 )
+            self._force_ring_if_focus_unchanged(previously_focused)
             return True
         return False
+
+    @staticmethod
+    def _force_ring_if_focus_unchanged(previously_focused: QWidget | None) -> None:
+        """If a realign target turned out to already be the focused widget,
+        ``setFocus()`` was a no-op and no ``FocusIn`` fired to flip the
+        ring back on after ``MouseButtonPress`` suppressed it. Restore it
+        by hand so a reveal-only press actually reveals something instead
+        of looking like a no-op that repeats on every re-click.
+        """
+        current = QApplication.focusWidget()
+        if current is None or current is not previously_focused:
+            return
+        if not hasattr(current, "_keyboard_focus"):
+            return
+        current._keyboard_focus = True
+        if hasattr(current, "_last_focus_reason"):
+            current._last_focus_reason = Qt.FocusReason.OtherFocusReason
+        current.update()
 
     def _yield_to_native(self, focused: QWidget | None, event, realigned: bool) -> bool:
         """Hand *event* to *focused*'s own ``keyPressEvent`` (Left/Right on
@@ -690,6 +722,22 @@ class NavigationManager(QObject):
             focused = QApplication.focusWidget()
             if focused is None:
                 return False
+
+        if realigned:
+            # The ring was invisible before this press (mouse click
+            # suppresses it -- see MouseButtonPress handling above), so the
+            # user has no idea where realignment just silently placed real
+            # Qt focus. Also stepping navigate() in this same press would
+            # look like the ring jumped two items from the click instead of
+            # one -- there's nothing visible to anchor "one step" against
+            # yet. Consume this press as reveal-only; a second press then
+            # steps normally from the now-visible ring.
+            if _debug:
+                logger.debug(
+                    "[nav] %s: reveal-only after click realign, ring at %s",
+                    _key_name(key), widget_label(focused),
+                )
+            return True
 
         for owner, spec in self._sections:
             if not spec.owns(focused):
