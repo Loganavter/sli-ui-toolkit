@@ -64,24 +64,23 @@ class _FlyoutLifecycleApi:
     parent: Any
 
     def hide(self):
+        # Always log hide with caller stack — this is the "hellish mess" debug
+        # the user asked to enable. Use WARNING so it shows without UI_NAV_DEBUG.
+        import traceback
+
+        logger.warning(
+            "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s\nCaller:\n%s",
+            type(self).__name__, id(self),
+            self._fade.hide_fade_in_progress,
+            self._fade.should_fade_out(self),
+            "".join(traceback.format_stack()[:-2]),
+        )
         logger.debug(
             "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s",
             type(self).__name__, id(self),
             self._fade.hide_fade_in_progress,
             self._fade.should_fade_out(self),
         )
-        # Debug aid: every flyout close funnels through here (explicit
-        # start_closing_animation, FlyoutManager passive dismiss / close_all,
-        # host calls), so logging the caller stack shows WHO closed it.
-        # DISABLED — remove the "# " comment prefix to re-enable.
-        # if not any(
-        #     "attach_in_window_widget" in f.filename or "overlay_layer.py" in f.filename
-        #     for f in traceback.extract_stack()[:-1]
-        # ):
-        #     logger.debug(
-        #         "BaseFlyout.hide() called by:\n%s",
-        #         "".join(traceback.format_stack()[:-1]),
-        #     )
         fm = getattr(self, "flyout_manager", None)
         if fm is not None:
             fm.request_hide(self)
