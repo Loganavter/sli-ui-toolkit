@@ -512,6 +512,12 @@ class _FlyoutNavigationSection:
     def navigate(self, key: int, widget: QWidget) -> bool:
         if key not in self._NAV_KEYS and key not in self._EXTRA_KEYS:
             return False
+        # PanelVisibilityFlyout: only intercept arrows after explicit Enter
+        if getattr(self._flyout, "flyout_group", None) == "toggle":
+            if not getattr(self._flyout, "_keyboard_navigation_active", False):
+                # Not yet entered via Enter — let toolbar navigation handle arrows
+                if key in self._NAV_KEYS:
+                    return False
         # Give the actually-focused descendant first refusal on the
         # non-arrow extra keys (Return/Enter/Escape) -- its own native
         # keyPressEvent may do something specific to it (a combo box
