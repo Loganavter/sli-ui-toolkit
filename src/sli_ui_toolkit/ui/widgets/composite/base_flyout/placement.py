@@ -26,6 +26,9 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import QWidget
 
+import logging
+import os
+
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.ui.in_window_surface import (
     attach_in_window_widget,
@@ -36,6 +39,25 @@ from sli_ui_toolkit.ui.in_window_surface import (
 
 from .animation import resolve_flyout_animation
 from .geometry import AnimationAxis, aligned_flyout_rect, slide_start_delta
+
+def _flyout_debug_enabled() -> bool:
+    for _var in ("SLI_FLYOUT_DEBUG", "IMGSLI_FLYOUT_DEBUG", "FLYOUT_DEBUG"):
+        if os.environ.get(_var, "").strip().lower() not in (
+            "",
+            "0",
+            "false",
+            "no",
+            "off",
+        ):
+            return True
+    return False
+
+
+logger = logging.getLogger(__name__)
+if _flyout_debug_enabled():
+    logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.WARNING)
 
 
 class _FlyoutPlacementApi:
@@ -218,6 +240,13 @@ class _FlyoutPlacementApi:
             anchor_widget,
             self.overlay_layer,
         )
+        # Pre-compute available for debug even when position is used
+        _debug_available = surface_available_rect(
+            self,  # type: ignore[arg-type]
+            anchor_widget,
+            self.overlay_layer,
+            margin=0,
+        )
         if position is not None:
             final_rect = self._overlay_rect_relative_to_anchor(
                 anchor_widget,
@@ -234,14 +263,26 @@ class _FlyoutPlacementApi:
                 flyout_point=flyout_point,
                 offset=offset,
                 shadow_radius=self.SHADOW_RADIUS,
-                available=surface_available_rect(
-                    self,  # type: ignore[arg-type]
-                    anchor_widget,
-                    self.overlay_layer,
-                    margin=0,
-                ),
+                available=_debug_available,
             )
             flyout_center = final_rect.center()
+        if logger.isEnabledFor(logging.DEBUG):
+            try:
+                anchor_label = f"{type(anchor_widget).__name__}({anchor_widget.objectName() or ''})"
+            except Exception:
+                anchor_label = str(type(anchor_widget).__name__)
+            logger.debug(
+                "[flyout-placement] %s anchor=%s anchor_rect=%s flyout_size=%sx%s available=%s final=%s offset=%s shadow=%s",
+                type(self).__name__,
+                anchor_label,
+                anchor_rect.getRect(),
+                flyout_size.width(),
+                flyout_size.height(),
+                _debug_available.getRect(),
+                final_rect.getRect(),
+                offset,
+                self.SHADOW_RADIUS,
+            )
 
         dir_x = flyout_center.x() - anchor_rect.center().x()
         dir_y = flyout_center.y() - anchor_rect.center().y()

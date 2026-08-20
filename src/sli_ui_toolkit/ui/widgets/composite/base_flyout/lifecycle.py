@@ -21,17 +21,28 @@ from typing import Any, Callable
 # app's --debug is on, drowning out other subsystems' debug output. Gated
 # on its own opt-in flag, off by default even under --debug -- same
 # convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
+# NOTE: Flyout debug is intentionally separate from keyboard navigation
+# debug (UI_NAV_DEBUG). Use SLI_FLYOUT_DEBUG (toolkit) or
+# IMGSLI_FLYOUT_DEBUG (host app) to enable flyout traces, including
+# hide() caller stack and placement geometry.
+def _flyout_debug_enabled() -> bool:
+    for _var in ("SLI_FLYOUT_DEBUG", "IMGSLI_FLYOUT_DEBUG", "FLYOUT_DEBUG"):
+        if os.environ.get(_var, "").strip().lower() not in (
+            "",
+            "0",
+            "false",
+            "no",
+            "off",
+        ):
+            return True
+    return False
+
+
 logger = logging.getLogger(__name__)
-if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
-    "",
-    "0",
-    "false",
-    "no",
-    "off",
-):
-    logger.setLevel(logging.WARNING)
-else:
+if _flyout_debug_enabled():
     logger.setLevel(logging.DEBUG)
+else:
+    logger.setLevel(logging.WARNING)
 
 
 def _is_alive_and_enabled(widget: QWidget | None) -> bool:
@@ -64,17 +75,19 @@ class _FlyoutLifecycleApi:
     parent: Any
 
     def hide(self):
-        # Always log hide with caller stack — this is the "hellish mess" debug
-        # the user asked to enable. Use WARNING so it shows without UI_NAV_DEBUG.
-        import traceback
+        # Caller stack is gated under flyout debug (SLI_FLYOUT_DEBUG /
+        # IMGSLI_FLYOUT_DEBUG) — same flag as placement geometry. Previously
+        # this was always-on WARNING, which drowned navigation logs.
+        if _flyout_debug_enabled():
+            import traceback
 
-        logger.warning(
-            "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s\nCaller:\n%s",
-            type(self).__name__, id(self),
-            self._fade.hide_fade_in_progress,
-            self._fade.should_fade_out(self),
-            "".join(traceback.format_stack()[:-2]),
-        )
+            logger.warning(
+                "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s\nCaller:\n%s",
+                type(self).__name__, id(self),
+                self._fade.hide_fade_in_progress,
+                self._fade.should_fade_out(self),
+                "".join(traceback.format_stack()[:-2]),
+            )
         logger.debug(
             "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s",
             type(self).__name__, id(self),

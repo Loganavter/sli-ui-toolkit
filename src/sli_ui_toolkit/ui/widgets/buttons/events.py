@@ -278,12 +278,36 @@ class _ButtonEvents:
         # The FocusLayer only paints for keyboard-granted focus, so a mouse
         # click does not flash a ring while Tab/arrow navigation does.
         reason = getattr(event, "reason", lambda: None)()
-        self._keyboard_focus = reason not in (
+        is_keyboard_by_reason = reason not in (
             Qt.FocusReason.MouseFocusReason,
             Qt.FocusReason.MenuBarFocusReason,
         )
+        # Manager-level safeguard: never let a programmatic MouseFocusReason
+        # steal evaporate the ring forever when the user is navigating via
+        # keyboard (last_input_was_keyboard). Actual mouse clicks have already
+        # flipped last_input to False via MouseButtonPress, so they are not
+        # affected; only steals like flyout _grab_focus with wrong anchor
+        # (ButtonGroup has no _keyboard_focus) remain True and would otherwise
+        # clear the ring globally (see log 19:17:06 ColorSettingsButton ->
+        # Capture Ring Mouse).
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+
+            if not is_keyboard_by_reason and NavigationManager.get_instance().last_input_was_keyboard():
+                # This Mouse reason is not from a real click — last_input still
+                # reports keyboard — so treat as keyboard to preserve ring.
+                is_keyboard_by_reason = True
+                logger.debug(
+                    "[button-focus] ring-preserve Mouse->Other for %s (manager keyboard)",
+                    type(self).__name__,
+                )
+        except Exception:
+            pass
+        self._keyboard_focus = is_keyboard_by_reason
         # Persist the raw reason so flyouts can read it even after
         # _keyboard_focus is cleared by CSD/title bar event handling.
+        # Keep original reason for anchor_kbd logic; ring-preserve is only
+        # for FocusLayer, not for flyout anchor detection.
         self._last_focus_reason = reason
         logger.debug(
             "[button-focus] %s focusIn reason=%s keyboard_focus=%s",

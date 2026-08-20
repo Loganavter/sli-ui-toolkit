@@ -9,6 +9,8 @@ in ``window_controls.py``) owning its own state; zones/balance live in
 
 from __future__ import annotations
 
+import shiboken6
+
 from typing import Any
 
 from PySide6.QtCore import QEvent, Qt, Signal
@@ -188,6 +190,19 @@ class CustomTitleBar(
         app = QApplication.instance()
         if app is not None:
             app.installEventFilter(self)
+            # Ensure filter is removed before C++ object is destroyed —
+            # otherwise QApplication still dispatches to a deleted wrapper
+            # during shutdown (see crash log with super().eventFilter on
+            # deleted QObject -> segfault).
+            try:
+                self.destroyed.connect(self._remove_app_event_filter)
+                # Also drop before app teardown — destroyed alone fires too
+                # late: Qt already started delivering a posted event with a
+                # deleted target, and getWrapperForQObject crashes before
+                # Python even enters eventFilter.
+                app.aboutToQuit.connect(self._remove_app_event_filter)
+            except Exception:
+                pass
 
         if icon is not None:
             self.set_icon(icon)
@@ -270,6 +285,21 @@ class CustomTitleBar(
         self._set_child_focus(target, reason=reason)
         return True
 
+    def _remove_app_event_filter(self) -> None:
+        try:
+            app = QApplication.instance()
+            if app is not None:
+                app.removeEventFilter(self)
+        except Exception:
+            pass
+        # Also detach from target window if still alive
+        try:
+            w = getattr(self, "_target_window", None)
+            if w is not None and shiboken6.isValid(w):
+                w.removeEventFilter(self)
+        except Exception:
+            pass
+
     def attach_window(self, window: QWidget) -> None:
         """Wire the controls cluster + this bar to a real window."""
         self._target_window = window
@@ -281,6 +311,11 @@ class CustomTitleBar(
         )
         self.close_requested.connect(window.close)
         window.installEventFilter(self)
+        # Auto-detach when window is destroyed
+        try:
+            window.destroyed.connect(lambda _obj=None: self._remove_app_event_filter())
+        except Exception:
+            pass
         self._controls.refresh_window_state(window)
 
     @staticmethod
@@ -333,17 +368,36 @@ class CustomTitleBar(
             pass
 
     def eventFilter(self, obj, event):
+        # Guard against calls after C++ deletion during shutdown (bootstrap
+        # log shows RuntimeError: Internal C++ object already deleted ->
+        # segfault in QCoreApplicationPrivate::sendThroughApplicationEventFilters)
+        if not shiboken6.isValid(self):
+            return False
+        if obj is not None and not shiboken6.isValid(obj):
+            return False
+        try:
+            if not shiboken6.isValid(event):
+                return False
+        except Exception:
+            pass
         target_window = getattr(self, "_target_window", None)
         if obj is target_window and event.type() in (
             event.Type.WindowStateChange,
             event.Type.Resize,
             event.Type.Move,
         ):
-            self._controls.refresh_window_state(target_window)
-            self._apply_corner_mask()
-            if event.type() in (event.Type.Resize, event.Type.Move):
-                self._hide_active_flyouts()
-            return super().eventFilter(obj, event)
+            try:
+                if target_window is not None and shiboken6.isValid(target_window):
+                    self._controls.refresh_window_state(target_window)
+                    self._apply_corner_mask()
+                    if event.type() in (event.Type.Resize, event.Type.Move):
+                        self._hide_active_flyouts()
+            except RuntimeError:
+                pass
+            try:
+                return super().eventFilter(obj, event)
+            except RuntimeError:
+                return False
 
         # Left/Right arrow navigation between focusable title bar buttons.
         # Installed on QApplication to intercept key events targeting child
@@ -368,7 +422,10 @@ class CustomTitleBar(
                             return True
                         return True
 
-        return super().eventFilter(obj, event)
+        try:
+            return super().eventFilter(obj, event)
+        except RuntimeError:
+            return False
 
 
 __all__ = ["CustomTitleBar", "TitleAlign"]

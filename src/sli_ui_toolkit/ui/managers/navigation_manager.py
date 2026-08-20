@@ -476,7 +476,23 @@ class NavigationManager(QObject):
             ):
                 # Mouse click — clear keyboard focus tracking so flyouts
                 # opened from mouse don't show the ring inside.
-                self._last_keyboard_focus = None
+                # Manager-level ring-preserve: don't clear on programmatic
+                # Mouse steals while navigating via keyboard (last_input True)
+                # — those steals would otherwise evaporate the ring globally
+                # (e.g. ColorSettingsButton -> Capture Ring Mouse, log 19:17:06).
+                # Real mouse clicks have already flipped last_input to False via
+                # MouseButtonPress, so they still clear.
+                if not self._last_input_keyboard:
+                    self._last_keyboard_focus = None
+                else:
+                    # Keep last_keyboard_focus, and ensure the newly focused
+                    # Button doesn't evaporate ring (Button.focusInEvent also
+                    # has a preserve, this is the manager-side counterpart).
+                    if _debug:
+                        logger.debug(
+                            "[nav] FocusIn Mouse but last_input keyboard — preserve last_keyboard_focus=%s",
+                            widget_label(self._last_keyboard_focus),
+                        )
             elif widget is not None:
                 self._last_keyboard_focus = widget
                 # Focus moved for a real keyboard-ish reason (arrow
@@ -486,6 +502,34 @@ class NavigationManager(QObject):
                 # arrow press should navigate from here, not jump back to
                 # the click point.
                 self._realign.realign_pending = False
+            # Global evaporation guard: if keyboard navigation is active but
+            # this FocusIn left no widget with ring, force ring on the new
+            # focus (covers any future widget that might still steal with
+            # MouseFocusReason despite per-widget grab_focus=False fixes).
+            try:
+                if self._last_input_keyboard and widget is not None and hasattr(widget, "_keyboard_focus"):
+                    if not getattr(widget, "_keyboard_focus", False):
+                        has_ring = False
+                        for w in QApplication.allWidgets():
+                            try:
+                                if w is not widget and w.hasFocus() and getattr(w, "_keyboard_focus", False):
+                                    has_ring = True
+                                    break
+                            except Exception:
+                                continue
+                        if not has_ring:
+                            widget._keyboard_focus = True
+                            try:
+                                widget.update()
+                            except Exception:
+                                pass
+                            if _debug:
+                                logger.debug(
+                                    "[nav] global ring-preserve forced _keyboard_focus True on %s",
+                                    widget_label(widget),
+                                )
+            except Exception:
+                pass
             return False  # never consume FocusIn
 
         if event.type() == QEvent.Type.MouseButtonPress:

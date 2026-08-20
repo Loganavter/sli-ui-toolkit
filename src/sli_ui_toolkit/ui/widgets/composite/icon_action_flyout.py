@@ -174,6 +174,8 @@ class IconActionFlyout(BaseFlyout):
         animation_axis: AnimationAxis = "auto",
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
         toggle: bool = True,
+        grab_focus: bool = True,
+        register_nav_section: bool | None = None,
     ):
         # ``toggle`` guards the click-to-open/close behaviour used by
         # show_above(). Callers that reposition an already-visible flyout in
@@ -198,6 +200,8 @@ class IconActionFlyout(BaseFlyout):
             animation_distance=animation_distance,
             animation_axis=animation_axis,
             easing=easing,
+            grab_focus=grab_focus,
+            register_nav_section=register_nav_section,
         )
 
     def schedule_auto_hide(self, ms: int):
