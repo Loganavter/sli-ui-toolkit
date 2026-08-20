@@ -901,15 +901,5 @@ def bind_flyout(
         nav.bind_flyout(anchor, flyout, side=side, mode=mode)
     except Exception:
         pass
-    # Hover-контеймент: чтобы флайаут считался “внутри” якоря для
-    # AnchoredFlyoutAutoHide / FlyoutManager.contains_global
-    try:
-        from sli_ui_toolkit.ui.managers.flyout_manager import FlyoutManager
-
-        # Декларативный pin/group остаётся на классе (flyout.pinned,
-        # flyout.flyout_group) — здесь только линковка семейства
-        FlyoutManager.get_instance().link(flyout, anchor)  # type: ignore[arg-type]
-    except Exception:
-        pass
 
 

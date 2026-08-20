@@ -380,11 +380,11 @@ class _FlyoutLifecycleApi:
         """
         weakened = getattr(self, "_weakened_focus_ancestors", None)
         if weakened is None:
-            logger.debug("[flyout-nav] _restore_focus_policies: no weakened list")
-            return
-        for w, policy in weakened:
-            w.setFocusPolicy(policy)
-        weakened.clear()
+            logger.debug("[flyout-nav] _restore_focus_policies: no weakened list (preview)")
+        else:
+            for w, policy in weakened:
+                w.setFocusPolicy(policy)
+            weakened.clear()
         # Prefer _anchor_widget (the explicit trigger passed to show_aligned)
         # over _previous_focus_widget (QApplication.focusWidget() at show()
         # time — may already be MainWindow if focus shifted). Either can
@@ -404,6 +404,48 @@ class _FlyoutLifecycleApi:
             type(target).__name__ if target else None,
             type(actual_before).__name__ if actual_before else None,
         )
+        # Не перетягивать фокус обратно на якорь, если навигация уже увела
+        # его на соседний тулбар-виджет (Right/Left внутри одного ToolbarRowsSection).
+        # Иначе Right с btn_magnifier → InstancesCounterButton откатывается hide→setFocus(anchor).
+        # Для Esc/клика вне фокус уходит на CSD/TitleBar — там восстанавливать к якорю нужно.
+        if (
+            actual_before is not None
+            and actual_before is not target
+            and not self.isAncestorOf(actual_before)
+            and actual_before is not anchor
+            and _is_alive_and_enabled(actual_before)
+        ):
+            # Проверяем, что actual_before — намеренный сиблинг в том же
+            # тулбар-секшене, что и якорь (обе owns==True). CSD/TitleBar —
+            # другой секшен, там не skip.
+            try:
+                from sli_ui_toolkit.managers import NavigationManager as _NMR
+
+                _nav = _NMR.get_instance()
+                _anchor_owns = any(spec.owns(anchor) for _, spec in _nav._sections if anchor is not None)
+                _before_owns_same = False
+                for _owner, _spec in _nav._sections:
+                    if _spec.owns(actual_before) and (_anchor_owns and _spec.owns(anchor)):
+                        _before_owns_same = True
+                        break
+                if _before_owns_same:
+                    logger.debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s (same section)", type(actual_before).__name__)
+                    return
+                # Если оба не в одной секции, но actual_before — живой тулбар-кнопка,
+                # всё равно считаем намеренным только если обе в ImageCompareWidget
+                # (иначе CSD — не сиблинг, надо восстанавливать)
+                if isinstance(actual_before, QWidget) and isinstance(anchor, QWidget):
+                    # CSD/TitleBar — разные окна, не скипаем
+                    if actual_before.window() is not anchor.window() or type(actual_before).__name__ in ("CustomTitleBar",):
+                        pass
+                    elif _before_owns_same:
+                        return
+            except Exception:
+                # Фолбэк: только если actual_before — Button/InstancesCounterButton/ScrollValueButton
+                # в том же magnifier_group — считаем сиблингом
+                if type(actual_before).__name__ in ("Button", "InstancesCounterButton", "ScrollValueButton"):
+                    logger.debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s", type(actual_before).__name__)
+                    return
         if _is_alive_and_enabled(target):
             # OtherFocusReason unconditionally would light up the keyboard
             # focus ring on the trigger even when the flyout closed because
