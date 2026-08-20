@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.ui.managers.navigation_sections import ToolbarRowsSection
@@ -84,6 +85,6 @@ def test_focus_first_still_always_picks_top_row(window):
     section = ToolbarRowsSection(rows_provider=lambda: [row0, row1])
 
     ref_x = btn_row1.mapToGlobal(QPoint(5, 5)).x()
-    assert section.focus_first(ref_x) is True
+    assert section.focus_first(ref_x, reason=Qt.FocusReason.OtherFocusReason) is True
     assert QApplication.focusWidget() is btn_row0
     assert QApplication.focusWidget() is not btn_row1

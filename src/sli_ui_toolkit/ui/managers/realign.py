@@ -103,7 +103,12 @@ class ClickRealignCoordinator:
             and clicked.isVisible()
             and clicked.isEnabled()
         ):
-            clicked.setFocus(Qt.FocusReason.OtherFocusReason)
+            try:
+                from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+
+                clicked.setFocus(_nav_focus_reason())
+            except Exception:
+                clicked.setFocus(Qt.FocusReason.OtherFocusReason)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "[nav] realign: click -> %s directly",
@@ -121,14 +126,26 @@ class ClickRealignCoordinator:
         # focus_first(ref_x) only for sections that don't implement it
         # (fine there since those are single-row/x-only sections anyway).
         focus_nearest = getattr(spec, "focus_nearest", None)
-        if focus_nearest is not None and focus_nearest(pos):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "[nav] realign: click -> nearest (2D) in %s",
-                    type(owner).__name__,
-                )
-            self.force_ring_if_focus_unchanged(previously_focused)
-            return True
+        if focus_nearest is not None:
+            # 4.0: focus_nearest now requires reason — try new API, fallback to old
+            try:
+                from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+
+                _reason = _nav_focus_reason()
+                try:
+                    _realign_ok = focus_nearest(pos, reason=_reason)
+                except TypeError:
+                    _realign_ok = focus_nearest(pos)
+            except Exception:
+                _realign_ok = focus_nearest(pos)
+            if _realign_ok:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "[nav] realign: click -> nearest (2D) in %s",
+                        type(owner).__name__,
+                    )
+                self.force_ring_if_focus_unchanged(previously_focused)
+                return True
         # Generic fallback: find the nearest focusable widget *above* the
         # click within the section's owner widget tree.  Covers sections
         # that don't implement focus_nearest and sections whose
@@ -136,7 +153,12 @@ class ClickRealignCoordinator:
         # below the last card in a list that also has a footer panel).
         target = self.nearest_focusable(owner, pos)
         if target is not None:
-            target.setFocus(Qt.FocusReason.OtherFocusReason)
+            try:
+                from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason2
+
+                target.setFocus(_nav_focus_reason2())
+            except Exception:
+                target.setFocus(Qt.FocusReason.OtherFocusReason)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "[nav] realign: click -> nearest (generic) %s in %s",

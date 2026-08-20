@@ -59,7 +59,7 @@ def test_build_output_behaves_like_hand_built_section(qapp):
 
         hand_section = ToolbarRowsSection(rows_provider=lambda: [row0, row1], tag="test-behavior")
 
-        assert built_section.focus_first() == hand_section.focus_first()
+        assert built_section.focus_first(reason=Qt.FocusReason.OtherFocusReason) == hand_section.focus_first(reason=Qt.FocusReason.OtherFocusReason)
         assert QApplication.focusWidget() is not None
     finally:
         window.close()

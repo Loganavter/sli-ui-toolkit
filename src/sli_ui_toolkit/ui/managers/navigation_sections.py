@@ -136,14 +136,14 @@ class ToolbarRowsSection:
         widget.keyPressEvent(event)
         return event.isAccepted()
 
-    def _focus_first_in(self, row: QWidget) -> bool:
+    def _focus_first_in(self, row: QWidget, reason: Qt.FocusReason) -> bool:
         items = self._focusable(row)
         if not items:
             return False
-        items[0].setFocus(_focus_reason())
+        items[0].setFocus(reason)
         return True
 
-    def _focus_near_in(self, row: QWidget, reference: QWidget) -> bool:
+    def _focus_near_in(self, row: QWidget, reference: QWidget, reason: Qt.FocusReason) -> bool:
         """Like ``_focus_first_in``, but land on the item horizontally
         closest to ``reference`` on screen, instead of always the first.
 
@@ -154,9 +154,11 @@ class ToolbarRowsSection:
         under/above where the user actually was.
         """
         ref_x = reference.mapToGlobal(reference.rect().center()).x()
-        return self._focus_near_x(row, ref_x)
+        return self._focus_near_x(row, ref_x, reason)
 
     def navigate(self, key: int, widget: QWidget) -> bool:
+        from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+        reason = _nav_focus_reason()
         rows = self._rows()
         row = self._row_of(widget)
         if row is None or row not in rows:
@@ -199,12 +201,12 @@ class ToolbarRowsSection:
             ):
                 return True
             if idx < len(rows) - 1:
-                return self._focus_near_in(rows[idx + 1], widget)
+                return self._focus_near_in(rows[idx + 1], widget, reason)
             # Last row — yield (e.g. canvas/no further row below).
             return False
         if key == Qt.Key.Key_Up:
             if idx > 0:
-                return self._focus_near_in(rows[idx - 1], widget)
+                return self._focus_near_in(rows[idx - 1], widget, reason)
             # First row — yield so NavigationManager can hand off upward
             # (title bar / tab strip).
             return False
@@ -216,7 +218,7 @@ class ToolbarRowsSection:
             step = 1 if key == Qt.Key.Key_Right else -1
             target = cur + step
             if 0 <= target < len(items):
-                items[target].setFocus(_focus_reason())
+                items[target].setFocus(reason)
                 return True
             if (
                 key == Qt.Key.Key_Left
@@ -231,23 +233,23 @@ class ToolbarRowsSection:
             return True
         return False
 
-    def focus_first(self, ref_x: float | None = None) -> bool:
+    def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
         rows = self._rows()
         if not rows:
             return False
         if ref_x is not None:
-            return self._focus_near_x(rows[0], ref_x)
-        return self._focus_first_in(rows[0])
+            return self._focus_near_x(rows[0], ref_x, reason)
+        return self._focus_first_in(rows[0], reason)
 
-    def focus_last(self, ref_x: float | None = None) -> bool:
+    def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
         rows = self._rows()
         if not rows:
             return False
         if ref_x is not None:
-            return self._focus_near_x(rows[-1], ref_x)
-        return self._focus_first_in(rows[-1])
+            return self._focus_near_x(rows[-1], ref_x, reason)
+        return self._focus_first_in(rows[-1], reason)
 
-    def _focus_near_x(self, row: QWidget, ref_x: float) -> bool:
+    def _focus_near_x(self, row: QWidget, ref_x: float, reason: Qt.FocusReason) -> bool:
         items = self._focusable(row)
         if not items:
             return False
@@ -255,10 +257,10 @@ class ToolbarRowsSection:
             items,
             key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x),
         )
-        target.setFocus(_focus_reason())
+        target.setFocus(reason)
         return True
 
-    def focus_nearest(self, pos) -> bool:
+    def focus_nearest(self, pos, *, reason: Qt.FocusReason) -> bool:
         """Land on whichever focusable widget across *all* rows is
         geometrically closest to *pos* (both x and y).
 
@@ -278,7 +280,7 @@ class ToolbarRowsSection:
             rows,
             key=lambda r: abs(r.mapToGlobal(r.rect().center()).y() - pos.y()),
         )
-        return self._focus_near_x(row, pos.x())
+        return self._focus_near_x(row, pos.x(), reason)
 
     @property
     def extra_keys(self) -> frozenset[int]:
@@ -320,16 +322,20 @@ class IconListNavSection:
             key, widget_label(widget), idx, self._list.count(),
         )
         if key == Qt.Key.Key_Down:
+            from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+            _reason = _nav_focus_reason()
             if idx is None:
-                return self.focus_first()
+                return self.focus_first(reason=_reason)
             if idx < self._list.count() - 1:
-                return self._focus_visible(idx + 1)
+                return self._focus_visible(idx + 1, _reason)
             return False
         if key == Qt.Key.Key_Up:
             if idx is None:
                 return False
             if idx > 0:
-                return self._focus_visible(idx - 1)
+                from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+                _reason = _nav_focus_reason()
+                return self._focus_visible(idx - 1, _reason)
             return False
         if key == Qt.Key.Key_Right:
             if self._on_exit_right is not None:
@@ -337,26 +343,26 @@ class IconListNavSection:
             return False
         return False
 
-    def _focus_visible(self, visible_idx: int) -> bool:
+    def _focus_visible(self, visible_idx: int, reason: Qt.FocusReason) -> bool:
         btn = self._list.row_button(visible_idx)
         if btn is None:
             return False
-        btn.setFocus(_focus_reason())
+        btn.setFocus(reason)
         return True
 
-    def focus_first(self, ref_x: float | None = None) -> bool:
+    def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
         # Entering the list (from a vertical neighbor above, or via a
         # Left-key handoff from content) always lands on whatever row is
         # already selected -- not literally the first/last row -- since
         # this list stays synced 1:1 with the visible content page.
         btn = self._list.current_row_button()
         if btn is not None:
-            btn.setFocus(_focus_reason())
+            btn.setFocus(reason)
             return True
-        return self._focus_visible(0)
+        return self._focus_visible(0, reason)
 
-    def focus_last(self, ref_x: float | None = None) -> bool:
-        return self.focus_first(ref_x)
+    def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
+        return self.focus_first(ref_x, reason=reason)
 
     @property
     def extra_keys(self) -> frozenset[int]:

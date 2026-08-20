@@ -19,10 +19,10 @@ class _StubSection:
     def navigate(self, key, widget):
         return False
 
-    def focus_first(self, ref_x=None):
+    def focus_first(self, ref_x=None, *, reason=Qt.FocusReason.OtherFocusReason):
         return False
 
-    def focus_last(self, ref_x=None):
+    def focus_last(self, ref_x=None, *, reason=Qt.FocusReason.OtherFocusReason):
         return False
 
 

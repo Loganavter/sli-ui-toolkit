@@ -63,7 +63,7 @@ def test_focus_first_lands_on_current_row_not_literal_first(qapp, window):
     lst.setCurrentRow(2)
     section = IconListNavSection(lst)
 
-    assert section.focus_first() is True
+    assert section.focus_first(reason=Qt.FocusReason.OtherFocusReason) is True
     assert QApplication.focusWidget() is lst.row_button(2)
 
 
@@ -71,7 +71,7 @@ def test_focus_first_falls_back_to_row_zero_when_nothing_selected(qapp, window):
     lst = _make_list(window)
     section = IconListNavSection(lst)
 
-    assert section.focus_first() is True
+    assert section.focus_first(reason=Qt.FocusReason.OtherFocusReason) is True
     assert QApplication.focusWidget() is lst.row_button(0)
 
 

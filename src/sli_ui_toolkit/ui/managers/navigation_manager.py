@@ -51,7 +51,7 @@ class NavigationSection(Protocol):
         """
         ...
 
-    def focus_first(self, ref_x: float | None = None) -> bool:
+    def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
         """Move focus to the first widget in this section.  Return success.
 
         ``ref_x`` is the global x of the widget focus is leaving (when the
@@ -62,13 +62,19 @@ class NavigationSection(Protocol):
         control regardless of where the user actually was. ``None`` means
         no reference is available (e.g. a caller entering the section
         without prior focus context) -- fall back to a fixed default.
+
+        ``reason`` is the Qt.FocusReason that must be used for the
+        resulting setFocus() — callers must pass
+        NavigationManager.current_focus_reason() (or nav_graph.focus_reason())
+        so mouse vs keyboard modality is explicit, not hidden.
         """
         ...
 
-    def focus_last(self, ref_x: float | None = None) -> bool:
+    def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
         """Move focus to the last widget in this section.  Return success.
 
-        See ``focus_first`` for ``ref_x``.
+        See ``focus_first`` for ``ref_x``. ``reason`` is mandatory
+        (see ``focus_first``).
         """
         ...
 
@@ -144,6 +150,15 @@ class NavigationManager(QObject):
         focus ring even when the close was mouse-driven.
         """
         return self._last_input_keyboard
+
+    def current_focus_reason(self) -> Qt.FocusReason:
+        """Central FocusReason policy — mouse → no ring, keyboard → ring.
+
+        All programmatic setFocus() for navigation must go through here
+        (or nav_graph.focus_reason()) so modality is explicit.  Breaking
+        change in 4.0: focus_first/last now require this reason.
+        """
+        return Qt.FocusReason.OtherFocusReason if self._last_input_keyboard else Qt.FocusReason.MouseFocusReason
 
     def last_keyboard_focus(self) -> QWidget | None:
         """Return the last widget that received focus via keyboard
@@ -240,10 +255,11 @@ class NavigationManager(QObject):
             )
             return
         logger.debug(
-            "[nav] bootstrap focus_first: owner=%s",
+            "[nav] bootstrap focus_first: owner=%s reason=%s",
             type(owner).__name__,
+            self.current_focus_reason().name,
         )
-        spec.focus_first()
+        spec.focus_first(reason=self.current_focus_reason())
 
     def unregister(self, owner: QObject) -> None:
         # A late destroyed-signal callback (see register()) can fire during
@@ -351,7 +367,7 @@ class NavigationManager(QObject):
         """
         for candidate_owner, spec in self._sections:
             if candidate_owner is owner:
-                return spec.focus_first()
+                return spec.focus_first(reason=self.current_focus_reason())
         return False
 
     # ------------------------------------------------------------------
@@ -595,7 +611,7 @@ class NavigationManager(QObject):
                 # instead of silently dropping it: this also sidesteps
                 # activation-time races where the content wasn't focusable
                 # yet (hidden/disabled) when the owner first got focus.
-                if focused is owner and key in _ARROWS and spec.focus_first():
+                if focused is owner and key in _ARROWS and spec.focus_first(reason=self.current_focus_reason()):
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
@@ -630,7 +646,7 @@ class NavigationManager(QObject):
             ref_x = focused.mapToGlobal(focused.rect().center()).x()
             if key in _EXIT_DOWN:
                 neighbor = self._neighbor(owner, +1)
-                if neighbor is not None and neighbor[1].focus_first(ref_x):
+                if neighbor is not None and neighbor[1].focus_first(ref_x, reason=self.current_focus_reason()):
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
@@ -648,7 +664,7 @@ class NavigationManager(QObject):
                     )
             elif key in _EXIT_UP:
                 neighbor = self._neighbor(owner, -1)
-                if neighbor is not None and neighbor[1].focus_last(ref_x):
+                if neighbor is not None and neighbor[1].focus_last(ref_x, reason=self.current_focus_reason()):
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
