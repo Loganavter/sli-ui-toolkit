@@ -295,9 +295,18 @@ class NavigationManager(QObject):
             # would re-focus via OtherFocusReason, overriding the
             # MouseFocusReason _grab_focus carefully chose for a
             # mouse-opened flyout and lighting up the focus ring.
-            if current is not None and spec.owns(current):
-                return
+            owns = current is not None and spec.owns(current)
+            logger.debug(
+                "[nav] bootstrap skip: owner=%s current=%s owns=%s",
+                type(owner).__name__,
+                widget_label(current),
+                owns,
+            )
             return
+        logger.debug(
+            "[nav] bootstrap focus_first: owner=%s",
+            type(owner).__name__,
+        )
         spec.focus_first()
 
     def unregister(self, owner: QObject) -> None:
@@ -646,6 +655,15 @@ class NavigationManager(QObject):
             # so flyouts can query it at open time.
             reason = event.reason()
             widget = obj if isinstance(obj, QWidget) else None
+            _debug = logger.isEnabledFor(logging.DEBUG)
+            if _debug and widget is not None:
+                logger.debug(
+                    "[nav] FocusIn reason=%s widget=%s kb_focus=%s widget_reason=%s",
+                    reason.name,
+                    widget_label(widget),
+                    getattr(widget, "_keyboard_focus", None),
+                    getattr(widget, "_last_focus_reason", None),
+                )
             if reason in (
                 Qt.FocusReason.MouseFocusReason,
                 Qt.FocusReason.MenuBarFocusReason,
@@ -662,13 +680,6 @@ class NavigationManager(QObject):
                 # arrow press should navigate from here, not jump back to
                 # the click point.
                 self._realign_pending = False
-                _debug = logger.isEnabledFor(logging.DEBUG)
-                if _debug:
-                    logger.debug(
-                        "[nav] FocusIn keyboard reason=%s widget=%s",
-                        reason.name,
-                        widget_label(widget),
-                    )
             return False  # never consume FocusIn
 
         if event.type() == QEvent.Type.MouseButtonPress:
@@ -708,6 +719,7 @@ class NavigationManager(QObject):
                 # the click re-focused a widget that still carried a stale
                 # keyboard reason from a previous Tab/arrow grant (focusIn
                 # doesn't re-fire on an already-focused widget).
+                old_reason = getattr(focused, "_last_focus_reason", None)
                 if hasattr(focused, "_last_focus_reason"):
                     focused._last_focus_reason = Qt.FocusReason.MouseFocusReason
                     changed = True
@@ -715,8 +727,10 @@ class NavigationManager(QObject):
                     focused.update()
                     if _debug:
                         logger.debug(
-                            "[nav] MouseButtonPress cleared ring on %s",
+                            "[nav] MouseButtonPress cleared ring on %s (was kb=%s reason=%s→Mouse)",
                             widget_label(focused),
+                            getattr(focused, "_keyboard_focus", None),
+                            old_reason.name if old_reason is not None else "None",
                         )
             self._last_keyboard_focus = None
             return False  # never consume MouseButtonPress

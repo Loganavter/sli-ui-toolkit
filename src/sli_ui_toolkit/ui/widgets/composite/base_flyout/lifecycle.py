@@ -251,34 +251,57 @@ class _FlyoutLifecycleApi:
         self._weakened_focus_ancestors: list[tuple[QWidget, Qt.FocusPolicy]] = []
         anchor_kbd = getattr(self, "_anchor_keyboard_focus", False)
         w = self.parentWidget()
+        chain = []
         while w is not None:
+            chain.append(f"{type(w).__name__}({w.focusPolicy().name},win={w.isWindow()})")
             if w.focusPolicy() == Qt.FocusPolicy.StrongFocus:
-                # When the flyout was opened by mouse click, don't weaken
-                # the window — weakening it causes Qt to fall back to the
-                # window's first tab-order widget (e.g. CsdMenuTrigger)
-                # with TabFocusReason, lighting up its ring.  The ring is
-                # already suppressed inside the flyout (MouseFocusReason),
-                # so we only need to prevent the window fallback.
-                if (
-                    not anchor_kbd
-                    and w.isWindow()
-                ):
+                if not anchor_kbd and not w.isWindow():
+                    logger.debug(
+                        "[flyout-nav] _grab_focus skip weaken %s (not window, mouse-open)",
+                        type(w).__name__,
+                    )
                     w = w.parentWidget()
                     continue
+                logger.debug(
+                    "[flyout-nav] _grab_focus weakening %s policy=%s",
+                    type(w).__name__,
+                    w.focusPolicy().name,
+                )
                 self._weakened_focus_ancestors.append((w, w.focusPolicy()))
                 w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             w = w.parentWidget()
+        logger.debug(
+            "[flyout-nav] _grab_focus parent chain: %s", " → ".join(chain)
+        )
         target = self._first_focusable(self)
         # If the trigger had keyboard focus (arrow/Tab navigation), grant
         # the first child an OtherFocusReason so the focus ring is drawn
         # inside the flyout.  Mouse-opened flyouts keep MouseFocusReason
         # to suppress the ring.
-        anchor_kbd = getattr(self, "_anchor_keyboard_focus", False)
         reason = Qt.FocusReason.OtherFocusReason if anchor_kbd else Qt.FocusReason.MouseFocusReason
         if target is not None:
+            logger.debug(
+                "[flyout-nav] _grab_focus calling setFocus(%s) on %s parent=%s",
+                reason.name,
+                type(target).__name__,
+                type(target.parentWidget()).__name__ if target.parentWidget() else None,
+            )
             target.setFocus(reason)
         else:
             self.setFocus(reason)
+        # When opened by mouse: restore window StrongFocus AFTER setFocus
+        # so the ring is suppressed (MouseFocusReason on target) but the
+        # window's tab chain doesn't get a chance to steal focus during
+        # the setFocus call.
+        if not anchor_kbd:
+            for w, policy in self._weakened_focus_ancestors:
+                if w.isWindow():
+                    w.setFocusPolicy(policy)
+                    logger.debug(
+                        "[flyout-nav] _grab_focus restored window %s policy=%s",
+                        type(w).__name__,
+                        policy.name,
+                    )
         # Remembered so a fade-in's mid-animation child-hiding (see
         # FlyoutFadeController.sync_container_visibility) — which forces Qt
         # to yank focus off `target` onto the flyout itself, since Qt clears
@@ -288,9 +311,10 @@ class _FlyoutLifecycleApi:
         self._grab_focus_reason = reason
 
         logger.debug(
-            "[flyout-nav] _grab_focus weakened=%d target=%s reason=%s anchor_kbd=%s",
+            "[flyout-nav] _grab_focus weakened=%d/%s target=%s reason=%s anchor_kbd=%s",
             len(self._weakened_focus_ancestors),
-            type(target).__name__ if target else "self",
+            ",".join(type(w).__name__ for w, _ in self._weakened_focus_ancestors),
+            f"{type(target).__name__}({target.objectName()})" if target else "self",
             reason.name,
             anchor_kbd,
         )
@@ -383,10 +407,21 @@ class _FlyoutLifecycleApi:
             # of an outside mouse click — key off whether the user is
             # currently driving the app with the keyboard or the mouse.
             from sli_ui_toolkit.managers import NavigationManager
+            kbd_input = NavigationManager.get_instance().last_input_was_keyboard()
             restore_reason = (
                 Qt.FocusReason.OtherFocusReason
-                if NavigationManager.get_instance().last_input_was_keyboard()
+                if kbd_input
                 else Qt.FocusReason.MouseFocusReason
+            )
+            target_reason = getattr(target, "_last_focus_reason", None)
+            target_kb = getattr(target, "_keyboard_focus", None)
+            logger.debug(
+                "[flyout-nav] _restore_focus_policies: restore_reason=%s "
+                "anchor_reason=%s anchor_kb=%s kbd_input=%s",
+                restore_reason.name,
+                target_reason.name if target_reason is not None else "None",
+                target_kb,
+                kbd_input,
             )
             target.setFocus(restore_reason)
             QApplication.processEvents()
