@@ -494,6 +494,20 @@ class NavigationManager(QObject):
                         )
             elif widget is not None:
                 self._last_keyboard_focus = widget
+                # Invariant: никогда не может быть двух колец — чистим
+                # stale _keyboard_focus на всех остальных виджетах, иначе
+                # Button.focusOut может не успеть (асинхронный paint) и
+                # останется два hasFocus+_keyboard_focus в одном кадре.
+                try:
+                    for _w in QApplication.allWidgets():
+                        if _w is not widget and getattr(_w, "_keyboard_focus", False):
+                            _w._keyboard_focus = False
+                            try:
+                                _w.update()
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
                 # Focus moved for a real keyboard-ish reason (arrow
                 # navigation, Tab, programmatic OtherFocusReason) -- the
                 # click that set realign_pending, if any, has already been
@@ -530,6 +544,22 @@ class NavigationManager(QObject):
             except Exception:
                 pass
             return False  # never consume FocusIn
+
+        if event.type() == QEvent.Type.FocusOut:
+            # Убрали фокус (например, Esc закрыл флайаут, фокус ушел в None
+            # или на контейнер) — stale _keyboard_focus на старом виджете
+            # иначе останется висеть кольцом без hasFocus (но paint все равно
+            # может его показать в следующем кадре до Button.focusOut).
+            _w = obj if isinstance(obj, QWidget) else None
+            if _w is not None and getattr(_w, "_keyboard_focus", False):
+                # Button.focusOutEvent тоже чистит, но дублируем на уровне
+                # менеджера чтобы покрыть не-Button фокусабельные виджеты.
+                try:
+                    _w._keyboard_focus = False
+                    _w.update()
+                except Exception:
+                    pass
+            return False
 
         if event.type() == QEvent.Type.MouseButtonPress:
             # A mouse click anywhere must kill the keyboard focus ring even
@@ -581,6 +611,18 @@ class NavigationManager(QObject):
                             getattr(focused, "_keyboard_focus", None),
                             old_reason.name if old_reason is not None else "None",
                         )
+            # Инвариант одного кольца: клик мышью должен погасить все
+            # stale кольца, а не только на focused (фокус мог уйти в None).
+            try:
+                for _w in QApplication.allWidgets():
+                    if _w is not focused and getattr(_w, "_keyboard_focus", False):
+                        _w._keyboard_focus = False
+                        try:
+                            _w.update()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             self._last_keyboard_focus = None
             return False  # never consume MouseButtonPress
 

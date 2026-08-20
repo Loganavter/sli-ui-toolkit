@@ -205,6 +205,24 @@ class ToolbarRowsSection:
             # Last row — yield (e.g. canvas/no further row below).
             return False
         if key == Qt.Key.Key_Up:
+            # Symmetric to Down's extension_below check — for ambient toggle
+            # panels (PanelVisibility) that sit visually above their anchor but
+            # are linked via NavigationManager.link_below. Without this, Up from
+            # btn_magnifier skips straight to the previous toolbar row even
+            # though a visible toggle panel is right there above the focused
+            # button (mirrors bottom MagnifierSettings flyout's Down→enter).
+            # Guard on flyout_group=="toggle" so bottom canvas_feature_settings
+            # panels keep Up→previous-row semantics.
+            from sli_ui_toolkit.managers import NavigationManager as _NMUp
+
+            _ext_up = _NMUp.get_instance().extension_below(widget)
+            if (
+                _ext_up is not None
+                and getattr(_ext_up, "flyout_group", None) == "toggle"
+                and hasattr(_ext_up, "focus_first_child")
+                and _ext_up.focus_first_child()
+            ):
+                return True
             if idx > 0:
                 return self._focus_near_in(rows[idx - 1], widget, reason)
             # First row — yield so NavigationManager can hand off upward
