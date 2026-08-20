@@ -533,6 +533,9 @@ class _FlyoutNavigationSection:
         # Up/Down remain for row-to-row navigation (see ToolbarRowsSection),
         # so they are not delegated — QAbstractSlider would otherwise steal
         # them and break extension_below.
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QKeyEvent
+
         if key in (self._EXTRA_KEYS | {0x01000012, 0x01000014}) and widget is not None and widget is not self._flyout:
             # Left/Right → value controls get first refusal (Slider,
             # ScrollValueButton) so keyboard navigation on scrollable
@@ -544,9 +547,6 @@ class _FlyoutNavigationSection:
                 if getattr(self._flyout, "flyout_group", None) == "toggle":
                     if not getattr(self._flyout, "_keyboard_navigation_active", False):
                         return False
-                from PySide6.QtCore import QEvent
-                from PySide6.QtGui import QKeyEvent
-
                 trial = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
                 widget.keyPressEvent(trial)
                 if trial.isAccepted():
