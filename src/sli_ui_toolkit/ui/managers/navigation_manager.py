@@ -532,21 +532,20 @@ class NavigationManager(QObject):
                 )
             self._force_ring_if_focus_unchanged(previously_focused)
             return True
-        if spec.focus_first(pos.x()):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "[nav] realign: click -> nearest in %s",
-                    type(owner).__name__,
-                )
-            self._force_ring_if_focus_unchanged(previously_focused)
-            return True
+        # No focusable widget above the click — don't realign.  The
+        # click landed in empty space (padding, stretch, footer area);
+        # jumping to a distant widget would be disorienting.
         return False
 
     @staticmethod
-    def _nearest_focusable_above(owner: QWidget, pos) -> QWidget | None:
-        """Find the focusable descendant of *owner* whose global center y
-        is closest to but not above *pos.y()* (nearest above).  Falls back
-        to the topmost focusable widget when nothing is above.
+    def _nearest_focusable(owner: QWidget, pos) -> QWidget | None:
+        """Find the focusable descendant of *owner* closest to *pos*.
+
+        Used as a generic realign target when the section doesn't provide
+        ``focus_nearest``.  Picks the widget whose global center is
+        nearest to the click in any direction — no "above" bias, so
+        clicking on a shelf keeps focus on the shelf rather than jumping
+        to a card above it.
         """
         click_y = pos.y()
         candidates = [
@@ -558,22 +557,12 @@ class NavigationManager(QObject):
                 and w.isEnabled()
             )
         ]
-        best: QWidget | None = None
-        best_dist = float("inf")
-        for w in candidates:
-            cy = w.mapToGlobal(w.rect().center()).y()
-            if cy <= click_y:
-                dist = click_y - cy
-                if dist < best_dist:
-                    best_dist = dist
-                    best = w
-        if best is None:
-            for w in candidates:
-                cy = w.mapToGlobal(w.rect().center()).y()
-                dist = abs(cy - click_y)
-                if dist < best_dist:
-                    best_dist = dist
-                    best = w
+        if not candidates:
+            return None
+        best = min(
+            candidates,
+            key=lambda w: abs(w.mapToGlobal(w.rect().center()).y() - click_y),
+        )
         return best
 
     @staticmethod
