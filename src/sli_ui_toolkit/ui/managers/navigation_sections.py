@@ -109,16 +109,8 @@ class ToolbarRowsSection:
         direction rather than a fixed index, so focus lands roughly
         under/above where the user actually was.
         """
-        items = self._focusable(row)
-        if not items:
-            return False
         ref_x = reference.mapToGlobal(reference.rect().center()).x()
-        target = min(
-            items,
-            key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x),
-        )
-        target.setFocus(Qt.FocusReason.OtherFocusReason)
-        return True
+        return self._focus_near_x(row, ref_x)
 
     def navigate(self, key: int, widget: QWidget) -> bool:
         rows = self._rows()
@@ -184,13 +176,32 @@ class ToolbarRowsSection:
             return True
         return False
 
-    def focus_first(self) -> bool:
+    def focus_first(self, ref_x: float | None = None) -> bool:
         rows = self._rows()
-        return bool(rows) and self._focus_first_in(rows[0])
+        if not rows:
+            return False
+        if ref_x is not None:
+            return self._focus_near_x(rows[0], ref_x)
+        return self._focus_first_in(rows[0])
 
-    def focus_last(self) -> bool:
+    def focus_last(self, ref_x: float | None = None) -> bool:
         rows = self._rows()
-        return bool(rows) and self._focus_first_in(rows[-1])
+        if not rows:
+            return False
+        if ref_x is not None:
+            return self._focus_near_x(rows[-1], ref_x)
+        return self._focus_first_in(rows[-1])
+
+    def _focus_near_x(self, row: QWidget, ref_x: float) -> bool:
+        items = self._focusable(row)
+        if not items:
+            return False
+        target = min(
+            items,
+            key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x),
+        )
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
 
     @property
     def extra_keys(self) -> frozenset[int]:

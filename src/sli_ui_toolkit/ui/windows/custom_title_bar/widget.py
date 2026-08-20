@@ -246,6 +246,23 @@ class CustomTitleBar(
             return True
         return False
 
+    def focus_nearest_button(self, ref_x: float) -> bool:
+        """Focus whichever button sits closest to global x ``ref_x``.
+
+        Used for a keyboard-driven cross-section handoff (e.g. Up from the
+        tab strip) so focus lands near where the user actually was instead
+        of always snapping to the leftmost/rightmost button.
+        """
+        buttons = self._focusable_buttons()
+        if not buttons:
+            return False
+        target = min(
+            buttons,
+            key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x),
+        )
+        self._set_child_focus(target)
+        return True
+
     def attach_window(self, window: QWidget) -> None:
         """Wire the controls cluster + this bar to a real window."""
         self._target_window = window

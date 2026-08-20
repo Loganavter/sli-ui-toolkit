@@ -513,10 +513,10 @@ class _FlyoutNavigationSection:
         # swallowed forever.
         return event.isAccepted()
 
-    def focus_first(self) -> bool:
+    def focus_first(self, ref_x: float | None = None) -> bool:
         return self._flyout.focus_first_child()
 
-    def focus_last(self) -> bool:
+    def focus_last(self, ref_x: float | None = None) -> bool:
         return self._flyout.focus_last_child()
 
     @property

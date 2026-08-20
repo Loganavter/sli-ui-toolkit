@@ -71,12 +71,25 @@ class NavigationSection(Protocol):
         """
         ...
 
-    def focus_first(self) -> bool:
-        """Move focus to the first widget in this section.  Return success."""
+    def focus_first(self, ref_x: float | None = None) -> bool:
+        """Move focus to the first widget in this section.  Return success.
+
+        ``ref_x`` is the global x of the widget focus is leaving (when the
+        manager has one -- always the case for a keyboard-driven
+        cross-section Up/Down handoff), so a section spanning a horizontal
+        row can land on whichever of its own widgets is closest to that x
+        instead of unconditionally jumping to its leftmost/rightmost
+        control regardless of where the user actually was. ``None`` means
+        no reference is available (e.g. a caller entering the section
+        without prior focus context) -- fall back to a fixed default.
+        """
         ...
 
-    def focus_last(self) -> bool:
-        """Move focus to the last widget in this section.  Return success."""
+    def focus_last(self, ref_x: float | None = None) -> bool:
+        """Move focus to the last widget in this section.  Return success.
+
+        See ``focus_first`` for ``ref_x``.
+        """
         ...
 
     @property
@@ -487,9 +500,10 @@ class NavigationManager(QObject):
                 return True
 
             # Section declined — try adjacent section on boundary keys.
+            ref_x = focused.mapToGlobal(focused.rect().center()).x()
             if key in _EXIT_DOWN:
                 neighbor = self._neighbor(owner, +1)
-                if neighbor is not None and neighbor[1].focus_first():
+                if neighbor is not None and neighbor[1].focus_first(ref_x):
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
@@ -508,7 +522,7 @@ class NavigationManager(QObject):
                     )
             elif key in _EXIT_UP:
                 neighbor = self._neighbor(owner, -1)
-                if neighbor is not None and neighbor[1].focus_last():
+                if neighbor is not None and neighbor[1].focus_last(ref_x):
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
