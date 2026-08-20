@@ -249,9 +249,22 @@ class _FlyoutLifecycleApi:
         no focusable child is found.
         """
         self._weakened_focus_ancestors: list[tuple[QWidget, Qt.FocusPolicy]] = []
+        anchor_kbd = getattr(self, "_anchor_keyboard_focus", False)
         w = self.parentWidget()
         while w is not None:
             if w.focusPolicy() == Qt.FocusPolicy.StrongFocus:
+                # When the flyout was opened by mouse click, don't weaken
+                # the window — weakening it causes Qt to fall back to the
+                # window's first tab-order widget (e.g. CsdMenuTrigger)
+                # with TabFocusReason, lighting up its ring.  The ring is
+                # already suppressed inside the flyout (MouseFocusReason),
+                # so we only need to prevent the window fallback.
+                if (
+                    not anchor_kbd
+                    and w.isWindow()
+                ):
+                    w = w.parentWidget()
+                    continue
                 self._weakened_focus_ancestors.append((w, w.focusPolicy()))
                 w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             w = w.parentWidget()
@@ -393,8 +406,15 @@ class _FlyoutLifecycleApi:
             section = _FlyoutNavigationSection(self)
             manager.register(self, section)
             self._nav_section_registered = True
+            # Only install a focus proxy when the flyout does NOT grab
+            # focus itself (grab_focus=False).  When grab_focus=True,
+            # _grab_focus() focuses the first child with the correct
+            # Mouse/OtherFocusReason — setFocusProxy steals that focus
+            # back to the flyout shell with TabFocusReason, and the
+            # bootstrap then re-focuses the child via OtherFocusReason,
+            # lighting up the focus ring on a mouse-opened flyout.
             window = self.window()
-            if window is not None:
+            if window is not None and getattr(self, "_skip_focus_grab", False):
                 window.setFocusProxy(self)
             logger.debug(
                 "[flyout-nav] registered %s", type(self).__name__,
@@ -405,7 +425,11 @@ class _FlyoutLifecycleApi:
             from sli_ui_toolkit.managers import NavigationManager
 
             window = self.window()
-            if window is not None and window.focusProxy() is self:
+            if (
+                window is not None
+                and window.focusProxy() is self
+                and getattr(self, "_skip_focus_grab", False)
+            ):
                 window.setFocusProxy(None)
             NavigationManager.get_instance().unregister(self)
             self._nav_section_registered = False

@@ -284,10 +284,19 @@ class NavigationManager(QObject):
     def _bootstrap_if_still_owner(self, owner: QObject, spec: NavigationSection) -> None:
         if not shiboken6.isValid(self) or (owner, spec) not in self._sections:
             return
-        if QApplication.focusWidget() is not owner:
+        current = QApplication.focusWidget()
+        if current is not owner:
             # Something else already grabbed focus since registration
             # (user clicked elsewhere, another section bootstrapped, tab
             # switched away again) -- don't steal it back.
+            #
+            # Also skip when _grab_focus already landed focus on a child
+            # of this section (e.g. a flyout's first row).  The bootstrap
+            # would re-focus via OtherFocusReason, overriding the
+            # MouseFocusReason _grab_focus carefully chose for a
+            # mouse-opened flyout and lighting up the focus ring.
+            if current is not None and spec.owns(current):
+                return
             return
         spec.focus_first()
 
@@ -689,16 +698,26 @@ class NavigationManager(QObject):
                     widget_label(focused),
                     getattr(focused, "_keyboard_focus", None) if focused else None,
                 )
-            if focused is not None and getattr(focused, "_keyboard_focus", False):
-                focused._keyboard_focus = False
+            if focused is not None:
+                changed = False
+                if getattr(focused, "_keyboard_focus", False):
+                    focused._keyboard_focus = False
+                    changed = True
+                # Always stamp _last_focus_reason on mouse press so flyouts
+                # reading it at open time see MouseFocusReason — even when
+                # the click re-focused a widget that still carried a stale
+                # keyboard reason from a previous Tab/arrow grant (focusIn
+                # doesn't re-fire on an already-focused widget).
                 if hasattr(focused, "_last_focus_reason"):
                     focused._last_focus_reason = Qt.FocusReason.MouseFocusReason
-                focused.update()
-                if _debug:
-                    logger.debug(
-                        "[nav] MouseButtonPress cleared ring on %s",
-                        widget_label(focused),
-                    )
+                    changed = True
+                if changed:
+                    focused.update()
+                    if _debug:
+                        logger.debug(
+                            "[nav] MouseButtonPress cleared ring on %s",
+                            widget_label(focused),
+                        )
             self._last_keyboard_focus = None
             return False  # never consume MouseButtonPress
 
