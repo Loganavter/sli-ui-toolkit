@@ -395,27 +395,18 @@ class NavigationManager(QObject):
 
     def _owning_section_for(
         self, widget: QWidget
-    ) -> tuple[QObject, NavigationSection, bool] | None:
+    ) -> tuple[QObject, NavigationSection] | None:
         """Walk *widget*'s ancestor chain for the first registered section
-        that claims it.
-
-        Returns ``(owner, spec, is_bare_owner)``, where ``is_bare_owner`` is
-        ``True`` when the match came from hitting the section's bare
-        ``owner`` widget rather than a real content match via ``owns()`` --
-        e.g. a click on a row container's padding, not any actual row
-        content. ``owns()`` matches (any registered section, checked at
-        every ancestor level before falling back to identity) take
-        priority over a bare-owner match at a shallower level, so a click
-        on real content always resolves to that content's own section.
+        that claims it (via ``owns()``, or by being the section's bare
+        ``owner`` widget -- some ``owns()`` implementations already report
+        ``True`` for their own owner, e.g. ``TabStripSection``, others
+        don't, so both are checked at every ancestor level).
         """
         target = widget
         while target is not None:
             for owner, spec in self._sections:
-                if spec.owns(target):
-                    return owner, spec, False
-            for owner, spec in self._sections:
-                if target is owner:
-                    return owner, spec, True
+                if spec.owns(target) or target is owner:
+                    return owner, spec
             target = target.parentWidget()
         return None
 
@@ -434,19 +425,22 @@ class NavigationManager(QObject):
         found = self._owning_section_for(clicked)
         if found is None:
             return False
-        owner, spec, is_bare_owner = found
+        owner, spec = found
         # The clicked widget itself is the nearest candidate by definition
         # -- prefer it directly over asking the section to guess from an
         # x-coordinate alone, which only ever considers its first/last row.
-        # Skip this when the match only came from hitting the bare owner
-        # (e.g. row padding, or a click that landed on the section's outer
-        # container rather than any real content) -- that widget commonly
-        # carries StrongFocus purely to support the arrow-key bootstrap
-        # path (see register()'s _bootstrap_if_still_owner), not as a
-        # meaningful landing spot; focus_first() is the section's own idea
-        # of the right entry point instead.
+        # Skip this when the click landed exactly on the section's bare
+        # owner widget rather than any real content inside it (e.g. row
+        # padding, or the outer strip/container itself) -- some sections'
+        # owns() reports that owner as "owned" too (to support the
+        # unrelated arrow-key bootstrap path, see register()'s
+        # _bootstrap_if_still_owner), but it is not a meaningful landing
+        # spot on its own, and may not even be the widget that actually
+        # handles keys (e.g. WorkspaceTabStrip vs. its real tab_bar
+        # child) -- focus_first() is the section's own idea of the right
+        # entry point instead.
         if (
-            not is_bare_owner
+            clicked is not owner
             and clicked.focusPolicy() == Qt.FocusPolicy.StrongFocus
             and clicked.isVisible()
             and clicked.isEnabled()
@@ -548,11 +542,19 @@ class NavigationManager(QObject):
             # in Button.focusInEvent never runs on its own.
             self._last_input_keyboard = False
             pos_fn = getattr(event, "globalPosition", None)
+            _debug = logger.isEnabledFor(logging.DEBUG)
             if pos_fn is not None:
                 self._last_click_pos = pos_fn().toPoint()
                 self._realign_pending = True
+                if _debug:
+                    clicked_at = QApplication.widgetAt(self._last_click_pos)
+                    logger.debug(
+                        "[nav] MouseButtonPress pos=(%d, %d) widgetAt=%s",
+                        self._last_click_pos.x(),
+                        self._last_click_pos.y(),
+                        type(clicked_at).__name__ if clicked_at else None,
+                    )
             focused = QApplication.focusWidget()
-            _debug = logger.isEnabledFor(logging.DEBUG)
             if _debug:
                 logger.debug(
                     "[nav] MouseButtonPress focused=%s keyboard_focus=%s",
