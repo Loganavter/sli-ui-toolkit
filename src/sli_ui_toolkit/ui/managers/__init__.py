@@ -18,6 +18,7 @@ from sli_ui_toolkit.ui.managers.navigation_descriptor import register_navigation
 from sli_ui_toolkit.ui.managers.navigation_manager import (
     NavigationManager,
     NavigationSection,
+    bind_flyout,
     widget_label,
 )
 from sli_ui_toolkit.ui.managers.navigation_sections import (
@@ -65,6 +66,7 @@ __all__ = [
     "NavRowBuilder",
     "NavigationManager",
     "NavigationSection",
+    "bind_flyout",
     "SettleGate",
     "ThemeManager",
     "ToolbarRowsSection",

@@ -153,6 +153,16 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     draw_marquee_text,
     MarqueeDriver,
 )
+from sli_ui_toolkit.managers import (
+    AnchoredFlyoutAutoHide,
+    FlyoutManager,
+    GroupShowPolicy,
+    IconListNavSection,
+    NavigationManager,
+    NavigationSection,
+    ToolbarRowsSection,
+    bind_flyout,
+)
 from sli_ui_toolkit.style import (
     WidgetStyleTokens,
     read_widget_style,
@@ -310,6 +320,14 @@ __all__ = [
     "read_widget_style",
     "update_widget_style",
     "show_context_menu",
+    "NavigationManager",
+    "NavigationSection",
+    "ToolbarRowsSection",
+    "IconListNavSection",
+    "FlyoutManager",
+    "GroupShowPolicy",
+    "AnchoredFlyoutAutoHide",
+    "bind_flyout",
 ]
 
 

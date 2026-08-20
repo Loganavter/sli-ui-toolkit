@@ -183,52 +183,50 @@ class ToolbarRowsSection:
             if self._widget_handles(key, widget):
                 return True
         if key == Qt.Key.Key_Down:
-            # A widget can have a flyout linked directly below it (see
-            # NavigationManager.link_below) -- a persistent, ambient panel
-            # that reads as part of the toolbar rather than a modal
-            # popover (e.g. a hover-driven settings panel for a button
-            # group). Entering it takes priority over jumping to the next
-            # toolbar row, same priority as _widget_handles above: without
-            # this, Down would skip straight over a panel that's visibly
-            # sitting right there beneath the focused button.
+            # Simplified: вход в флайаут только если side=="below" (нижняя панель).
+            # Для "above" (PanelVisibility/Color) Down не входит — туда входит Up.
             from sli_ui_toolkit.managers import NavigationManager
 
             extension = NavigationManager.get_instance().extension_below(widget)
-            if (
-                extension is not None
-                and hasattr(extension, "focus_first_child")
-                and extension.focus_first_child()
-            ):
-                return True
+            if extension is not None and hasattr(extension, "focus_first_child"):
+                side = NavigationManager.get_instance().flyout_side(extension)
+                # side None → legacy link_below → считаем "below" для совместимости
+                if side is None or side == "below":
+                    if extension.focus_first_child():
+                        return True
             if idx < len(rows) - 1:
                 return self._focus_near_in(rows[idx + 1], widget, reason)
             # Last row — yield (e.g. canvas/no further row below).
             return False
         if key == Qt.Key.Key_Up:
-            # Symmetric to Down's extension_below check — for ambient toggle
-            # panels (PanelVisibility) that sit visually above their anchor but
-            # are linked via NavigationManager.link_below. Without this, Up from
-            # btn_magnifier skips straight to the previous toolbar row even
-            # though a visible toggle panel is right there above the focused
-            # button (mirrors bottom MagnifierSettings flyout's Down→enter).
-            # Guard on flyout_group=="toggle" so bottom canvas_feature_settings
-            # panels keep Up→previous-row semantics.
+            # Симметрично Down — вход только если side=="above" (верхние панели
+            # PanelVisibility/ColorOptions визуально выше якоря).
             from sli_ui_toolkit.managers import NavigationManager as _NMUp
 
             _ext_up = _NMUp.get_instance().extension_below(widget)
-            if (
-                _ext_up is not None
-                and getattr(_ext_up, "flyout_group", None) == "toggle"
-                and hasattr(_ext_up, "focus_first_child")
-                and _ext_up.focus_first_child()
-            ):
-                return True
+            if _ext_up is not None and hasattr(_ext_up, "focus_first_child"):
+                side = _NMUp.get_instance().flyout_side(_ext_up)
+                if side == "above" and _ext_up.focus_first_child():
+                    return True
             if idx > 0:
                 return self._focus_near_in(rows[idx - 1], widget, reason)
             # First row — yield so NavigationManager can hand off upward
             # (title bar / tab strip).
             return False
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            # Расширение: флайауты сбоку (side="left"/"right") — входят по
+            # Left/Right, как "above"→Up и "below"→Down. Библиотека пока только
+            # QWidget, поэтому side — метаданная без геометрии.
+            from sli_ui_toolkit.managers import NavigationManager as _NMLR
+
+            _ext_lr = _NMLR.get_instance().extension_below(widget)
+            if _ext_lr is not None and hasattr(_ext_lr, "focus_first_child"):
+                _side_lr = _NMLR.get_instance().flyout_side(_ext_lr)
+                if (key == Qt.Key.Key_Left and _side_lr == "left") or (
+                    key == Qt.Key.Key_Right and _side_lr == "right"
+                ):
+                    if _ext_lr.focus_first_child():
+                        return True
             # Scrollable controls (ScrollValueButton, Slider, SpinBox) handle
             # Left/Right themselves to adjust value — don't steal focus.
             # Same trial-dispatch as Up/Down above.
@@ -363,8 +361,24 @@ class IconListNavSection:
                 return self._focus_visible(idx - 1, _reason)
             return False
         if key == Qt.Key.Key_Right:
+            # Поддержка side="right" флайаутов (Up→above, Down→below уже в ToolbarRowsSection)
+            # Для IconList: Right входит в привязанный флайаут справа, если есть side="right"
+            from sli_ui_toolkit.managers import NavigationManager as _NMR
+
+            _ext_r = _NMR.get_instance().extension_below(widget)
+            if _ext_r is not None and _NMR.get_instance().flyout_side(_ext_r) == "right":
+                if hasattr(_ext_r, "focus_first_child") and _ext_r.focus_first_child():
+                    return True
             if self._on_exit_right is not None:
                 return bool(self._on_exit_right())
+            return False
+        if key == Qt.Key.Key_Left:
+            from sli_ui_toolkit.managers import NavigationManager as _NML
+
+            _ext_l = _NML.get_instance().extension_below(widget)
+            if _ext_l is not None and _NML.get_instance().flyout_side(_ext_l) == "left":
+                if hasattr(_ext_l, "focus_first_child") and _ext_l.focus_first_child():
+                    return True
             return False
         return False
 

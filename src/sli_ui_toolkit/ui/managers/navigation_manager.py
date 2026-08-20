@@ -123,6 +123,7 @@ class NavigationManager(QObject):
         self._sections: list[tuple[QObject, NavigationSection]] = []
         self._extensions_below: dict[QWidget, QWidget] = {}
         self._extension_owners: dict[QWidget, QWidget] = {}
+        self._flyout_side: dict[QWidget, str] = {}  # "above" | "below" — для упрощённого API bind_flyout
         self._event_filter_installed = False
         self._last_keyboard_focus: QWidget | None = None
         # False until first keyboard input; flips on every MouseButtonPress
@@ -373,6 +374,72 @@ class NavigationManager(QObject):
         if not shiboken6.isValid(owner) or not owner.isVisible():
             return None
         return owner
+
+    # ------------------------------------------------------------------
+    # Simplified public API — один вызов вместо link_below + show_aligned +
+    # grab/register комбо. Надёжнее: потребитель не знает про proxy/flyout_group.
+    # ------------------------------------------------------------------
+
+    def bind_flyout(
+        self,
+        anchor: QWidget,
+        flyout: QWidget,
+        *,
+        side: str = "below",
+        mode: str = "preview",
+    ) -> None:
+        """Связать *anchor* → *flyout* как продолжение тулбара.
+
+        *side* — визуальная сторона: ``"above"|"below"|"left"|"right"``
+        (Up/Down/Left/Right входит, примеры: PanelVisibility/ColorOptions —
+        ``"above"`` → Up, MagnifierSettings — ``"below"`` → Down).
+        *mode* — ``"preview"`` (grab=False, без прокси, один ring) или
+        ``"interactive"`` (grab=True, с секцией). Библиотека сейчас
+        рассчитана только на ``QWidget`` (не ``QGraphicsItem`` и т.п.),
+        поэтому side — чисто метаданная без геометрии.
+
+        Это тонкая обёртка над :meth:`link_below` + метаданными side/mode,
+        которую :class:`ToolbarRowsSection` / :class:`IconListNavSection`
+        читают вместо гарда по ``flyout_group``. Старый :meth:`link_below`
+        остаётся для совместимости (side по умолчанию ``"below"``).
+        """
+        side_norm = side.lower().strip()
+        # Поддерживаем все 4 стороны; библиотека рассчитана только на QWidget,
+        # поэтому храним только строковый side без геометрических расчётов
+        # вне QWidget (QGraphicsItem и т.п. — вне скоупа, см. AGENTS.md).
+        if side_norm not in ("above", "below", "left", "right"):
+            side_norm = "below"
+        self._flyout_side[flyout] = side_norm
+        # Для дебага — читается в логах/инспекторе
+        try:
+            flyout._nav_side = side_norm  # type: ignore[attr-defined]
+            flyout._nav_mode = mode  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        self.link_below(anchor, flyout)
+
+    def flyout_side(self, flyout: QWidget) -> str | None:
+        # Сначала императивный bind_flyout, затем декларативный _nav_side на классе
+        side = self._flyout_side.get(flyout)
+        if side is not None:
+            return side
+        return getattr(flyout, "_nav_side", None)
+
+    def bind_preview(
+        self,
+        anchor: QWidget,
+        flyout: QWidget,
+        *,
+        side: str = "below",
+    ) -> None:
+        """Алиас :meth:`bind_flyout` для превью (grab=False, без прокси).
+
+        *side* — ``"above"|"below"|"left"|"right"``. Пока библиотека
+        поддерживает только ``QWidget`` (не ``QGraphicsItem`` и т.п.),
+        поэтому side — просто метаданная для :class:`ToolbarRowsSection`
+        и :class:`IconListNavSection`, без авто-геометрии.
+        """
+        self.bind_flyout(anchor, flyout, side=side, mode="preview")
 
     def focus_section_for_owner(self, owner: QObject) -> bool:
         """Focus into the ``NavigationSection`` registered for *owner*
@@ -801,5 +868,48 @@ class NavigationManager(QObject):
         # widgets (flyouts, popups) that are parented inside a section's
         # widget tree but should handle their own keyboard navigation.
         return self._realign.yield_to_native(focused, event, realigned)
+
+
+# ------------------------------------------------------------------
+# Фасад для потребителя — один вызов вместо link_below + side + mode +
+# GroupShowPolicy/pinned. Оркестрирует Navigation + FlyoutManager, ядра
+# остаются раздельны.
+# ------------------------------------------------------------------
+
+
+def bind_flyout(
+    anchor: QWidget,
+    flyout: QWidget,
+    *,
+    side: str = "below",
+    mode: str = "preview",
+) -> None:
+    """Один вызов вместо трёх проволочек.
+
+    Делает :meth:`NavigationManager.bind_flyout` (side→Up/Down/Left/Right)
+    + ``FlyoutManager.link`` для ``contains_global``/hover-контеймента.
+    Потребитель импортит из одного места::
+
+        from sli_ui_toolkit.managers import bind_flyout
+        bind_flyout(btn, flyout, side="above")  # preview без прокси, один ring
+
+    Декларативная альтернатива — задать ``flyout._nav_side`` на классе
+    и не вызывать императивно вовсе (менеджер читает атрибут).
+    """
+    try:
+        nav = NavigationManager.get_instance()
+        nav.bind_flyout(anchor, flyout, side=side, mode=mode)
+    except Exception:
+        pass
+    # Hover-контеймент: чтобы флайаут считался “внутри” якоря для
+    # AnchoredFlyoutAutoHide / FlyoutManager.contains_global
+    try:
+        from sli_ui_toolkit.ui.managers.flyout_manager import FlyoutManager
+
+        # Декларативный pin/group остаётся на классе (flyout.pinned,
+        # flyout.flyout_group) — здесь только линковка семейства
+        FlyoutManager.get_instance().link(flyout, anchor)  # type: ignore[arg-type]
+    except Exception:
+        pass
 
 
