@@ -297,7 +297,9 @@ Use this layer for singleton-like or coordination objects such as:
 - `ThemeManager`
 - flyout manager / auto-hide coordination
 - delayed action helpers
-- `NavigationManager` — arrow-key navigation coordinator
+- `NavigationManager` — arrow-key navigation coordinator (see
+  `docs/dev/NAVIGATION.md` for the full trial-dispatch contract and wiring
+  guide)
 - `WidgetDescriptor` / `WidgetRegistry` — unified widget self-description
 
 #### `WidgetDescriptor` (unified widget self-description)
@@ -319,13 +321,18 @@ class MyWidget(QWidget):
         super().__init__()
         self.widget_descriptor = WidgetDescriptor(
             family="MyWidget",
-            navigation=NavigationSection(
-                navigate=self._nav_navigate,
-                focus_first=self._nav_focus_first,
-                focus_last=self._nav_focus_last,
-            ),
+            navigation=my_toolbar_rows_section,  # any NavigationSection impl
         )
 ```
+
+`navigation` holds a `NavigationSection` *implementation* (a
+`ToolbarRowsSection`, `IconListNavSection`, or any other object satisfying
+the `owns`/`navigate`/`focus_first`/`focus_last`/`extra_keys` Protocol in
+`ui/managers/navigation_manager.py`) — it is a Protocol, not a
+constructible dataclass, so build the section itself first and assign it.
+Call `register_navigation(owner)` to read it back off and register it with
+`NavigationManager` — see `docs/dev/NAVIGATION.md` for the full guide,
+including `NavRowBuilder` for accumulating a page's rows in order.
 
 The `WidgetRegistry` singleton collects descriptors. Consumers
 (`NavigationManager`, inspector, palette) query the registry.

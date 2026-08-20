@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.managers.navigation_manager import NavigationSection
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +88,14 @@ class WidgetDescriptor:
 
     #: Action section — command palette / shortcut.
     action: ActionSection | None = None
+
+    #: Navigation section — a ``NavigationSection`` (``owns``/``navigate``/
+    #: ``focus_first``/``focus_last``/``extra_keys``) to register with
+    #: ``NavigationManager``. Set at the class level (via ``widget_descriptor``
+    #: / ``@widget_descriptor``) or, for per-instance wiring (e.g. a settings
+    #: page's dynamically-built row list), on an instance's own
+    #: ``widget_descriptor`` attribute — see ``register_navigation``.
+    navigation: "NavigationSection | None" = None
 
     # ---- backward-compat helpers ------------------------------------
 

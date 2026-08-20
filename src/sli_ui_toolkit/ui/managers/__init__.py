@@ -13,6 +13,8 @@ from sli_ui_toolkit.ui.managers.flyout_timer_service import (
     DelayedActionTimer,
 )
 from sli_ui_toolkit.ui.managers.layer_stack import LayerStack
+from sli_ui_toolkit.ui.managers.nav_row_builder import NavRowBuilder, as_nav_row
+from sli_ui_toolkit.ui.managers.navigation_descriptor import register_navigation
 from sli_ui_toolkit.ui.managers.navigation_manager import (
     NavigationManager,
     NavigationSection,
@@ -60,6 +62,7 @@ __all__ = [
     "IconListNavSection",
     "InspectSection",
     "LayerStack",
+    "NavRowBuilder",
     "NavigationManager",
     "NavigationSection",
     "SettleGate",
@@ -67,6 +70,8 @@ __all__ = [
     "ToolbarRowsSection",
     "WidgetDescriptor",
     "WidgetRegistry",
+    "as_nav_row",
+    "register_navigation",
     "widget_descriptor",
     "widget_label",
 

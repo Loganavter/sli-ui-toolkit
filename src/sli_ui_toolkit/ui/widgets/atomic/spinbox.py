@@ -121,10 +121,24 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         event.accept()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Up:
+        key = event.key()
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            # Up/Down are reserved for routing between controls (row/panel
+            # navigation, see NavigationManager/ToolbarRowsSection) -- never
+            # value-adjustment here. Leave the event unaccepted (matches
+            # Slider.keyPressEvent's identical contract) so it stays
+            # available for routing instead of being silently swallowed by
+            # a SpinBox sitting inside a ToolbarRowsSection row.
+            event.ignore()
+            return
+        if key == Qt.Key.Key_PageUp:
+            # Left/Right are not repurposed for value-stepping here (unlike
+            # Slider) -- SpinBox is a text field where Left/Right must stay
+            # cursor movement for manual digit editing. PageUp/PageDown are
+            # free for keyboard-driven stepping instead.
             self.setValue(self._value + 1)
             event.accept()
-        elif event.key() == Qt.Key.Key_Down:
+        elif key == Qt.Key.Key_PageDown:
             self.setValue(self._value - 1)
             event.accept()
         else:
@@ -252,10 +266,15 @@ class DoubleSpinBox(SpinBox):
         event.accept()
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Up:
+        key = event.key()
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            # See SpinBox.keyPressEvent -- same routing contract.
+            event.ignore()
+            return
+        if key == Qt.Key.Key_PageUp:
             self.setValue(self._value + self._single_step)
             event.accept()
-        elif event.key() == Qt.Key.Key_Down:
+        elif key == Qt.Key.Key_PageDown:
             self.setValue(self._value - self._single_step)
             event.accept()
         else:
