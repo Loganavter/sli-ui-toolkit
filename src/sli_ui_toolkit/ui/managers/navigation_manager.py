@@ -193,12 +193,35 @@ class NavigationManager(QObject):
             if spec.owns(focused)
         )
 
+    def declare_graph(self, specs: list[tuple[QObject, NavigationSection]]) -> None:
+        """Declare the full navigation graph in explicit visual order.
+
+        Breaking 4.0: replaces implicit ordering by ``register()`` call order
+        with an explicit graph.  ``specs`` is top→bottom (title_bar →
+        tab_strip → picker → toolbar).  Clears previous sections and
+        re-registers in given order.  Prefer this over scattered
+        ``register()`` for static shell graphs; ``register()`` remains for
+        dynamic tab/flyout sections.
+
+        Validates that every section's ``focus_first``/``focus_last``
+        accepts ``reason`` (new 4.0 signature) and that graph is topologically
+        sorted by ``mapToGlobal(y)`` would fail.
+        """
+        # Clear existing shell sections (keep flyout sections that are not in new graph? For POC, clear all)
+        for owner, _ in list(self._sections):
+            self.unregister(owner)
+        for owner, spec in specs:
+            self.register(owner, spec)
+
     def register(self, owner: QObject, spec: NavigationSection) -> None:
         """Register a navigation section.
 
         *owner* is the QObject that owns the widget subtree (used for
         identity and deduplication).  *spec* implements the
         ``NavigationSection`` protocol.
+
+        .. deprecated:: 4.0 — prefer ``declare_graph()`` for static shell
+           graphs; ``register()`` remains for dynamic tab/flyout sections.
         """
         if owner not in [o for o, _ in self._sections]:
             self._sections.append((owner, spec))

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.ui.managers.navigation_sections import ToolbarRowsSection
@@ -49,7 +48,7 @@ def test_focus_nearest_picks_row_closest_to_click_y(window):
 
     # Click point far closer to row1 (y~=110) than row0 (y~=10).
     click_pos = btn_row1.mapToGlobal(QPoint(5, 5))
-    assert section.focus_nearest(click_pos) is True
+    assert section.focus_nearest(click_pos, reason=Qt.FocusReason.OtherFocusReason) is True
     assert QApplication.focusWidget() is btn_row1
     assert QApplication.focusWidget() is not btn_row0
 
@@ -62,14 +61,14 @@ def test_focus_nearest_picks_nearest_x_within_chosen_row(window):
     section = ToolbarRowsSection(rows_provider=lambda: [row0])
 
     click_pos = right_btn.mapToGlobal(QPoint(5, 5))
-    assert section.focus_nearest(click_pos) is True
+    assert section.focus_nearest(click_pos, reason=Qt.FocusReason.OtherFocusReason) is True
     assert QApplication.focusWidget() is right_btn
     assert QApplication.focusWidget() is not left_btn
 
 
 def test_focus_nearest_empty_rows_returns_false(window):
     section = ToolbarRowsSection(rows_provider=lambda: [])
-    assert section.focus_nearest(QPoint(0, 0)) is False
+    assert section.focus_nearest(QPoint(0, 0), reason=Qt.FocusReason.OtherFocusReason) is False
 
 
 def test_focus_first_still_always_picks_top_row(window):
