@@ -19,7 +19,7 @@ import os
 from typing import Protocol, runtime_checkable
 
 import shiboken6
-from PySide6.QtCore import QEvent, Qt, QObject, QTimer
+from PySide6.QtCore import QEvent, QPoint, Qt, QObject, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
 # [nav] trace lines fire on every focus/key event once the host app's
