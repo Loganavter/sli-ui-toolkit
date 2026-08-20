@@ -19,10 +19,10 @@ from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 from sli_ui_toolkit.ui.widgets.helpers import (
     calculate_centered_overlay_geometry,
     centered_inner_offset,
-    draw_rounded_shadow,
 )
 from sli_ui_toolkit.ui.widgets.virtual_list import RowPool, visible_window
 
@@ -56,6 +56,62 @@ class _SlotBgLayer(Layer):
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(tm.get_color("list_item.background.hover")))
         p.drawRoundedRect(ctx.rect.toRect().adjusted(0, 1, 0, -1), 6, 6)
+
+
+class _CurrentIndexRingLayer(Layer):
+    """Ring on the row matching ``owner.currentIndex()`` while the dropdown
+    is open — the keyboard-navigable "this is what Enter picks" indicator.
+
+    Not ``FocusLayer``: that layer gates on real Qt ``hasFocus()``, which
+    this popup never grants to a row (the field keeps keyboard focus so
+    gear-drag/search keep working — see
+    docs/legacy/plan_combobox_baseflyout_unification.md §2.4 Option A).
+    This is the same visual (ring geometry/color) driven off the combo's own
+    current-index state instead, and yields to the gear-drag frame's own
+    highlight while a drag is active.
+    """
+
+    def applies(self, ctx) -> bool:
+        widget = ctx.widget
+        owner = widget._overlay._owner
+        return (
+            owner._expanded
+            and not owner._gear_active
+            and widget._item_index == owner.currentIndex()
+        )
+
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        factor = UiScale.get_instance().factor()
+        radius = max(0, ctx.corner_radius)
+        design_radius = radius / factor if factor > 0 else radius
+
+        rect = ctx.rect
+        if hasattr(rect, "toAlignedRect"):
+            rect = rect.toAlignedRect()
+
+        thickness = max(1.0, 2.0 * factor)
+        inset = thickness * 0.5
+        ring = QRectF(rect).adjusted(inset, inset, -inset, -inset)
+        if ring.width() <= 0 or ring.height() <= 0:
+            return
+
+        path = QPainterPath()
+        path.addRoundedRect(ring, design_radius, design_radius)
+
+        color = QColor(tm.get_color("accent"))
+        color.setAlpha(220)
+
+        p = ctx.painter
+        p.save()
+        try:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            pen = QPen(color)
+            pen.setWidthF(thickness)
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(path)
+        finally:
+            p.restore()
 
 
 class _SlotContentLayer(Layer):
@@ -94,7 +150,7 @@ class _DropdownItemSlot(Button):
             text="",
             size=(0, 0),
             corner_radius=6,
-            layers=[_SlotBgLayer(), RippleLayer(), _SlotContentLayer()],
+            layers=[_SlotBgLayer(), RippleLayer(), _SlotContentLayer(), _CurrentIndexRingLayer()],
             parent=parent,
         )
         self._text = ""
@@ -164,7 +220,7 @@ class _GearFrame(QWidget):
         overlay = self.parentWidget()
         owner = getattr(overlay, "_owner", None)
         tm = overlay._theme if overlay is not None else ThemeManager.get_instance()
-        radius = owner.RADIUS if owner is not None else 6
+        radius = overlay.CONTENT_RADIUS if overlay is not None else 6
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         pen = QPen(QColor(tm.get_color("input.border.thin")))
@@ -174,25 +230,21 @@ class _GearFrame(QWidget):
         p.drawRoundedRect(QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0), radius, radius)
 
 
-class _DropdownOverlay(QWidget):
-    RADIUS = 8
-    SHADOW = 10
+class _DropdownOverlay(BaseFlyout):
     GAP = 6
 
     def __init__(self, owner: "ComboBox", parent: QWidget):
-        if parent is None:
-            raise ValueError("_DropdownOverlay requires an in-window parent widget")
         super().__init__(parent)
-        self.setWindowFlags(Qt.WindowType.Widget)
         self._owner = owner
         self._theme = owner._theme
         self.custom_v_scrollbar = MinimalistScrollBar(Qt.Orientation.Vertical, self)
         self._scrollbar_width = MINIMAL_SCROLLBAR_WIDTH
-        # Rows are children of this viewport (not of the overlay itself) so
-        # Qt clips their painting to the list area — needed during a
-        # gear-shifter drag, where rows are positioned at sub-item pixel
-        # offsets and can briefly extend a few pixels above/below the list.
-        self._list_viewport = QWidget(self)
+        # Rows are children of self.container (BaseFlyout's shadow-clipped
+        # surface), not of the overlay itself, so Qt clips their painting to
+        # the list area — needed during a gear-shifter drag, where rows are
+        # positioned at sub-item pixel offsets and can briefly extend a few
+        # pixels above/below the list.
+        self._list_viewport = QWidget(self.container)
         self._list_viewport.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self._pool = RowPool(self._list_viewport, self._make_slot)
         self._gear_frame = _GearFrame(self)
@@ -212,7 +264,6 @@ class _DropdownOverlay(QWidget):
         # regardless of geometry so the drag tracks the cursor outside the
         # 10px column and the release always resets its internal dragging state.
         self._sb_dragging = False
-        self.hide()
 
     def _item_height(self) -> int:
         return self._owner._item_height()
@@ -227,7 +278,7 @@ class _DropdownOverlay(QWidget):
         return self._visible_items() * self._item_height()
 
     def _content_rect(self) -> QRect:
-        return self.rect().adjusted(self.SHADOW, self.SHADOW, -self.SHADOW, -self.SHADOW)
+        return self.container.geometry()
 
     def _has_scrollbar(self) -> bool:
         return len(self._visible_item_indices()) > self._owner.maxVisibleItems()
@@ -268,8 +319,9 @@ class _DropdownOverlay(QWidget):
         )
 
     def _position_viewport(self) -> None:
-        list_rect = self._list_rect()
-        self._list_viewport.setGeometry(list_rect.translated(self._content_rect().topLeft()))
+        # _list_viewport is a child of self.container now (not of self), so
+        # its geometry is already container-local — no translate needed.
+        self._list_viewport.setGeometry(self._list_rect())
 
     def _rebind_slots(self) -> None:
         self._position_viewport()
@@ -383,6 +435,14 @@ class _DropdownOverlay(QWidget):
 
     def show_for_owner(self):
         self._owner._ensure_current_visible()
+        self._anchor_widget = self._owner
+        # Field-centric focus model (see
+        # docs/legacy/plan_combobox_baseflyout_unification.md §2.4 Option A):
+        # real Qt focus stays on the ComboBox field so gear-drag/search keep
+        # working. Nav-section registration is Phase 2 (still local
+        # keyPressEvent-driven Up/Down for now).
+        self._skip_focus_grab = True
+        self._skip_nav_register = True
         self._reposition()
         self._sync_scrollbar()
         self._rebind_slots()
@@ -399,6 +459,10 @@ class _DropdownOverlay(QWidget):
         # Same selection-centered geometry as a normal click so the list stays
         # aligned with the field. Find Action only changes which row gets the
         # accent wash (``_focus_row``), not where the popup is parked.
+        # Deliberately not routed through BaseFlyout.show_aligned — no
+        # existing anchor-point mode centers content on a specific row (see
+        # plan §2.3 Option A); this stays a local override calling
+        # setGeometry directly.
         anchor_index = owner.currentIndex()
         outer = calculate_centered_overlay_geometry(
             anchor_widget=owner,
@@ -406,7 +470,7 @@ class _DropdownOverlay(QWidget):
             content_size=QSize(
                 max(owner.width(), owner.minimumWidth()), self._list_height()
             ),
-            shadow_radius=self.SHADOW,
+            shadow_radius=self.SHADOW_RADIUS,
             current_index=anchor_index,
             visible_index=max(
                 0,
@@ -467,23 +531,10 @@ class _DropdownOverlay(QWidget):
         if self.isVisible():
             self._rebind_slots()
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        content = QRectF(self._content_rect())
-        draw_rounded_shadow(painter, content, steps=self.SHADOW, radius=self.RADIUS)
-
-        bg = self._theme.get_color("flyout.background")
-        border = self._theme.get_color("flyout.border")
-
-        path = QPainterPath()
-        path.addRoundedRect(content.adjusted(0.5, 0.5, -0.5, -0.5), self.RADIUS, self.RADIUS)
-        painter.setPen(QPen(border))
-        painter.setBrush(QBrush(bg))
-        painter.drawPath(path)
-        painter.end()
-        # Сами строки отрисовывают child-Button-слоты.
+    # paintEvent: inherited from BaseFlyout's _FlyoutStyleApi — shadow +
+    # rounded-rect fill/border on self.container.geometry(), same tokens
+    # this class used to paint by hand. Rows paint themselves via child
+    # Button slots.
 
     # -------- scrollbar pass-through --------
 

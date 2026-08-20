@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QScrollBar, QSizePolicy, QWidget
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers import SettleGate
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
-from sli_ui_toolkit.widgets import MinimalistScrollBar
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from .models import TimelineCallbacks
 from . import interaction as timeline_interaction
 from . import layout as timeline_layout
