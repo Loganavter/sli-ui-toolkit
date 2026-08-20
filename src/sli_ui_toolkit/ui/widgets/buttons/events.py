@@ -13,9 +13,24 @@ attach_capability) получают wheel-события без хардкода
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Callable
 
+# [button-focus] trace lines fire on every button focus change once the
+# host app's --debug is on, drowning out other subsystems' debug output.
+# Gated on its own opt-in flag, off by default even under --debug -- same
+# convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
 logger = logging.getLogger(__name__)
+if os.environ.get("SLI_UI_NAV_DEBUG", "").strip().lower() in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+):
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.DEBUG)
 
 import shiboken6 as sip
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal

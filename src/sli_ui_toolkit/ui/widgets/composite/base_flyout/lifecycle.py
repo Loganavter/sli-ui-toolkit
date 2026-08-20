@@ -13,10 +13,25 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 import logging
+import os
 import traceback
 from typing import Any, Callable
 
+# [flyout-nav] trace lines fire on every flyout show/hide once the host
+# app's --debug is on, drowning out other subsystems' debug output. Gated
+# on its own opt-in flag, off by default even under --debug -- same
+# convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
 logger = logging.getLogger(__name__)
+if os.environ.get("SLI_UI_NAV_DEBUG", "").strip().lower() in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+):
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.DEBUG)
 
 
 def _is_alive_and_enabled(widget: QWidget | None) -> bool:

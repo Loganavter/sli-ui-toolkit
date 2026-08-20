@@ -15,13 +15,28 @@ Sections are registered explicitly via ``register(owner, spec)`` where
 from __future__ import annotations
 
 import logging
+import os
 from typing import Protocol, runtime_checkable
 
 import shiboken6
 from PySide6.QtCore import QEvent, Qt, QObject
 from PySide6.QtWidgets import QApplication, QWidget
 
+# [nav] trace lines fire on every focus/key event once the host app's
+# --debug is on, drowning out other subsystems' debug output. Gated on its
+# own opt-in flag, off by default even under --debug -- same convention as
+# sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
 logger = logging.getLogger(__name__)
+if os.environ.get("SLI_UI_NAV_DEBUG", "").strip().lower() in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+):
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.DEBUG)
 
 _ARROWS = frozenset({Qt.Key.Key_Down, Qt.Key.Key_Up, Qt.Key.Key_Left, Qt.Key.Key_Right})
 _EXIT_DOWN = frozenset({Qt.Key.Key_Down})
