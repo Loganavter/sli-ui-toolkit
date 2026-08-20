@@ -278,14 +278,6 @@ class _ButtonEvents:
         # The FocusLayer only paints for keyboard-granted focus, so a mouse
         # click does not flash a ring while Tab/arrow navigation does.
         reason = getattr(event, "reason", lambda: None)()
-        # When Qt's focus chain redirects focus with TabFocusReason after
-        # a mouse click (e.g. a flyout opens from mouse and Qt bounces
-        # focus back to the trigger button), treat it as MouseFocusReason
-        # so the ring doesn't flash on the trigger.
-        if reason == Qt.FocusReason.TabFocusReason:
-            from sli_ui_toolkit.managers import NavigationManager
-            if not NavigationManager.get_instance().last_input_was_keyboard():
-                reason = Qt.FocusReason.MouseFocusReason
         self._keyboard_focus = reason not in (
             Qt.FocusReason.MouseFocusReason,
             Qt.FocusReason.MenuBarFocusReason,

@@ -103,6 +103,13 @@ class _FlyoutLifecycleApi:
         logger.debug(
             "[flyout-nav] _finish_hide %s id=%s", type(self).__name__, id(self)
         )
+        # Remove focus guard before restoring focus — the guard would
+        # redirect focus back into the (about-to-be-hidden) flyout.
+        if getattr(self, "_focus_guard_installed", False):
+            app = QApplication.instance()
+            if app is not None:
+                app.removeEventFilter(self)
+            self._focus_guard_installed = False
         # Restore focus BEFORE hiding — setFocus() during hide causes a
         # synchronous focus jump that Qt processes via the event loop,
         # resulting in an intermediate CsdMenuTrigger flash. Restoring
@@ -255,18 +262,6 @@ class _FlyoutLifecycleApi:
         while w is not None:
             chain.append(f"{type(w).__name__}({w.focusPolicy().name},win={w.isWindow()})")
             if w.focusPolicy() == Qt.FocusPolicy.StrongFocus:
-                if not anchor_kbd and not w.isWindow():
-                    logger.debug(
-                        "[flyout-nav] _grab_focus skip weaken %s (not window, mouse-open)",
-                        type(w).__name__,
-                    )
-                    w = w.parentWidget()
-                    continue
-                logger.debug(
-                    "[flyout-nav] _grab_focus weakening %s policy=%s",
-                    type(w).__name__,
-                    w.focusPolicy().name,
-                )
                 self._weakened_focus_ancestors.append((w, w.focusPolicy()))
                 w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             w = w.parentWidget()
@@ -289,19 +284,6 @@ class _FlyoutLifecycleApi:
             target.setFocus(reason)
         else:
             self.setFocus(reason)
-        # When opened by mouse: restore window StrongFocus AFTER setFocus
-        # so the ring is suppressed (MouseFocusReason on target) but the
-        # window's tab chain doesn't get a chance to steal focus during
-        # the setFocus call.
-        if not anchor_kbd:
-            for w, policy in self._weakened_focus_ancestors:
-                if w.isWindow():
-                    w.setFocusPolicy(policy)
-                    logger.debug(
-                        "[flyout-nav] _grab_focus restored window %s policy=%s",
-                        type(w).__name__,
-                        policy.name,
-                    )
         # Remembered so a fade-in's mid-animation child-hiding (see
         # FlyoutFadeController.sync_container_visibility) — which forces Qt
         # to yank focus off `target` onto the flyout itself, since Qt clears
@@ -309,6 +291,15 @@ class _FlyoutLifecycleApi:
         # undone once the children are shown again (_on_show_animation_finished).
         self._grab_focus_target = target
         self._grab_focus_reason = reason
+        # Install a temporary event filter to prevent Qt's focus chain from
+        # stealing focus away from the flyout child back to a widget
+        # outside the flyout (e.g. CsdMenuTrigger getting TabFocusReason).
+        # Removed in _finish_hide.
+        if target is not None:
+            app = QApplication.instance()
+            if app is not None:
+                app.installEventFilter(self)
+                self._focus_guard_installed = True
 
         logger.debug(
             "[flyout-nav] _grab_focus weakened=%d/%s target=%s reason=%s anchor_kbd=%s",

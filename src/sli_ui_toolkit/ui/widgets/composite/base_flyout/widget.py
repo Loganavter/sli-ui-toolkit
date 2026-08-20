@@ -15,6 +15,10 @@ style_api.py + events.py is the same pattern):
 
 from __future__ import annotations
 
+import logging
+
+import shiboken6
+
 from PySide6.QtCore import (
     QEvent,
     QParallelAnimationGroup,
@@ -24,6 +28,8 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QBrush, QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QRhiWidget, QWidget
+
+logger = logging.getLogger(__name__)
 
 from sli_ui_toolkit.managers import FlyoutManager
 from sli_ui_toolkit.theme import ThemeManager
@@ -165,6 +171,7 @@ class BaseFlyout(
             self.destroyed.connect(lambda: self.flyout_manager.unregister_flyout(self))
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._focus_guard_installed = False
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -246,6 +253,28 @@ class BaseFlyout(
             and event.type() == QEvent.Type.Resize
         ):
             self._gpu_fill.setGeometry(self.container.rect())
+        # Focus guard: while a flyout child holds focus, prevent Qt's
+        # focus chain from redirecting it to a widget outside the flyout
+        # (e.g. CsdMenuTrigger getting TabFocusReason after the flyout
+        # opens).  Redirect back to the target child.
+        if (
+            getattr(self, "_focus_guard_installed", False)
+            and event.type() == QEvent.Type.FocusIn
+            and obj is not self
+            and not self.isAncestorOf(obj)
+            and hasattr(self, "_grab_focus_target")
+            and self._grab_focus_target is not None
+        ):
+            if shiboken6.isValid(self._grab_focus_target):
+                logger.debug(
+                    "[flyout-nav] focus guard: redirecting FocusIn(%s) back to %s",
+                    type(obj).__name__,
+                    type(self._grab_focus_target).__name__,
+                )
+                self._grab_focus_target.setFocus(
+                    self._grab_focus_reason
+                )
+                return True  # consume the event
         return super().eventFilter(obj, event)
 
     def add_widget(self, widget):
