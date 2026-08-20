@@ -42,6 +42,7 @@ class _AdaptiveTabBar(QWidget):
         self._visual_tab_height = 36
         self._hover_index = -1
         self._current_index = -1
+        self._focused_index = -1
         self._scroll_offset = 0
         self._keyboard_focus = False
         # Each entry: {"text": str, "data": Any, "tooltip": str, "buttons": {QTabBar.ButtonPosition: QWidget|None}}
@@ -133,10 +134,40 @@ class _AdaptiveTabBar(QWidget):
         if index == self._current_index or not (0 <= index < len(self._tabs)):
             return
         self._current_index = index
+        # Keep keyboard focus in sync with selection when selection
+        # changes programmatically or via mouse.
+        self._focused_index = index
         self._ensure_visible(index)
         self._position_tab_buttons()
         self.update()
         self.currentChanged.emit(index)
+
+    def _focusedTab(self) -> int:
+        if 0 <= self._focused_index < len(self._tabs):
+            return self._focused_index
+        return self._current_index
+
+    def _move_focus(self, delta: int) -> None:
+        count = len(self._tabs)
+        if count == 0:
+            return
+        base = self._focusedTab()
+        if base < 0:
+            base = self._current_index if self._current_index >= 0 else 0
+        new = (base + delta) % count
+        if new == self._focused_index:
+            return
+        self._focused_index = new
+        self._ensure_visible(new)
+        self._position_tab_buttons()
+        self.update()
+
+    def _activate_focused(self) -> bool:
+        idx = self._focusedTab()
+        if 0 <= idx < len(self._tabs) and idx != self._current_index:
+            self.setCurrentIndex(idx)
+            return True
+        return False
 
     def tabText(self, index: int) -> str:  # noqa: N802
         return self._tabs[index]["text"]
@@ -291,6 +322,7 @@ class _AdaptiveTabBar(QWidget):
             index = self.tabAt(event.position().toPoint())
             if index >= 0:
                 self.setCurrentIndex(index)
+                self._focused_index = index
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
@@ -313,9 +345,8 @@ class _AdaptiveTabBar(QWidget):
                 event.accept()
                 return
         if key == Qt.Key.Key_Left:
-            if current == 0:
-                # Past the first tab — hand off to the parent strip
-                # (typically the add button).
+            # Move keyboard focus, don't activate yet — Enter confirms.
+            if self._focusedTab() == 0:
                 strip = self.parentWidget()
                 if strip is not None:
                     add_btn = getattr(strip, "add_button", None)
@@ -323,10 +354,10 @@ class _AdaptiveTabBar(QWidget):
                         add_btn.setFocus(Qt.FocusReason.OtherFocusReason)
                         event.accept()
                         return
-            self.setCurrentIndex((current - 1) % count)
+            self._move_focus(-1)
             event.accept()
         elif key == Qt.Key.Key_Right:
-            if current == count - 1:
+            if self._focusedTab() == count - 1:
                 strip = self.parentWidget()
                 if strip is not None:
                     add_btn = getattr(strip, "add_button", None)
@@ -334,17 +365,29 @@ class _AdaptiveTabBar(QWidget):
                         add_btn.setFocus(Qt.FocusReason.OtherFocusReason)
                         event.accept()
                         return
-            self.setCurrentIndex((current + 1) % count)
+            self._move_focus(1)
             event.accept()
         elif key == Qt.Key.Key_Home:
-            self.setCurrentIndex(0)
+            if count:
+                self._focused_index = 0
+                self._ensure_visible(0)
+                self.update()
             event.accept()
         elif key == Qt.Key.Key_End:
-            self.setCurrentIndex(count - 1)
+            if count:
+                self._focused_index = count - 1
+                self._ensure_visible(count - 1)
+                self.update()
             event.accept()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            if self._activate_focused():
+                event.accept()
+                return
+            super().keyPressEvent(event)
         elif key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            if 0 <= current < count:
-                self.tabCloseRequested.emit(current)
+            target = self._focusedTab()
+            if 0 <= target < count:
+                self.tabCloseRequested.emit(target)
                 event.accept()
         else:
             super().keyPressEvent(event)
@@ -404,11 +447,15 @@ class _AdaptiveTabBar(QWidget):
             Qt.FocusReason.MouseFocusReason,
             Qt.FocusReason.PopupFocusReason,
         )
+        if self._focused_index < 0 or not (0 <= self._focused_index < len(self._tabs)):
+            self._focused_index = self._current_index
         super().focusInEvent(event)
+        self.update()
 
     def focusOutEvent(self, event):  # noqa: N802
         self._keyboard_focus = False
         super().focusOutEvent(event)
+        self.update()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -437,7 +484,7 @@ class _AdaptiveTabBar(QWidget):
     def _paint_tab(self, painter: QPainter, index: int, rect: QRect, palette: dict[str, str]) -> None:
         selected = index == self.currentIndex()
         hovered = not selected and index == self._hover_index
-        focused = selected and self._keyboard_focus
+        focused = (index == self._focusedTab() and self._keyboard_focus and self.hasFocus())
         tab_rect = self._painted_tab_rect(rect)
         if selected:
             self._paint_selected_shadow(painter, tab_rect)

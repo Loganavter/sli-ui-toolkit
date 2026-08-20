@@ -27,6 +27,27 @@ if TYPE_CHECKING:
     # this import only ever runs for type checkers, never at runtime.
     from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import IconListWidget
 
+
+def _focus_reason() -> Qt.FocusReason:
+    """Reason that respects mouse vs keyboard modality for new-tab bootstrap.
+
+    `NavigationManager.last_input_was_keyboard()` tracks the last
+    MouseButtonPress vs KeyPress.  A new tab opened from a mouse click
+    (session picker card) should land with `MouseFocusReason` so the ring
+    stays hidden; a keyboard open (Enter on picker, arrow bootstrap)
+    should use `OtherFocusReason` so the ring shows.  Centralized here so
+    every `setFocus` in this module follows the same policy instead of
+    unconditionally lighting up the ring.
+    """
+    try:
+        from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+
+        if not NavigationManager.get_instance().last_input_was_keyboard():
+            return Qt.FocusReason.MouseFocusReason
+    except Exception:
+        pass
+    return Qt.FocusReason.OtherFocusReason
+
 # [nav-*] trace lines fire on every arrow-key navigate() call once the host
 # app's --debug is on, drowning out other subsystems' debug output. Gated
 # on its own opt-in flag, off by default even under --debug -- same
@@ -119,7 +140,7 @@ class ToolbarRowsSection:
         items = self._focusable(row)
         if not items:
             return False
-        items[0].setFocus(Qt.FocusReason.OtherFocusReason)
+        items[0].setFocus(_focus_reason())
         return True
 
     def _focus_near_in(self, row: QWidget, reference: QWidget) -> bool:
@@ -195,7 +216,7 @@ class ToolbarRowsSection:
             step = 1 if key == Qt.Key.Key_Right else -1
             target = cur + step
             if 0 <= target < len(items):
-                items[target].setFocus(Qt.FocusReason.OtherFocusReason)
+                items[target].setFocus(_focus_reason())
                 return True
             if (
                 key == Qt.Key.Key_Left
@@ -234,7 +255,7 @@ class ToolbarRowsSection:
             items,
             key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x),
         )
-        target.setFocus(Qt.FocusReason.OtherFocusReason)
+        target.setFocus(_focus_reason())
         return True
 
     def focus_nearest(self, pos) -> bool:
@@ -320,7 +341,7 @@ class IconListNavSection:
         btn = self._list.row_button(visible_idx)
         if btn is None:
             return False
-        btn.setFocus(Qt.FocusReason.OtherFocusReason)
+        btn.setFocus(_focus_reason())
         return True
 
     def focus_first(self, ref_x: float | None = None) -> bool:
@@ -330,7 +351,7 @@ class IconListNavSection:
         # this list stays synced 1:1 with the visible content page.
         btn = self._list.current_row_button()
         if btn is not None:
-            btn.setFocus(Qt.FocusReason.OtherFocusReason)
+            btn.setFocus(_focus_reason())
             return True
         return self._focus_visible(0)
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+- **`NavigationManager` focus-ring on new tab** — `ToolbarRowsSection`/`IconListNavSection` `focus_first` and bootstrap now respect mouse vs keyboard modality via `NavigationManager.last_input_was_keyboard()` (`_focus_reason()`). Opening a tab with a mouse click (session picker) no longer lights up the ring; keyboard opens still do. Previously `OtherFocusReason` was unconditional.
+- **`AdaptiveTabStrip`/`_AdaptiveTabBar` tab switching requires Enter** — `Left`/`Right`/`Home`/`End` now move a separate keyboard-focused index (`_focused_index`) with `MouseFocusReason`/`OtherFocusReason` preserved, `Enter`/`Space` activates (`setCurrentIndex`). `Delete`/`Backspace` closes the focused tab. Focus ring follows `_focusedTab()` when `hasFocus() && _keyboard_focus`. Mouse clicks still switch immediately.
+
 ### Changed
 - **`RadioButton` / `CheckBox` rebased onto `Button`** — were standalone
   `QRadioButton` / `QCheckBox` subclasses with hand-rolled hover animation
