@@ -19,7 +19,7 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
+from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer, RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.comboboxes._models import _ComboItem
@@ -141,6 +141,7 @@ class ComboBox(Button):
                 _ComboFieldBgLayer(),
                 RippleLayer(),
                 _ComboFieldContentLayer(),
+                FocusLayer(),
             ],
             parent=parent,
         )
@@ -613,12 +614,19 @@ class ComboBox(Button):
             event.accept()
             return
 
-        if event.key() == Qt.Key.Key_Down and self.count() > 0:
+        # Only steer the selection while the dropdown is actually open
+        # (entered via Enter/Space above) -- collapsed, Up/Down must not
+        # silently spin the value. This also matters for row-to-row
+        # navigation: NavigationManager's ToolbarRowsSection trial-dispatches
+        # arrow keys to the focused widget first (see its _widget_handles),
+        # and a collapsed combo accepting them here would swallow the key
+        # instead of letting the section move focus to the next/previous row.
+        if event.key() == Qt.Key.Key_Down and self._expanded and self.count() > 0:
             self._move_visible_selection(1)
             event.accept()
             return
 
-        if event.key() == Qt.Key.Key_Up and self.count() > 0:
+        if event.key() == Qt.Key.Key_Up and self._expanded and self.count() > 0:
             self._move_visible_selection(-1)
             event.accept()
             return

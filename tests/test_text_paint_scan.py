@@ -58,8 +58,18 @@ _TEXT_WITHOUT_SET_FONT: dict[tuple[str, str], str] = {
 # font is the *design-sized* application font — never on widgets whose font
 # is already scale-resolved.
 _PAINT_FONT_ALLOWED: dict[tuple[str, str], str] = {
-    ("ui/widgets/atomic/custom_group_widget.py", "paintEvent"): (
+    ("ui/widgets/atomic/custom_group_widget.py", "_paint_top_caption"): (
         "paints with paint_font(self) over the widget's design-sized font"
+    ),
+    ("ui/widgets/atomic/checkbox.py", "draw"): (
+        "CheckBox is now a Button subclass (rebased off QCheckBox, no more "
+        "apply_ui_font pin) -- paints with paint_font(widget) over the "
+        "design-sized font, same as the rest of the button pipeline"
+    ),
+    ("ui/widgets/atomic/radio.py", "draw"): (
+        "RadioButton is now a Button subclass (rebased off QRadioButton, no "
+        "more apply_ui_font pin) -- paints with paint_font(widget) over the "
+        "design-sized font, same as the rest of the button pipeline"
     ),
     ("ui/widgets/buttons/content.py", "_draw_row"): (
         "button text layers paint with paint_font(ctx.widget); buttons keep "

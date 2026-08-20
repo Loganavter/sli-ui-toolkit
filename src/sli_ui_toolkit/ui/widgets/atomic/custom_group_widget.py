@@ -32,9 +32,8 @@ def _rounded_rect_path(rect: QRectF, radii: CornerRadii) -> QPainterPath:
     top-left. Local copy of ``buttons.layers.background.rounded_rect_path``
     — duplicated rather than imported to keep this module import-cycle-free
     from ``buttons`` (which itself re-exports ``ButtonGroup`` from here)."""
-    tl, tr, br, bl = radii
     max_r = min(rect.width(), rect.height()) / 2.0
-    tl, tr, br, bl = (min(max(0, r), max_r) for r in (tl, tr, br, bl))
+    tl, tr, br, bl = (min(max(0, float(r)), max_r) for r in radii)
     path = QPainterPath()
     path.moveTo(rect.left() + tl, rect.top())
     path.lineTo(rect.right() - tr, rect.top())
@@ -209,7 +208,7 @@ class CustomGroupWidget(QWidget):
         top_y = int(title_h / 2)
 
         border_rect = QRectF(0, top_y, rect.width() - 1, rect.height() - top_y - 1)
-        radii = tuple(0 if v == 0 else v for v in self._corner_radii)
+        radii = self._corner_radii
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(_rounded_rect_path(border_rect, radii))
 
@@ -261,7 +260,13 @@ class CustomGroupWidget(QWidget):
             rect.width() - margin_h * 2 - 1,
             bottom_y - margin_v * 2,
         )
-        radii = tuple(0 if v == 0 else scaled_px(v) for v in self._corner_radii)
+        tl, tr, br, bl = self._corner_radii
+        radii: CornerRadii = (
+            0 if tl == 0 else scaled_px(tl),
+            0 if tr == 0 else scaled_px(tr),
+            0 if br == 0 else scaled_px(br),
+            0 if bl == 0 else scaled_px(bl),
+        )
         painter.drawPath(_rounded_rect_path(QRectF(draw_rect), radii))
         painter.translate(-0.5, -0.5)
 
