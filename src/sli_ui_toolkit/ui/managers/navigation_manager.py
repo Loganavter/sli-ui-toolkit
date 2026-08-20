@@ -516,6 +516,22 @@ class NavigationManager(QObject):
                 )
             self._force_ring_if_focus_unchanged(previously_focused)
             return True
+        # Generic fallback: find the nearest focusable widget *above* the
+        # click within the section's owner widget tree.  Covers sections
+        # that don't implement focus_nearest and sections whose
+        # focus_nearest doesn't cover the click area (e.g. clicking
+        # below the last card in a list that also has a footer panel).
+        target = self._nearest_focusable_above(owner, pos)
+        if target is not None:
+            target.setFocus(Qt.FocusReason.OtherFocusReason)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "[nav] realign: click -> nearest (generic) %s in %s",
+                    widget_label(target),
+                    type(owner).__name__,
+                )
+            self._force_ring_if_focus_unchanged(previously_focused)
+            return True
         if spec.focus_first(pos.x()):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -525,6 +541,40 @@ class NavigationManager(QObject):
             self._force_ring_if_focus_unchanged(previously_focused)
             return True
         return False
+
+    @staticmethod
+    def _nearest_focusable_above(owner: QWidget, pos) -> QWidget | None:
+        """Find the focusable descendant of *owner* whose global center y
+        is closest to but not above *pos.y()* (nearest above).  Falls back
+        to the topmost focusable widget when nothing is above.
+        """
+        click_y = pos.y()
+        candidates = [
+            w
+            for w in owner.findChildren(QWidget)
+            if (
+                w.focusPolicy() != Qt.FocusPolicy.NoFocus
+                and w.isVisible()
+                and w.isEnabled()
+            )
+        ]
+        best: QWidget | None = None
+        best_dist = float("inf")
+        for w in candidates:
+            cy = w.mapToGlobal(w.rect().center()).y()
+            if cy <= click_y:
+                dist = click_y - cy
+                if dist < best_dist:
+                    best_dist = dist
+                    best = w
+        if best is None:
+            for w in candidates:
+                cy = w.mapToGlobal(w.rect().center()).y()
+                dist = abs(cy - click_y)
+                if dist < best_dist:
+                    best_dist = dist
+                    best = w
+        return best
 
     @staticmethod
     def _force_ring_if_focus_unchanged(previously_focused: QWidget | None) -> None:
