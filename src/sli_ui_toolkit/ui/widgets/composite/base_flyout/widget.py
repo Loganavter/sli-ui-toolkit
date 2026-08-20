@@ -261,6 +261,7 @@ class BaseFlyout(
             getattr(self, "_focus_guard_installed", False)
             and event.type() == QEvent.Type.FocusIn
             and obj is not self
+            and isinstance(obj, QWidget)
             and not self.isAncestorOf(obj)
             and hasattr(self, "_grab_focus_target")
             and self._grab_focus_target is not None
