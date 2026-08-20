@@ -549,6 +549,8 @@ class _FlyoutNavigationSection:
         0x01000005,  # Key_Return
         0x01000004,  # Key_Enter
         0x01000000,  # Key_Escape
+        0x01000012,  # Key_Left — для _ScrollValueFlyout edit-mode (кольцо наверх)
+        0x01000014,  # Key_Right
     })
 
     def __init__(self, flyout: QWidget) -> None:
