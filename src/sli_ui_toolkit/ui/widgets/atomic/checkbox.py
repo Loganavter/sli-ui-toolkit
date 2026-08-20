@@ -3,7 +3,6 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 
 from PySide6.QtCore import (
     QEasingCurve,
-    QEvent,
     QPointF,
     QPropertyAnimation,
     QRectF,
@@ -12,14 +11,155 @@ from PySide6.QtCore import (
     Property,
 )
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QCheckBox, QSizePolicy
 
-from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
-from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 
-class CheckBox(QCheckBox):
+
+class _CheckIndicatorLayer(Layer):
+    """Indicator square + checkmark + label, painted from scratch (no
+    BackgroundLayer / ContentLayer in this widget's ``layers=`` — see
+    ``CheckBox``)."""
+
+    def draw(self, ctx, tm) -> None:
+        widget: "CheckBox" = ctx.widget
+        painter = ctx.painter
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        rect = QRectF(ctx.rect)
+        fm = QFontMetrics(paint_font(widget))
+        indicator_rect = widget._indicator_rect(rect)
+        text_rect_avail = widget._text_rect_available(rect, indicator_rect)
+
+        states = ctx.effective_states
+        is_disabled = ButtonState.DISABLED in states
+        is_hovered = ButtonState.HOVERED in states
+        is_checked = ButtonState.CHECKED in states
+
+        accent = tm.get_color("accent")
+        border = tm.get_color("dialog.border")
+        text_color = tm.get_color("dialog.text")
+        neutral_hover = tm.get_color("dialog.button.hover")
+        disabled_alpha = 110
+        indicator_radius = scaled_px(widget.INDICATOR_RADIUS)
+
+        if is_checked:
+            border_color = (
+                border
+                if not is_disabled
+                else QColor(border.red(), border.green(), border.blue(), disabled_alpha)
+            )
+            painter.setPen(QPen(border_color, widget.OUTLINE_WIDTH))
+            accent_fill = QColor(accent)
+            base_alpha = int(120 + 135 * widget._checked_progress)
+            if is_disabled:
+                base_alpha = int(base_alpha * 0.6)
+            accent_fill.setAlpha(max(0, min(255, base_alpha)))
+            painter.setBrush(QBrush(accent_fill))
+            painter.drawRoundedRect(indicator_rect, indicator_radius, indicator_radius)
+        else:
+            border_color = (
+                border
+                if not is_disabled
+                else QColor(border.red(), border.green(), border.blue(), disabled_alpha)
+            )
+            painter.setPen(QPen(border_color, widget.OUTLINE_WIDTH))
+            if is_hovered and not is_disabled:
+                hover_fill = QColor(neutral_hover)
+                alpha = int(40 + 100 * widget._hover_progress)
+                hover_fill.setAlpha(max(0, min(255, alpha)))
+                painter.setBrush(QBrush(hover_fill))
+            else:
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(indicator_rect, indicator_radius, indicator_radius)
+
+        if is_checked:
+            glyph_color = QColor(Qt.GlobalColor.white)
+            if is_disabled:
+                glyph_color.setAlpha(disabled_alpha)
+
+            painter.save()
+            center = indicator_rect.center()
+            painter.translate(center)
+            painter.rotate(widget.CHECK_ROTATION_DEG)
+            painter.translate(-center)
+
+            painter.setPen(
+                QPen(
+                    glyph_color,
+                    widget.CHECK_STROKE_WIDTH,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                    Qt.PenJoinStyle.MiterJoin,
+                )
+            )
+
+            x1 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X1
+            y1 = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y1_NORM
+            x2 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X2
+            y2_pre = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y2_PRE
+            x3 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X3
+            y3_pre = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y3_PRE
+
+            cx = indicator_rect.center().y()
+            y2 = cx + widget.CHECK_BOTTOM_FACTOR * (y2_pre - cx)
+            y3 = cx + widget.CHECK_TOP_FACTOR * (y3_pre - cx)
+
+            path = QPainterPath()
+            path.moveTo(QPointF(x1, y1))
+            path.lineTo(QPointF(x2, y2))
+            path.lineTo(QPointF(x3, y3))
+            painter.drawPath(path)
+            painter.restore()
+
+        if widget._text:
+            painter.setPen(
+                QPen(
+                    QColor(text_color)
+                    if not is_disabled
+                    else QColor(
+                        text_color.red(),
+                        text_color.green(),
+                        text_color.blue(),
+                        disabled_alpha,
+                    )
+                )
+            )
+            full_text = widget._text
+            if fm.horizontalAdvance(full_text) > text_rect_avail.width():
+                full_text = fm.elidedText(
+                    full_text, Qt.TextElideMode.ElideRight, int(text_rect_avail.width())
+                )
+                draw_rect = text_rect_avail
+            else:
+                draw_rect = QRectF(
+                    text_rect_avail.left(),
+                    text_rect_avail.top(),
+                    float(fm.horizontalAdvance(full_text)),
+                    text_rect_avail.height(),
+                )
+            painter.setFont(paint_font(widget))
+            painter.drawText(
+                draw_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                full_text,
+            )
+
+
+class CheckBox(Button):
+    """Checkbox toggle, built on the shared ``Button`` painter pipeline (was
+    a standalone ``QCheckBox`` subclass — rebased so it picks up
+    ``FocusLayer``'s keyboard-focus ring like every other toolkit control).
+
+    Two-state only (no ``Qt.CheckState.PartiallyChecked`` indeterminate) —
+    nothing in this toolkit's host apps used tri-state, and ``Button``'s own
+    ``_checked`` is a plain bool.
+    """
+
     INDICATOR_SIZE = 20
     INDICATOR_RADIUS = 4
     OUTLINE_WIDTH = 1
@@ -38,19 +178,15 @@ class CheckBox(QCheckBox):
     CHECK_BOTTOM_FACTOR = 0.75
     CHECK_TOP_FACTOR = 0.55
 
-    ACTIVE_EDGE_STROKE_ALPHA = 110
-
     def __init__(self, text: str | None = None, parent=None):
-        super().__init__(parent)
-        if text:
-            self.setText(text)
-        self.setMouseTracking(True)
-
-        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-
+        super().__init__(
+            text=text or "",
+            toggle=True,
+            corner_radius=6,
+            layers=[_CheckIndicatorLayer(), FocusLayer()],
+            parent=parent,
+        )
         self._hover_progress = 0.0
-        self._hover_active = False
         self._checked_progress = 1.0 if self.isChecked() else 0.0
 
         self._hover_anim = QPropertyAnimation(self, b"hoverProgress", self)
@@ -61,16 +197,10 @@ class CheckBox(QCheckBox):
         self._checked_anim.setDuration(150)
         self._checked_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        self.stateChanged.connect(self._on_state_changed)
-        register_hover_widget(self)
-        # Text is painted natively with widget.font(); pin the scaled UI
-        # face and re-resolve on font_changed / scale_changed.
-        apply_ui_font(self)
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+        self.toggled.connect(self._animate_checked)
 
-    def on_scale_changed(self, _factor: float) -> None:
-        self.updateGeometry()
-        self.update()
+    def text(self) -> str:
+        return self._text
 
     def get_hover_progress(self) -> float:
         return self._hover_progress
@@ -88,9 +218,28 @@ class CheckBox(QCheckBox):
         self._checked_progress = max(0.0, min(1.0, float(value)))
         self.update()
 
-    checkedProgress = Property(
-        float, fget=get_checked_progress, fset=set_checked_progress
-    )
+    checkedProgress = Property(float, fget=get_checked_progress, fset=set_checked_progress)
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self._animate_hover(True)
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self._animate_hover(False)
+
+    def _animate_hover(self, hovered: bool):
+        self._hover_anim.stop()
+        self._hover_anim.setStartValue(self._hover_progress)
+        self._hover_anim.setEndValue(1.0 if hovered else 0.0)
+        self._hover_anim.start()
+
+    def _animate_checked(self, checked: bool) -> None:
+        target = 1.0 if checked else 0.0
+        self._checked_anim.stop()
+        self._checked_anim.setStartValue(self._checked_progress)
+        self._checked_anim.setEndValue(target)
+        self._checked_anim.start()
 
     def _indicator_rect(self, full_rect: QRectF) -> QRectF:
         pad_h = scaled_px(self.PADDING_H)
@@ -104,96 +253,17 @@ class CheckBox(QCheckBox):
 
     def _text_rect_available(self, full_rect: QRectF, indicator_rect: QRectF) -> QRectF:
         text_left = indicator_rect.right() + scaled_px(self.SPACING)
-
         available_w = max(0.0, self.width() - text_left - scaled_px(self.PADDING_H))
         return QRectF(text_left, full_rect.y(), available_w, full_rect.height())
 
-    def _text_rect_content(
-        self, full_rect: QRectF, indicator_rect: QRectF, fm: QFontMetrics
-    ) -> QRectF:
-        avail = self._text_rect_available(full_rect, indicator_rect)
-        text = self.text() or ""
-        content_w = min(avail.width(), float(fm.horizontalAdvance(text)))
-        return QRectF(avail.left(), avail.top(), content_w, avail.height())
-
-    def event(self, e):
-        if e.type() in (QEvent.Type.HoverEnter, QEvent.Type.HoverMove):
-            self.setHoverActive(self.hoverHitTest(e.position()))
-            return True
-
-        elif e.type() == QEvent.Type.Leave and self._hover_progress > 0:
-            self.setHoverActive(False)
-            return True
-
-        return super().event(e)
-
-    def hoverHitTest(self, pos) -> bool:
-        r = QRectF(self.rect())
-        ind = self._indicator_rect(r)
-        fm = self.fontMetrics()
-        tx = self._text_rect_content(r, ind, fm)
-        return ind.contains(pos) or tx.contains(pos)
-
-    def setHoverActive(self, active: bool) -> None:
-        active = bool(active)
-        if self._hover_active == active:
-            return
-        self._hover_active = active
-        if active:
-            self._animate_hover(True)
-        else:
-            self._animate_hover(False)
-
-    def mouseReleaseEvent(self, e):
-        if e.button() == Qt.MouseButton.LeftButton:
-            r = QRectF(self.rect())
-            ind = self._indicator_rect(r)
-            fm = self.fontMetrics()
-            tx = self._text_rect_content(r, ind, fm)
-
-            if ind.contains(e.position()) or tx.contains(e.position()):
-                self.setChecked(not self.isChecked())
-                e.accept()
-                return
-
-        super().mouseReleaseEvent(e)
-
-    def focusInEvent(self, e):
-        # Direct update(): repaint is deferred by Qt itself; a singleShot(0)
-        # kept a live Python wrapper alive past deleteLater and called
-        # update() on the freed C++ widget on the next event-loop turn.
-        self.update()
-        super().focusInEvent(e)
-
-    def focusOutEvent(self, e):
-        self.update()
-        super().focusOutEvent(e)
-
-    def changeEvent(self, e):
-        self.update()
-        super().changeEvent(e)
-
-    def _on_state_changed(self, _):
-        target = 1.0 if self.checkState() != Qt.CheckState.Unchecked else 0.0
-        self._checked_anim.stop()
-        self._checked_anim.setStartValue(self._checked_progress)
-        self._checked_anim.setEndValue(target)
-        self._checked_anim.start()
-
-    def _animate_hover(self, hovered: bool):
-        self._hover_anim.stop()
-        self._hover_anim.setStartValue(self._hover_progress)
-        self._hover_anim.setEndValue(1.0 if hovered else 0.0)
-        self._hover_anim.start()
-
     def sizeHint(self) -> QSize:
-        fm = QFontMetrics(self.font())
+        fm = QFontMetrics(paint_font(self))
         indicator = scaled_px(self.INDICATOR_SIZE)
         pad_v = scaled_px(self.PADDING_V)
         pad_h = scaled_px(self.PADDING_H)
         spacing = scaled_px(self.SPACING)
 
-        text_width = fm.horizontalAdvance(self.text()) + 10 if self.text() else 0
+        text_width = fm.horizontalAdvance(self._text) + 10 if self._text else 0
         h = max(indicator + 2 * pad_v, fm.height() + 2 * pad_v)
         w = (
             pad_h
@@ -202,173 +272,16 @@ class CheckBox(QCheckBox):
             + text_width
             + pad_h
         )
-        return QSize(w, h)
+        return QSize(int(w), int(h))
 
     def minimumSizeHint(self) -> QSize:
         return self.sizeHint()
 
-    def paintEvent(self, _):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-
-        rect = QRectF(self.rect())
-        fm = QFontMetrics(self.font())
-        indicator_rect = self._indicator_rect(rect)
-        text_rect_avail = self._text_rect_available(rect, indicator_rect)
-
-        theme = ThemeManager.get_instance()
-        accent = theme.get_color("accent")
-        border = theme.get_color("dialog.border")
-        text_color = theme.get_color("dialog.text")
-        neutral_hover = theme.get_color("dialog.button.hover")
-        disabled_alpha = 110
-
-        is_disabled = not self.isEnabled()
-        is_checked = self.checkState() == Qt.CheckState.Checked
-        is_indeterminate = self.checkState() == Qt.CheckState.PartiallyChecked
-
-        indicator_radius = scaled_px(self.INDICATOR_RADIUS)
-
-        if is_checked or is_indeterminate:
-            border_color = (
-                border
-                if not is_disabled
-                else QColor(border.red(), border.green(), border.blue(), disabled_alpha)
-            )
-            painter.setPen(QPen(border_color, self.OUTLINE_WIDTH))
-            accent_fill = QColor(accent)
-
-            base_alpha = int(120 + 135 * self._checked_progress)
-            if is_disabled:
-                base_alpha = int(base_alpha * 0.6)
-            accent_fill.setAlpha(max(0, min(255, base_alpha)))
-
-            painter.setBrush(QBrush(accent_fill))
-            painter.drawRoundedRect(
-                indicator_rect, indicator_radius, indicator_radius
-            )
-        else:
-            painter.setPen(
-                QPen(
-                    (
-                        border
-                        if not is_disabled
-                        else QColor(
-                            border.red(), border.green(), border.blue(), disabled_alpha
-                        )
-                    ),
-                    self.OUTLINE_WIDTH,
-                )
-            )
-            if self._hover_progress > 0.001 and not is_disabled:
-                hover_fill = QColor(neutral_hover)
-                alpha = int(40 + 100 * self._hover_progress)
-                hover_fill.setAlpha(max(0, min(255, alpha)))
-                painter.setBrush(QBrush(hover_fill))
-            else:
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(
-                indicator_rect, indicator_radius, indicator_radius
-            )
-
-        if is_checked or is_indeterminate:
-            glyph_color = QColor(Qt.GlobalColor.white)
-            if is_disabled:
-                glyph_color.setAlpha(disabled_alpha)
-
-            if is_checked:
-                painter.save()
-                center = indicator_rect.center()
-                painter.translate(center)
-                painter.rotate(self.CHECK_ROTATION_DEG)
-                painter.translate(-center)
-
-                painter.setPen(
-                    QPen(
-                        glyph_color,
-                        self.CHECK_STROKE_WIDTH,
-                        Qt.PenStyle.SolidLine,
-                        Qt.PenCapStyle.RoundCap,
-                        Qt.PenJoinStyle.MiterJoin,
-                    )
-                )
-
-                x1 = indicator_rect.left() + indicator_rect.width() * self.CHECK_X1
-                y1 = indicator_rect.top() + indicator_rect.height() * self.CHECK_Y1_NORM
-                x2 = indicator_rect.left() + indicator_rect.width() * self.CHECK_X2
-                y2_pre = indicator_rect.top() + indicator_rect.height() * self.CHECK_Y2_PRE
-                x3 = indicator_rect.left() + indicator_rect.width() * self.CHECK_X3
-                y3_pre = indicator_rect.top() + indicator_rect.height() * self.CHECK_Y3_PRE
-
-                cx = indicator_rect.center().y()
-                y2 = cx + self.CHECK_BOTTOM_FACTOR * (y2_pre - cx)
-                y3 = cx + self.CHECK_TOP_FACTOR * (y3_pre - cx)
-
-                p1 = QPointF(x1, y1)
-                p2 = QPointF(x2, y2)
-                p3 = QPointF(x3, y3)
-                path = QPainterPath()
-                path.moveTo(p1)
-                path.lineTo(p2)
-                path.lineTo(p3)
-                painter.drawPath(path)
-                painter.restore()
-            else:
-                painter.setPen(
-                    QPen(
-                        glyph_color,
-                        self.CHECK_STROKE_WIDTH,
-                        Qt.PenStyle.SolidLine,
-                        Qt.PenCapStyle.RoundCap,
-                        Qt.PenJoinStyle.MiterJoin,
-                    )
-                )
-                line_margin = indicator_rect.height() * 0.32
-                y = indicator_rect.center().y()
-                x1 = indicator_rect.left() + line_margin
-                x2 = indicator_rect.right() - line_margin
-                painter.drawLine(QPointF(x1, y), QPointF(x2, y))
-
-        if self.text():
-            painter.setPen(
-                QPen(
-                    QColor(text_color)
-                    if not is_disabled
-                    else QColor(
-                        text_color.red(),
-                        text_color.green(),
-                        text_color.blue(),
-                        disabled_alpha,
-                    )
-                )
-            )
-            full_text = self.text()
-
-            if fm.horizontalAdvance(full_text) > text_rect_avail.width():
-                full_text = fm.elidedText(
-                    full_text, Qt.TextElideMode.ElideRight, int(text_rect_avail.width())
-                )
-                draw_rect = text_rect_avail
-            else:
-                draw_rect = QRectF(
-                    text_rect_avail.left(),
-                    text_rect_avail.top(),
-                    float(fm.horizontalAdvance(full_text)),
-                    text_rect_avail.height(),
-                )
-            painter.drawText(
-                draw_rect,
-                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                full_text,
-            )
-
-        painter.end()
 
 CheckBox.inspect_spec = InspectSpec(
     family="CheckBox",
     state=(
         SpecField("checked", "isChecked"),
-        SpecField("check_state", "checkState"),
         SpecField("hover_progress", "hoverProgress"),
         SpecField("checked_progress", "checkedProgress"),
     ),

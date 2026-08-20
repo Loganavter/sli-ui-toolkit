@@ -10,9 +10,9 @@ from typing import Any
 
 from typing import Any
 
-from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QWidget
 
-from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton
+from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton, RadioButtonGroup
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 
 
@@ -65,7 +65,7 @@ class _FlyoutBuilderApi:
         options: list[tuple[str, Any]],
         *,
         default: Any = None,
-    ) -> tuple[Label, QButtonGroup, dict[Any, RadioButton]]:
+    ) -> tuple[Label, RadioButtonGroup, dict[Any, RadioButton]]:
         """Add a label followed by a horizontal row of RadioButtons."""
         label = Label(
             label_text,
@@ -78,7 +78,7 @@ class _FlyoutBuilderApi:
         row = QHBoxLayout(host)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
-        group = QButtonGroup(self)  # type: ignore[arg-type]
+        group = RadioButtonGroup()
         radios: dict[Any, RadioButton] = {}
         for i, (text, value) in enumerate(options):
             rb = RadioButton(text)

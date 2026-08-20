@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Changed
+- **`RadioButton` / `CheckBox` rebased onto `Button`** — were standalone
+  `QRadioButton` / `QCheckBox` subclasses with hand-rolled hover animation
+  and no keyboard-focus ring; now `Button` subclasses painting the same
+  indicator/checkmark geometry through a custom `Layer`, so they pick up
+  `FocusLayer`'s ring like every other toolkit control. Two-state only
+  (`CheckBox` drops the unused `Qt.CheckState.PartiallyChecked`
+  indeterminate state — nothing used it). `isChecked()` / `setChecked()` /
+  `toggled` stay API-compatible.
+- **`RadioButtonGroup` added** (`sli_ui_toolkit.widgets`) — `Button` has no
+  native exclusive-group concept (unlike `QAbstractButton` + `QButtonGroup`,
+  which `QRadioButton` got for free, including *implicit* exclusivity for
+  radios sharing one parent widget with no `QButtonGroup` at all). Host apps
+  using `QButtonGroup` with `RadioButton` must switch to
+  `RadioButtonGroup()` — plain Python object, `addButton()` only, no `QObject`
+  parent needed.
+
 ### Added
 - **`CustomTitleBar` keyboard navigation** — `StrongFocus` policy, Left/Right
   arrow-key navigation between focusable title bar buttons via QApplication
