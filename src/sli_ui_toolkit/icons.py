@@ -33,6 +33,16 @@ def resolve_icon(icon: Any) -> QIcon:
             if _icon_resolver is not None:
                 return _icon_resolver(mapped)
             return get_icon_by_name(getattr(mapped, "value", mapped))
+        # Try app resolver first for plain strings like "magnifier.svg"
+        # (Improve-ImgSLI's PanelVisibility uses this) before falling back
+        # to the toolkit's default icon service which has no such file.
+        if _icon_resolver is not None:
+            try:
+                result = _icon_resolver(icon)
+                if not result.isNull():
+                    return result
+            except Exception:
+                pass
         return get_icon_by_name(icon)
     if _icon_resolver is not None:
         return _icon_resolver(icon)
