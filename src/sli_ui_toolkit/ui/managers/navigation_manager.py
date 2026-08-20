@@ -539,7 +539,7 @@ class NavigationManager(QObject):
         # that don't implement focus_nearest and sections whose
         # focus_nearest doesn't cover the click area (e.g. clicking
         # below the last card in a list that also has a footer panel).
-        target = self._nearest_focusable_above(owner, pos)
+        target = self._nearest_focusable(owner, pos)
         if target is not None:
             target.setFocus(Qt.FocusReason.OtherFocusReason)
             if logger.isEnabledFor(logging.DEBUG):
