@@ -50,6 +50,40 @@ def _key_name(key: int) -> str:
     return _KEY_NAMES.get(key, f"0x{key:X}")
 
 
+def widget_label(widget: QObject | None) -> str:
+    """Best-effort identifying label for a debug-log line.
+
+    Most navigable controls (toolbar ``Button``s especially) never get an
+    ``objectName()`` set -- every one of them then logs as indistinguishable
+    ``Button()``, which makes ``UI_NAV_DEBUG`` traces useless for telling
+    *which* button focus actually landed on. Falls back through
+    ``objectName()`` -> tooltip -> button text -> ``id()`` so there's always
+    something to tell instances apart by, and appends the widget's global
+    on-screen geometry (position + size) so a trace can be checked against
+    a UI dump / where the click actually was without guessing from the
+    name alone.
+    """
+    if widget is None:
+        return "None"
+    name = getattr(widget, "objectName", lambda: "")() or ""
+    if not name:
+        name = getattr(widget, "toolTip", lambda: "")() or ""
+    if not name:
+        name = getattr(widget, "_text", None) or ""
+    if not name:
+        name = f"id={id(widget):#x}"
+    geo = ""
+    map_to_global = getattr(widget, "mapToGlobal", None)
+    rect = getattr(widget, "rect", None)
+    if map_to_global is not None and rect is not None:
+        try:
+            top_left = map_to_global(rect().topLeft())
+            geo = f" @({top_left.x()},{top_left.y()} {rect().width()}x{rect().height()})"
+        except Exception:
+            geo = ""
+    return f"{type(widget).__name__}({name}){geo}"
+
+
 # ------------------------------------------------------------------
 # Section protocol
 # ------------------------------------------------------------------
@@ -437,8 +471,8 @@ class NavigationManager(QObject):
         # _bootstrap_if_still_owner), but it is not a meaningful landing
         # spot on its own, and may not even be the widget that actually
         # handles keys (e.g. WorkspaceTabStrip vs. its real tab_bar
-        # child) -- focus_first() is the section's own idea of the right
-        # entry point instead.
+        # child) -- focus_nearest()/focus_first() are the section's own
+        # idea of the right entry point instead.
         if (
             clicked is not owner
             and clicked.focusPolicy() == Qt.FocusPolicy.StrongFocus
@@ -449,7 +483,24 @@ class NavigationManager(QObject):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "[nav] realign: click -> %s directly",
-                    type(clicked).__name__,
+                    widget_label(clicked),
+                )
+            return True
+        # focus_first(ref_x)/focus_last(ref_x) always pick a *fixed* row
+        # (topmost/bottommost) -- they model "entering this section from
+        # above/below" for cross-section Up/Down handoff, where ref_x only
+        # disambiguates left/right within that fixed row (see
+        # ToolbarRowsSection.focus_first's docstring). A click can land on
+        # any row, so prefer a section's own focus_nearest(pos), which
+        # picks the row nearest the click's y too, falling back to
+        # focus_first(ref_x) only for sections that don't implement it
+        # (fine there since those are single-row/x-only sections anyway).
+        focus_nearest = getattr(spec, "focus_nearest", None)
+        if focus_nearest is not None and focus_nearest(pos):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "[nav] realign: click -> nearest (2D) in %s",
+                    type(owner).__name__,
                 )
             return True
         if spec.focus_first(pos.x()):
@@ -530,7 +581,7 @@ class NavigationManager(QObject):
                     logger.debug(
                         "[nav] FocusIn keyboard reason=%s widget=%s",
                         reason.name,
-                        type(widget).__name__,
+                        widget_label(widget),
                     )
             return False  # never consume FocusIn
 
@@ -552,13 +603,13 @@ class NavigationManager(QObject):
                         "[nav] MouseButtonPress pos=(%d, %d) widgetAt=%s",
                         self._last_click_pos.x(),
                         self._last_click_pos.y(),
-                        type(clicked_at).__name__ if clicked_at else None,
+                        widget_label(clicked_at),
                     )
             focused = QApplication.focusWidget()
             if _debug:
                 logger.debug(
                     "[nav] MouseButtonPress focused=%s keyboard_focus=%s",
-                    type(focused).__name__ if focused else None,
+                    widget_label(focused),
                     getattr(focused, "_keyboard_focus", None) if focused else None,
                 )
             if focused is not None and getattr(focused, "_keyboard_focus", False):
@@ -569,7 +620,7 @@ class NavigationManager(QObject):
                 if _debug:
                     logger.debug(
                         "[nav] MouseButtonPress cleared ring on %s",
-                        type(focused).__name__,
+                        widget_label(focused),
                     )
             self._last_keyboard_focus = None
             return False  # never consume MouseButtonPress
@@ -604,7 +655,7 @@ class NavigationManager(QObject):
             logger.debug(
                 "[nav] eventFilter key=%s focused=%s sections=%d %s",
                 _key_name(key),
-                type(focused).__name__ if focused else None,
+                widget_label(focused),
                 len(self._sections),
                 [(type(s).__name__, type(o).__name__) for o, s in self._sections],
             )
@@ -630,7 +681,7 @@ class NavigationManager(QObject):
                 logger.debug(
                     "[nav] extra_keys: key=%s focused=%s wants_key=False sections=%d",
                     _key_name(key),
-                    type(focused).__name__ if focused else None,
+                    widget_label(focused),
                     len(self._sections),
                 )
             if not wants_key:
@@ -655,10 +706,9 @@ class NavigationManager(QObject):
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
-                            "[nav] %s bootstrap -> %s(%s) via %s",
+                            "[nav] %s bootstrap -> %s via %s",
                             _key_name(key),
-                            type(new_focus).__name__,
-                            getattr(new_focus, "objectName", lambda: "")() or "",
+                            widget_label(new_focus),
                             type(owner).__name__,
                         )
                     return True
@@ -666,10 +716,9 @@ class NavigationManager(QObject):
 
             if _debug:
                 logger.debug(
-                    "[nav] key=%s focused=%s(%s) section=%s",
+                    "[nav] key=%s focused=%s section=%s",
                     _key_name(key),
-                    type(focused).__name__,
-                    getattr(focused, "objectName", lambda: "")() or "",
+                    widget_label(focused),
                     type(owner).__name__,
                 )
             if spec.navigate(key, focused):
@@ -677,9 +726,8 @@ class NavigationManager(QObject):
                     new_focus = QApplication.focusWidget()
                     if new_focus is not focused:
                         logger.debug(
-                            "[nav] -> %s(%s)",
-                            type(new_focus).__name__,
-                            getattr(new_focus, "objectName", lambda: "")() or "",
+                            "[nav] -> %s",
+                            widget_label(new_focus),
                         )
                     else:
                         logger.debug("[nav] consumed (no movement)")
@@ -693,9 +741,8 @@ class NavigationManager(QObject):
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
-                            "[nav] -> %s(%s) via %s",
-                            type(new_focus).__name__,
-                            getattr(new_focus, "objectName", lambda: "")() or "",
+                            "[nav] -> %s via %s",
+                            widget_label(new_focus),
                             type(neighbor[0]).__name__,
                         )
                     return True
@@ -712,9 +759,8 @@ class NavigationManager(QObject):
                     if _debug:
                         new_focus = QApplication.focusWidget()
                         logger.debug(
-                            "[nav] -> %s(%s) via %s",
-                            type(new_focus).__name__,
-                            getattr(new_focus, "objectName", lambda: "")() or "",
+                            "[nav] -> %s via %s",
+                            widget_label(new_focus),
                             type(neighbor[0]).__name__,
                         )
                     return True

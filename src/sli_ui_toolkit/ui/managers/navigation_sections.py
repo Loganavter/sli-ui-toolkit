@@ -15,6 +15,8 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget
 
+from sli_ui_toolkit.ui.managers.navigation_manager import widget_label
+
 # [nav-*] trace lines fire on every arrow-key navigate() call once the host
 # app's --debug is on, drowning out other subsystems' debug output. Gated
 # on its own opt-in flag, off by default even under --debug -- same
@@ -118,10 +120,13 @@ class ToolbarRowsSection:
         if row is None or row not in rows:
             return False
         idx = rows.index(row)
-        logger.debug(
-            "[nav-%s] navigate key=%s widget=%s row_idx=%d/%d",
-            self._tag, key, type(widget).__name__, idx, len(rows),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            items = self._focusable(row)
+            col = items.index(widget) if widget in items else -1
+            logger.debug(
+                "[nav-%s] navigate key=%s widget=%s row_idx=%d/%d col_idx=%d/%d",
+                self._tag, key, widget_label(widget), idx, len(rows), col, len(items),
+            )
         if key in (Qt.Key.Key_Down, Qt.Key.Key_Up):
             # Give the focused widget itself first refusal — a spinner-like
             # control (e.g. a scroll-driven value button) may want Up/Down
@@ -202,6 +207,28 @@ class ToolbarRowsSection:
         )
         target.setFocus(Qt.FocusReason.OtherFocusReason)
         return True
+
+    def focus_nearest(self, pos) -> bool:
+        """Land on whichever focusable widget across *all* rows is
+        geometrically closest to *pos* (both x and y).
+
+        Distinct from ``focus_first``/``focus_last``: those two always
+        pick a *fixed* row (topmost / bottommost) because they model
+        "entering this section from above/below" for cross-section
+        Up/Down handoff, where ``ref_x`` only ever disambiguates the
+        left/right position within that fixed row. A mouse click can land
+        on *any* row, not just the first or last, so a click-driven
+        re-anchor needs the row nearest the click's y, not a row fixed by
+        entry direction.
+        """
+        rows = self._rows()
+        if not rows:
+            return False
+        row = min(
+            rows,
+            key=lambda r: abs(r.mapToGlobal(r.rect().center()).y() - pos.y()),
+        )
+        return self._focus_near_x(row, pos.x())
 
     @property
     def extra_keys(self) -> frozenset[int]:

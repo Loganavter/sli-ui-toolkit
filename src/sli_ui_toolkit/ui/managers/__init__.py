@@ -16,6 +16,7 @@ from sli_ui_toolkit.ui.managers.layer_stack import LayerStack
 from sli_ui_toolkit.ui.managers.navigation_manager import (
     NavigationManager,
     NavigationSection,
+    widget_label,
 )
 from sli_ui_toolkit.ui.managers.navigation_sections import ToolbarRowsSection
 from sli_ui_toolkit.ui.managers.settle_gate import SettleGate
@@ -63,6 +64,7 @@ __all__ = [
     "WidgetDescriptor",
     "WidgetRegistry",
     "widget_descriptor",
+    "widget_label",
 
     "MAX_FACTOR",
     "MIN_FACTOR",
