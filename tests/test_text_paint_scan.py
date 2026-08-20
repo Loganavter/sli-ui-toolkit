@@ -41,12 +41,6 @@ _PAINT_FONT_HELPERS = ("paint_font", "rebase_font")
 # already scale-resolved (apply_ui_font pinned in __init__) or the painter
 # font was set by the caller.
 _TEXT_WITHOUT_SET_FONT: dict[tuple[str, str], str] = {
-    ("ui/widgets/atomic/checkbox.py", "paintEvent"): (
-        "paints widget.font(); CheckBox.__init__ pins apply_ui_font(self)"
-    ),
-    ("ui/widgets/atomic/radio.py", "paintEvent"): (
-        "paints widget.font(); RadioButton.__init__ pins apply_ui_font(self)"
-    ),
     ("ui/widgets/atomic/switch.py", "paintEvent"): (
         "paints widget.font(); Switch.__init__ pins apply_ui_font(self)"
     ),

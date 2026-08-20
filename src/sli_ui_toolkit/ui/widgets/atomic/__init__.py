@@ -1,4 +1,5 @@
 from sli_ui_toolkit.ui.widgets.atomic.custom_group_widget import (
+    ButtonGroup,
     CustomGroupBuilder,
     CustomGroupWidget,
 )
@@ -30,7 +31,7 @@ from sli_ui_toolkit.ui.widgets.atomic.text_labels import (
 )
 from sli_ui_toolkit.ui.widgets.atomic.time_line_edit import TimeLineEdit
 
-from sli_ui_toolkit.ui.widgets.buttons import Button, ButtonGroup
+from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.painter import ButtonPainter
 
 __all__ = [

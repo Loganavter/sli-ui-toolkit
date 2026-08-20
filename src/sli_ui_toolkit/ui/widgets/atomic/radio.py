@@ -232,13 +232,24 @@ class RadioButton(Button):
 
     hoverProgress = Property(float, fget=get_hover_progress, fset=set_hover_progress)
 
-    def enterEvent(self, event):
-        super().enterEvent(event)
-        self._animate_hover(True)
+    def hoverHitTest(self, pos) -> bool:
+        # Button's own hoverHitTest is whole-widget-rect -- restrict to the
+        # indicator + text (HoverCoordinator drives hover reconciliation off
+        # this on every mouse move; empty trailing row space must read as a
+        # miss, see test_radio_hover_hit_test_ignores_empty_widget_area).
+        r = QRectF(self.rect())
+        ind = self._indicator_rect(r)
+        fm = QFontMetrics(paint_font(self))
+        tx = self._text_rect_content(r, ind, fm)
+        return ind.contains(pos) or tx.contains(pos)
 
-    def leaveEvent(self, event):
-        super().leaveEvent(event)
-        self._animate_hover(False)
+    def setHoverActive(self, active: bool) -> None:
+        # Button's own setHoverActive drives ButtonState.HOVERED (used by
+        # the indicator-fill wash in _RadioIndicatorLayer); chain into it
+        # rather than replacing it, and additionally drive the hole-shrink
+        # micro-animation this widget had before the Button rebase.
+        super().setHoverActive(active)
+        self._animate_hover(bool(active))
 
     def _animate_hover(self, hovered: bool):
         self._hover_anim.stop()
