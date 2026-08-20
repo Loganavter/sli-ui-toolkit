@@ -23,6 +23,7 @@ from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.comboboxes._models import _ComboItem
+from sli_ui_toolkit.ui.widgets.helpers.overlay_geometry import centered_inner_offset
 from sli_ui_toolkit.ui.widgets.comboboxes._overlay import _DropdownOverlay
 from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     match_score,
@@ -71,7 +72,11 @@ class _ComboFieldContentLayer(Layer):
         rect = ctx.rect.toRect()
         fm = QFontMetrics(paint_font(widget))
         inner_h = widget._item_height()
-        inner_top = (rect.height() - inner_h) // 2
+        # centered_inner_offset (not plain // 2): the popup geometry and the
+        # gear-drag frame align the same row height under the field with
+        # this same helper, so a different rounding here left the label a
+        # px off from the row's own text at odd height-diffs.
+        inner_top = centered_inner_offset(rect.height(), inner_h)
         pad_x = scaled_px(widget.TEXT_HORIZONTAL_PADDING)
         text_rect = QRect(
             pad_x,

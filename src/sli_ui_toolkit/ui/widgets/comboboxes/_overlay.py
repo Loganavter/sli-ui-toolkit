@@ -7,7 +7,7 @@ from PySide6.QtGui import QBrush, QColor, QFontMetrics, QMouseEvent, QPainter, Q
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
@@ -21,6 +21,7 @@ from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.helpers import (
     calculate_centered_overlay_geometry,
+    centered_inner_offset,
     draw_rounded_shadow,
 )
 from sli_ui_toolkit.ui.widgets.virtual_list import RowPool, visible_window
@@ -63,7 +64,10 @@ class _SlotContentLayer(Layer):
     def draw(self, ctx, tm: ThemeManager) -> None:
         widget = ctx.widget
         rect = ctx.rect.toRect()
-        padding = widget._text_padding
+        # Field label pads via scaled_px(TEXT_HORIZONTAL_PADDING) (see
+        # _ComboFieldContentLayer.draw) — scale here too, or the two drift
+        # apart by a few px at any UiScale factor != 1.0.
+        padding = scaled_px(widget._text_padding)
         text_rect = rect.adjusted(padding, 0, -padding, 0)
         p = ctx.painter
         p.setPen(QPen(tm.get_color("dialog.text")))
@@ -324,10 +328,11 @@ class _DropdownOverlay(QWidget):
         field_rect = owner.rect()
         field_top_left_global = owner.mapToGlobal(field_rect.topLeft())
         local_top_left = self.mapFromGlobal(field_top_left_global)
-        # Round (not floor) the half-pixel remainder: the popup centers the
-        # anchored row with ``round`` too (overlay_geometry), so floor-only
-        # here left the row's top poking a full pixel out of the frame.
-        local_top_left.setY(local_top_left.y() + round((field_rect.height() - item_h) / 2))
+        # centered_inner_offset (not plain // 2): the popup positions the
+        # anchored row with this same helper (overlay_geometry), so a
+        # different rounding here left the row's top poking a full pixel out
+        # of the frame.
+        local_top_left.setY(local_top_left.y() + centered_inner_offset(field_rect.height(), item_h))
         frame_rect = QRect(local_top_left, QSize(field_rect.width(), item_h))
         self._gear_frame.setGeometry(frame_rect)
         self._gear_frame.show()
