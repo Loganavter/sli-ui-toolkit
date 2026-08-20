@@ -145,6 +145,20 @@ class NavigationManager(QObject):
         # OtherFocusReason based on how the user is *currently* driving the
         # app, instead of hardcoding a keyboard reason regardless of cause.
         self._last_input_keyboard: bool = True
+        # Where the pointer last went down, and whether that click still
+        # needs to be reconciled with the next arrow press. A mouse click
+        # always kills the visible ring (see MouseButtonPress handling
+        # below) but only *sometimes* moves Qt's actual focusWidget() (only
+        # when the click landed on something focusable) -- when it doesn't
+        # (empty space, a label, a disabled control), Qt's focus silently
+        # stays on whatever was focused before the click. Resuming arrow
+        # navigation from that stale widget makes the ring reappear
+        # somewhere the user never looked at. Instead, the first arrow key
+        # after a click re-anchors the ring on whichever widget is actually
+        # nearest the click point, then lets that same key press navigate
+        # from there.
+        self._last_click_pos: QPoint | None = None
+        self._realign_pending: bool = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -376,6 +390,105 @@ class NavigationManager(QObject):
         return None
 
     # ------------------------------------------------------------------
+    # Click-to-keyboard handoff
+    # ------------------------------------------------------------------
+
+    def _owning_section_for(
+        self, widget: QWidget
+    ) -> tuple[QObject, NavigationSection, bool] | None:
+        """Walk *widget*'s ancestor chain for the first registered section
+        that claims it.
+
+        Returns ``(owner, spec, is_bare_owner)``, where ``is_bare_owner`` is
+        ``True`` when the match came from hitting the section's bare
+        ``owner`` widget rather than a real content match via ``owns()`` --
+        e.g. a click on a row container's padding, not any actual row
+        content. ``owns()`` matches (any registered section, checked at
+        every ancestor level before falling back to identity) take
+        priority over a bare-owner match at a shallower level, so a click
+        on real content always resolves to that content's own section.
+        """
+        target = widget
+        while target is not None:
+            for owner, spec in self._sections:
+                if spec.owns(target):
+                    return owner, spec, False
+            for owner, spec in self._sections:
+                if target is owner:
+                    return owner, spec, True
+            target = target.parentWidget()
+        return None
+
+    def _realign_to_last_click(self) -> bool:
+        """Move focus to whichever registered section's widget is nearest
+        the last mouse-click point, so a stale ``focusWidget()`` (see
+        ``_realign_pending`` on the constructor) doesn't drive the next
+        arrow press. Returns ``True`` if focus was moved.
+        """
+        pos = self._last_click_pos
+        if pos is None:
+            return False
+        clicked = QApplication.widgetAt(pos)
+        if clicked is None:
+            return False
+        found = self._owning_section_for(clicked)
+        if found is None:
+            return False
+        owner, spec, is_bare_owner = found
+        # The clicked widget itself is the nearest candidate by definition
+        # -- prefer it directly over asking the section to guess from an
+        # x-coordinate alone, which only ever considers its first/last row.
+        # Skip this when the match only came from hitting the bare owner
+        # (e.g. row padding, or a click that landed on the section's outer
+        # container rather than any real content) -- that widget commonly
+        # carries StrongFocus purely to support the arrow-key bootstrap
+        # path (see register()'s _bootstrap_if_still_owner), not as a
+        # meaningful landing spot; focus_first() is the section's own idea
+        # of the right entry point instead.
+        if (
+            not is_bare_owner
+            and clicked.focusPolicy() == Qt.FocusPolicy.StrongFocus
+            and clicked.isVisible()
+            and clicked.isEnabled()
+        ):
+            clicked.setFocus(Qt.FocusReason.OtherFocusReason)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "[nav] realign: click -> %s directly",
+                    type(clicked).__name__,
+                )
+            return True
+        if spec.focus_first(pos.x()):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "[nav] realign: click -> nearest in %s",
+                    type(owner).__name__,
+                )
+            return True
+        return False
+
+    def _yield_to_native(self, focused: QWidget | None, event, realigned: bool) -> bool:
+        """Hand *event* to *focused*'s own ``keyPressEvent`` (Left/Right on
+        a tab strip, a spin box, etc. — anything this manager itself
+        declines to own).
+
+        Ordinarily this just means returning ``False`` and letting Qt's own
+        delivery run its course — Qt already resolved the event's receiver
+        before this filter ran, and if focus was never touched here that
+        resolved receiver is still the right one. But when this same press
+        just realigned focus via :meth:`_realign_to_last_click`, that
+        resolved receiver is stale — Qt would deliver to whatever held
+        focus before the click, not to *focused*. In that case, dispatch
+        the event to *focused* directly (mirrors
+        ``ToolbarRowsSection._widget_handles``'s trial-dispatch) and
+        consume it ourselves instead.
+        """
+        if not realigned or focused is None:
+            return False
+        focused.keyPressEvent(event)
+        return True
+
+    # ------------------------------------------------------------------
     # Event filter
     # ------------------------------------------------------------------
 
@@ -411,6 +524,13 @@ class NavigationManager(QObject):
                 self._last_keyboard_focus = None
             elif widget is not None:
                 self._last_keyboard_focus = widget
+                # Focus moved for a real keyboard-ish reason (arrow
+                # navigation, Tab, programmatic OtherFocusReason) -- the
+                # click that set _realign_pending, if any, has already been
+                # superseded by legitimate focus movement, so the next
+                # arrow press should navigate from here, not jump back to
+                # the click point.
+                self._realign_pending = False
                 _debug = logger.isEnabledFor(logging.DEBUG)
                 if _debug:
                     logger.debug(
@@ -427,6 +547,10 @@ class NavigationManager(QObject):
             # both cases no FocusIn/FocusOut fires, so the ring-suppression
             # in Button.focusInEvent never runs on its own.
             self._last_input_keyboard = False
+            pos_fn = getattr(event, "globalPosition", None)
+            if pos_fn is not None:
+                self._last_click_pos = pos_fn().toPoint()
+                self._realign_pending = True
             focused = QApplication.focusWidget()
             _debug = logger.isEnabledFor(logging.DEBUG)
             if _debug:
@@ -454,6 +578,24 @@ class NavigationManager(QObject):
         self._last_input_keyboard = True
         key = event.key()
         _debug = logger.isEnabledFor(logging.DEBUG)
+
+        # Whether this press already realigned focus onto the last click
+        # point. The two `return False` sites below normally yield a key
+        # to Qt's ordinary delivery, which targets whatever widget Qt
+        # resolved as the receiver *before* this filter ran -- a
+        # setFocus() here can't retarget that same event, only the next
+        # one. When realignment did move focus, those sites instead
+        # forward this exact event straight to the newly-focused widget's
+        # keyPressEvent() (the same trial-dispatch technique
+        # ToolbarRowsSection._widget_handles uses) and consume it
+        # themselves, rather than trusting Qt to redeliver to the right
+        # place.
+        realigned = False
+        if key in _ARROWS and self._realign_pending:
+            self._realign_pending = False
+            realigned = self._realign_to_last_click()
+            if _debug and realigned:
+                logger.debug("[nav] %s realigned to click", _key_name(key))
 
         if _debug and key in _ARROWS:
             focused = QApplication.focusWidget()
@@ -490,7 +632,7 @@ class NavigationManager(QObject):
                     len(self._sections),
                 )
             if not wants_key:
-                return False
+                return self._yield_to_native(focused, event, realigned)
         else:
             focused = QApplication.focusWidget()
             if focused is None:
@@ -593,6 +735,6 @@ class NavigationManager(QObject):
         # walking the parent chain — that would incorrectly claim overlay
         # widgets (flyouts, popups) that are parented inside a section's
         # widget tree but should handle their own keyboard navigation.
-        return False
+        return self._yield_to_native(focused, event, realigned)
 
 
