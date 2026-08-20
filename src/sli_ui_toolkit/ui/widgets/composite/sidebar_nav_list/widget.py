@@ -236,6 +236,33 @@ class IconListWidget(QWidget):
             return self._visible[idx]
         return -1
 
+    def current_row_button(self) -> QWidget | None:
+        """Button for the currently selected row (``currentRow()``), or
+        ``None`` if nothing is selected or it's filtered out of view.
+
+        Used by ``IconListNavSection`` (see ``navigation_sections.py``) to
+        land keyboard focus on the row that's already selected when
+        entering the list from outside, rather than always the first row.
+        """
+        source = self._current_row
+        if source < 0:
+            return None
+        try:
+            visible_idx = self._visible.index(source)
+        except ValueError:
+            return None
+        return self.row_button(visible_idx)
+
+    def index_of_button(self, widget: QWidget) -> int | None:
+        """Visible row index of *widget*, or ``None`` if it isn't a
+        currently-visible row's button. Used by ``IconListNavSection`` to
+        find "where am I" from the focused widget arrow-key navigation
+        receives."""
+        for visible_idx, source_idx in enumerate(self._visible):
+            if self._rows[source_idx].button is widget:
+                return visible_idx
+        return None
+
     # -------- public: search / filtering (ComboBox-style) --------
 
     def set_search_text(self, query: str) -> None:
@@ -409,7 +436,10 @@ class IconListWidget(QWidget):
             )
         button.setMinimumWidth(0)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # StrongFocus (not NoFocus): rows are keyboard-navigable via
+        # IconListNavSection (Up/Down + an optional Right handoff into
+        # content) — see navigation_sections.py.
+        button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         row = _RowSpec(
             text=spec.text,
             icon=icon,

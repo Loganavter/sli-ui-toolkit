@@ -400,6 +400,24 @@ class NavigationManager(QObject):
             return None
         return owner
 
+    def focus_section_for_owner(self, owner: QObject) -> bool:
+        """Focus into the ``NavigationSection`` registered for *owner*
+        (its :meth:`NavigationSection.focus_first`), or ``False`` if none
+        is registered.
+
+        A live lookup against the current registry — nothing cached, so
+        nothing to go stale — for callers that need to re-enter a specific
+        section by identity rather than by spatial adjacency
+        (:meth:`_neighbor`, which only knows registration order). E.g. a
+        sidebar list handing focus to whichever content page is currently
+        active, via a callable the host wires in (see
+        ``IconListNavSection``'s ``on_exit_right``).
+        """
+        for candidate_owner, spec in self._sections:
+            if candidate_owner is owner:
+                return spec.focus_first()
+        return False
+
     # ------------------------------------------------------------------
     # Cross-section navigation helpers
     # ------------------------------------------------------------------

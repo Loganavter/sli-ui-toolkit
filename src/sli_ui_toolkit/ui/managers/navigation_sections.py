@@ -9,13 +9,23 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.managers.navigation_manager import widget_label
+
+if TYPE_CHECKING:
+    # TYPE_CHECKING-only: the composite package's __init__ pulls in a lot
+    # (list_panel, timeline_widget, ...) that isn't safe to import eagerly
+    # from ui/managers, which loads much earlier in the app's import graph
+    # (see docs/legacy/plan_combobox_baseflyout_unification.md §5 for the
+    # exact circular-import trap this avoids). `from __future__ import
+    # annotations` above makes the IconListWidget annotation below lazy, so
+    # this import only ever runs for type checkers, never at runtime.
+    from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import IconListWidget
 
 # [nav-*] trace lines fire on every arrow-key navigate() call once the host
 # app's --debug is on, drowning out other subsystems' debug output. Gated
@@ -48,6 +58,15 @@ class ToolbarRowsSection:
     its own behavior, e.g. pan or value-adjustment) must be excluded from
     ``rows_provider`` — this section only ever claims widgets inside the
     given row containers.
+
+    ``on_exit_left``, if given, is tried when Left is pressed on the
+    leftmost focusable control of a row — e.g. handing off to a sidebar
+    list to the left of this section's content, mirroring
+    ``IconListNavSection``'s own ``on_exit_right``. Neither side needs to
+    know the other's type, just a plain callable. ``None`` (the default)
+    keeps the original behavior: Left/Right never escape a row, since
+    Up/Down already own row-to-row (and, by extension, section-to-section)
+    transitions.
     """
 
     def __init__(
@@ -55,9 +74,11 @@ class ToolbarRowsSection:
         rows_provider: Callable[[], list[QWidget | None]],
         *,
         tag: str = "toolbar-rows",
+        on_exit_left: Callable[[], bool] | None = None,
     ) -> None:
         self._rows_provider = rows_provider
         self._tag = tag
+        self._on_exit_left = on_exit_left
 
     def _rows(self) -> list[QWidget]:
         return [r for r in self._rows_provider() if r is not None and r.isVisible()]
@@ -175,9 +196,17 @@ class ToolbarRowsSection:
             target = cur + step
             if 0 <= target < len(items):
                 items[target].setFocus(Qt.FocusReason.OtherFocusReason)
-            # Row edge: consume anyway (don't fall through to native
-            # handling, which does nothing for a plain Button) rather than
-            # wrap into an adjacent row — Up/Down already own row transitions.
+                return True
+            if (
+                key == Qt.Key.Key_Left
+                and self._on_exit_left is not None
+                and self._on_exit_left()
+            ):
+                return True
+            # Row edge (no handoff, or none configured/declined): consume
+            # anyway (don't fall through to native handling, which does
+            # nothing for a plain Button) rather than wrap into an adjacent
+            # row — Up/Down already own row transitions.
             return True
         return False
 
@@ -235,4 +264,82 @@ class ToolbarRowsSection:
         return frozenset({Qt.Key.Key_Left, Qt.Key.Key_Right})
 
 
-__all__ = ["ToolbarRowsSection"]
+class IconListNavSection:
+    """Up/Down between an ``IconListWidget`` sidebar's rows.
+
+    Mirrors ``ToolbarRowsSection``'s row-to-row model for a single-column
+    list: Down/Up step one row, yielding (``return False``) past the first
+    or last row for ``NavigationManager``'s own vertical section handoff
+    (:meth:`NavigationManager._neighbor`).
+
+    Right is opted into via ``extra_keys`` and, if ``on_exit_right`` was
+    given, hands off through it — e.g. "focus the currently active content
+    page". This section has no notion of what a "content page" is, same
+    separation ``ToolbarRowsSection``'s own ``on_exit_left`` keeps: the
+    host wires the two sides together with plain callables, not by either
+    section knowing about the other's type.
+    """
+
+    def __init__(
+        self,
+        list_widget: "IconListWidget",
+        *,
+        on_exit_right: Callable[[], bool] | None = None,
+    ) -> None:
+        self._list = list_widget
+        self._on_exit_right = on_exit_right
+
+    def owns(self, widget: QWidget) -> bool:
+        return widget is self._list or self._list.isAncestorOf(widget)
+
+    def navigate(self, key: int, widget: QWidget) -> bool:
+        idx = self._list.index_of_button(widget)
+        logger.debug(
+            "[nav-iconlist] navigate key=%s widget=%s idx=%s count=%d",
+            key, widget_label(widget), idx, self._list.count(),
+        )
+        if key == Qt.Key.Key_Down:
+            if idx is None:
+                return self.focus_first()
+            if idx < self._list.count() - 1:
+                return self._focus_visible(idx + 1)
+            return False
+        if key == Qt.Key.Key_Up:
+            if idx is None:
+                return False
+            if idx > 0:
+                return self._focus_visible(idx - 1)
+            return False
+        if key == Qt.Key.Key_Right:
+            if self._on_exit_right is not None:
+                return bool(self._on_exit_right())
+            return False
+        return False
+
+    def _focus_visible(self, visible_idx: int) -> bool:
+        btn = self._list.row_button(visible_idx)
+        if btn is None:
+            return False
+        btn.setFocus(Qt.FocusReason.OtherFocusReason)
+        return True
+
+    def focus_first(self, ref_x: float | None = None) -> bool:
+        # Entering the list (from a vertical neighbor above, or via a
+        # Left-key handoff from content) always lands on whatever row is
+        # already selected -- not literally the first/last row -- since
+        # this list stays synced 1:1 with the visible content page.
+        btn = self._list.current_row_button()
+        if btn is not None:
+            btn.setFocus(Qt.FocusReason.OtherFocusReason)
+            return True
+        return self._focus_visible(0)
+
+    def focus_last(self, ref_x: float | None = None) -> bool:
+        return self.focus_first(ref_x)
+
+    @property
+    def extra_keys(self) -> frozenset[int]:
+        return frozenset({Qt.Key.Key_Right})
+
+
+__all__ = ["IconListNavSection", "ToolbarRowsSection"]
