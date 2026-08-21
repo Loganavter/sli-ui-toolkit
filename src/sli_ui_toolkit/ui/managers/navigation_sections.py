@@ -11,6 +11,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Callable
 
+import shiboken6
+
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget
@@ -471,7 +473,8 @@ class AutoNavigationSection(ToolbarRowsSection):
         try:
             candidates = [
                 w for w in self._owner.findChildren(QWidget)
-                if w.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                if shiboken6.isValid(w)
+                and w.focusPolicy() == Qt.FocusPolicy.StrongFocus
                 and w.isVisible() and w.isEnabled()
                 and w is not self._owner
             ]
@@ -479,12 +482,20 @@ class AutoNavigationSection(ToolbarRowsSection):
             return []
         if not candidates:
             return []
-        # Сортируем по y, затем кластеризуем
-        candidates.sort(key=lambda w: w.mapToGlobal(w.rect().center()).y())
+        # Сортируем по y, затем кластеризуем (фильтруем уже удалённые)
+        def _y(w):
+            try:
+                return w.mapToGlobal(w.rect().center()).y()
+            except Exception:
+                return 0
+
+        candidates.sort(key=_y)
         rows: list[list[QWidget]] = []
         cur_row: list[QWidget] = []
         cur_y: float | None = None
         for w in candidates:
+            if not shiboken6.isValid(w):
+                continue
             try:
                 y = w.mapToGlobal(w.rect().center()).y()
                 h = max(1, w.height())
@@ -583,10 +594,28 @@ class AutoNavigationSection(ToolbarRowsSection):
                     if ext.focus_first_child():
                         return True
             if row_idx < len(rows) - 1:
-                # nearest x
-                ref_x = widget.mapToGlobal(widget.rect().center()).x()
-                target_row = rows[row_idx + 1]
-                target = min(target_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+                # nearest x — фильтруем уже удалённые, иначе min() бросает RuntimeError
+                try:
+                    ref_x = widget.mapToGlobal(widget.rect().center()).x()
+                except Exception:
+                    ref_x = 0
+                target_row = [w for w in rows[row_idx + 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+                if not target_row:
+                    self._auto_rows()
+                    rows = getattr(self, "_cached_rows_widgets", [])
+                    if row_idx + 1 < len(rows):
+                        target_row = [w for w in rows[row_idx + 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+                    if not target_row:
+                        return True
+                def _dx(w):
+                    try:
+                        return abs(w.mapToGlobal(w.rect().center()).x() - ref_x)
+                    except Exception:
+                        return 1e9
+
+                target = min(target_row, key=_dx)
+                if not shiboken6.isValid(target):
+                    return True
                 target.setFocus(reason)
                 _ensure_visible(target)
                 return True
@@ -601,9 +630,27 @@ class AutoNavigationSection(ToolbarRowsSection):
                 if side == "above" and _ext_up.focus_first_child():
                     return True
             if row_idx > 0:
-                ref_x = widget.mapToGlobal(widget.rect().center()).x()
-                target_row = rows[row_idx - 1]
-                target = min(target_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+                try:
+                    ref_x = widget.mapToGlobal(widget.rect().center()).x()
+                except Exception:
+                    ref_x = 0
+                target_row = [w for w in rows[row_idx - 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+                if not target_row:
+                    self._auto_rows()
+                    rows = getattr(self, "_cached_rows_widgets", [])
+                    if row_idx - 1 >= 0 and row_idx - 1 < len(rows):
+                        target_row = [w for w in rows[row_idx - 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+                    if not target_row:
+                        return True
+                def _dx2(w):
+                    try:
+                        return abs(w.mapToGlobal(w.rect().center()).x() - ref_x)
+                    except Exception:
+                        return 1e9
+
+                target = min(target_row, key=_dx2)
+                if not shiboken6.isValid(target):
+                    return True
                 target.setFocus(reason)
                 _ensure_visible(target)
                 return True
@@ -629,9 +676,18 @@ class AutoNavigationSection(ToolbarRowsSection):
                         return True
             if self._widget_handles(key, widget):
                 return True
-            row = rows[row_idx]
+            row = [w for w in rows[row_idx] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+            if not row:
+                self._auto_rows()
+                return True
             # row already sorted by x (from clustering)
-            row_sorted = sorted(row, key=lambda w: w.mapToGlobal(w.rect().center()).x())
+            def _rx(w):
+                try:
+                    return w.mapToGlobal(w.rect().center()).x()
+                except Exception:
+                    return 0
+
+            row_sorted = sorted(row, key=_rx)
             if widget not in row_sorted:
                 return False
             cur = row_sorted.index(widget)
@@ -671,14 +727,21 @@ class AutoNavigationSection(ToolbarRowsSection):
         rows = getattr(self, "_cached_rows_widgets", [])
         if not rows:
             return False
-        first_row = rows[0]
-        if ref_x is not None:
+        first_row = [w for w in rows[0] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+        if not first_row:
+            return False
+        def _fx(w):
             try:
-                target = min(first_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+                return abs(w.mapToGlobal(w.rect().center()).x() - ref_x) if ref_x is not None else w.mapToGlobal(w.rect().center()).x()
             except Exception:
-                target = sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[0]
-        else:
-            target = sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[0]
+                return 1e9
+
+        try:
+            target = min(first_row, key=_fx) if ref_x is not None else sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x() if shiboken6.isValid(w) else 1e9)[0]
+        except Exception:
+            return False
+        if not shiboken6.isValid(target):
+            return False
         target.setFocus(reason)
         _ensure_visible(target)
         return True
@@ -688,14 +751,21 @@ class AutoNavigationSection(ToolbarRowsSection):
         rows = getattr(self, "_cached_rows_widgets", [])
         if not rows:
             return False
-        last_row = rows[-1]
-        if ref_x is not None:
+        last_row = [w for w in rows[-1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+        if not last_row:
+            return False
+        def _fx2(w):
             try:
-                target = min(last_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+                return abs(w.mapToGlobal(w.rect().center()).x() - ref_x) if ref_x is not None else w.mapToGlobal(w.rect().center()).x()
             except Exception:
-                target = sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[-1]
-        else:
-            target = sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[-1]
+                return 1e9
+
+        try:
+            target = min(last_row, key=_fx2) if ref_x is not None else sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x() if shiboken6.isValid(w) else 1e9)[-1]
+        except Exception:
+            return False
+        if not shiboken6.isValid(target):
+            return False
         target.setFocus(reason)
         _ensure_visible(target)
         return True
