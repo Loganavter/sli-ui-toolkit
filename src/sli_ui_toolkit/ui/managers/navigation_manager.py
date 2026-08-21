@@ -951,6 +951,30 @@ def declare_navigation_rows(
         pass
 
 
+def declare_toolbar_navigation(
+    owner: QWidget,
+    rows: list[QWidget | None],
+    *,
+    tag: str = "toolbar",
+) -> None:
+    """Декларативный хелпер для тулбара/панели — обёртка над ``declare_navigation_rows``.
+
+    Использует ``WidgetDescriptor.navigation`` + ``register_navigation`` путь
+    (см. ``plan_navigation_descriptor_unification.md`` §5), чтобы регистрация
+    шла через единый дескриптор, а не напрямую через ``NavigationManager.register``.
+    Убирает per-tab ``_toolbar_rows()`` + ``_register_nav_section()`` 15 строк.
+
+    Пример::
+
+        declare_toolbar_navigation(self._widget, [self._widget.toolbar, self._widget.footer], tag="multi-compare")
+
+    Breaking API allowed — алиас к ``declare_navigation_rows`` с более явным именем
+    для тулбаров (Phase 3 ``plan_navigation_simplification.md``).
+    """
+    # Keep single codepath — delegate to declare_navigation_rows so behavior stays identical
+    declare_navigation_rows(owner, rows, tag=tag)
+
+
 def auto_navigation(owner: QWidget, *, tag: str = "auto") -> None:
     """Zero-config: Up→сверху, Down→снизу, Left→слева, Right→справа — без ручных rows.
 

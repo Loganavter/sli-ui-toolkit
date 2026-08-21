@@ -22,6 +22,7 @@ from sli_ui_toolkit.ui.managers.navigation_manager import (
     bind_auto_preview,
     bind_flyout,
     declare_navigation_rows,
+    declare_toolbar_navigation,
     widget_label,
 )
 from sli_ui_toolkit.ui.managers.navigation_sections import (
@@ -75,6 +76,7 @@ __all__ = [
     "bind_auto_preview",
     "bind_flyout",
     "declare_navigation_rows",
+    "declare_toolbar_navigation",
     "SettleGate",
     "ThemeManager",
     "ToolbarRowsSection",
