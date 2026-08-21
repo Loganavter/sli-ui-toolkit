@@ -251,6 +251,39 @@ class _FlyoutLifecycleApi:
         if w is not None and not w.isActiveWindow():
             w.activateWindow()
 
+    @staticmethod
+    def _nearest_focusable(widget: QWidget, ref_x: float | None = None) -> QWidget | None:
+        """Nearest StrongFocus leaf to ref_x (anchor center), else center of flyout."""
+        children = [
+            c for c in widget.findChildren(QWidget)
+            if c.focusPolicy() == Qt.FocusPolicy.StrongFocus
+            and c.isVisible()
+            and c.isEnabled()
+            and not any(
+                ch.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                for ch in c.findChildren(QWidget)
+            )
+        ]
+        if not children:
+            return None
+        if ref_x is None:
+            anchor = getattr(widget, "_anchor_widget", None)
+            if anchor is not None:
+                try:
+                    ref_x = anchor.mapToGlobal(anchor.rect().center()).x()
+                except Exception:
+                    ref_x = None
+        if ref_x is None:
+            # center of flyout — not left edge, so "always leftmost" bug is gone
+            try:
+                ref_x = widget.mapToGlobal(widget.rect().center()).x()
+            except Exception:
+                return children[len(children) // 2]
+        try:
+            return min(children, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+        except Exception:
+            return children[0]
+
     def _grab_focus(self) -> None:
         """Grant keyboard focus to this flyout, working around Qt's
         parent-chain focus redirection.
@@ -280,7 +313,11 @@ class _FlyoutLifecycleApi:
         logger.debug(
             "[flyout-nav] _grab_focus parent chain: %s", " → ".join(chain)
         )
-        target = self._first_focusable(self)
+        # _nearest_focus=True → pick nearest to anchor instead of always first (leftmost)
+        if getattr(self, "_nearest_focus", False):
+            target = self._nearest_focusable(self)
+        else:
+            target = self._first_focusable(self)
         # If the trigger had keyboard focus (arrow/Tab navigation), grant
         # the first child an OtherFocusReason so the focus ring is drawn
         # inside the flyout.  Mouse-opened flyouts keep MouseFocusReason
@@ -344,7 +381,7 @@ class _FlyoutLifecycleApi:
                     return child
         return None
 
-    def focus_first_child(self) -> bool:
+    def focus_first_child(self, ref_x: float | None = None) -> bool:
         """Move keyboard focus to this flyout's first focusable control.
 
         Public counterpart to :meth:`_grab_focus` for callers that want to
@@ -353,16 +390,30 @@ class _FlyoutLifecycleApi:
         :func:`~sli_ui_toolkit.managers.NavigationManager.extension_below`)
         without going through the full show()/register/weaken-ancestors
         flow. Returns ``False`` if the flyout has no focusable content.
+
+        With ``_nearest_focus=True`` the nearest to ref_x/anchor is chosen
+        instead of always leftmost (fixes "always leftmost" bug).
         """
-        target = self._first_focusable(self)
+        if getattr(self, "_nearest_focus", False):
+            target = self._nearest_focusable(self, ref_x)
+        else:
+            target = self._first_focusable(self)
         if target is None:
             return False
         target.setFocus(Qt.FocusReason.OtherFocusReason)
         return True
 
-    def focus_last_child(self) -> bool:
-        """Same as :meth:`focus_first_child`, landing on the last control."""
-        target = self._first_focusable(self, reverse=True)
+    def focus_last_child(self, ref_x: float | None = None) -> bool:
+        """Same as :meth:`focus_first_child`, landing on the last control.
+
+        Respects _nearest_focus as well — for horizontal flyouts nearest is
+        more intuitive than rightmost.
+        """
+        if getattr(self, "_nearest_focus", False):
+            # For nearest mode, last is also nearest (Up/Down both land near anchor)
+            target = self._nearest_focusable(self, ref_x)
+        else:
+            target = self._first_focusable(self, reverse=True)
         if target is None:
             return False
         target.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -650,10 +701,17 @@ class _FlyoutNavigationSection:
         return event.isAccepted()
 
     def focus_first(self, ref_x: float | None = None) -> bool:
-        return self._flyout.focus_first_child()
+        # Pass ref_x so nearest_focus flyouts can pick closest to anchor, not leftmost
+        try:
+            return self._flyout.focus_first_child(ref_x)  # type: ignore[call-arg]
+        except TypeError:
+            return self._flyout.focus_first_child()
 
     def focus_last(self, ref_x: float | None = None) -> bool:
-        return self._flyout.focus_last_child()
+        try:
+            return self._flyout.focus_last_child(ref_x)  # type: ignore[call-arg]
+        except TypeError:
+            return self._flyout.focus_last_child()
 
     @property
     def extra_keys(self) -> frozenset[int]:

@@ -331,6 +331,19 @@ class BaseFlyout(
             # For PanelVisibility (toggle, single horizontal row) Up from *any*
             # button should return to anchor (otherwise only leftmost can leave,
             # bug seen as "only rightmost index can leave").
+            # _nav_exit="down"/"up"/"any"/True — декларативный выход из любого места,
+            # а не только с края (напр. MagnifierColorOptions side="above" → Down из любого).
+            nav_exit = getattr(self, "_nav_exit", None) or getattr(self, "_nav_exit_any", None)
+            if nav_exit:
+                want_up = nav_exit in (True, "any", "both", "up", "up_any", "any_up")
+                want_down = nav_exit in (True, "any", "both", "down", "down_any", "any_down")
+                if (want_up and key == Qt.Key.Key_Up) or (want_down and key == Qt.Key.Key_Down):
+                    from sli_ui_toolkit.managers import NavigationManager
+
+                    owner = NavigationManager.get_instance().extension_owner(self)
+                    if owner is not None:
+                        owner.setFocus(Qt.FocusReason.OtherFocusReason)
+                        return True
             is_toggle = getattr(self, "flyout_group", None) == "toggle"
             if is_toggle and key == Qt.Key.Key_Up:
                 from sli_ui_toolkit.managers import NavigationManager
