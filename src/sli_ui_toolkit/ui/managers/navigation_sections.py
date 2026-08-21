@@ -607,6 +607,15 @@ class AutoNavigationSection(ToolbarRowsSection):
                 target.setFocus(reason)
                 _ensure_visible(target)
                 return True
+            # For help-sidebar (search+list column), Up at top should go to HelpBackBar
+            # For help-content (side-by-side), Up at top should stay (Left/Right switches columns)
+            _tag_val = getattr(self, '_tag', '')
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('[nav-auto] Up at top tag=%s row_idx=%s/%s', _tag_val, row_idx, len(rows))
+            if _tag_val == 'help-sidebar':
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug('[nav-auto] at top row_idx=%s/%s key=Up — yield to previous section (help-sidebar)', row_idx, len(rows))
+                return False
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug('[nav-auto] at top row_idx=%s/%s key=Up — nowhere to scroll up (consumed)', row_idx, len(rows))
             return True
@@ -639,6 +648,17 @@ class AutoNavigationSection(ToolbarRowsSection):
                 except TypeError:
                     try:
                         if self._on_exit_left():
+                            return True
+                    except TypeError:
+                        return True
+                return True
+            if key == Qt.Key.Key_Right and getattr(self, "_on_exit_right", None) is not None:
+                try:
+                    if self._on_exit_right(reason=reason):
+                        return True
+                except TypeError:
+                    try:
+                        if self._on_exit_right():
                             return True
                     except TypeError:
                         return True
