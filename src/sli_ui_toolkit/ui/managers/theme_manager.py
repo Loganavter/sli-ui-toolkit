@@ -13,6 +13,38 @@ from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
 theme_logger = logging.getLogger("ThemeManager")
 
+# Alias table for theme token de-duplication (plan_theme_token_unification.md Phase 4).
+# Canonical surface.* → many whites/grays previously duplicated across 20 keys.
+# Keep old keys working for one breaking window via indirection, so themes.json can drop them.
+_THEME_ALIASES: dict[str, str] = {
+    # #ffffff cluster → surface.background
+    "Window": "surface.background",
+    "Base": "surface.background",
+    "ToolTipBase": "surface.background",
+    "HighlightedText": "surface.background",
+    "button.dialog.default.background": "surface.background",
+    "button.primary.background": "surface.background",
+    "flyout.background": "surface.background",
+    "dialog.background": "surface.background",
+    "dialog.input.background": "surface.background",
+    "label.image.background": "surface.background",
+    "help.nav.selected.text": "surface.background",
+    "toast.background": "surface.background",
+    "slider.thumb.outer": "surface.background",
+    "switch.knob.on": "surface.background",
+    "tooltip.background": "surface.background",
+    "color_dialog.input.background": "surface.background",
+    # #f0f0f0 cluster → surface.list
+    "help.nav.background": "surface.list",
+    "button.toggle.background.normal": "surface.list",
+    "color_dialog.background": "surface.list",
+    "list_item.text.normal": "surface.list",
+    # #e1e1e1 cluster → surface.button
+    "AlternateBase": "surface.button",
+    "Button": "surface.button",
+    "dialog.button.background": "surface.button",
+}
+
 
 _QSS_PX_LITERAL = re.compile(r"(-?\d+(?:\.\d+)?)px")
 
