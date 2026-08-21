@@ -97,6 +97,8 @@ class IconListWidget(QWidget):
         # shift sideways when the list starts/stops scrolling.
         self._scroll = OverlayScrollArea(self)
         self._scroll.set_reserve_scrollbar_space(False)
+        self._scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._scroll.viewport().setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self._host = QWidget()
         self._host_layout = QVBoxLayout(self._host)

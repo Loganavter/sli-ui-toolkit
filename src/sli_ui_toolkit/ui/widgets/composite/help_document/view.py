@@ -261,6 +261,59 @@ class _LinkLabel(Label):
         self._href = href
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._keyboard_focus = False
+        self._focus_ring_width = 2
+
+    def focusInEvent(self, event) -> None:  # noqa: N802
+        reason = event.reason() if hasattr(event, "reason") else Qt.FocusReason.OtherFocusReason
+        is_kbd = reason not in (Qt.FocusReason.MouseFocusReason, Qt.FocusReason.MenuBarFocusReason)
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+
+            if not is_kbd and NavigationManager.get_instance().last_input_was_keyboard():
+                is_kbd = True
+        except Exception:
+            pass
+        self._keyboard_focus = bool(is_kbd)
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        self._keyboard_focus = False
+        super().focusOutEvent(event)
+        self.update()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit(self._href)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        if getattr(self, "_keyboard_focus", False) and self.hasFocus():
+            from PySide6.QtGui import QColor, QPen, QPainter
+
+            try:
+                from sli_ui_toolkit.theme import ThemeManager
+
+                c = ThemeManager.get_instance().get_color("accent")
+                if not isinstance(c, QColor):
+                    c = QColor(c) if c is not None else QColor("#3b82f6")
+            except Exception:
+                c = QColor("#3b82f6")
+            try:
+                c.setAlpha(220)
+            except Exception:
+                pass
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(QPen(c, 1.5))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(self.rect().adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+            p.end()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
