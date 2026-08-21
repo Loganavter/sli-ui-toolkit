@@ -175,6 +175,7 @@ class BaseFlyout(
         # Фокус-кольцо — библиотечный токен + масштаб (как у Button FocusLayer)
         from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px as _sp
 
+        self._focus_ring_base_width = 2
         self._focus_ring_width = _sp(2)
         self._focus_ring_color = None  # lazy resolve via ThemeManager
         self._keyboard_focus = False
@@ -184,7 +185,20 @@ class BaseFlyout(
     def _on_scale_for_focus_ring(self, _factor: float | None = None) -> None:
         from sli_ui_toolkit.ui.managers.ui_scale import scaled_px as _sp
 
-        self._focus_ring_width = _sp(2)
+        base = getattr(self, "_focus_ring_base_width", 2)
+        self._focus_ring_width = _sp(int(base))
+        self.update()
+
+    def set_focus_ring_width(self, width: int) -> None:
+        """Задать толщину кольца фокуса (дизайн-px, масштабируется UiScale)."""
+        self._focus_ring_base_width = int(width)
+        from sli_ui_toolkit.ui.managers.ui_scale import scaled_px as _sp
+
+        self._focus_ring_width = _sp(int(width))
+        self.update()
+
+    def set_focus_ring_color(self, color) -> None:
+        self._focus_ring_color = color
         self.update()
 
     def focusInEvent(self, event) -> None:  # noqa: N802
@@ -212,18 +226,46 @@ class BaseFlyout(
         if getattr(self, "_keyboard_focus", False) and self.hasFocus():
             from PySide6.QtGui import QColor, QPen, QPainter
 
-            try:
-                c = ThemeManager.get_instance().get_color("focus.ring")  # type: ignore
-                if not isinstance(c, QColor):
-                    c = QColor(c) if c is not None else QColor("#3b82f6")
-            except Exception:
-                c = QColor("#3b82f6")
-            w = int(getattr(self, "_focus_ring_width", 2))
+            _override = getattr(self, "_focus_ring_color", None)
+            if _override is not None:
+                try:
+                    c = QColor(_override) if not isinstance(_override, QColor) else _override
+                except Exception:
+                    c = QColor("#3b82f6")
+            else:
+                # Sverь с Button FocusLayer — accent с alpha 220
+                try:
+                    c = ThemeManager.get_instance().get_color("accent")  # type: ignore
+                    if not isinstance(c, QColor):
+                        c = QColor(c) if c is not None else QColor("#3b82f6")
+                except Exception:
+                    c = QColor("#3b82f6")
+                try:
+                    c.setAlpha(220)
+                except Exception:
+                    pass
+            from sli_ui_toolkit.ui.managers.ui_scale import UiScale as _US
+
+            factor = _US.get_instance().factor()
+            thickness = max(1.0, 2.0 * factor)
+            # Пользовательский width переопределяет factor-масштаб, если задан
+            if getattr(self, "_focus_ring_base_width", 2) != 2:
+                w = int(getattr(self, "_focus_ring_width", 2))
+                thickness = float(w)
+            w = thickness
             p = QPainter(self)
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setPen(QPen(c, w))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(self.rect().adjusted(w // 2, w // 2, -w // 2, -w // 2), self.CONTENT_RADIUS, self.CONTENT_RADIUS)
+            # Кольцо по капсуле (container), а не по тени — для _ScrollValueFlyout 46x47 это пилюля
+            try:
+                geom = self.container.geometry()
+                # radius как у Button FocusLayer: design_radius = corner_radius / factor
+                r_design = float(self.CONTENT_RADIUS) / factor if factor > 0 else float(self.CONTENT_RADIUS)
+                # scaled radius уже в geom, но path.addRoundedRect ждёт design_radius
+                p.drawRoundedRect(geom.adjusted(w * 0.5, w * 0.5, -w * 0.5, -w * 0.5), r_design, r_design)
+            except Exception:
+                p.drawRoundedRect(self.rect().adjusted(w * 0.5, w * 0.5, -w * 0.5, -w * 0.5), self.CONTENT_RADIUS, self.CONTENT_RADIUS)
             p.end()
 
     def keyPressEvent(self, event):
