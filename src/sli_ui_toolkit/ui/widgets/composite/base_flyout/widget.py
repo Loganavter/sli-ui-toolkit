@@ -172,6 +172,59 @@ class BaseFlyout(
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._focus_guard_installed = False
+        # Фокус-кольцо — библиотечный токен + масштаб (как у Button FocusLayer)
+        from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px as _sp
+
+        self._focus_ring_width = _sp(2)
+        self._focus_ring_color = None  # lazy resolve via ThemeManager
+        self._keyboard_focus = False
+        self._last_focus_reason: Qt.FocusReason | None = None
+        UiScale.get_instance().scale_changed.connect(self._on_scale_for_focus_ring)
+
+    def _on_scale_for_focus_ring(self, _factor: float | None = None) -> None:
+        from sli_ui_toolkit.ui.managers.ui_scale import scaled_px as _sp
+
+        self._focus_ring_width = _sp(2)
+        self.update()
+
+    def focusInEvent(self, event) -> None:  # noqa: N802
+        reason = event.reason() if hasattr(event, "reason") else Qt.FocusReason.OtherFocusReason
+        is_kbd = reason not in (Qt.FocusReason.MouseFocusReason, Qt.FocusReason.MenuBarFocusReason)
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+
+            if not is_kbd and NavigationManager.get_instance().last_input_was_keyboard():
+                is_kbd = True
+        except Exception:
+            pass
+        self._keyboard_focus = bool(is_kbd)
+        self._last_focus_reason = reason
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        self._keyboard_focus = False
+        super().focusOutEvent(event)
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        if getattr(self, "_keyboard_focus", False) and self.hasFocus():
+            from PySide6.QtGui import QColor, QPen, QPainter
+
+            try:
+                c = ThemeManager.get_instance().get_color("focus.ring")  # type: ignore
+                if not isinstance(c, QColor):
+                    c = QColor(c) if c is not None else QColor("#3b82f6")
+            except Exception:
+                c = QColor("#3b82f6")
+            w = int(getattr(self, "_focus_ring_width", 2))
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(QPen(c, w))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(self.rect().adjusted(w // 2, w // 2, -w // 2, -w // 2), self.CONTENT_RADIUS, self.CONTENT_RADIUS)
+            p.end()
 
     def keyPressEvent(self, event):
         key = event.key()
