@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 import unicodedata
 from collections.abc import Callable
@@ -9,6 +11,18 @@ from collections.abc import Callable
 from PySide6.QtCore import QPoint, QPointF, Qt, QSize, Signal
 from PySide6.QtGui import QGuiApplication, QKeySequence, QMouseEvent, QPaintEvent, QPainter
 from PySide6.QtWidgets import QSizePolicy, QWidget
+
+logger = logging.getLogger(__name__)
+if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+):
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.DEBUG)
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
@@ -290,6 +304,16 @@ class HelpDocumentBodyCanvas(QWidget):
         self.unsetCursor()
         super().leaveEvent(event)
 
+    def _find_scroll_area(self):
+        from PySide6.QtWidgets import QScrollArea
+
+        w = self.parentWidget()
+        while w is not None:
+            if isinstance(w, QScrollArea):
+                return w
+            w = w.parentWidget()
+        return None
+
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.matches(QKeySequence.StandardKey.SelectAll):
             self.select_all_text()
@@ -301,6 +325,75 @@ class HelpDocumentBodyCanvas(QWidget):
                 QGuiApplication.clipboard().setText(text)
             event.accept()
             return
+        # In text sections (single-row AutoNavigation) Up/Down should scroll
+        # through the document, not jump to another row. Accept the key so
+        # NavigationManager's trial-dispatch sees it as handled and keeps focus
+        # on the canvas while we scroll the parent QScrollArea.
+        key = event.key()
+        if key in (
+            Qt.Key.Key_Up,
+            Qt.Key.Key_Down,
+            Qt.Key.Key_PageUp,
+            Qt.Key.Key_PageDown,
+            Qt.Key.Key_Home,
+            Qt.Key.Key_End,
+        ):
+            area = self._find_scroll_area()
+            if area is not None:
+                bar = area.verticalScrollBar()
+                if bar is not None:
+                    before = bar.value()
+                    at_top = before == bar.minimum()
+                    at_bottom = before == bar.maximum()
+                    # Library-level scroll handling for text sections — debug when nowhere to scroll
+                    if logger.isEnabledFor(logging.DEBUG):
+                        if (key == Qt.Key.Key_Up and at_top) or (
+                            key == Qt.Key.Key_PageUp and at_top
+                        ) or (key == Qt.Key.Key_Home and at_top):
+                            logger.debug(
+                                "[nav-help-text] %s at top (value=%s min=%s) — nowhere to scroll up",
+                                key,
+                                before,
+                                bar.minimum(),
+                            )
+                        if (key == Qt.Key.Key_Down and at_bottom) or (
+                            key == Qt.Key.Key_PageDown and at_bottom
+                        ) or (key == Qt.Key.Key_End and at_bottom):
+                            logger.debug(
+                                "[nav-help-text] %s at bottom (value=%s max=%s) — nowhere to scroll down",
+                                key,
+                                before,
+                                bar.maximum(),
+                            )
+                    if key == Qt.Key.Key_Up:
+                        bar.setValue(bar.value() - 40)
+                    elif key == Qt.Key.Key_Down:
+                        bar.setValue(bar.value() + 40)
+                    elif key == Qt.Key.Key_PageUp:
+                        bar.setValue(bar.value() - bar.pageStep())
+                    elif key == Qt.Key.Key_PageDown:
+                        bar.setValue(bar.value() + bar.pageStep())
+                    elif key == Qt.Key.Key_Home:
+                        bar.setValue(bar.minimum())
+                    elif key == Qt.Key.Key_End:
+                        bar.setValue(bar.maximum())
+                    # Even when at the edge and value doesn't change we still
+                    # accept so NavigationManager doesn't try to move focus to
+                    # another row — text scroll is the intended action for this
+                    # single-row AutoNavigation section.
+                    if logger.isEnabledFor(logging.DEBUG) and bar.value() == before and key in (
+                        Qt.Key.Key_Up,
+                        Qt.Key.Key_Down,
+                        Qt.Key.Key_PageUp,
+                        Qt.Key.Key_PageDown,
+                    ):
+                        logger.debug(
+                            "[nav-help-text] scroll blocked at edge key=%s value=%s",
+                            key,
+                            before,
+                        )
+                    event.accept()
+                    return
         super().keyPressEvent(event)
 
     def _emit_context_menu(self, pos: QPoint) -> None:

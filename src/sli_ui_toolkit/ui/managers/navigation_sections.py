@@ -52,6 +52,27 @@ def _focus_reason() -> Qt.FocusReason:
 # app's --debug is on, drowning out other subsystems' debug output. Gated
 # on its own opt-in flag, off by default even under --debug -- same
 # convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
+def _ensure_visible(widget: QWidget) -> None:
+    """Make *widget* visible inside its parent QScrollArea, if any.
+
+    Used for help/settings navigation: when the newly focused button is
+    below the viewport (tall hub, filtered sidebar, long settings page),
+    the scroll area should follow focus — same as Qt's default
+    ensureWidgetVisible on focus, but explicit here so AutoNavigation's
+    container-focused bootstrap and programmatic focus_first also scroll.
+    """
+    try:
+        from PySide6.QtWidgets import QScrollArea
+
+        area: QWidget | None = widget.parentWidget()
+        while area is not None and not isinstance(area, QScrollArea):
+            area = area.parentWidget()
+        if isinstance(area, QScrollArea):
+            area.ensureWidgetVisible(widget, 0, 40)
+    except Exception:
+        pass
+
+
 logger = logging.getLogger(__name__)
 if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
     "",
@@ -141,6 +162,7 @@ class ToolbarRowsSection:
         if not items:
             return False
         items[0].setFocus(reason)
+        _ensure_visible(items[0])
         return True
 
     def _focus_near_in(self, row: QWidget, reference: QWidget, reason: Qt.FocusReason) -> bool:
@@ -196,6 +218,8 @@ class ToolbarRowsSection:
                         return True
             if idx < len(rows) - 1:
                 return self._focus_near_in(rows[idx + 1], widget, reason)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('[nav-%s] at bottom idx=%d/%d key=Down — nowhere to scroll down', self._tag, idx, len(rows))
             # Last row — yield (e.g. canvas/no further row below).
             return False
         if key == Qt.Key.Key_Up:
@@ -210,6 +234,8 @@ class ToolbarRowsSection:
                     return True
             if idx > 0:
                 return self._focus_near_in(rows[idx - 1], widget, reason)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('[nav-%s] at top idx=%d/%d key=Up — nowhere to scroll up', self._tag, idx, len(rows))
             # First row — yield so NavigationManager can hand off upward
             # (title bar / tab strip).
             return False
@@ -240,6 +266,7 @@ class ToolbarRowsSection:
             target = cur + step
             if 0 <= target < len(items):
                 items[target].setFocus(reason)
+                _ensure_visible(items[target])
                 return True
             if key == Qt.Key.Key_Left and self._on_exit_left is not None:
                 try:
@@ -284,6 +311,7 @@ class ToolbarRowsSection:
             key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x),
         )
         target.setFocus(reason)
+        _ensure_visible(target)
         return True
 
     def focus_nearest(self, pos, *, reason: Qt.FocusReason) -> bool:
@@ -354,7 +382,9 @@ class IconListNavSection:
                 return self.focus_first(reason=_reason)
             if idx < self._list.count() - 1:
                 return self._focus_visible(idx + 1, _reason)
-            return False
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('[nav-iconlist] at bottom idx=%s count=%s key=Down — nowhere to scroll down (consumed)', idx, self._list.count())
+            return True
         if key == Qt.Key.Key_Up:
             if idx is None:
                 return False
@@ -362,6 +392,8 @@ class IconListNavSection:
                 from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
                 _reason = _nav_focus_reason()
                 return self._focus_visible(idx - 1, _reason)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('[nav-iconlist] at top idx=%s count=%s key=Up — nowhere to scroll up', idx, self._list.count())
             return False
         if key == Qt.Key.Key_Right:
             # Поддержка side="right" флайаутов (Up→above, Down→below уже в ToolbarRowsSection)
@@ -390,6 +422,7 @@ class IconListNavSection:
         if btn is None:
             return False
         btn.setFocus(reason)
+        _ensure_visible(btn)
         return True
 
     def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
@@ -400,6 +433,7 @@ class IconListNavSection:
         btn = self._list.current_row_button()
         if btn is not None:
             btn.setFocus(reason)
+            _ensure_visible(btn)
             return True
         return self._focus_visible(0, reason)
 
@@ -554,8 +588,11 @@ class AutoNavigationSection(ToolbarRowsSection):
                 target_row = rows[row_idx + 1]
                 target = min(target_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
                 target.setFocus(reason)
+                _ensure_visible(target)
                 return True
-            return False
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('[nav-auto] at bottom row_idx=%s/%s key=Down — nowhere to scroll down (consumed)', row_idx, len(rows))
+            return True
         if key == Qt.Key.Key_Up:
             from sli_ui_toolkit.managers import NavigationManager as _NMUp
             _ext_up = _NMUp.get_instance().extension_below(widget)
@@ -568,8 +605,11 @@ class AutoNavigationSection(ToolbarRowsSection):
                 target_row = rows[row_idx - 1]
                 target = min(target_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
                 target.setFocus(reason)
+                _ensure_visible(target)
                 return True
-            return False
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug('[nav-auto] at top row_idx=%s/%s key=Up — nowhere to scroll up (consumed)', row_idx, len(rows))
+            return True
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             from sli_ui_toolkit.managers import NavigationManager as _NMLR
             _ext_lr = _NMLR.get_instance().extension_below(widget)
@@ -590,6 +630,7 @@ class AutoNavigationSection(ToolbarRowsSection):
             nxt = cur + step
             if 0 <= nxt < len(row_sorted):
                 row_sorted[nxt].setFocus(reason)
+                _ensure_visible(row_sorted[nxt])
                 return True
             if key == Qt.Key.Key_Left and getattr(self, "_on_exit_left", None) is not None:
                 try:
@@ -619,6 +660,7 @@ class AutoNavigationSection(ToolbarRowsSection):
         else:
             target = sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[0]
         target.setFocus(reason)
+        _ensure_visible(target)
         return True
 
     def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
@@ -635,6 +677,7 @@ class AutoNavigationSection(ToolbarRowsSection):
         else:
             target = sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[-1]
         target.setFocus(reason)
+        _ensure_visible(target)
         return True
 
 
