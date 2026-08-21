@@ -502,6 +502,26 @@ class AutoNavigationSection(ToolbarRowsSection):
         return None
 
     def navigate(self, key: int, widget: QWidget) -> bool:  # type: ignore[override]
+        # Container itself focused (no button yet) — first arrow should land on first row
+        if widget is self._owner:
+            from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+
+            if key in (Qt.Key.Key_Down, Qt.Key.Key_Right):
+                return self.focus_first(reason=_nav_focus_reason())
+            if key == Qt.Key.Key_Up:
+                return self.focus_last(reason=_nav_focus_reason())
+            if key == Qt.Key.Key_Left and getattr(self, "_on_exit_left", None) is not None:
+                try:
+                    if self._on_exit_left(reason=_nav_focus_reason()):
+                        return True
+                except TypeError:
+                    try:
+                        if self._on_exit_left():
+                            return True
+                    except TypeError:
+                        return True
+                return True
+            return False
         # Используем кластеризованные ряды напрямую
         rows = getattr(self, "_cached_rows_widgets", [])
         if not rows:
