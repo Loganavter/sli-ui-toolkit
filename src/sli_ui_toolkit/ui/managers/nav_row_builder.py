@@ -74,7 +74,7 @@ class NavRowBuilder:
         """Append already-built row widgets, preserving their order."""
         self._rows.extend(rows)
 
-    def build(self, *, on_exit_left: Callable[[], bool] | None = None) -> ToolbarRowsSection:
+    def build(self, *, on_exit_left: Callable[..., bool] | None = None) -> ToolbarRowsSection:
         """Return a ``ToolbarRowsSection`` over the rows accumulated so far.
 
         Snapshots the current row list at call time — later ``row()``/

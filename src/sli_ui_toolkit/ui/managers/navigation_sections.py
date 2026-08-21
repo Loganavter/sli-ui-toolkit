@@ -95,7 +95,7 @@ class ToolbarRowsSection:
         rows_provider: Callable[[], list[QWidget | None]],
         *,
         tag: str = "toolbar-rows",
-        on_exit_left: Callable[[], bool] | None = None,
+        on_exit_left: Callable[..., bool] | None = None,
     ) -> None:
         self._rows_provider = rows_provider
         self._tag = tag
@@ -243,10 +243,13 @@ class ToolbarRowsSection:
                 return True
             if key == Qt.Key.Key_Left and self._on_exit_left is not None:
                 try:
-                    if self._on_exit_left(reason):  # 4.0: reason required
+                    if self._on_exit_left(reason=reason):
                         return True
                 except TypeError:
-                    if self._on_exit_left():
+                    try:
+                        if self._on_exit_left():
+                            return True
+                    except TypeError:
                         return True
                 return True
             # Row edge (no handoff, or none configured/declined): consume
@@ -330,7 +333,7 @@ class IconListNavSection:
         self,
         list_widget: "IconListWidget",
         *,
-        on_exit_right: Callable[[], bool] | None = None,
+        on_exit_right: Callable[..., bool] | None = None,
     ) -> None:
         self._list = list_widget
         self._on_exit_right = on_exit_right
@@ -506,7 +509,12 @@ class AutoNavigationSection(ToolbarRowsSection):
             rows = getattr(self, "_cached_rows_widgets", [])
         row_idx = self._row_of(widget)
         if row_idx is None:
-            return False
+            # Cache may be stale after dynamic content change (e.g. Help hub cards rebuilt)
+            self._auto_rows()
+            rows = getattr(self, "_cached_rows_widgets", [])
+            row_idx = self._row_of(widget)
+            if row_idx is None:
+                return False
         from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
         reason = _nav_focus_reason()
         # Trial first
@@ -563,33 +571,47 @@ class AutoNavigationSection(ToolbarRowsSection):
             if 0 <= nxt < len(row_sorted):
                 row_sorted[nxt].setFocus(reason)
                 return True
+            if key == Qt.Key.Key_Left and getattr(self, "_on_exit_left", None) is not None:
+                try:
+                    if self._on_exit_left(reason=reason):
+                        return True
+                except TypeError:
+                    try:
+                        if self._on_exit_left():
+                            return True
+                    except TypeError:
+                        return True
+                return True
             return True  # consume at edge
 
     def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
+        # Always rescan for dynamic containers (e.g. Help hub rebuilds cards)
+        self._auto_rows()
         rows = getattr(self, "_cached_rows_widgets", [])
-        if not rows:
-            self._auto_rows()
-            rows = getattr(self, "_cached_rows_widgets", [])
         if not rows:
             return False
         first_row = rows[0]
         if ref_x is not None:
-            target = min(first_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+            try:
+                target = min(first_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+            except Exception:
+                target = sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[0]
         else:
             target = sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[0]
         target.setFocus(reason)
         return True
 
     def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
+        self._auto_rows()
         rows = getattr(self, "_cached_rows_widgets", [])
-        if not rows:
-            self._auto_rows()
-            rows = getattr(self, "_cached_rows_widgets", [])
         if not rows:
             return False
         last_row = rows[-1]
         if ref_x is not None:
-            target = min(last_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+            try:
+                target = min(last_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+            except Exception:
+                target = sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[-1]
         else:
             target = sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[-1]
         target.setFocus(reason)
