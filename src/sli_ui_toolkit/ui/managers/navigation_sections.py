@@ -408,4 +408,192 @@ class IconListNavSection:
         return frozenset({Qt.Key.Key_Right})
 
 
-__all__ = ["IconListNavSection", "ToolbarRowsSection"]
+class AutoNavigationSection(ToolbarRowsSection):
+    """Zero-config navigation for any container — no manual rows.
+
+    Находит все StrongFocus листы внутри owner, кластеризует по y в ряды,
+    внутри ряда сортирует по x. Up/Down ходят между рядами, Left/Right внутри
+    ряда, Up/Down с side="above/below" — во флайаут. Заменяет
+    calendar_manager / checkbox_manager и т.д. — один класс вместо 100.
+
+    Использование::
+
+        from sli_ui_toolkit.managers import auto_navigation
+        auto_navigation(calendar_widget)  # Up→сверху, Left→слева без 40 строк
+
+    Или декларативно через WidgetDescriptor: owner.widget_descriptor = WidgetDescriptor(navigation=AutoNavigationSection(owner))
+    """
+
+    def __init__(self, owner: QWidget, *, tag: str = "auto", on_exit_left=None):
+        self._owner = owner
+        # rows_provider — авто-скан, tag для логов
+        super().__init__(rows_provider=self._auto_rows, tag=tag, on_exit_left=on_exit_left)
+
+    def _auto_rows(self) -> list[QWidget]:
+        # Все StrongFocus листы, сгруппированные по y
+        try:
+            candidates = [
+                w for w in self._owner.findChildren(QWidget)
+                if w.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                and w.isVisible() and w.isEnabled()
+                and w is not self._owner
+            ]
+        except Exception:
+            return []
+        if not candidates:
+            return []
+        # Сортируем по y, затем кластеризуем
+        candidates.sort(key=lambda w: w.mapToGlobal(w.rect().center()).y())
+        rows: list[list[QWidget]] = []
+        cur_row: list[QWidget] = []
+        cur_y: float | None = None
+        for w in candidates:
+            try:
+                y = w.mapToGlobal(w.rect().center()).y()
+                h = max(1, w.height())
+            except Exception:
+                continue
+            if cur_y is None or abs(y - cur_y) <= h * 0.6:  # один ряд
+                cur_row.append(w)
+                cur_y = y if cur_y is None else (cur_y * (len(cur_row)-1) + y) / len(cur_row)
+            else:
+                # новый ряд — сортируем предыдущий по x
+                rows.append(cur_row)
+                cur_row = [w]
+                cur_y = y
+        if cur_row:
+            rows.append(cur_row)
+        # Каждый ряд — виртуальный контейнер: создаём прокси-виджет или возвращаем первый элемент ряда как anchor?
+        # ToolbarRowsSection ожидает QWidget-ряд, где findChildren найдёт фокусабельные. Проще вернуть owner для каждого ряда?
+        # Но ToolbarRowsSection._focusable ищет внутри row. Поэтому для авто-режима храним списки напрямую.
+        # Переопределяем owns/_focusable/_rows чтобы работать без QWidget-рядов.
+        # Вместо этого храним rows как списки и переопределяем методы ниже.
+        self._cached_rows_widgets: list[list[QWidget]] = rows
+        # Возвращаем owner как dummy, но реальные методы переопределены — не используется
+        # Чтобы не ломать базовый _rows, вернём список dummy-виджетов по одному на ряд
+        return [self._owner] * len(rows)
+
+    # Переопределяем всё что использует rows как QWidget
+    def _rows(self) -> list[QWidget]:  # type: ignore[override]
+        # Возвращаем индексы рядов как псевдо-ряды
+        if not hasattr(self, "_cached_rows_widgets"):
+            self._auto_rows()
+        return [self._owner] * len(getattr(self, "_cached_rows_widgets", []))
+
+    def owns(self, widget: QWidget) -> bool:  # type: ignore[override]
+        for row in getattr(self, "_cached_rows_widgets", []):
+            if widget in row:
+                return True
+        # fallback: owner ancestor
+        return self._owner.isAncestorOf(widget) or widget is self._owner
+
+    @staticmethod
+    def _focusable(row: QWidget) -> list[QWidget]:  # type: ignore[override]
+        # Not used — overridden instance
+        return []
+
+    def _row_of(self, widget: QWidget):  # type: ignore[override]
+        for idx, row in enumerate(getattr(self, "_cached_rows_widgets", [])):
+            if widget in row:
+                return idx
+        return None
+
+    def navigate(self, key: int, widget: QWidget) -> bool:  # type: ignore[override]
+        # Используем кластеризованные ряды напрямую
+        rows = getattr(self, "_cached_rows_widgets", [])
+        if not rows:
+            self._auto_rows()
+            rows = getattr(self, "_cached_rows_widgets", [])
+        row_idx = self._row_of(widget)
+        if row_idx is None:
+            return False
+        from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+        reason = _nav_focus_reason()
+        # Trial first
+        if key in (Qt.Key.Key_Down, Qt.Key.Key_Up) and self._widget_handles(key, widget):
+            return True
+        if key == Qt.Key.Key_Down:
+            from sli_ui_toolkit.managers import NavigationManager
+            ext = NavigationManager.get_instance().extension_below(widget)
+            if ext is not None and hasattr(ext, "focus_first_child"):
+                side = NavigationManager.get_instance().flyout_side(ext)
+                if side is None or side == "below":
+                    if ext.focus_first_child():
+                        return True
+            if row_idx < len(rows) - 1:
+                # nearest x
+                ref_x = widget.mapToGlobal(widget.rect().center()).x()
+                target_row = rows[row_idx + 1]
+                target = min(target_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+                target.setFocus(reason)
+                return True
+            return False
+        if key == Qt.Key.Key_Up:
+            from sli_ui_toolkit.managers import NavigationManager as _NMUp
+            _ext_up = _NMUp.get_instance().extension_below(widget)
+            if _ext_up is not None and hasattr(_ext_up, "focus_first_child"):
+                side = _NMUp.get_instance().flyout_side(_ext_up)
+                if side == "above" and _ext_up.focus_first_child():
+                    return True
+            if row_idx > 0:
+                ref_x = widget.mapToGlobal(widget.rect().center()).x()
+                target_row = rows[row_idx - 1]
+                target = min(target_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+                target.setFocus(reason)
+                return True
+            return False
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            from sli_ui_toolkit.managers import NavigationManager as _NMLR
+            _ext_lr = _NMLR.get_instance().extension_below(widget)
+            if _ext_lr is not None and hasattr(_ext_lr, "focus_first_child"):
+                _side_lr = _NMLR.get_instance().flyout_side(_ext_lr)
+                if (key == Qt.Key.Key_Left and _side_lr == "left") or (key == Qt.Key.Key_Right and _side_lr == "right"):
+                    if _ext_lr.focus_first_child():
+                        return True
+            if self._widget_handles(key, widget):
+                return True
+            row = rows[row_idx]
+            # row already sorted by x (from clustering)
+            row_sorted = sorted(row, key=lambda w: w.mapToGlobal(w.rect().center()).x())
+            if widget not in row_sorted:
+                return False
+            cur = row_sorted.index(widget)
+            step = 1 if key == Qt.Key.Key_Right else -1
+            nxt = cur + step
+            if 0 <= nxt < len(row_sorted):
+                row_sorted[nxt].setFocus(reason)
+                return True
+            return True  # consume at edge
+
+    def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
+        rows = getattr(self, "_cached_rows_widgets", [])
+        if not rows:
+            self._auto_rows()
+            rows = getattr(self, "_cached_rows_widgets", [])
+        if not rows:
+            return False
+        first_row = rows[0]
+        if ref_x is not None:
+            target = min(first_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+        else:
+            target = sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[0]
+        target.setFocus(reason)
+        return True
+
+    def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
+        rows = getattr(self, "_cached_rows_widgets", [])
+        if not rows:
+            self._auto_rows()
+            rows = getattr(self, "_cached_rows_widgets", [])
+        if not rows:
+            return False
+        last_row = rows[-1]
+        if ref_x is not None:
+            target = min(last_row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - ref_x))
+        else:
+            target = sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x())[-1]
+        target.setFocus(reason)
+        return True
+
+
+__all__ = ["AutoNavigationSection", "IconListNavSection", "ToolbarRowsSection"]

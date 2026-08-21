@@ -903,3 +903,77 @@ def bind_flyout(
         pass
 
 
+def bind_auto_preview(
+    anchor: QWidget,
+    flyout: QWidget,
+    *,
+    side: str = "below",
+) -> None:
+    """Один вызов вместо 5× show_aligned + enter/leave/focus/Enter/Esc.
+
+    Заменяет ~90 строк в каждом ColorSettingsButton-подобном якоре:
+    ``enterEvent/leaveEvent/focusIn/mousePress/keyPress/focusOut`` +
+    ``update_state/has_visible_actions`` гарды + ``schedule/cancel_auto_hide``.
+
+    Делает ``bind_flyout(anchor, flyout, side)`` + ставит ``_AutoPreviewController``
+    (eventFilter на якоре) который автоматом показывает preview без кражи фокуса,
+    по Enter/клику — interactive с ``_nearest_focus``/``_nav_exit``.
+
+    Breaking: старый ручной wiring можно удалить целиком.
+    """
+    try:
+        from sli_ui_toolkit.ui.managers.auto_preview import bind_auto_preview as _bind  # type: ignore
+
+        _bind(anchor, flyout, side=side)
+    except Exception:
+        # Fallback — хотя бы side
+        bind_flyout(anchor, flyout, side=side)
+
+
+def declare_navigation_rows(
+    owner: QWidget,
+    rows: list[QWidget | None],
+    *,
+    tag: str = "rows",
+) -> None:
+    """Один вызов вместо 15 строк _rows + _register_nav_section — для ЛЮБОГО виджета.
+
+    Работает для тулбара, диалога настроек, панели, группы кнопок, любого
+    контейнера с рядами виджетов. Не только тулбар — любой QWidget, который
+    хочет Up/Down по рядам и Left/Right внутри ряда.
+    """
+    try:
+        from sli_ui_toolkit.ui.managers.navigation_sections import ToolbarRowsSection
+
+        section = ToolbarRowsSection(lambda: rows, tag=tag)
+        NavigationManager.get_instance().register(owner, section)
+    except Exception:
+        pass
+
+
+def auto_navigation(owner: QWidget, *, tag: str = "auto") -> None:
+    """Zero-config: Up→сверху, Down→снизу, Left→слева, Right→справа — без ручных rows.
+
+    Находит все StrongFocus виджеты внутри owner, кластеризует по y в ряды,
+    внутри ряда сортирует по x. Заменяет calendar_manager / checkbox_manager
+    и т.д. — один вызов вместо 40+ строк.
+
+    Пример::
+
+        from sli_ui_toolkit.managers import auto_navigation
+        auto_navigation(calendar_widget)          # календарь
+        auto_navigation(checkbox_group_widget)    # чекбоксы
+        auto_navigation(any_container)            # любой контейнер
+
+    Для флайаутов дополнительно: ``bind_auto_preview(btn, flyout, side="above")``
+    + ``flyout._nearest_focus=True`` / ``_nav_exit="down"`` (см. BaseFlyout).
+    """
+    try:
+        from sli_ui_toolkit.ui.managers.navigation_sections import AutoNavigationSection
+
+        section = AutoNavigationSection(owner, tag=tag)
+        NavigationManager.get_instance().register(owner, section)
+    except Exception:
+        pass
+
+

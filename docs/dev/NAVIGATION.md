@@ -102,6 +102,40 @@ Not a registration problem — see §1. New widgets with in-widget arrow-key
 behavior should follow the `Slider`/`ComboBox`/`SpinBox` pattern above and
 add a case to `tests/test_nav_arrow_key_contract.py`.
 
+### (D) Flyout side and focus — declarative, no 40+ lines
+
+For any anchor→flyout, declare side and nearest focus on the flyout class,
+and bind in one line — no manual `enterEvent/leaveEvent/focusIn/keyPress`:
+
+```python
+from sli_ui_toolkit.managers import bind_flyout, bind_auto_preview
+
+class MagnifierColorOptionsFlyout(IconActionFlyout):
+    _nav_side = "above"      # Up enters, Down exits (below→Down, left→Left, right→Right)
+    _nearest_focus = True    # Up/Enter lands nearest to anchor, not always leftmost
+    _nav_exit = "down"       # Down from any button → anchor (not only at edge)
+
+# 1 line instead of 5× show_aligned + 90 lines handlers:
+bind_flyout(btn, flyout, side="above")               # just side routing
+bind_auto_preview(btn, flyout, side="above")         # + hover/focus/Enter/Esc auto
+```
+
+`BaseFlyout` reads `_nav_side`, `_nearest_focus`, `_nav_exit` (`lifecycle.py:270`, `widget.py:324`). `bind_flyout` sets `NavigationManager._flyout_side` + `FlyoutManager.link`; `bind_auto_preview` installs a single `eventFilter` on the anchor for preview (hover→`grab=False`, Enter/click→`grab=True`).
+
+### (E) Any container — zero-config rows
+
+For any container with many `StrongFocus` children (calendar, checkbox group, any grid), no manual rows:
+
+```python
+from sli_ui_toolkit.managers import auto_navigation, declare_navigation_rows
+
+auto_navigation(calendar_widget)  # finds StrongFocus, clusters by y into rows, sorts by x
+# or explicit rows if you already have row widgets:
+declare_navigation_rows(owner, [row1, row2, row3], tag="my-panel")
+```
+
+Replaces `calendar_manager`/`checkbox_manager` — one generic `AutoNavigationSection` (`navigation_sections.py:413`) instead of 100 managers. For `IconList` use `IconListNavSection` directly.
+
 ## 3. Contract test: `assert_yields_arrows_when_idle`
 
 `tests/_nav_contract.py` provides `assert_yields_arrows_when_idle(make_widget)`:
