@@ -181,9 +181,17 @@ class ThemeManager(QObject):
         else:
             theme_logger.warning("QSS file not found: %s", qss_path)
 
+    def _resolve_key(self, color_key: str) -> str:
+        # One-level alias indirection; canonical must exist in palette
+        return _THEME_ALIASES.get(color_key, color_key)
+
     def get_color(self, color_key: str) -> QColor:
         palette = self._dark_palette if self.is_dark() else self._light_palette
-        value = palette.get(color_key)
+        key = self._resolve_key(color_key)
+        value = palette.get(key)
+        # Fallback: if canonical missing but alias present (migration window), try original
+        if value is None and key != color_key:
+            value = palette.get(color_key)
 
         if isinstance(value, QColor):
             return QColor(value)
@@ -194,7 +202,10 @@ class ThemeManager(QObject):
     def try_get_color(self, color_key: str) -> QColor | None:
         """Return the color for *color_key*, or ``None`` if the key is absent."""
         palette = self._dark_palette if self.is_dark() else self._light_palette
-        value = palette.get(color_key)
+        key = self._resolve_key(color_key)
+        value = palette.get(key)
+        if value is None and key != color_key:
+            value = palette.get(color_key)
         if value is None:
             return None
         if isinstance(value, QColor):
@@ -346,6 +357,14 @@ class ThemeManager(QObject):
         if not palette_data:
             theme_logger.warning("No palettes registered, skipping theme application")
             return
+
+        # Expand aliases so QSS @help.nav.background etc. still resolve to canonical surface.*
+        # and QPalette roles Window/Base etc. resolve to surface.background if Window was dropped.
+        expanded = palette_data.copy()
+        for alias, canonical in _THEME_ALIASES.items():
+            if alias not in expanded and canonical in palette_data:
+                expanded[alias] = palette_data[canonical]
+        palette_data = expanded
 
         q_palette = QPalette()
         color_roles = {
