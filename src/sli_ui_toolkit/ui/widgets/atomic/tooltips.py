@@ -79,20 +79,21 @@ class _TooltipInterceptor(QObject):
         # forward those to QObject.eventFilter — PySide rejects the call.
         if not isinstance(watched, QObject):
             return False
-        if not _should_handle_tooltip_widget(watched):
+        t = event.type()
+        if t == QEvent.Type.ToolTip:
+            if not _should_handle_tooltip_widget(watched):
+                return False
+            tooltip_text = _resolve_tooltip_text(watched, event)
+            if tooltip_text:
+                global_pos = (
+                    event.globalPos()
+                    if hasattr(event, "globalPos")
+                    else watched.mapToGlobal(watched.rect().center())
+                )
+                PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
+                return True
             return False
-        tooltip_text = _resolve_tooltip_text(watched, event)
-
-        if event.type() == QEvent.Type.ToolTip and tooltip_text:
-            global_pos = (
-                event.globalPos()
-                if hasattr(event, "globalPos")
-                else watched.mapToGlobal(watched.rect().center())
-            )
-            PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
-            return True
-
-        if event.type() in (
+        if t in (
             QEvent.Type.Leave,
             QEvent.Type.Hide,
             QEvent.Type.Close,
@@ -106,20 +107,21 @@ class _ApplicationTooltipInterceptor(QObject):
     def eventFilter(self, watched, event):
         if not isinstance(watched, QObject):
             return False
-        if not _should_handle_tooltip_widget(watched):
+        t = event.type()
+        if t == QEvent.Type.ToolTip:
+            if not _should_handle_tooltip_widget(watched):
+                return False
+            tooltip_text = _resolve_tooltip_text(watched, event)
+            if tooltip_text:
+                global_pos = (
+                    event.globalPos()
+                    if hasattr(event, "globalPos")
+                    else watched.mapToGlobal(watched.rect().center())
+                )
+                PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
+                return True
             return False
-
-        tooltip_text = _resolve_tooltip_text(watched, event)
-        if event.type() == QEvent.Type.ToolTip and tooltip_text:
-            global_pos = (
-                event.globalPos()
-                if hasattr(event, "globalPos")
-                else watched.mapToGlobal(watched.rect().center())
-            )
-            PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
-            return True
-
-        if event.type() in (
+        if t in (
             QEvent.Type.Leave,
             QEvent.Type.Hide,
             QEvent.Type.Close,

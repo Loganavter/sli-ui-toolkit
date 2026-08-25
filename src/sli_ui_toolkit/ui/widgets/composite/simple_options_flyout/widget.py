@@ -471,13 +471,11 @@ class SimpleOptionsFlyout(BaseFlyout):
             if w is not None and not w.isActiveWindow():
                 w.activateWindow()
 
-        QApplication.processEvents()
-
         if exact_width_match:
             actual_width_after = self.width()
             if actual_width_after != total_width:
                 logger.warning(
-                    f"SimpleOptionsFlyout.show_below: Width changed after processEvents! "
+                    f"SimpleOptionsFlyout.show_below: Width changed after show! "
                     f"Before={total_width}, After={actual_width_after}, anchor_width={anchor_width}"
                 )
                 self.setFixedSize(total_width, total_height)

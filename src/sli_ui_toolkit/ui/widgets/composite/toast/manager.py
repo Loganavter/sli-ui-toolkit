@@ -32,6 +32,7 @@ class ToastManager(QObject):
         self._next_id = 1
         self._toasts: dict[int, ToastNotification] = {}
         self.spacing = 10
+        self._reposition_pending = False
 
         if self.parent_window is not None:
             self.parent_window.installEventFilter(self)
@@ -83,7 +84,7 @@ class ToastManager(QObject):
         self._position_toasts()
         toast.show()
         toast.raise_()
-        QTimer.singleShot(0, self._position_toasts)
+        self._schedule_reposition()
         return toast_id
 
     def update_toast(
@@ -111,7 +112,7 @@ class ToastManager(QObject):
         self._position_toasts()
         toast.show()
         toast.raise_()
-        QTimer.singleShot(0, self._position_toasts)
+        self._schedule_reposition()
 
     def close_toast(self, toast_id: int) -> None:
         toast = self._toasts.pop(toast_id, None)
@@ -152,6 +153,16 @@ class ToastManager(QObject):
         except Exception:
             pass
 
+    def _schedule_reposition(self) -> None:
+        if self._reposition_pending:
+            return
+        self._reposition_pending = True
+        QTimer.singleShot(0, self._do_reposition)
+
+    def _do_reposition(self) -> None:
+        self._reposition_pending = False
+        self._position_toasts()
+
     def _position_toast(self, toast: ToastNotification) -> None:
         self._position_toasts()
 
@@ -163,5 +174,5 @@ class ToastManager(QObject):
             QEvent.Type.WindowStateChange,
             QEvent.Type.LayoutRequest,
         ):
-            QTimer.singleShot(0, self._position_toasts)
+            self._schedule_reposition()
         return False

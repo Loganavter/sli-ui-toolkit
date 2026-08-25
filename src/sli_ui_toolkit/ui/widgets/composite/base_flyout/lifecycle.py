@@ -520,7 +520,6 @@ class _FlyoutLifecycleApi:
                 kbd_input,
             )
             target.setFocus(restore_reason)
-            QApplication.processEvents()
             actual_after = QApplication.focusWidget()
             logger.debug(
                 "[flyout-nav] _restore_focus_policies: setFocus → actual_after=%s",
@@ -700,14 +699,14 @@ class _FlyoutNavigationSection:
         # swallowed forever.
         return event.isAccepted()
 
-    def focus_first(self, ref_x: float | None = None) -> bool:
+    def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason = Qt.FocusReason.OtherFocusReason) -> bool:  # type: ignore[override]
         # Pass ref_x so nearest_focus flyouts can pick closest to anchor, not leftmost
         try:
             return self._flyout.focus_first_child(ref_x)  # type: ignore[call-arg]
         except TypeError:
             return self._flyout.focus_first_child()
 
-    def focus_last(self, ref_x: float | None = None) -> bool:
+    def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason = Qt.FocusReason.OtherFocusReason) -> bool:  # type: ignore[override]
         try:
             return self._flyout.focus_last_child(ref_x)  # type: ignore[call-arg]
         except TypeError:

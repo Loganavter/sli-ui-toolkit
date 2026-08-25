@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.managers.navigation_descriptor import register_navigation
@@ -26,22 +27,13 @@ class _StubSection:
         return False
 
 
-@pytest.fixture(autouse=True)
-def _reset_navigation_manager():
-    NavigationManager._instance = None
-    yield
-    if NavigationManager._instance is not None:
-        NavigationManager._instance._uninstall_event_filter()
-    NavigationManager._instance = None
-
-
-def test_register_navigation_returns_false_when_nothing_set(qapp):
+def test_register_navigation_returns_false_when_nothing_set(qapp, navigation_manager_reset):
     widget = QWidget()
     assert register_navigation(widget) is False
     assert NavigationManager.get_instance()._sections == []
 
 
-def test_register_navigation_uses_class_level_descriptor(qapp):
+def test_register_navigation_uses_class_level_descriptor(qapp, navigation_manager_reset):
     section = _StubSection()
 
     @widget_descriptor(WidgetDescriptor(family="test.class-level", navigation=section))
@@ -54,9 +46,10 @@ def test_register_navigation_uses_class_level_descriptor(qapp):
         assert (widget, section) in NavigationManager.get_instance()._sections
     finally:
         WidgetRegistry.get_instance().unregister("test.class-level")
+        NavigationManager.get_instance().unregister(widget)
 
 
-def test_register_navigation_instance_level_overrides_class_level(qapp):
+def test_register_navigation_instance_level_overrides_class_level(qapp, navigation_manager_reset):
     class_section = _StubSection()
     instance_section = _StubSection()
 
@@ -74,20 +67,23 @@ def test_register_navigation_instance_level_overrides_class_level(qapp):
         assert registered[widget] is instance_section
     finally:
         WidgetRegistry.get_instance().unregister("test.instance-override")
+        NavigationManager.get_instance().unregister(widget)
 
 
-def test_register_navigation_falls_back_to_instance_attribute(qapp):
+def test_register_navigation_falls_back_to_instance_attribute(qapp, navigation_manager_reset):
     section = _StubSection()
     widget = QWidget()
     widget.widget_descriptor = WidgetDescriptor(family="test.instance-only", navigation=section)
     assert register_navigation(widget) is True
     assert (widget, section) in NavigationManager.get_instance()._sections
+    NavigationManager.get_instance().unregister(widget)
 
 
-def test_register_navigation_is_idempotent(qapp):
+def test_register_navigation_is_idempotent(qapp, navigation_manager_reset):
     section = _StubSection()
     widget = QWidget()
     widget.widget_descriptor = WidgetDescriptor(family="test.idempotent", navigation=section)
     assert register_navigation(widget) is True
     assert register_navigation(widget) is True
     assert NavigationManager.get_instance()._sections.count((widget, section)) == 1
+    NavigationManager.get_instance().unregister(widget)

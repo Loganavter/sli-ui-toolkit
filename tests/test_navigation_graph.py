@@ -14,17 +14,16 @@ def test_focus_reason_centralized(qapp):
     assert focus_reason() == Qt.FocusReason.OtherFocusReason
 
 
-def test_toolbar_rows_extra_keys(qapp):
+def test_toolbar_rows_extra_keys(qapp, qtbot, navigation_manager_reset):
     from sli_ui_toolkit.ui.managers.nav_graph import snapshot, validate
     from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
     from sli_ui_toolkit.ui.managers.navigation_sections import ToolbarRowsSection
     from PySide6.QtWidgets import QWidget
 
-    mgr = NavigationManager.get_instance()
-    # clean
-    mgr._sections.clear()
+    mgr = navigation_manager_reset
     row = QWidget()
     row.show()
+    qtbot.addWidget(row)
     section = ToolbarRowsSection(lambda: [row], tag="test")
     mgr.register(row, section)
     graph = snapshot()
@@ -34,7 +33,6 @@ def test_toolbar_rows_extra_keys(qapp):
     assert Qt.Key.Key_Left in graph.nodes[0].extra_keys
     assert Qt.Key.Key_Right in graph.nodes[0].extra_keys
     mgr.unregister(row)
-    row.deleteLater()
 
 
 def test_tab_bar_enter_required(qapp):

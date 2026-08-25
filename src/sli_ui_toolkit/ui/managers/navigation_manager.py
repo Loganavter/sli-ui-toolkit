@@ -124,6 +124,7 @@ class NavigationManager(QObject):
         self._extensions_below: dict[QWidget, QWidget] = {}
         self._extension_owners: dict[QWidget, QWidget] = {}
         self._flyout_side: dict[QWidget, str] = {}  # "above" | "below" — для упрощённого API bind_flyout
+        self._keyboard_focus_registry: set[QWidget] = set()
         self._event_filter_installed = False
         self._last_keyboard_focus: QWidget | None = None
         # False until first keyboard input; flips on every MouseButtonPress
@@ -416,6 +417,12 @@ class NavigationManager(QObject):
             flyout._nav_mode = mode  # type: ignore[attr-defined]
         except Exception:
             pass
+        try:
+            destroyed = getattr(flyout, "destroyed", None)
+            if destroyed is not None:
+                destroyed.connect(lambda _obj=None, f=flyout: self._flyout_side.pop(f, None))  # type: ignore[attr-defined]
+        except Exception:
+            pass
         self.link_below(anchor, flyout)
 
     def flyout_side(self, flyout: QWidget) -> str | None:
@@ -500,6 +507,54 @@ class NavigationManager(QObject):
             target += direction
         return None
 
+    def _track_keyboard_focus(self, widget: QWidget) -> None:
+        try:
+            if getattr(widget, "_keyboard_focus", False):
+                if widget not in self._keyboard_focus_registry:
+                    self._keyboard_focus_registry.add(widget)
+                    try:
+                        widget.destroyed.connect(lambda _obj=None, w=widget: self._keyboard_focus_registry.discard(w))  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+            else:
+                self._keyboard_focus_registry.discard(widget)
+        except Exception:
+            pass
+
+    def _clear_stale_keyboard_focus(self, keep: QWidget | None) -> None:
+        for w in list(self._keyboard_focus_registry):
+            if w is keep:
+                continue
+            try:
+                if not shiboken6.isValid(w):  # type: ignore[attr-defined]
+                    self._keyboard_focus_registry.discard(w)
+                    continue
+                if getattr(w, "_keyboard_focus", False):
+                    w._keyboard_focus = False  # type: ignore[attr-defined]
+                    self._keyboard_focus_registry.discard(w)
+                    try:
+                        w.update()
+                    except Exception:
+                        pass
+                else:
+                    self._keyboard_focus_registry.discard(w)
+            except Exception:
+                try:
+                    self._keyboard_focus_registry.discard(w)
+                except Exception:
+                    pass
+
+    def _sync_keyboard_focus_registry(self, widget: QWidget | None) -> None:
+        if widget is None:
+            return
+        try:
+            if not shiboken6.isValid(widget):  # type: ignore[attr-defined]
+                self._keyboard_focus_registry.discard(widget)
+                return
+        except Exception:
+            return
+        self._track_keyboard_focus(widget)
+
     # ------------------------------------------------------------------
     # Event filter
     # ------------------------------------------------------------------
@@ -565,14 +620,12 @@ class NavigationManager(QObject):
                 # stale _keyboard_focus на всех остальных виджетах, иначе
                 # Button.focusOut может не успеть (асинхронный paint) и
                 # останется два hasFocus+_keyboard_focus в одном кадре.
+                self._clear_stale_keyboard_focus(widget)
+                self._track_keyboard_focus(widget)
+                # Button's own focusInEvent sets _keyboard_focus after this app filter;
+                # sync after that handler has run.
                 try:
-                    for _w in QApplication.allWidgets():
-                        if _w is not widget and getattr(_w, "_keyboard_focus", False):
-                            _w._keyboard_focus = False
-                            try:
-                                _w.update()
-                            except Exception:
-                                pass
+                    QTimer.singleShot(0, lambda w=widget: self._sync_keyboard_focus_registry(w))
                 except Exception:
                     pass
                 # Focus moved for a real keyboard-ish reason (arrow
@@ -590,7 +643,7 @@ class NavigationManager(QObject):
                 if self._last_input_keyboard and widget is not None and hasattr(widget, "_keyboard_focus"):
                     if not getattr(widget, "_keyboard_focus", False):
                         has_ring = False
-                        for w in QApplication.allWidgets():
+                        for w in list(self._keyboard_focus_registry):
                             try:
                                 if w is not widget and w.hasFocus() and getattr(w, "_keyboard_focus", False):
                                     has_ring = True
@@ -598,7 +651,8 @@ class NavigationManager(QObject):
                             except Exception:
                                 continue
                         if not has_ring:
-                            widget._keyboard_focus = True
+                            widget._keyboard_focus = True  # type: ignore[attr-defined]
+                            self._track_keyboard_focus(widget)
                             try:
                                 widget.update()
                             except Exception:
@@ -622,7 +676,8 @@ class NavigationManager(QObject):
                 # Button.focusOutEvent тоже чистит, но дублируем на уровне
                 # менеджера чтобы покрыть не-Button фокусабельные виджеты.
                 try:
-                    _w._keyboard_focus = False
+                    _w._keyboard_focus = False  # type: ignore[attr-defined]
+                    self._keyboard_focus_registry.discard(_w)
                     _w.update()
                 except Exception:
                     pass
@@ -658,7 +713,11 @@ class NavigationManager(QObject):
             if focused is not None:
                 changed = False
                 if getattr(focused, "_keyboard_focus", False):
-                    focused._keyboard_focus = False
+                    focused._keyboard_focus = False  # type: ignore[attr-defined]
+                    try:
+                        self._keyboard_focus_registry.discard(focused)
+                    except Exception:
+                        pass
                     changed = True
                 # Always stamp _last_focus_reason on mouse press so flyouts
                 # reading it at open time see MouseFocusReason — even when
@@ -680,16 +739,7 @@ class NavigationManager(QObject):
                         )
             # Инвариант одного кольца: клик мышью должен погасить все
             # stale кольца, а не только на focused (фокус мог уйти в None).
-            try:
-                for _w in QApplication.allWidgets():
-                    if _w is not focused and getattr(_w, "_keyboard_focus", False):
-                        _w._keyboard_focus = False
-                        try:
-                            _w.update()
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+            self._clear_stale_keyboard_focus(focused)
             self._last_keyboard_focus = None
             return False  # never consume MouseButtonPress
 

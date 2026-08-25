@@ -22,7 +22,7 @@ class ToolkitDragDropService(QObject):
             cls._instance = cls()
         return cls._instance
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, payload_extractor=None) -> None:  # type: ignore[no-untyped-def]
         super().__init__(parent)
         self._is_dragging = False
         self._source_data: dict | None = None
@@ -31,6 +31,7 @@ class ToolkitDragDropService(QObject):
         self._current_target = None
         self._drop_targets: list[Any] = []
         self._event_filter_installed = False
+        self._payload_extractor = payload_extractor  # type: ignore[attr-defined]
 
     def register_drop_target(self, target) -> None:
         if target not in self._drop_targets:
@@ -42,14 +43,66 @@ class ToolkitDragDropService(QObject):
         if self._current_target is target:
             self._current_target = None
 
+    def set_payload_extractor(self, extractor) -> None:  # type: ignore[no-untyped-def]
+        """Inject a custom payload factory: ``extractor(source_widget) -> dict | None``."""
+        self._payload_extractor = extractor  # type: ignore[assignment]
+
     def is_dragging(self) -> bool:
         return self._is_dragging
 
     def get_source_data(self):
         return dict(self._source_data) if self._source_data is not None else None
 
+    def _extract_payload(self, source_widget):  # type: ignore[no-untyped-def]
+        if getattr(self, "_payload_extractor", None) is not None:
+            try:
+                payload = self._payload_extractor(source_widget)  # type: ignore[operator]
+                if isinstance(payload, dict) and payload:
+                    return dict(payload)
+            except Exception:
+                pass
+        getter = getattr(source_widget, "get_drag_payload", None)
+        if callable(getter):
+            try:
+                payload = getter()
+                if isinstance(payload, dict) and payload:
+                    return dict(payload)
+            except Exception:
+                pass
+        for attr in ("drag_payload", "payload", "drag_data"):
+            candidate = getattr(source_widget, attr, None)
+            if isinstance(candidate, dict) and candidate:
+                return dict(candidate)
+            if callable(candidate):
+                try:
+                    payload = candidate()
+                    if isinstance(payload, dict) and payload:
+                        return dict(payload)
+                except Exception:
+                    pass
+        return None
+
     def start_drag(self, source_widget, event) -> None:
         if self._is_dragging:
+            return
+
+        generic = self._extract_payload(source_widget)
+        if generic is not None:
+            if "indices" not in generic and "index" in generic:
+                generic["indices"] = [generic["index"]]
+            self._is_dragging = True
+            self._source_widget = source_widget
+            self._source_data = generic
+            self._hotspot = event.position()
+            if hasattr(source_widget, "set_dragging_state"):
+                source_widget.set_dragging_state(True)
+            set_batch = getattr(source_widget, "set_batch_dragging_state", None)
+            if callable(set_batch):
+                try:
+                    set_batch(True, generic.get("indices", []))
+                except Exception:
+                    pass
+            self._install_event_filter()
             return
 
         list_num = getattr(source_widget, "list_num", None)

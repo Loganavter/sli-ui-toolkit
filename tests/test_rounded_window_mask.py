@@ -13,11 +13,13 @@ from sli_ui_toolkit.ui.windows.rounded_body import (
 )
 
 
-def test_rounded_window_mask_excludes_corners():
+def test_rounded_window_mask_excludes_corners(qapp, qtbot, request):
     app = QApplication.instance() or QApplication([])
     widget = QWidget()
     widget.resize(400, 300)
     widget.show()
+    qtbot.addWidget(widget)
+    request.addfinalizer(lambda: widget.close())
     app.processEvents()
 
     apply_rounded_window_mask(widget, radius=10.0, squared=False)
@@ -30,11 +32,13 @@ def test_rounded_window_mask_excludes_corners():
     assert mask.contains(widget.rect().center())
 
 
-def test_rounded_window_mask_clears_when_squared():
+def test_rounded_window_mask_clears_when_squared(qapp, qtbot, request):
     app = QApplication.instance() or QApplication([])
     widget = QWidget()
     widget.resize(400, 300)
     widget.show()
+    qtbot.addWidget(widget)
+    request.addfinalizer(lambda: widget.close())
     app.processEvents()
 
     apply_rounded_window_mask(widget, radius=10.0, squared=False)
@@ -43,11 +47,13 @@ def test_rounded_window_mask_clears_when_squared():
     assert widget.mask().isEmpty()
 
 
-def test_top_trailing_mask_keeps_top_left_of_controls():
+def test_top_trailing_mask_keeps_top_left_of_controls(qapp, qtbot, request):
     app = QApplication.instance() or QApplication([])
     widget = QWidget()
     widget.resize(138, 36)
     widget.show()
+    qtbot.addWidget(widget)
+    request.addfinalizer(lambda: widget.close())
     app.processEvents()
 
     apply_top_trailing_rounded_mask(widget, radius=10.0, squared=False)
