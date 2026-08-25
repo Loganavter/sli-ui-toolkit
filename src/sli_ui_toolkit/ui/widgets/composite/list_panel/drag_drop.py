@@ -55,14 +55,22 @@ def should_hide_indicator(payload, list_num: int, dest_index: int) -> bool:
 class _DropIndicator(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._color = QColor("#00b7ff")
+        from sli_ui_toolkit.theme import ThemeManager
+
+        tm = ThemeManager.get_instance()
+        accent = tm.try_get_color("accent")
+        self._color = QColor(accent) if accent is not None and accent.isValid() else QColor(tm.get_color("accent"))
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.hide()
 
     def set_color(self, color: QColor):
         if color is None:
-            color = QColor("#00b7ff")
+            from sli_ui_toolkit.theme import ThemeManager
+
+            tm = ThemeManager.get_instance()
+            accent = tm.try_get_color("accent")
+            color = QColor(accent) if accent is not None and accent.isValid() else QColor(tm.get_color("accent"))
         self._color = QColor(color)
         self._color.setAlpha(200)
         self.update()

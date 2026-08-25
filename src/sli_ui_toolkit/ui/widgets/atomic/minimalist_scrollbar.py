@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 
 from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QRegion
@@ -16,15 +15,10 @@ _sdbg_logger = logging.getLogger("sli_ui_toolkit.scrollbar")
 
 
 def _ensure_sdbg_handler() -> None:
-    if _sdbg_logger.handlers:
-        return
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s - [%(levelname)s] - (%(filename)s:%(lineno)d) - %(message)s"
-        )
-    )
-    _sdbg_logger.addHandler(handler)
+    # Rely on toolkit-wide logging configuration (core.logging) instead of
+    # installing a direct StreamHandler(sys.stderr) per widget. This avoids
+    # duplicate handlers and respects host logging setup. No-op for compat.
+    return
 
 
 def sdbg(message: str) -> None:

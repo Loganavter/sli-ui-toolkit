@@ -197,6 +197,18 @@ class ThemeManager(QObject):
             return QColor(value)
         if isinstance(value, str):
             return QColor(value)
+        # Unknown token — warn and fall back via try_get_color / palette default
+        theme_logger.warning("unknown theme token: %s", color_key)
+        fallback = self.try_get_color(color_key)
+        if fallback is not None:
+            return fallback
+        # Palette default: Window / WindowText or black as last resort
+        for default_key in ("Window", "WindowText", "Base", "Text"):
+            candidate = palette.get(default_key)
+            if isinstance(candidate, QColor):
+                return QColor(candidate)
+            if isinstance(candidate, str):
+                return QColor(candidate)
         return QColor("#000000")
 
     def try_get_color(self, color_key: str) -> QColor | None:

@@ -1,9 +1,12 @@
+import logging
 import sys
 import traceback
 from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
+
+logger = logging.getLogger(__name__)
 
 class WorkerSignals(QObject):
     finished = Signal()
@@ -49,8 +52,9 @@ class GenericWorker(QRunnable):
         try:
             result = self.fn(*self.args, **self.kwargs)
         except Exception as exc:
-            if not (isinstance(exc, RuntimeError) and str(exc) == "Save canceled by user"):
-                traceback.print_exc()
+            is_cancel = isinstance(exc, RuntimeError) and str(exc) == "Save canceled by user"
+            if not is_cancel:
+                logger.warning("GenericWorker task failed", exc_info=True)
             exctype, value = sys.exc_info()[:2]
             self._safe_emit("error", (exctype, value, traceback.format_exc()))
         else:

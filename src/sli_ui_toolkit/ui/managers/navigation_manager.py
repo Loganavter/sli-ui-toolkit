@@ -971,13 +971,9 @@ def bind_auto_preview(
 
     Breaking: старый ручной wiring можно удалить целиком.
     """
-    try:
-        from sli_ui_toolkit.ui.managers.auto_preview import bind_auto_preview as _bind  # type: ignore
+    from sli_ui_toolkit.ui.managers.auto_preview import bind_auto_preview as _bind
 
-        _bind(anchor, flyout, side=side)
-    except Exception:
-        # Fallback — хотя бы side
-        bind_flyout(anchor, flyout, side=side)
+    _bind(anchor, flyout, side=side)
 
 
 def declare_navigation_rows(

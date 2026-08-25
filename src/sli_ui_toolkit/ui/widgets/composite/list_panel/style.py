@@ -9,25 +9,21 @@ from PySide6.QtGui import QColor
 
 
 def apply_style(panel) -> None:
-    try:
+    accent = panel.theme_manager.try_get_color("accent")
+    if accent is None or not accent.isValid():
         accent = panel.theme_manager.get_color("accent")
-    except Exception:
-        accent = QColor("#00b7ff")
     panel.drop_overlay.set_color(accent)
 
     # Paint the panel surface ourselves so the widget renders correctly
     # without a host-supplied QSS sheet. Selector keyed on the widget's
     # own objectName — subclasses that keep their legacy name (e.g. the
     # flyout panel) still match their own rule.
-    try:
-        bg_color = panel.theme_manager.get_color("flyout.background").name(
-            QColor.NameFormat.HexArgb
-        )
-        border_color = panel.theme_manager.get_color("flyout.border").name(
-            QColor.NameFormat.HexArgb
-        )
-    except Exception:
-        return
+    bg_color = panel.theme_manager.get_color("flyout.background").name(
+        QColor.NameFormat.HexArgb
+    )
+    border_color = panel.theme_manager.get_color("flyout.border").name(
+        QColor.NameFormat.HexArgb
+    )
     panel.setStyleSheet(
         f"#{panel.objectName()} {{"
         f"background-color: {bg_color};"

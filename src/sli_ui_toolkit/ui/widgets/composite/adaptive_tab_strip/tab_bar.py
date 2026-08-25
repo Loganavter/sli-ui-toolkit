@@ -507,7 +507,14 @@ class _AdaptiveTabBar(QWidget):
             if ring.width() > 0 and ring.height() > 0:
                 path = QPainterPath()
                 path.addRoundedRect(ring, design_radius, design_radius)
-                color = QColor(palette.get("accent", "#3daee9"))
+                accent_raw = palette.get("accent")
+                if accent_raw is None:
+                    from sli_ui_toolkit.theme import ThemeManager as _TM
+
+                    tm2 = _TM.get_instance()
+                    accent_c = tm2.try_get_color("accent")
+                    accent_raw = accent_c.name() if accent_c is not None and accent_c.isValid() else tm2.get_color("accent").name()
+                color = QColor(accent_raw)
                 color.setAlpha(220)
                 painter.save()
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -607,14 +614,21 @@ class _AdaptiveTabBar(QWidget):
     def _palette(self) -> dict[str, str]:
         theme = ThemeManager.get_instance()
 
-        def color(token: str, fallback: str) -> str:
+        def color(token: str, fallback_token: str | None = None) -> str:
             value = theme.try_get_color(token)
-            return value.name() if value is not None and value.isValid() else fallback
+            if value is not None and value.isValid():
+                return value.name()
+            # Fallback through palette defaults (theme-aware) instead of hard light hex
+            fb = fallback_token or token
+            fallback_color = theme.try_get_color(fb)
+            if fallback_color is not None and fallback_color.isValid():
+                return fallback_color.name()
+            return theme.get_color(token).name()
 
         return {
-            "strip": color("button.toggle.background.normal", "#f0f0f0"),
-            "background": color("Window", "#ffffff"),
-            "border": color("separator.color", "#e5e5e5"),
-            "hover": color("button.toggle.background.hover", "#e6e6e6"),
-            "text": color("WindowText", "#1f1f1f"),
+            "strip": color("button.toggle.background.normal"),
+            "background": color("Window"),
+            "border": color("separator.color"),
+            "hover": color("button.toggle.background.hover"),
+            "text": color("WindowText"),
         }

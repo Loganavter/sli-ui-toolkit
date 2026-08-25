@@ -229,17 +229,22 @@ class BaseFlyout(
             _override = getattr(self, "_focus_ring_color", None)
             if _override is not None:
                 try:
-                    c = QColor(_override) if not isinstance(_override, QColor) else _override
+                    c = QColor(_override) if not isinstance(_override, QColor) else QColor(_override)
+                    if not c.isValid():
+                        raise ValueError("invalid override color")
                 except Exception:
-                    c = QColor("#3b82f6")
+                    logger.warning("BaseFlyout: invalid focus ring override color", exc_info=True)
+                    tm = ThemeManager.get_instance()
+                    accent = tm.try_get_color("accent")
+                    c = QColor(accent) if accent is not None and accent.isValid() else QColor(tm.get_color("accent"))
             else:
-                # Sverь с Button FocusLayer — accent с alpha 220
-                try:
-                    c = ThemeManager.get_instance().get_color("accent")  # type: ignore
-                    if not isinstance(c, QColor):
-                        c = QColor(c) if c is not None else QColor("#3b82f6")
-                except Exception:
-                    c = QColor("#3b82f6")
+                # Сверь с Button FocusLayer — accent с alpha 220
+                tm = ThemeManager.get_instance()
+                accent = tm.try_get_color("accent")
+                if accent is not None and accent.isValid():
+                    c = QColor(accent)
+                else:
+                    c = QColor(tm.get_color("accent"))
                 try:
                     c.setAlpha(220)
                 except Exception:

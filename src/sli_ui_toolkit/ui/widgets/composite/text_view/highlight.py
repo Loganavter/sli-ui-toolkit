@@ -116,17 +116,10 @@ def python_line_spans(line: str) -> list[tuple[int, int, str]]:
 
 def python_span_colors(theme_manager) -> dict[str, QColor]:
     """Theme-aware palette for the span kinds."""
-    try:
-        dark = bool(theme_manager.is_dark())
-    except Exception:
-        dark = False
-    accent = None
-    try:
-        accent = theme_manager.try_get_color("accent")
-    except Exception:
-        accent = None
+    dark = bool(theme_manager.is_dark())
+    accent = theme_manager.try_get_color("accent")
     if accent is None or not accent.isValid():
-        accent = QColor("#0078d4")
+        accent = theme_manager.get_color("accent")
     return {
         "comment": QColor("#6a737d" if not dark else "#8b949e"),
         "string": QColor("#2e7d32" if not dark else "#7ee787"),
