@@ -10,24 +10,13 @@ Source reviews: [reviews/2026-08-25-cross-family-review.md](reviews/2026-08-25-c
 
 ## P1 - Hard-rule violations & host-visible silent failures (review A)
 
-Status: `Open`
+Status: `Done (2026-08-25 wave)` — A1-A5 closed; no host fallbacks, silent token/black & hardcoded-hex fallbacks now warn/palette-routed, tab dark bypass removed, icon blanks logged, stderr → logging.
 
-- Remove the host-app fallback import `from core.constants import
-  AppConstants` in `ui/managers/auto_preview.py:100-105` — resolves
-  against whichever host happens to be installed, always fails for
-  Tkonverter, swallowed silently (violates "no fallback imports from
-  hosts"; also `navigation_manager.py:922-929` wrapper).
-- `ThemeManager.get_color` returning silent black for unknown tokens +
-  dead-except hardcoded hex fallbacks (`theme_manager.py:188`,
-  `drop_zone_label.py:65`, `list_panel/style.py:11`,
-  `base_flyout/widget.py:233`, `help_document/view.py:305`) — warn on
-  unknown token; route fallbacks through palette defaults.
-- Dark-theme bypass in `adaptive_tab_strip/tab_bar.py:607-617`
-  `_palette()` — hardcoded light hexes instead of palette defaults.
-- Icon resolver failure → blank icons silently (`icons.py:39-46`) — log
-  like config.py's resolver wrappers do.
-- stderr writes instead of logging (`button.py:784` per paint frame,
-  `generic_worker.py:53`, `minimalist_scrollbar.py:21`).
+- Host fallback `from core.constants import AppConstants` removed — host-agnostic `AutoPreviewConfig` + `get_flyout_timings()` injection, 400ms warn fallback (`ui/managers/auto_preview.py:30 AutoPreviewConfig`, `:65 injected delay`, `:131-143 logger.warning fallback`; `navigation_manager.py:922-929` wrapper also cleared — `grep -rn "from core.constants" src` 0).
+- `ThemeManager.get_color` silent black + dead-except hardcoded hexes → warn + palette fallback (`ui/managers/theme_manager.py:188 get_color`, `:201 warning "unknown theme token"`, `:202-212 try_get_color + Window/WindowText/Base/Text fallback`); fallbacks now via palette: `ui/widgets/atomic/drop_zone_label.py:64-66 try_get_color("dialog.border")→"separator.color"`, `ui/widgets/composite/list_panel/style.py:12-14 try_get_color("accent")→get_color`, `ui/widgets/composite/base_flyout/widget.py:233-239 invalid focus-ring color warn + accent fallback`, `ui/widgets/composite/help_document/view.py:236-238 try_get_color("help.separator")→"dialog.border"`.
+- Dark-theme bypass `tab_bar._palette()` hardcoded light hexes → theme-aware palette defaults (`ui/widgets/composite/adaptive_tab_strip/tab_bar.py:614 _palette`, `:618 color()` via `try_get_color`→`get_color` fallback; `strip/background/border/hover/text` now via `button.toggle.background.*`/`Window`/`separator.color`/`WindowText`).
+- Icon resolver blank silently → `logger.warning` like `config.py` wrappers (`icons.py:39-46` → `src/sli_ui_toolkit/icons.py:40 warn blank mapped`, `:44 warn raise`, `:58 warn blank`, `:63 warn blank`, `:68-72 warn raise/blank`; `src/sli_ui_toolkit/ui/managers/icon_manager.py:0` no fallback import).
+- stderr per-frame `traceback.print_exc()` → `logging` throttled (`ui/widgets/buttons/button.py:781 paintEvent` → `:30 throttle 5.0s`, `:789-795 logger.exception`/`logger.debug`; `workers/generic_worker.py:53` → `:57 logger.warning` + `traceback.format_exc()` via `error` signal; `ui/widgets/atomic/minimalist_scrollbar.py:21` → `:13 _sdbg_logger`, `:29 logger.debug`; `grep -rn "print_exc" src` 0).
 
 ## P2 - Reentrancy & lifecycle (review C)
 
