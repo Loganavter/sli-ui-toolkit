@@ -520,7 +520,6 @@ class _FlyoutLifecycleApi:
                 kbd_input,
             )
             target.setFocus(restore_reason)
-            QApplication.processEvents()
             actual_after = QApplication.focusWidget()
             logger.debug(
                 "[flyout-nav] _restore_focus_policies: setFocus → actual_after=%s",

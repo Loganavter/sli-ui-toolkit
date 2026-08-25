@@ -29,6 +29,18 @@ class LoadingSpinner(QWidget):
         self._angle = (self._angle + 6) % 360
         self.update()
 
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        # P2: auto-start ticking when shown (pairs with hideEvent stop)
+        if not self._timer.isActive():
+            self._timer.start(15)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        super().hideEvent(event)
+        # P2: never tick while hidden
+        if self._timer.isActive():
+            self._timer.stop()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -69,15 +81,5 @@ LoadingSpinner.inspect_spec = InspectSpec(
     docs='docs/user/INPUTS_API.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
-LoadingSpinner.widget_descriptor = WidgetDescriptor(
-    family=LoadingSpinner.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(LoadingSpinner.inspect_spec, 'config', ()),
-        state=LoadingSpinner.inspect_spec.state,
-        token_family=getattr(LoadingSpinner.inspect_spec, 'token_family', ()),
-        regions=getattr(LoadingSpinner.inspect_spec, 'regions', False),
-        layers=getattr(LoadingSpinner.inspect_spec, 'layers', False),
-        docs=getattr(LoadingSpinner.inspect_spec, 'docs', ''),
-    ),
-)
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+LoadingSpinner.widget_descriptor = WidgetDescriptor.from_spec(LoadingSpinner.inspect_spec)

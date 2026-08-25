@@ -229,17 +229,22 @@ class BaseFlyout(
             _override = getattr(self, "_focus_ring_color", None)
             if _override is not None:
                 try:
-                    c = QColor(_override) if not isinstance(_override, QColor) else _override
+                    c = QColor(_override) if not isinstance(_override, QColor) else QColor(_override)
+                    if not c.isValid():
+                        raise ValueError("invalid override color")
                 except Exception:
-                    c = QColor("#3b82f6")
+                    logger.warning("BaseFlyout: invalid focus ring override color", exc_info=True)
+                    tm = ThemeManager.get_instance()
+                    accent = tm.try_get_color("accent")
+                    c = QColor(accent) if accent is not None and accent.isValid() else QColor(tm.get_color("accent"))
             else:
-                # Sverь с Button FocusLayer — accent с alpha 220
-                try:
-                    c = ThemeManager.get_instance().get_color("accent")  # type: ignore
-                    if not isinstance(c, QColor):
-                        c = QColor(c) if c is not None else QColor("#3b82f6")
-                except Exception:
-                    c = QColor("#3b82f6")
+                # Сверь с Button FocusLayer — accent с alpha 220
+                tm = ThemeManager.get_instance()
+                accent = tm.try_get_color("accent")
+                if accent is not None and accent.isValid():
+                    c = QColor(accent)
+                else:
+                    c = QColor(tm.get_color("accent"))
                 try:
                     c.setAlpha(220)
                 except Exception:
@@ -423,18 +428,6 @@ BaseFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
-BaseFlyout.widget_descriptor = WidgetDescriptor(
-    family=BaseFlyout.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(BaseFlyout.inspect_spec, 'config', ()),
-        state=BaseFlyout.inspect_spec.state,
-        token_family=getattr(BaseFlyout.inspect_spec, 'token_family', ()),
-        regions=getattr(BaseFlyout.inspect_spec, 'regions', False),
-        layers=getattr(BaseFlyout.inspect_spec, 'layers', False),
-        docs=getattr(BaseFlyout.inspect_spec, 'docs', ''),
-        preview_seed=getattr(BaseFlyout.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(BaseFlyout.inspect_spec, 'apply_config_refresh', None),
-    ),
-)
+BaseFlyout.widget_descriptor = WidgetDescriptor.from_spec(BaseFlyout.inspect_spec)

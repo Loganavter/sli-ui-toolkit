@@ -8,7 +8,7 @@ import re
 import unicodedata
 from collections.abc import Callable
 
-from PySide6.QtCore import QPoint, QPointF, Qt, QSize, Signal
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt, QSize, Signal
 from PySide6.QtGui import QGuiApplication, QKeySequence, QMouseEvent, QPaintEvent, QPainter
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -222,9 +222,13 @@ class HelpDocumentBodyCanvas(QWidget):
             self._relayout()
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
-        del event
+        # P2: honor exposed rect — clip to event.rect()
+        exposed = event.rect() if event is not None else self.rect()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("[paint] HelpDocumentBodyCanvas exposed=%s", exposed)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setClipRect(exposed)
         start, end = self._selection_range()
         paint_layout(
             painter,
@@ -233,6 +237,17 @@ class HelpDocumentBodyCanvas(QWidget):
             selection_end=end,
             theme=self._theme,
         )
+
+    def _dirty_rect_for_drag(self, pos: QPointF) -> QRect:
+        """Approximate dirty rect for selection-drag (full width, ~line height)."""
+        # Selection may span multiple lines; invalidating a band around the
+        # current mouse y is cheap and far smaller than the whole document.
+        from PySide6.QtCore import QRect as _QRect
+
+        y = int(pos.y())
+        # ~3 line heights band covers current + adjacent line reflow
+        band = 60
+        return _QRect(0, max(0, y - band), self.width(), band * 2)
 
     def clear_selection(self) -> None:
         self._selection.reset()
@@ -246,7 +261,8 @@ class HelpDocumentBodyCanvas(QWidget):
         pos = QPointF(event.position())
         offset = hit_test_text_offset(self._layout, pos)
         self._selection.press(offset, pos.toPoint())
-        self.update()
+        # P2: clip update to dirty band instead of full repaint
+        self.update(self._dirty_rect_for_drag(pos))
         self.setFocus()
         event.accept()
 
@@ -275,7 +291,8 @@ class HelpDocumentBodyCanvas(QWidget):
         offset = hit_test_text_offset(self._layout, pos)
         if offset is not None and sel.anchor is not None:
             sel.extend(offset)
-            self.update()
+            # P2: partial update per drag, not full canvas repaint
+            self.update(self._dirty_rect_for_drag(pos))
         event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802

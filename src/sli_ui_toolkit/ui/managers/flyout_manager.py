@@ -146,6 +146,14 @@ class FlyoutManager(QObject):
             self._registered_flyouts.add(flyout)
             self._registration_counter += 1
             self._registration_order[flyout] = self._registration_counter
+            try:
+                destroyed = getattr(flyout, "destroyed", None)
+                if destroyed is not None:
+                    destroyed.connect(lambda _obj=None, f=flyout: self._registered_flyouts.discard(f))  # type: ignore[attr-defined]
+                    destroyed.connect(lambda _obj=None, f=flyout: self._registration_order.pop(f, None))  # type: ignore[attr-defined]
+                    destroyed.connect(lambda _obj=None, f=flyout: self._anchor_snapshots.pop(f, None))  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
     def unregister_flyout(self, flyout: ManagedFlyout):
         self._registered_flyouts.discard(flyout)

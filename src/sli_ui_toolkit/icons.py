@@ -1,7 +1,10 @@
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtGui import QIcon
+
+logger = logging.getLogger(__name__)
 
 from sli_ui_toolkit.ui.services.icon_service import (
     IconService,
@@ -31,8 +34,19 @@ def resolve_icon(icon: Any) -> QIcon:
         mapped = _named_icons.get(icon)
         if mapped is not None:
             if _icon_resolver is not None:
-                return _icon_resolver(mapped)
-            return get_icon_by_name(getattr(mapped, "value", mapped))
+                try:
+                    mapped_result = _icon_resolver(mapped)
+                    if mapped_result.isNull():
+                        logger.warning("icon resolver returned blank icon for mapped %r", icon)
+                    else:
+                        return mapped_result
+                except Exception:
+                    logger.warning("icon resolver raised for mapped %r; falling back to default", icon, exc_info=True)
+            mapped_name = getattr(mapped, "value", mapped)
+            mapped_fallback = get_icon_by_name(mapped_name)
+            if mapped_fallback.isNull():
+                logger.warning("icon resolution returned blank icon for mapped %r (%r)", icon, mapped_name)
+            return mapped_fallback
         # Try app resolver first for plain strings like "magnifier.svg"
         # (Improve-ImgSLI's PanelVisibility uses this) before falling back
         # to the toolkit's default icon service which has no such file.
@@ -41,14 +55,29 @@ def resolve_icon(icon: Any) -> QIcon:
                 result = _icon_resolver(icon)
                 if not result.isNull():
                     return result
+                logger.warning("icon resolver returned blank icon for %r; falling back to default", icon)
             except Exception:
-                pass
-        return get_icon_by_name(icon)
+                logger.warning("icon resolver raised for %r; falling back to default", icon, exc_info=True)
+        icon_result = get_icon_by_name(icon)
+        if icon_result.isNull():
+            logger.warning("icon resolution returned blank icon for %r", icon)
+        return icon_result
     if _icon_resolver is not None:
-        return _icon_resolver(icon)
+        try:
+            res = _icon_resolver(icon)
+            if res.isNull():
+                logger.warning("icon resolver returned blank icon for %r", icon)
+            return res
+        except Exception:
+            logger.warning("icon resolver raised for %r; returning blank icon", icon, exc_info=True)
+            return QIcon()
     value = getattr(icon, "value", None)
     if isinstance(value, str):
-        return get_icon_by_name(value)
+        value_result = get_icon_by_name(value)
+        if value_result.isNull():
+            logger.warning("icon resolution returned blank icon for %r", icon)
+        return value_result
+    logger.warning("icon resolution returned blank icon for %r", icon)
     return QIcon()
 
 def get_named_icon(name: str) -> Any:

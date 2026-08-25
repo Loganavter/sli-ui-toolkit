@@ -21,11 +21,35 @@ DEFAULT_MARQUEE_GAP_PX = 40
 DEFAULT_MARQUEE_SPEED_PX_S = 30.0
 DEFAULT_MARQUEE_INTERVAL_MS = 16
 
+# P2: shared ticker for all MarqueeDrivers + cached text widths
+_shared_timer: QTimer | None = None
+_shared_drivers: set["MarqueeDriver"] = set()
+_marquee_width_cache: dict[tuple[str, int, int], int] = {}
+
+
+def _cached_text_width(font_metrics: QFontMetrics, text: str) -> int:
+    """Cached horizontalAdvance (keyed by text + font metrics height)."""
+    try:
+        h = int(font_metrics.height())
+        acw = int(font_metrics.averageCharWidth())
+        cache_key = (text, h, acw)
+    except Exception:
+        cache_key = (text, 0, 0)  # type: ignore[assignment]
+    hit = _marquee_width_cache.get(cache_key)  # type: ignore[arg-type]
+    if hit is not None:
+        return hit
+    w = int(font_metrics.horizontalAdvance(text))
+    # bound cache size
+    if len(_marquee_width_cache) > 512:
+        _marquee_width_cache.clear()
+    _marquee_width_cache[cache_key] = w  # type: ignore[index]
+    return w
+
 
 def text_overflows(font_metrics: QFontMetrics, text: str, avail_width: int) -> bool:
     if avail_width <= 0 or not text:
         return False
-    return font_metrics.horizontalAdvance(text) > avail_width
+    return _cached_text_width(font_metrics, text) > avail_width
 
 
 def marquee_cycle_px(text_width: int, *, gap: int = DEFAULT_MARQUEE_GAP_PX) -> int:
@@ -44,7 +68,7 @@ def draw_marquee_text(
     if not text or rect.width() <= 0 or rect.height() <= 0:
         return
     fm = painter.fontMetrics()
-    text_w = fm.horizontalAdvance(text)
+    text_w = _cached_text_width(fm, text)
     if text_w <= rect.width():
         painter.drawText(
             rect,
@@ -70,8 +94,43 @@ def draw_marquee_text(
     painter.restore()
 
 
+def _ensure_shared_timer() -> QTimer:
+    global _shared_timer
+    if _shared_timer is not None:
+        return _shared_timer
+    from PySide6.QtWidgets import QApplication as _QA
+
+    app = _QA.instance()
+    parent = app if app is not None else None
+    t = QTimer(parent)  # type: ignore[arg-type]
+    t.setInterval(DEFAULT_MARQUEE_INTERVAL_MS)
+    t.timeout.connect(_shared_tick)  # type: ignore[arg-type]
+    _shared_timer = t
+    return t
+
+
+def _shared_tick() -> None:
+    for drv in list(_shared_drivers):
+        try:
+            drv._tick()
+        except RuntimeError:
+            _shared_drivers.discard(drv)
+
+
+def _shared_set_active(driver: "MarqueeDriver", active: bool) -> None:
+    if active:
+        _shared_drivers.add(driver)
+        t = _ensure_shared_timer()
+        if not t.isActive():
+            t.start()
+    else:
+        _shared_drivers.discard(driver)
+        if not _shared_drivers and _shared_timer is not None and _shared_timer.isActive():
+            _shared_timer.stop()
+
+
 class MarqueeDriver(QObject):
-    """Owns scroll phase + timer for a host widget that repaints on tick."""
+    """Owns scroll phase + shared ticker for a host widget that repaints on tick."""
 
     def __init__(
         self,
@@ -84,24 +143,27 @@ class MarqueeDriver(QObject):
         super().__init__(host)
         self._host = host
         self._speed = float(speed_px_s)
+        self._interval_ms = max(1, int(interval_ms))
         self._on_tick = on_tick
         self.phase = 0.0
-        self._timer = QTimer(self)
-        self._timer.setInterval(max(1, int(interval_ms)))
-        self._timer.timeout.connect(self._tick)
         self._clock = QElapsedTimer()
+        self._active = False
         # Mirror onto the host so paint paths can read ``host._marquee_phase``.
         setattr(host, "_marquee_phase", 0.0)
         setattr(host, "_marquee_driver", self)
+        # keep a compat alias for code that checks driver._timer
+        self._timer = _ensure_shared_timer()
 
     def set_active(self, needed: bool) -> None:
         if needed and self._host.isVisible():
-            if not self._timer.isActive():
+            if not self._active:
                 self._clock.restart()
-                self._timer.start()
+                _shared_set_active(self, True)
+                self._active = True
             return
-        if self._timer.isActive():
-            self._timer.stop()
+        if self._active:
+            _shared_set_active(self, False)
+            self._active = False
             if self.phase != 0.0:
                 self.phase = 0.0
                 setattr(self._host, "_marquee_phase", 0.0)
@@ -110,7 +172,10 @@ class MarqueeDriver(QObject):
     def _tick(self) -> None:
         elapsed_ms = self._clock.restart()
         if elapsed_ms <= 0:
-            elapsed_ms = max(1, int(self._timer.interval()))
+            elapsed_ms = max(1, int(self._interval_ms))
+        # if the driver was just (re)started, elapsed may be huge on first tick
+        # after a long idle — clamp to 2 intervals to avoid a jump
+        elapsed_ms = min(elapsed_ms, self._interval_ms * 2)
         self.phase += (self._speed * elapsed_ms) / 1000.0
         setattr(self._host, "_marquee_phase", self.phase)
         if self._on_tick is not None:

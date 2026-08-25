@@ -87,6 +87,12 @@ class _CanvasEditingApi:
             self._cursor = (line, col + len(text))
 
     def _after_edit(self) -> None:
+        inv = getattr(self, "_invalidate_token_cache", None)
+        if callable(inv):
+            try:
+                inv()
+            except Exception:
+                pass
         self._sync_height()
         self.changed.emit()
         self.update()
@@ -173,6 +179,12 @@ class _CanvasEditingApi:
             return
         text, cursor = self._undo.pop()
         self._lines = text.split("\n") if text else [""]
+        inv = getattr(self, "_invalidate_token_cache", None)
+        if callable(inv):
+            try:
+                inv()
+            except Exception:
+                pass
         self._cursor = cursor
         self._selection.clear()
         self._chain_selecting = None

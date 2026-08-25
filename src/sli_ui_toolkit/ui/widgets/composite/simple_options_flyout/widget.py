@@ -471,13 +471,11 @@ class SimpleOptionsFlyout(BaseFlyout):
             if w is not None and not w.isActiveWindow():
                 w.activateWindow()
 
-        QApplication.processEvents()
-
         if exact_width_match:
             actual_width_after = self.width()
             if actual_width_after != total_width:
                 logger.warning(
-                    f"SimpleOptionsFlyout.show_below: Width changed after processEvents! "
+                    f"SimpleOptionsFlyout.show_below: Width changed after show! "
                     f"Before={total_width}, After={actual_width_after}, anchor_width={anchor_width}"
                 )
                 self.setFixedSize(total_width, total_height)
@@ -542,18 +540,6 @@ SimpleOptionsFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
-SimpleOptionsFlyout.widget_descriptor = WidgetDescriptor(
-    family=SimpleOptionsFlyout.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(SimpleOptionsFlyout.inspect_spec, 'config', ()),
-        state=SimpleOptionsFlyout.inspect_spec.state,
-        token_family=getattr(SimpleOptionsFlyout.inspect_spec, 'token_family', ()),
-        regions=getattr(SimpleOptionsFlyout.inspect_spec, 'regions', False),
-        layers=getattr(SimpleOptionsFlyout.inspect_spec, 'layers', False),
-        docs=getattr(SimpleOptionsFlyout.inspect_spec, 'docs', ''),
-        preview_seed=getattr(SimpleOptionsFlyout.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(SimpleOptionsFlyout.inspect_spec, 'apply_config_refresh', None),
-    ),
-)
+SimpleOptionsFlyout.widget_descriptor = WidgetDescriptor.from_spec(SimpleOptionsFlyout.inspect_spec)

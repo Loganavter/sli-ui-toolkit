@@ -9,6 +9,7 @@ from sli_ui_toolkit.i18n import get_current_language, tr, translation_events
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.timings import SWITCH_HOVER_DURATION_MS, SWITCH_PROGRESS_DURATION_MS
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 class Switch(QWidget):
@@ -44,11 +45,11 @@ class Switch(QWidget):
         self._initialize_translations()
 
         self._anim = QPropertyAnimation(self, b"progress", self)
-        self._anim.setDuration(160)
+        self._anim.setDuration(SWITCH_PROGRESS_DURATION_MS)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         self._hover_anim = QPropertyAnimation(self, b"hover", self)
-        self._hover_anim.setDuration(120)
+        self._hover_anim.setDuration(SWITCH_HOVER_DURATION_MS)
         self._hover_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         self._theme.theme_changed.connect(self.update)
@@ -280,12 +281,9 @@ class Switch(QWidget):
 
     @classmethod
     def _lerp_color(cls, c1: QColor, c2: QColor, t: float) -> QColor:
-        return QColor(
-            int(cls._lerp(c1.red(), c2.red(), t)),
-            int(cls._lerp(c1.green(), c2.green(), t)),
-            int(cls._lerp(c1.blue(), c2.blue(), t)),
-            int(cls._lerp(c1.alpha(), c2.alpha(), t)),
-        )
+        from sli_ui_toolkit.ui.widgets.helpers.color import lerp_color
+
+        return lerp_color(c1, c2, t)
 
     def _animate_to_state(self, checked: bool):
         target = 1.0 if checked else 0.0
@@ -322,15 +320,5 @@ Switch.inspect_spec = InspectSpec(
     docs='docs/user/INPUTS_API.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
-Switch.widget_descriptor = WidgetDescriptor(
-    family=Switch.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(Switch.inspect_spec, 'config', ()),
-        state=Switch.inspect_spec.state,
-        token_family=getattr(Switch.inspect_spec, 'token_family', ()),
-        regions=getattr(Switch.inspect_spec, 'regions', False),
-        layers=getattr(Switch.inspect_spec, 'layers', False),
-        docs=getattr(Switch.inspect_spec, 'docs', ''),
-    ),
-)
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+Switch.widget_descriptor = WidgetDescriptor.from_spec(Switch.inspect_spec)

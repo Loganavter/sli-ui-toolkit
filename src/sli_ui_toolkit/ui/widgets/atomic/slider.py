@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QSlider
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.timings import SLIDER_INNER_DURATION_MS
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 
 TrackPainter = Callable[[QPainter, QRectF], None]
@@ -66,7 +67,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         self._show_value_fill = bool(show_value_fill)
         self._inner_scale_current = 0.50
         self._inner_anim = QPropertyAnimation(self, b"innerScale", self)
-        self._inner_anim.setDuration(140)
+        self._inner_anim.setDuration(SLIDER_INNER_DURATION_MS)
         self._inner_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         self.theme_manager = ThemeManager.get_instance()
@@ -476,15 +477,5 @@ Slider.inspect_spec = InspectSpec(
     docs='docs/user/INPUTS_API.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
-Slider.widget_descriptor = WidgetDescriptor(
-    family=Slider.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(Slider.inspect_spec, 'config', ()),
-        state=Slider.inspect_spec.state,
-        token_family=getattr(Slider.inspect_spec, 'token_family', ()),
-        regions=getattr(Slider.inspect_spec, 'regions', False),
-        layers=getattr(Slider.inspect_spec, 'layers', False),
-        docs=getattr(Slider.inspect_spec, 'docs', ''),
-    ),
-)
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+Slider.widget_descriptor = WidgetDescriptor.from_spec(Slider.inspect_spec)

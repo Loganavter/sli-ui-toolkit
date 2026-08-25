@@ -229,18 +229,6 @@ IconActionFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
-IconActionFlyout.widget_descriptor = WidgetDescriptor(
-    family=IconActionFlyout.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(IconActionFlyout.inspect_spec, 'config', ()),
-        state=IconActionFlyout.inspect_spec.state,
-        token_family=getattr(IconActionFlyout.inspect_spec, 'token_family', ()),
-        regions=getattr(IconActionFlyout.inspect_spec, 'regions', False),
-        layers=getattr(IconActionFlyout.inspect_spec, 'layers', False),
-        docs=getattr(IconActionFlyout.inspect_spec, 'docs', ''),
-        preview_seed=getattr(IconActionFlyout.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(IconActionFlyout.inspect_spec, 'apply_config_refresh', None),
-    ),
-)
+IconActionFlyout.widget_descriptor = WidgetDescriptor.from_spec(IconActionFlyout.inspect_spec)

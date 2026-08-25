@@ -294,16 +294,18 @@ class _LinkLabel(Label):
     def paintEvent(self, event) -> None:  # noqa: N802
         super().paintEvent(event)
         if getattr(self, "_keyboard_focus", False) and self.hasFocus():
+            import logging as _logging
+
             from PySide6.QtGui import QColor, QPen, QPainter
 
-            try:
-                from sli_ui_toolkit.theme import ThemeManager
+            from sli_ui_toolkit.theme import ThemeManager
 
-                c = ThemeManager.get_instance().get_color("accent")
-                if not isinstance(c, QColor):
-                    c = QColor(c) if c is not None else QColor("#3b82f6")
-            except Exception:
-                c = QColor("#3b82f6")
+            tm = ThemeManager.get_instance()
+            accent = tm.try_get_color("accent")
+            if accent is not None and accent.isValid():
+                c = QColor(accent)
+            else:
+                c = QColor(tm.get_color("accent"))
             try:
                 c.setAlpha(220)
             except Exception:

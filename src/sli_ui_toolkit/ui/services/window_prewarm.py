@@ -24,9 +24,7 @@ def prewarm_widget_window(
     widget.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
     try:
         widget.show()
-        app.processEvents()
         widget.repaint()
-        app.processEvents()
         widget.hide()
     finally:
         widget.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)

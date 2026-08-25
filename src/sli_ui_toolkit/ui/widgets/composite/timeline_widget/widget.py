@@ -159,6 +159,7 @@ class TimelineWidget(QWidget):
             interval_ms=SettleGate.DEFAULT_INTERVAL_MS,
             parent=self,
         )
+        self._needs_fit_view = False
 
         self._snapshots = snapshots if snapshots else []
         self._duration = (
@@ -202,7 +203,8 @@ class TimelineWidget(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._bind_host_scrollbar()
-        QTimer.singleShot(50, self.fit_view)
+        self._needs_fit_view = True
+        self._layout_settle.ping()
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
@@ -490,6 +492,10 @@ class TimelineWidget(QWidget):
         self.update()
 
     def _on_layout_settle(self):
+        if getattr(self, "_needs_fit_view", False):
+            self._needs_fit_view = False
+            self.fit_view()
+            return
         timeline_viewport.update_fixed_width(self)
 
     def wheelEvent(self, event):
@@ -636,18 +642,6 @@ TimelineWidget.inspect_spec = InspectSpec(
     docs='docs/user/API_CATALOG.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
-TimelineWidget.widget_descriptor = WidgetDescriptor(
-    family=TimelineWidget.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(TimelineWidget.inspect_spec, 'config', ()),
-        state=TimelineWidget.inspect_spec.state,
-        token_family=getattr(TimelineWidget.inspect_spec, 'token_family', ()),
-        regions=getattr(TimelineWidget.inspect_spec, 'regions', False),
-        layers=getattr(TimelineWidget.inspect_spec, 'layers', False),
-        docs=getattr(TimelineWidget.inspect_spec, 'docs', ''),
-        preview_seed=getattr(TimelineWidget.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(TimelineWidget.inspect_spec, 'apply_config_refresh', None),
-    ),
-)
+TimelineWidget.widget_descriptor = WidgetDescriptor.from_spec(TimelineWidget.inspect_spec)

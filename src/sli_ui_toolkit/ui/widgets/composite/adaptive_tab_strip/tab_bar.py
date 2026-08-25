@@ -507,7 +507,14 @@ class _AdaptiveTabBar(QWidget):
             if ring.width() > 0 and ring.height() > 0:
                 path = QPainterPath()
                 path.addRoundedRect(ring, design_radius, design_radius)
-                color = QColor(palette.get("accent", "#3daee9"))
+                accent_raw = palette.get("accent")
+                if accent_raw is None:
+                    from sli_ui_toolkit.theme import ThemeManager as _TM
+
+                    tm2 = _TM.get_instance()
+                    accent_c = tm2.try_get_color("accent")
+                    accent_raw = accent_c.name() if accent_c is not None and accent_c.isValid() else tm2.get_color("accent").name()
+                color = QColor(accent_raw)
                 color.setAlpha(220)
                 painter.save()
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -592,7 +599,12 @@ class _AdaptiveTabBar(QWidget):
             0,
             self._SELECTED_SHADOW_OFFSET + self._SELECTED_SHADOW_SPREAD,
         )
-        painter.setBrush(QColor(0, 0, 0, 55))
+        base = ThemeManager.get_instance().try_get_color("shadow.color")
+        if base is None or not base.isValid():
+            base = QColor(0, 0, 0)
+        soft = QColor(base.red(), base.green(), base.blue(), 55)
+        core = QColor(base.red(), base.green(), base.blue(), 125)
+        painter.setBrush(soft)
         painter.drawRoundedRect(soft_rect, scaled_px(self._RADIUS), scaled_px(self._RADIUS))
         core_rect = QRectF(rect).adjusted(
             1,
@@ -600,21 +612,37 @@ class _AdaptiveTabBar(QWidget):
             -1,
             self._SELECTED_SHADOW_OFFSET,
         )
-        painter.setBrush(QColor(0, 0, 0, 125))
+        painter.setBrush(core)
         painter.drawRoundedRect(core_rect, scaled_px(self._RADIUS) - 1, scaled_px(self._RADIUS) - 1)
         painter.restore()
 
     def _palette(self) -> dict[str, str]:
         theme = ThemeManager.get_instance()
+        from PySide6.QtWidgets import QApplication
 
-        def color(token: str, fallback: str) -> str:
+        app_palette = QApplication.instance().palette() if QApplication.instance() else None
+
+        def color(token: str, fallback_role) -> str:  # type: ignore[no-untyped-def]
             value = theme.try_get_color(token)
-            return value.name() if value is not None and value.isValid() else fallback
+            if value is not None and value.isValid():
+                return value.name()
+            # Palette defaults (theme-aware) instead of hard light hexes
+            if app_palette is not None:
+                try:
+                    return app_palette.color(fallback_role).name()
+                except Exception:
+                    pass
+            fallback_val = theme.try_get_color(token)
+            if fallback_val is not None and fallback_val.isValid():
+                return fallback_val.name()
+            return QColor("#000000").name()
+
+        from PySide6.QtGui import QPalette
 
         return {
-            "strip": color("button.toggle.background.normal", "#f0f0f0"),
-            "background": color("Window", "#ffffff"),
-            "border": color("separator.color", "#e5e5e5"),
-            "hover": color("button.toggle.background.hover", "#e6e6e6"),
-            "text": color("WindowText", "#1f1f1f"),
+            "strip": color("button.toggle.background.normal", QPalette.ColorRole.Window),
+            "background": color("Window", QPalette.ColorRole.Base),
+            "border": color("separator.color", QPalette.ColorRole.Mid),
+            "hover": color("button.toggle.background.hover", QPalette.ColorRole.AlternateBase),
+            "text": color("WindowText", QPalette.ColorRole.WindowText),
         }

@@ -292,19 +292,8 @@ SpinBox.inspect_spec = InspectSpec(
     docs='docs/user/INPUTS_API.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
-SpinBox.widget_descriptor = WidgetDescriptor(
-    family=SpinBox.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(SpinBox.inspect_spec, 'config', ()),
-        state=SpinBox.inspect_spec.state,
-        token_family=getattr(SpinBox.inspect_spec, 'token_family', ()),
-        regions=getattr(SpinBox.inspect_spec, 'regions', False),
-        layers=getattr(SpinBox.inspect_spec, 'layers', False),
-        docs=getattr(SpinBox.inspect_spec, 'docs', ''),
-    ),
-)
-
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+SpinBox.widget_descriptor = WidgetDescriptor.from_spec(SpinBox.inspect_spec)
 DoubleSpinBox.inspect_spec = InspectSpec(
     family="DoubleSpinBox",
     state=(
@@ -318,14 +307,4 @@ DoubleSpinBox.inspect_spec = InspectSpec(
     docs='docs/user/INPUTS_API.md',
 )
 
-DoubleSpinBox.widget_descriptor = WidgetDescriptor(
-    family=DoubleSpinBox.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(DoubleSpinBox.inspect_spec, 'config', ()),
-        state=DoubleSpinBox.inspect_spec.state,
-        token_family=getattr(DoubleSpinBox.inspect_spec, 'token_family', ()),
-        regions=getattr(DoubleSpinBox.inspect_spec, 'regions', False),
-        layers=getattr(DoubleSpinBox.inspect_spec, 'layers', False),
-        docs=getattr(DoubleSpinBox.inspect_spec, 'docs', ''),
-    ),
-)
+DoubleSpinBox.widget_descriptor = WidgetDescriptor.from_spec(DoubleSpinBox.inspect_spec)

@@ -104,12 +104,18 @@ class _FlyoutStyleApi:
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        shadow = self._shadow_color
+        if shadow is None:
+            try:
+                shadow = self.theme_manager.try_get_color("shadow.color")  # type: ignore[attr-defined]
+            except Exception:
+                shadow = None
         paint_shadowed_surface(
             painter,
             self.container.geometry(),
             shadow_radius=self.SHADOW_RADIUS,
             corner_radius=self.CONTENT_RADIUS,
-            shadow_color=self._shadow_color,
+            shadow_color=shadow,
         )
         rect = QRectF(self.container.geometry())
         stroke_rect = rect.adjusted(0.5, 0.5, -0.5, -0.5)

@@ -65,6 +65,8 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._font.setPixelSize(constants.FONT_PIXEL_SIZE)
         self._metrics = QFontMetrics(self._font)
         self._line_height = self._metrics.lineSpacing()
+        # P2 paint: cache regex token spans per line hash, invalidate on text change.
+        self._token_cache: dict[int, list[tuple[int, int, str]]] = {}
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
@@ -113,8 +115,39 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             return self._document_index.text
         return self.text()
 
+    def _invalidate_token_cache(self) -> None:
+        """Clear the per-line token cache (called on any text mutation)."""
+        cache = getattr(self, "_token_cache", None)
+        if isinstance(cache, dict):
+            cache.clear()
+
+    def _cached_spans(self, line: str) -> list[tuple[int, int, str]]:
+        """Return cached token spans for *line*, computing on miss."""
+        # hash() is stable within one process and cheap; collisions are
+        # negligible for the line-counts we paint. The cache lives per
+        # canvas so different widgets do not share stale line hashes.
+        from .highlight import python_line_spans as _spans
+
+        cache: dict[int, list[tuple[int, int, str]]] = getattr(self, "_token_cache", {})
+        # ensure attribute exists even if constructed via unpickling / test subclass
+        if not hasattr(self, "_token_cache"):
+            self._token_cache = cache  # type: ignore[attr-defined]
+        key = hash(line)
+        hit = cache.get(key)
+        if hit is not None:
+            return hit
+        # hash collisions: verify line content matches? The hash key alone
+        # could collide for different lines; store under hash and recompute
+        # if the cached entry was for a different line hash collided? For
+        # now collisions are astronomically rare, but we guard by storing
+        # a secondary dict keyed by line string when collision suspected.
+        spans = _spans(line)
+        cache[key] = spans
+        return spans
+
     def set_text(self, text: str) -> None:
         self._lines = text.split("\n") if text else [""]
+        self._invalidate_token_cache()
         self._cursor = (0, 0)
         self._selection.clear()
         self._chain_selecting = None

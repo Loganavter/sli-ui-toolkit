@@ -219,18 +219,6 @@ TextView.inspect_spec = InspectSpec(
     docs="docs/user/TEXT_VIEW_API.md",
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
-TextView.widget_descriptor = WidgetDescriptor(
-    family=TextView.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(TextView.inspect_spec, 'config', ()),
-        state=TextView.inspect_spec.state,
-        token_family=getattr(TextView.inspect_spec, 'token_family', ()),
-        regions=getattr(TextView.inspect_spec, 'regions', False),
-        layers=getattr(TextView.inspect_spec, 'layers', False),
-        docs=getattr(TextView.inspect_spec, 'docs', ''),
-        preview_seed=getattr(TextView.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(TextView.inspect_spec, 'apply_config_refresh', None),
-    ),
-)
+TextView.widget_descriptor = WidgetDescriptor.from_spec(TextView.inspect_spec)

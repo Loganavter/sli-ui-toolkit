@@ -33,14 +33,44 @@ from .layers import (
 from .layers._base import Layer
 
 
+_CTX_CACHE: dict[int, DrawContext] = {}
+_REGION_ORDER_CACHE: dict[int, list] = {}
+
+
+def _ctx_cache_key(button) -> tuple:
+    # Includes fields that affect DrawContext besides painter/rect; state is the hot path.
+    return (
+        id(button),
+        frozenset(button._states),
+        button._variant,
+        button._corner_radius_px,
+        button._icon_size_px,
+        button._badge,
+        button._show_underline,
+        button._is_footer,
+        getattr(button, "_hovered_region", None),
+        getattr(button, "_bg_locked", False),
+    )
+
+
 def make_draw_context(button, qpainter: QPainter) -> DrawContext:
     """``DrawContext`` for the button's own paint pass, from its live state."""
+    # P2: cache DrawContext per button state (excluding painter/rect)
+    key = _ctx_cache_key(button)
+    cached = getattr(button, "_draw_ctx_cache", None)
+    if isinstance(cached, dict):
+        hit = cached.get(key)
+        if hit is not None:
+            # Reuse cached variant/content etc, only swap painter+rect (paint-specific)
+            from dataclasses import replace as _replace
+
+            return _replace(hit, painter=qpainter, rect=QRectF(button.rect()), widget=button)
     # corner_radius_px is design px — scale at the paint boundary so a
     # circular swatch stays circular when the widget itself scales
     # (sizeHint/setFixedSize already use scaled_px, so a raw radius here
     # would round a 42px circle down to a 14px-corner square).
     scaled_radius = max(0, scaled_px(button._corner_radius_px))
-    return DrawContext(
+    ctx = DrawContext(
         widget=button,
         painter=qpainter,
         rect=QRectF(button.rect()),
@@ -74,6 +104,17 @@ def make_draw_context(button, qpainter: QPainter) -> DrawContext:
         gap_px=button._gap_px,
         content_align=button._content_align,
     )
+    if not isinstance(cached, dict):
+        try:
+            button._draw_ctx_cache = {}  # type: ignore[attr-defined]
+            cached = button._draw_ctx_cache  # type: ignore[attr-defined]
+        except Exception:
+            return ctx
+    # bound cache size per button
+    if len(cached) > 32:
+        cached.clear()
+    cached[key] = ctx
+    return ctx
 
 
 def iter_button_regions(button, ctx: DrawContext):
@@ -81,10 +122,21 @@ def iter_button_regions(button, ctx: DrawContext):
     if not button._controller.rects:
         button._controller.recompute_rects()
         button._sync_region_aliases()
-    ordered_regions = sorted(
-        enumerate(button._controller.regions),
-        key=lambda item: (item[1].z_index, item[0]),
-    )
+    # P2: cache region z-order sort (invalidate when regions list identity changes)
+    cache = getattr(button, "_region_order_cache", None)
+    # regions list object identity changes on set_regions/set_spec
+    regions_id = id(button._controller.regions)
+    if isinstance(cache, dict) and cache.get("id") == regions_id and "order" in cache:
+        ordered_regions = cache["order"]
+    else:
+        ordered_regions = sorted(
+            enumerate(button._controller.regions),
+            key=lambda item: (item[1].z_index, item[0]),
+        )
+        try:
+            button._region_order_cache = {"id": regions_id, "order": ordered_regions}  # type: ignore[attr-defined]
+        except Exception:
+            pass
     for _index, region in ordered_regions:
         rect = button._controller.rects.get(region.id)
         if rect is None:

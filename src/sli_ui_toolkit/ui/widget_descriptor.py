@@ -117,6 +117,11 @@ class WidgetDescriptor:
             ),
         )
 
+    @classmethod
+    def from_spec(cls, spec: Any) -> WidgetDescriptor:
+        """Alias for ``from_inspect_spec`` — short form for boilerplate replacement."""
+        return cls.from_inspect_spec(spec)
+
 
 # ------------------------------------------------------------------
 # Global registry

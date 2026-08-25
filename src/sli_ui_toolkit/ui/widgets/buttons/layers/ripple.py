@@ -27,13 +27,9 @@ from ._base import Layer
 
 
 def _lerp_color(a: QColor, b: QColor, t: float) -> QColor:
-    t = max(0.0, min(1.0, t))
-    return QColor(
-        int(a.red() + (b.red() - a.red()) * t),
-        int(a.green() + (b.green() - a.green()) * t),
-        int(a.blue() + (b.blue() - a.blue()) * t),
-        int(a.alpha() + (b.alpha() - a.alpha()) * t),
-    )
+    from sli_ui_toolkit.ui.widgets.helpers.color import lerp_color
+
+    return lerp_color(a, b, t)
 
 
 class RippleEffect:
@@ -210,10 +206,7 @@ class RippleLayer(Layer):
             p.drawEllipse(center, radius, radius)
         else:
             # Overlay-mode: полупрозрачная тёмная/светлая прослойка, как M3-state-layer.
-            try:
-                is_dark = tm.is_dark()
-            except Exception:
-                is_dark = False
+            is_dark = tm.is_dark()
             peak = (
                 RippleEffect.PEAK_ALPHA_DARK if is_dark else RippleEffect.PEAK_ALPHA_LIGHT
             )

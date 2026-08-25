@@ -8,43 +8,72 @@ override wins, same trick as ``base_flyout``.
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QRect
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPaintEvent
 
 from sli_ui_toolkit.theme import ThemeManager
 
 from . import constants
 from .document import paint_layout
-from .highlight import python_line_spans, python_span_colors
+from .highlight import python_span_colors
 from .painter import draw_text_line
+
+logger = logging.getLogger(__name__)
 
 
 class _CanvasPaintApi:
     _FOLD_ARROW = "▸"  # ▸
 
-    def paintEvent(self, _event) -> None:  # noqa: N802
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        # P2: honor event.rect() clipping — only paint exposed lines
+        exposed = event.rect() if event is not None else self.rect()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "[paint] TextCanvas paintEvent exposed=%s total_lines=%s",
+                exposed,
+                len(getattr(self, "_lines", [])),
+            )
         if self._document_layout is not None:
-            self._paint_document()
+            self._paint_document(event)
             return
         painter = QPainter(self)
+        # Clip to the exposed rect so Qt can skip off-screen work even if
+        # a layer accidentally draws outside the dirty region.
+        painter.setClipRect(exposed)
         tm = ThemeManager.get_instance()
         foreground = tm.try_get_color("WindowText")
         if foreground is None or not foreground.isValid():
             foreground = QColor(0, 0, 0)
-        self._paint_gutter(painter, foreground)
+        # Gutter is narrow; painting it for clipped lines still needs correct y.
+        # We paint only exposed gutter lines below.
         colors = python_span_colors(tm)
         selection_color = QColor(tm.try_get_color("accent") or QColor(0, 0, 0))
         selection_color.setAlpha(70)
-        y = constants.PAD + self._metrics.ascent()
-        for line_index, line in enumerate(self._lines):
+        # Compute visible line range from exposed rect
+        first_line = max(0, (exposed.top() - constants.PAD) // max(1, self._line_height))
+        last_line = min(
+            len(self._lines) - 1,
+            (exposed.bottom() - constants.PAD) // max(1, self._line_height),
+        )
+        # Gutter: only visible numbers, but separator for whole height (cheap line)
+        self._paint_gutter(painter, foreground, first_line, last_line)
+        y0 = constants.PAD + self._metrics.ascent() + first_line * self._line_height
+        y = y0
+        for line_index in range(first_line, last_line + 1):
+            line = self._lines[line_index]
             self._paint_line(
                 painter, y, line, line_index, foreground, colors, selection_color
             )
             y += self._line_height
-        self._paint_fold_arrows(painter, foreground)
+        # Fold arrows only for visible indices (cheap, but keep symmetric)
+        self._paint_fold_arrows(painter, foreground, first_line, last_line)
 
-    def _paint_document(self) -> None:
+    def _paint_document(self, event: QPaintEvent | None = None) -> None:
         painter = QPainter(self)  # type: ignore[call-overload]
+        if event is not None:
+            painter.setClipRect(event.rect())
         painter.translate(constants.PAD, constants.PAD)
         selection_start = selection_end = None
         rng = self._doc_selection.paint_range()
@@ -66,7 +95,13 @@ class _CanvasPaintApi:
             return 0
         return self._metrics.horizontalAdvance(self._FOLD_ARROW) + 4
 
-    def _paint_fold_arrows(self, painter: QPainter, foreground: QColor) -> None:
+    def _paint_fold_arrows(
+        self,
+        painter: QPainter,
+        foreground: QColor,
+        first_line: int | None = None,
+        last_line: int | None = None,
+    ) -> None:
         """VS Code-style disclosure arrows: in the gutter, left of the line
         number, inside the reserved constant offset."""
         if not self._fold_lines:
@@ -75,16 +110,26 @@ class _CanvasPaintApi:
         color.setAlpha(150)
         painter.setPen(color)
         painter.setFont(self._font)
-        y = constants.PAD + self._metrics.ascent()
-        for index in sorted(self._fold_lines):
+        if first_line is not None and last_line is not None:
+            indices = [i for i in sorted(self._fold_lines) if first_line <= i <= last_line]
+        else:
+            indices = sorted(self._fold_lines)
+        for index in indices:
             if 0 <= index < len(self._lines):
+                y = constants.PAD + self._metrics.ascent() + index * self._line_height
                 painter.drawText(
                     constants.GUTTER_PAD,
-                    y + index * self._line_height,
+                    y,
                     self._FOLD_ARROW,
                 )
 
-    def _paint_gutter(self, painter: QPainter, foreground: QColor) -> None:
+    def _paint_gutter(
+        self,
+        painter: QPainter,
+        foreground: QColor,
+        first_line: int | None = None,
+        last_line: int | None = None,
+    ) -> None:
         """VS Code-style line-number gutter (only when a start is set):
         right-aligned muted numbers + a thin separator on its right edge."""
         if self._line_number_start is None:
@@ -95,13 +140,22 @@ class _CanvasPaintApi:
         separator = QColor(foreground)
         separator.setAlpha(50)
         painter.setFont(self._font)
-        y = constants.PAD + self._metrics.ascent()
-        for index, _line in enumerate(self._lines):
-            number = self._gutter_text(index)
-            num_width = self._metrics.horizontalAdvance(number)
-            painter.setPen(text_color)
-            painter.drawText(width - constants.GUTTER_PAD - num_width, y, number)
-            y += self._line_height
+        if first_line is not None and last_line is not None:
+            y = constants.PAD + self._metrics.ascent() + first_line * self._line_height
+            for index in range(first_line, last_line + 1):
+                number = self._gutter_text(index)
+                num_width = self._metrics.horizontalAdvance(number)
+                painter.setPen(text_color)
+                painter.drawText(width - constants.GUTTER_PAD - num_width, y, number)
+                y += self._line_height
+        else:
+            y = constants.PAD + self._metrics.ascent()
+            for index, _line in enumerate(self._lines):
+                number = self._gutter_text(index)
+                num_width = self._metrics.horizontalAdvance(number)
+                painter.setPen(text_color)
+                painter.drawText(width - constants.GUTTER_PAD - num_width, y, number)
+                y += self._line_height
         painter.setPen(separator)
         painter.drawLine(width - 1, 0, width - 1, self.height())
 
@@ -124,12 +178,21 @@ class _CanvasPaintApi:
                     QRect(x0, y - self._metrics.ascent(), x1 - x0, self._line_height),
                     selection_color,
                 )
+        # P2: cached token spans per line hash (invalidate on text change)
+        cached = getattr(self, "_cached_spans", None)
+        if callable(cached):
+            spans = cached(line)  # type: ignore[operator]
+        else:
+            # Fallback import kept for tests that instantiate the mixin without TextCanvas
+            from .highlight import python_line_spans as _fallback
+
+            spans = _fallback(line)
         draw_text_line(
             painter,
             self._text_x(),
             y,
             line,
-            python_line_spans(line),
+            spans,
             base_color,
             colors,
             self._font,

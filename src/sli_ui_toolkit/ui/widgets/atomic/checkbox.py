@@ -1,23 +1,16 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
-from PySide6.QtCore import (
-    QEasingCurve,
-    QPointF,
-    QPropertyAnimation,
-    QRectF,
-    QSize,
-    Qt,
-    Property,
-)
+from PySide6.QtCore import QEasingCurve, QPointF, QPropertyAnimation, QRectF, QSize, Qt, Property
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
 
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
-from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.timings import CHECKED_DURATION_MS
 from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+from sli_ui_toolkit.ui.widgets.atomic._indicator_button import _IndicatorButtonBase
 
 
 class _CheckIndicatorLayer(Layer):
@@ -150,7 +143,7 @@ class _CheckIndicatorLayer(Layer):
             )
 
 
-class CheckBox(Button):
+class CheckBox(_IndicatorButtonBase):
     """Checkbox toggle, built on the shared ``Button`` painter pipeline (was
     a standalone ``QCheckBox`` subclass — rebased so it picks up
     ``FocusLayer``'s keyboard-focus ring like every other toolkit control).
@@ -160,12 +153,7 @@ class CheckBox(Button):
     ``_checked`` is a plain bool.
     """
 
-    INDICATOR_SIZE = 20
     INDICATOR_RADIUS = 4
-    OUTLINE_WIDTH = 1
-    SPACING = 8
-    PADDING_H = 2
-    PADDING_V = 5
 
     CHECK_ROTATION_DEG = -21.0
     CHECK_STROKE_WIDTH = 1.1
@@ -179,37 +167,13 @@ class CheckBox(Button):
     CHECK_TOP_FACTOR = 0.55
 
     def __init__(self, text: str | None = None, parent=None):
-        super().__init__(
-            text=text or "",
-            toggle=True,
-            corner_radius=6,
-            layers=[_CheckIndicatorLayer(), FocusLayer()],
-            parent=parent,
-        )
-        self._hover_progress = 0.0
+        super().__init__(text=text or "", parent=parent, layers=[_CheckIndicatorLayer(), FocusLayer()])
+        # Hover anim already created by base; create checked anim
         self._checked_progress = 1.0 if self.isChecked() else 0.0
-
-        self._hover_anim = QPropertyAnimation(self, b"hoverProgress", self)
-        self._hover_anim.setDuration(120)
-        self._hover_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
         self._checked_anim = QPropertyAnimation(self, b"checkedProgress", self)
-        self._checked_anim.setDuration(150)
+        self._checked_anim.setDuration(CHECKED_DURATION_MS)
         self._checked_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
         self.toggled.connect(self._animate_checked)
-
-    def text(self) -> str:
-        return self._text
-
-    def get_hover_progress(self) -> float:
-        return self._hover_progress
-
-    def set_hover_progress(self, value: float):
-        self._hover_progress = max(0.0, min(1.0, float(value)))
-        self.update()
-
-    hoverProgress = Property(float, fget=get_hover_progress, fset=set_hover_progress)
 
     def get_checked_progress(self) -> float:
         return self._checked_progress
@@ -218,28 +182,7 @@ class CheckBox(Button):
         self._checked_progress = max(0.0, min(1.0, float(value)))
         self.update()
 
-    checkedProgress = Property(float, fget=get_checked_progress, fset=set_checked_progress)
-
-    def hoverHitTest(self, pos) -> bool:
-        # Button's own hoverHitTest is whole-widget-rect -- restrict to the
-        # indicator + text (HoverCoordinator drives hover reconciliation off
-        # this on every mouse move; empty trailing row space must read as a
-        # miss, see test_checkbox_hover_hit_test_ignores_empty_widget_area).
-        r = QRectF(self.rect())
-        ind = self._indicator_rect(r)
-        fm = QFontMetrics(paint_font(self))
-        tx = self._text_rect_content(r, ind, fm)
-        return ind.contains(pos) or tx.contains(pos)
-
-    def setHoverActive(self, active: bool) -> None:
-        super().setHoverActive(active)
-        self._animate_hover(bool(active))
-
-    def _animate_hover(self, hovered: bool):
-        self._hover_anim.stop()
-        self._hover_anim.setStartValue(self._hover_progress)
-        self._hover_anim.setEndValue(1.0 if hovered else 0.0)
-        self._hover_anim.start()
+    checkedProgress = Property(float, fget=get_checked_progress, fset=set_checked_progress)  # type: ignore[assignment]
 
     def _animate_checked(self, checked: bool) -> None:
         target = 1.0 if checked else 0.0
@@ -247,27 +190,6 @@ class CheckBox(Button):
         self._checked_anim.setStartValue(self._checked_progress)
         self._checked_anim.setEndValue(target)
         self._checked_anim.start()
-
-    def _indicator_rect(self, full_rect: QRectF) -> QRectF:
-        pad_h = scaled_px(self.PADDING_H)
-        size = scaled_px(self.INDICATOR_SIZE)
-        return QRectF(
-            full_rect.x() + pad_h,
-            full_rect.y() + (full_rect.height() - size) / 2,
-            size,
-            size,
-        )
-
-    def _text_rect_available(self, full_rect: QRectF, indicator_rect: QRectF) -> QRectF:
-        text_left = indicator_rect.right() + scaled_px(self.SPACING)
-        available_w = max(0.0, self.width() - text_left - scaled_px(self.PADDING_H))
-        return QRectF(text_left, full_rect.y(), available_w, full_rect.height())
-
-    def _text_rect_content(self, full_rect: QRectF, indicator_rect: QRectF, fm: QFontMetrics) -> QRectF:
-        avail = self._text_rect_available(full_rect, indicator_rect)
-        text = self._text or ""
-        content_w = min(avail.width(), float(fm.horizontalAdvance(text)))
-        return QRectF(avail.left(), avail.top(), content_w, avail.height())
 
     def sizeHint(self) -> QSize:
         fm = QFontMetrics(paint_font(self))
@@ -302,15 +224,5 @@ CheckBox.inspect_spec = InspectSpec(
     docs='docs/user/INPUTS_API.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
-CheckBox.widget_descriptor = WidgetDescriptor(
-    family=CheckBox.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(CheckBox.inspect_spec, 'config', ()),
-        state=CheckBox.inspect_spec.state,
-        token_family=getattr(CheckBox.inspect_spec, 'token_family', ()),
-        regions=getattr(CheckBox.inspect_spec, 'regions', False),
-        layers=getattr(CheckBox.inspect_spec, 'layers', False),
-        docs=getattr(CheckBox.inspect_spec, 'docs', ''),
-    ),
-)
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+CheckBox.widget_descriptor = WidgetDescriptor.from_spec(CheckBox.inspect_spec)

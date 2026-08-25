@@ -20,9 +20,15 @@ from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import dataclasses
+import logging
+import time
 from typing import Any
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+
+logger = logging.getLogger(__name__)
+_last_button_paint_error_ts: float = 0.0
+_BUTTON_PAINT_ERROR_THROTTLE_S = 5.0
 from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -779,9 +785,14 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             finally:
                 painter.restore()
                 painter.end()
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            global _last_button_paint_error_ts
+            now = time.monotonic()
+            if now - _last_button_paint_error_ts >= _BUTTON_PAINT_ERROR_THROTTLE_S:
+                _last_button_paint_error_ts = now
+                logger.exception("Button paint failed")
+            else:
+                logger.debug("Button paint failed (throttled)", exc_info=True)
 
 
 # Backwards-compat: ButtonRow re-exported from button module.
@@ -822,16 +833,6 @@ Button.inspect_spec = InspectSpec(
     docs="docs/user/BUTTON_API.md",
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
-Button.widget_descriptor = WidgetDescriptor(
-    family="Button",
-    inspect=InspectSection(
-        config=Button.inspect_spec.config,
-        state=Button.inspect_spec.state,
-        token_family=Button.inspect_spec.token_family,
-        regions=Button.inspect_spec.regions,
-        layers=Button.inspect_spec.layers,
-        docs=Button.inspect_spec.docs,
-    ),
-)
+Button.widget_descriptor = WidgetDescriptor.from_spec(Button.inspect_spec)

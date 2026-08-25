@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 
 from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QRegion
@@ -16,15 +15,10 @@ _sdbg_logger = logging.getLogger("sli_ui_toolkit.scrollbar")
 
 
 def _ensure_sdbg_handler() -> None:
-    if _sdbg_logger.handlers:
-        return
-    handler = logging.StreamHandler(sys.stderr)
-    handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s - [%(levelname)s] - (%(filename)s:%(lineno)d) - %(message)s"
-        )
-    )
-    _sdbg_logger.addHandler(handler)
+    # Rely on toolkit-wide logging configuration (core.logging) instead of
+    # installing a direct StreamHandler(sys.stderr) per widget. This avoids
+    # duplicate handlers and respects host logging setup. No-op for compat.
+    return
 
 
 def sdbg(message: str) -> None:
@@ -248,13 +242,18 @@ class OverlayScrollArea(QScrollArea):
         self._update_timer = QTimer(self)
         self._update_timer.setSingleShot(True)
         self._update_timer.timeout.connect(self._delayed_update_scrollbar)
+        # P2: debounce viewport mask rebuild (QPainterPath→QRegion→setMask)
+        self._mask_timer = QTimer(self)
+        self._mask_timer.setSingleShot(True)
+        self._mask_timer.timeout.connect(self._apply_viewport_mask)
+        self._mask_pending = False
         self.verticalScrollBar().valueChanged.connect(self.custom_v_scrollbar.setValue)
         self.custom_v_scrollbar.valueChanged.connect(self.verticalScrollBar().setValue)
         self.verticalScrollBar().rangeChanged.connect(self.custom_v_scrollbar.setRange)
         self.verticalScrollBar().rangeChanged.connect(lambda *_: self._sync_steps_from_native())
         self.custom_v_scrollbar.setVisible(False)
         self._sync_steps_from_native()
-        self._apply_viewport_mask()
+        self._queue_mask_update()
         self.viewport().installEventFilter(self)
 
     def setWidget(self, widget):
@@ -301,14 +300,21 @@ class OverlayScrollArea(QScrollArea):
         if self._corner_radius == radius:
             return
         self._corner_radius = radius
-        self._apply_viewport_mask()
+        self._queue_mask_update()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._position_scrollbar()
         self._sync_steps_from_native()
-        self._apply_viewport_mask()
+        self._queue_mask_update()
         self._queue_scrollbar_sync()
+
+    def _queue_mask_update(self) -> None:
+        # Coalesce rapid resizes — mask rebuild is expensive (path→region→setMask)
+        if self._mask_timer.isActive():
+            self._mask_pending = True
+            return
+        self._mask_timer.start(0)
 
     def _queue_scrollbar_sync(self):
         self._update_timer.start(0)
@@ -319,11 +325,15 @@ class OverlayScrollArea(QScrollArea):
             return
         if self._corner_radius <= 0:
             viewport.clearMask()
-            return
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(viewport.rect()), self._corner_radius, self._corner_radius)
-        region = QRegion(path.toFillPolygon().toPolygon())
-        viewport.setMask(region)
+        else:
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(viewport.rect()), self._corner_radius, self._corner_radius)
+            region = QRegion(path.toFillPolygon().toPolygon())
+            viewport.setMask(region)
+        # coalesced resize during the mask build → rebuild once more
+        if getattr(self, "_mask_pending", False):
+            self._mask_pending = False
+            self._mask_timer.start(0)
 
     def _sync_steps_from_native(self):
         native = self.verticalScrollBar()

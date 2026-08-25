@@ -239,18 +239,6 @@ ScrollableComboBox.inspect_spec = InspectSpec(
     docs='docs/user/INPUTS_API.md',
 )
 
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
-ScrollableComboBox.widget_descriptor = WidgetDescriptor(
-    family=ScrollableComboBox.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(ScrollableComboBox.inspect_spec, 'config', ()),
-        state=ScrollableComboBox.inspect_spec.state,
-        token_family=getattr(ScrollableComboBox.inspect_spec, 'token_family', ()),
-        regions=getattr(ScrollableComboBox.inspect_spec, 'regions', False),
-        layers=getattr(ScrollableComboBox.inspect_spec, 'layers', False),
-        docs=getattr(ScrollableComboBox.inspect_spec, 'docs', ''),
-        preview_seed=getattr(ScrollableComboBox.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(ScrollableComboBox.inspect_spec, 'apply_config_refresh', None),
-    ),
-)
+ScrollableComboBox.widget_descriptor = WidgetDescriptor.from_spec(ScrollableComboBox.inspect_spec)

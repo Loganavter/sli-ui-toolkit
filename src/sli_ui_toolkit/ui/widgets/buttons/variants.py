@@ -64,10 +64,7 @@ def default_resolve_bg(prefix: str) -> BackgroundResolver:
 
 
 def _ghost_resolve(states: StateSet, tm: ThemeManager) -> QColor:
-    try:
-        is_dark = tm.is_dark()
-    except Exception:
-        is_dark = False
+    is_dark = tm.is_dark()
     overlay = QColor(255, 255, 255) if is_dark else QColor(0, 0, 0)
     if ButtonState.PRESSED in states:
         overlay.setAlpha(31 if not is_dark else 41)

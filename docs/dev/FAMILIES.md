@@ -7,29 +7,29 @@ state is curated, token families are static hints overridden by live capture.
 
 | Family | Widget class(es) | File | Extras |
 |---|---|---|---|
-| Button | `Button` (+ all subclasses) | `ui/widgets/buttons/button.py` | regions, layers |
-| Label | `Label` | `ui/widgets/atomic/text_labels.py` | |
-| DropZoneLabel | `DropZoneLabel` | `ui/widgets/atomic/drop_zone_label.py` | |
-| Switch | `Switch` | `ui/widgets/atomic/switch.py` | |
-| Slider | `Slider` (incl. `ValueSlider` subclasses) | `ui/widgets/atomic/slider.py` | |
-| SpinBox | `SpinBox` | `ui/widgets/atomic/spinbox.py` | |
-| DoubleSpinBox | `DoubleSpinBox` | `ui/widgets/atomic/spinbox.py` | |
-| CustomLineEdit | `CustomLineEdit` (incl. `TimeLineEdit`) | `ui/widgets/atomic/custom_line_edit.py` | |
-| CheckBox | `CheckBox` | `ui/widgets/atomic/checkbox.py` | |
-| RadioButton | `RadioButton` | `ui/widgets/atomic/radio.py` | |
-| ComboBox | `ComboBox` | `ui/widgets/comboboxes/combo_box.py` | |
-| ScrollableComboBox | `ScrollableComboBox` | `ui/widgets/comboboxes/scrollable_combobox.py` | |
-| IconListWidget | `IconListWidget` (sidebar nav) | `ui/widgets/composite/sidebar_nav_list.py` | |
-| ListPanel | `ListPanel` | `ui/widgets/composite/list_panel.py` | |
-| AdaptiveTabStrip | `AdaptiveTabStrip` | `ui/widgets/composite/adaptive_tab_strip/widget.py` | |
-| BaseFlyout | `BaseFlyout` | `ui/widgets/composite/base_flyout/widget.py` | |
-| SimpleOptionsFlyout | `SimpleOptionsFlyout` | `ui/widgets/composite/simple_options_flyout.py` | |
-| IconActionFlyout | `IconActionFlyout` | `ui/widgets/composite/icon_action_flyout.py` | |
-| IndexedToggleFlyout | `IndexedToggleFlyout` | `ui/widgets/composite/indexed_toggle_flyout.py` | |
-| TimelineWidget | `TimelineWidget` | `ui/widgets/composite/timeline_widget/widget.py` | |
-| LoadingSpinner | `LoadingSpinner` | `ui/widgets/atomic/loading_spinner.py` | |
-| CustomGroupWidget | `CustomGroupWidget` | `ui/widgets/atomic/custom_group_widget.py` | |
-| ToastNotification | `ToastNotification` | `ui/widgets/composite/toast.py` | |
+| Button | `Button` (+ all subclasses) | `src/sli_ui_toolkit/ui/widgets/buttons/button.py` | regions, layers |
+| Label | `Label` | `src/sli_ui_toolkit/ui/widgets/atomic/text_labels.py` | |
+| DropZoneLabel | `DropZoneLabel` | `src/sli_ui_toolkit/ui/widgets/atomic/drop_zone_label.py` | |
+| Switch | `Switch` | `src/sli_ui_toolkit/ui/widgets/atomic/switch.py` | |
+| Slider | `Slider` (incl. `ValueSlider` subclasses) | `src/sli_ui_toolkit/ui/widgets/atomic/slider.py` | |
+| SpinBox | `SpinBox` | `src/sli_ui_toolkit/ui/widgets/atomic/spinbox.py` | |
+| DoubleSpinBox | `DoubleSpinBox` | `src/sli_ui_toolkit/ui/widgets/atomic/spinbox.py` | |
+| CustomLineEdit | `CustomLineEdit` (incl. `TimeLineEdit`) | `src/sli_ui_toolkit/ui/widgets/atomic/custom_line_edit.py` | |
+| CheckBox | `CheckBox` | `src/sli_ui_toolkit/ui/widgets/atomic/checkbox.py` | |
+| RadioButton | `RadioButton` | `src/sli_ui_toolkit/ui/widgets/atomic/radio.py` | |
+| ComboBox | `ComboBox` | `src/sli_ui_toolkit/ui/widgets/comboboxes/combo_box.py` | |
+| ScrollableComboBox | `ScrollableComboBox` | `src/sli_ui_toolkit/ui/widgets/comboboxes/scrollable_combobox.py` | |
+| IconListWidget | `IconListWidget` (sidebar nav) | `src/sli_ui_toolkit/ui/widgets/composite/sidebar_nav_list/widget.py` | |
+| ListPanel | `ListPanel` | `src/sli_ui_toolkit/ui/widgets/composite/list_panel/widget.py` | |
+| AdaptiveTabStrip | `AdaptiveTabStrip` | `src/sli_ui_toolkit/ui/widgets/composite/adaptive_tab_strip/widget.py` | |
+| BaseFlyout | `BaseFlyout` | `src/sli_ui_toolkit/ui/widgets/composite/base_flyout/widget.py` | |
+| SimpleOptionsFlyout | `SimpleOptionsFlyout` | `src/sli_ui_toolkit/ui/widgets/composite/simple_options_flyout/widget.py` | |
+| IconActionFlyout | `IconActionFlyout` | `src/sli_ui_toolkit/ui/widgets/composite/icon_action_flyout.py` | |
+| IndexedToggleFlyout | `IndexedToggleFlyout` | `src/sli_ui_toolkit/ui/widgets/composite/indexed_toggle_flyout.py` | |
+| TimelineWidget | `TimelineWidget` | `src/sli_ui_toolkit/ui/widgets/composite/timeline_widget/widget.py` | |
+| LoadingSpinner | `LoadingSpinner` | `src/sli_ui_toolkit/ui/widgets/atomic/loading_spinner.py` | |
+| CustomGroupWidget | `CustomGroupWidget` | `src/sli_ui_toolkit/ui/widgets/atomic/custom_group_widget.py` | |
+| ToastNotification | `ToastNotification` | `src/sli_ui_toolkit/ui/widgets/composite/toast/notification.py` | |
 
 App-side families (registered by the host app the same way): RatingListItem,
 ScrollValueButton, UnifiedListPicker, GlassHUD, InfoHUD, ZoomIndicator,
