@@ -935,20 +935,25 @@ def declare_navigation_rows(
     rows: list[QWidget | None],
     *,
     tag: str = "rows",
-) -> None:
+):
     """Один вызов вместо 15 строк _rows + _register_nav_section — для ЛЮБОГО виджета.
 
     Работает для тулбара, диалога настроек, панели, группы кнопок, любого
     контейнера с рядами виджетов. Не только тулбар — любой QWidget, который
     хочет Up/Down по рядам и Left/Right внутри ряда.
+
+    Returns the created ``ToolbarRowsSection`` so callers can keep a
+    reference for ``NavigationManager.unregister`` without reaching into
+    ``NavigationManager._sections`` (see cross-module review C6).
     """
     try:
         from sli_ui_toolkit.ui.managers.navigation_sections import ToolbarRowsSection
 
         section = ToolbarRowsSection(lambda: rows, tag=tag)
         NavigationManager.get_instance().register(owner, section)
+        return section
     except Exception:
-        pass
+        return None
 
 
 def declare_toolbar_navigation(
@@ -956,7 +961,7 @@ def declare_toolbar_navigation(
     rows: list[QWidget | None],
     *,
     tag: str = "toolbar",
-) -> None:
+):
     """Декларативный хелпер для тулбара/панели — обёртка над ``declare_navigation_rows``.
 
     Использует ``WidgetDescriptor.navigation`` + ``register_navigation`` путь
@@ -970,9 +975,11 @@ def declare_toolbar_navigation(
 
     Breaking API allowed — алиас к ``declare_navigation_rows`` с более явным именем
     для тулбаров (Phase 3 ``plan_navigation_simplification.md``).
+
+    Returns the created section for symmetry with ``declare_navigation_rows``.
     """
     # Keep single codepath — delegate to declare_navigation_rows so behavior stays identical
-    declare_navigation_rows(owner, rows, tag=tag)
+    return declare_navigation_rows(owner, rows, tag=tag)
 
 
 def auto_navigation(owner: QWidget, *, tag: str = "auto") -> None:
