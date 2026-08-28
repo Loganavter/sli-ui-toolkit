@@ -78,9 +78,9 @@ class _FlyoutLifecycleApi:
         # Caller stack is gated under flyout debug (SLI_FLYOUT_DEBUG /
         # IMGSLI_FLYOUT_DEBUG) — same flag as placement geometry. Previously
         # this was always-on WARNING, which drowned navigation logs.
+        # DIAGNOSTIC: always capture caller for duplicate-hide spams (file.settings → dialog)
+        _caller = "".join(traceback.format_stack()[-5:-3])
         if _flyout_debug_enabled():
-            import traceback
-
             logger.warning(
                 "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s\nCaller:\n%s",
                 type(self).__name__, id(self),
@@ -88,11 +88,13 @@ class _FlyoutLifecycleApi:
                 self._fade.should_fade_out(self),
                 "".join(traceback.format_stack()[:-2]),
             )
-        logger.debug(
-            "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s",
+        # Use ImproveImgSLI logger so it shows with host --debug even without SLI_FLYOUT_DEBUG
+        logging.getLogger("ImproveImgSLI").debug(
+            "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s caller=%s",
             type(self).__name__, id(self),
             self._fade.hide_fade_in_progress,
             self._fade.should_fade_out(self),
+            _caller.strip(),
         )
         fm = getattr(self, "flyout_manager", None)
         if fm is not None:
@@ -100,6 +102,11 @@ class _FlyoutLifecycleApi:
 
         if self._fade.hide_fade_in_progress:
             # Already fading out; _on_hide_fade_finished does the real hide.
+            logging.getLogger("ImproveImgSLI").debug(
+                "[flyout-nav] hide() duplicate-suppressed id=%s caller=%s",
+                id(self),
+                _caller.strip(),
+            )
             return
         if self._fade.should_fade_out(self):
             # Guard must be removed before the fade — otherwise every

@@ -144,11 +144,25 @@ class FlyoutFadeController:
 
     def should_fade_out(self, flyout: QWidget) -> bool:
         if not flyout.isVisible():
+            logger.debug(
+                "[flyout-fade] should_fade_out %s id=%s → False (not visible) fade_out_enabled=%s opacity=%.2f",
+                type(flyout).__name__, id(flyout), self.fade_out_enabled, self.opacity,
+            )
             return False
         result = bool(self.fade_out_enabled)
+        import traceback
+
+        _caller = "".join(traceback.format_stack()[-4:-2])
         logger.debug(
-            "[flyout-fade] should_fade_out %s id=%s → %s",
-            type(flyout).__name__, id(flyout), result,
+            "[flyout-fade] should_fade_out %s id=%s → %s fade_out_enabled=%s isVisible=%s hide_fade_in_progress=%s opacity=%.2f caller=%s",
+            type(flyout).__name__,
+            id(flyout),
+            result,
+            self.fade_out_enabled,
+            flyout.isVisible(),
+            self.hide_fade_in_progress,
+            self.opacity,
+            _caller.strip(),
         )
         return result
 
@@ -160,11 +174,28 @@ class FlyoutFadeController:
         show_animation,
     ) -> None:
         """Fade the flyout out; ``on_finished`` runs after the real hide."""
+        import traceback
+
+        _caller = "".join(traceback.format_stack()[-4:-2])
         logger.debug(
-            "[flyout-fade] start_hide_fade %s id=%s hide_animation=%s",
-            type(flyout).__name__, id(flyout),
+            "[flyout-fade] start_hide_fade %s id=%s hide_animation=%s hide_fade_in_progress=%s caller=%s",
+            type(flyout).__name__,
+            id(flyout),
             "active" if self.hide_animation is not None else "none",
+            self.hide_fade_in_progress,
+            _caller.strip(),
         )
+        # Prevent re-entrant duplicate start when capture()'s grab() pumps
+        # events and triggers custom_title_bar.eventFilter → _hide_active_flyouts
+        # → hide() again before the first fade sets its flag (seen as two
+        # start_hide_fade with hide_fade_in_progress=False and duplicate
+        # on_hide_fade_finished).
+        if self.hide_fade_in_progress:
+            logging.getLogger("ImproveImgSLI").debug(
+                "[flyout-fade] start_hide_fade suppressed — already in progress id=%s", id(flyout)
+            )
+            return
+        self.hide_fade_in_progress = True
         if show_animation is not None:
             try:
                 show_animation.stop()
@@ -217,9 +248,15 @@ class FlyoutFadeController:
         self.sync_container_visibility(flyout)
 
     def on_hide_fade_finished(self, flyout: QWidget, on_finished: Callable[[], None]) -> None:
+        import traceback
+
+        _caller = "".join(traceback.format_stack()[-4:-2])
         logger.debug(
-            "[flyout-fade] on_hide_fade_finished %s id=%s",
-            type(flyout).__name__, id(flyout),
+            "[flyout-fade] on_hide_fade_finished %s id=%s hide_animation=%s caller=%s",
+            type(flyout).__name__,
+            id(flyout),
+            "active" if self.hide_animation is not None else "none",
+            _caller.strip(),
         )
         if self.hide_animation is not None:
             self.hide_animation.deleteLater()

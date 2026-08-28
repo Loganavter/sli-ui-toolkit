@@ -403,10 +403,19 @@ class BaseFlyout(
             and self._grab_focus_target is not None
         ):
             if shiboken6.isValid(self._grab_focus_target):
+                import traceback
+
+                _caller = "".join(traceback.format_stack()[-5:-3])
                 logger.debug(
-                    "[flyout-nav] focus guard: redirecting FocusIn(%s) back to %s",
+                    "[flyout-nav] focus guard: redirecting FocusIn(%s id=%s objName=%s) back to %s id=%s (flyout id=%s hide_fade=%s) caller=%s",
                     type(obj).__name__,
+                    id(obj),
+                    obj.objectName(),
                     type(self._grab_focus_target).__name__,
+                    id(self._grab_focus_target),
+                    id(self),
+                    getattr(getattr(self, "_fade", None), "hide_fade_in_progress", False),
+                    _caller.strip(),
                 )
                 self._grab_focus_target.setFocus(
                     self._grab_focus_reason
