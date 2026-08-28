@@ -81,6 +81,38 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
         source = _inspect.getsourcefile(type(widget))
         source_lines, source_start = _inspect.getsourcelines(type(widget))
     except (OSError, TypeError):
+        source = None
+        source_lines = None
+        source_start = 1
+    # Plain QWidget containers (e.g. gallery_toolbar_view_switch_container) are
+    # created as ``QWidget`` in app code — ``type(widget) is QWidget`` has no
+    # app file, so fall back to the nearest app ancestor that defines its
+    # objectName (toolbar.py). Without this the Code tab stays empty.
+    try:
+        is_plain = False
+        try:
+            is_plain = type(widget) is QWidget and bool(widget.objectName())
+        except Exception:
+            pass
+        if is_plain and (source is None or _is_toolkit_source(source, widget) is False):
+            # Own type is Qt's QWidget — not app code. Check if its module is Qt.
+            mod = getattr(type(widget), "__module__", "") or ""
+            is_qt = mod.startswith("PySide6") or mod.startswith("PyQt")
+            if is_qt or source is None:
+                anc = _find_app_ancestor(widget)
+                if anc is not None:
+                    try:
+                        anc_src = _inspect.getsourcefile(type(anc))
+                        if anc_src and not _is_toolkit_source(anc_src, anc):
+                            anc_lines, anc_start = _inspect.getsourcelines(type(anc))
+                            source = anc_src
+                            source_lines = anc_lines
+                            source_start = anc_start
+                    except (OSError, TypeError):
+                        pass
+    except Exception:
+        pass
+    if source is None or source_lines is None:
         return None
     config = owner._current.config if owner._current is not None else ()
     config_text = (
