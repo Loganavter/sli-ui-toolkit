@@ -22,7 +22,14 @@ from PySide6.QtGui import QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
-from sli_ui_toolkit.ui.widgets.buttons import Button, ButtonRow
+from sli_ui_toolkit.ui.widgets.buttons import (
+    Button,
+    ButtonRegion,
+    ButtonRow,
+    ButtonSpec,
+    HorizontalSplit,
+    ShapeSpec,
+)
 from sli_ui_toolkit.ui.widgets.composite.dialog_shell import ScrollableDialogPage
 
 from .contract import FieldKind, InspectField, WidgetInspection
@@ -322,90 +329,76 @@ class _PaneRenderingMixin:
         page.content_layout.addStretch(1)
 
 
-    def _add_color_row(
+    def _add_color_button_row(
         self,
         page: ScrollableDialogPage,
         label: str,
         color,
         detail: str,
+        *,
+        path: str = "",
+        line: int = 0,
     ) -> None:
-        """One Colors-section row: label + swatch + hex + origin detail
-        (non-selectable — the row's source opens via its button)."""
-        row = QWidget()
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
-        lay.addWidget(Label(label, pixel_size=13, bold=True, elide=True))
+        """Colors-section row as one full-width region button: the label /
+        swatch / hex / detail text the old Label rows carried, laid out via
+        ``ButtonRegion``s linked by ``group="row"``. When ``path`` is set the
+        row opens that source file in the system editor on click."""
+        regions: list[ButtonRegion] = []
         if color is not None and color.isValid():
-            lay.addWidget(_Swatch(QColor(color)))
-            lay.addWidget(Label(QColor(color).name(), pixel_size=13))
-        lay.addWidget(Label(detail, pixel_size=13, elide=True))
-        lay.addStretch(1)
-        page.content_layout.addWidget(row)
-
-
-    def _add_color_source_row(
-        self,
-        page: ScrollableDialogPage,
-        label: str,
-        color,
-        name_text: str,
-        path: str,
-        line: int,
-    ) -> None:
-        """Colors-section row with an openable source: label + swatch +
-        hex + name, and a button that opens the source file in the system
-        editor. The button carries a SHORT ``basename:line`` label (the
-        full path lives in the tooltip) so it always renders as a real
-        button instead of a squeezed marquee strip."""
-        row = QWidget()
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
-        lay.addWidget(Label(label, pixel_size=13, bold=True, elide=True))
-        if color is not None and color.isValid():
-            lay.addWidget(_Swatch(QColor(color)))
-            lay.addWidget(Label(QColor(color).name(), pixel_size=13))
-        lay.addWidget(Label(name_text, pixel_size=13, elide=True))
+            # The swatch deliberately stays OUT of the "row" group: the
+            # controller gives a plain-rect group ONE united fill painted by
+            # its first member and empty fill-paths to the rest, so a grouped
+            # swatch would never paint its own override_bg_color (the row
+            # would show the color only as text). Ungrouped, the region keeps
+            # its own fill path; bg_locked stops hover/pressed overlays.
+            regions.append(
+                ButtonRegion(
+                    id="swatch",
+                    override_bg_color=QColor(color),
+                    bg_locked=True,
+                    weight=0.6,
+                )
+            )
+            regions.append(
+                ButtonRegion(id="hex", text=QColor(color).name(), group="row", weight=1.3)
+            )
+        regions.append(ButtonRegion(id="detail", text=detail, group="row", weight=4.0))
         button = Button(
-            text=f"{Path(path).name}:{line}" if line else Path(path).name,
-            # ``surface`` resolves its fill to surface.background via the
-            # ALIAS chain — the same color as this page's background, so
-            # the chip would be invisible at rest (the host palette drops
-            # button.dialog.default.background). ``default`` resolves
-            # surface.list, a visible chip on the page.
-            variant="default",
-            size=(0, 26),
-        )
-        button.setToolTip(
-            f"Open {path}:{line} in the system text editor" if line else
-            f"Open {path} in the system text editor"
-        )
-        theme = self._theme_manager.get_current_theme() if hasattr(
-            self._theme_manager, "get_current_theme"
-        ) else "?"
-        logger.debug(
-            "[colors-source-debug] row created: label=%r color=%s name=%r "
-            "path=%s:%s variant=%s size=%s theme=%s",
-            label,
-            QColor(color).name() if color is not None and color.isValid() else "<invalid>",
-            name_text,
-            path,
-            line,
-            button.getVariant(),
-            button.size().width(),
-            theme,
-        )
-        button.clicked.connect(
-            lambda _checked=False, target=path: logger.debug(
-                "[colors-source-debug] chip clicked: target=%s opened=%s",
-                target,
-                QDesktopServices.openUrl(QUrl.fromLocalFile(target)),
+            spec=ButtonSpec.from_regions(
+                regions,
+                split=HorizontalSplit(),
+                shape=ShapeSpec(size=(0, 26), corner_radius=6),
+                variant="default",
             )
         )
-        lay.addWidget(button)
-        lay.addStretch(1)
-        page.content_layout.addWidget(row)
+        if path:
+            button.setToolTip(
+                f"Open {path}:{line} in the system text editor" if line else
+                f"Open {path} in the system text editor"
+            )
+            theme = self._theme_manager.get_current_theme() if hasattr(
+                self._theme_manager, "get_current_theme"
+            ) else "?"
+            logger.debug(
+                "[colors-source-debug] row created: label=%r color=%s name=%r "
+                "path=%s:%s variant=%s size=%s theme=%s",
+                label,
+                QColor(color).name() if color is not None and color.isValid() else "<invalid>",
+                detail,
+                path,
+                line,
+                button.getVariant(),
+                button.size().width(),
+                theme,
+            )
+            button.regionClicked.connect(
+                lambda _region, target=path: logger.debug(
+                    "[colors-source-debug] chip clicked: target=%s opened=%s",
+                    target,
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(target)),
+                )
+            )
+        page.content_layout.addWidget(button)
 
 
     def _resolve_token_source_path(self, source_label: str) -> tuple[str, int] | None:
@@ -459,31 +452,29 @@ class _PaneRenderingMixin:
         bg_rows = qss_background_rows(self._qss_rows, tm)
         if bg_rows:
             for row in bg_rows:
-                if row.source_path:
-                    self._add_color_source_row(
-                        page, "QSS", row.color,
-                        f"{row.selector} — {row.value}", row.source_path, row.source_line,
-                    )
-                else:
-                    self._add_color_row(page, "QSS", row.color, f"{row.value}  ← {row.origin}")
+                self._add_color_button_row(
+                    page, "QSS", row.color,
+                    f"{row.selector} — {row.value}",
+                    path=row.source_path, line=row.source_line,
+                )
         else:
             role, color, auto_fill = palette_background(widget)
             painted = "paints from palette" if auto_fill else "transparent — does NOT paint"
-            self._add_color_row(
+            self._add_color_button_row(
                 page, f"palette {role}", color, f"{painted} (autoFillBackground {'on' if auto_fill else 'off'})"
             )
             if not auto_fill:
                 ancestor = first_painting_ancestor(widget)
                 if ancestor is not None:
                     ancestor_role, ancestor_color, _on = palette_background(ancestor)
-                    self._add_color_row(
+                    self._add_color_button_row(
                         page,
                         f"shows {type(ancestor).__name__}#{ancestor.objectName() or ''}",
                         ancestor_color,
                         f"paints palette {ancestor_role} (autoFill on)",
                     )
         if has_custom_paint(widget):
-            self._add_color_row(
+            self._add_color_button_row(
                 page,
                 "paint",
                 None,
@@ -491,7 +482,7 @@ class _PaneRenderingMixin:
                 "(see Regions / Layers / Config)",
             )
         if widget.styleSheet():
-            self._add_color_row(page, "styleSheet", None, widget.styleSheet())
+            self._add_color_button_row(page, "styleSheet", None, widget.styleSheet())
         trace_color = bg_rows[0].color if bg_rows else palette_background(widget)[1]
         if trace_color is not None and trace_color.isValid():
             # The reverse lookup collects every alias of the same color;
@@ -515,36 +506,21 @@ class _PaneRenderingMixin:
                 resolved = self._resolve_token_source_path(source) if source else None
                 if resolved is not None:
                     path, line = resolved
-                    self._add_color_source_row(
-                        page, "= token", QColor(tm.get_color(token)), token, path, line,
+                    self._add_color_button_row(
+                        page, "= token", QColor(tm.get_color(token)), token,
+                        path=path, line=line,
                     )
-                else:
-                    self._add_color_row(
-                        page,
-                        "= token",
-                        QColor(tm.get_color(token)),
-                        f"{token}  {source}" if source else token,
-                    )
-            if len(tokens) > len(shown):
-                self._add_color_row(
-                    page,
-                    "= token",
-                    None,
-                    f"… +{len(tokens) - len(shown)} more aliases of this color",
-                )
 
         # ---- text ----
         self._add_title(page, "Text")
         text_rows = qss_text_rows(self._qss_rows, tm)
         if text_rows:
             for row in text_rows:
-                if row.source_path:
-                    self._add_color_source_row(
-                        page, "QSS", row.color,
-                        f"{row.selector} — {row.value}", row.source_path, row.source_line,
-                    )
-                else:
-                    self._add_color_row(page, "QSS", row.color, f"{row.value}  ← {row.origin}")
+                self._add_color_button_row(
+                    page, "QSS", row.color,
+                    f"{row.selector} — {row.value}",
+                    path=row.source_path, line=row.source_line,
+                )
         else:
             palette = widget.palette()
             for role_name in ("Text", "WindowText"):
@@ -554,30 +530,30 @@ class _PaneRenderingMixin:
                 color = QColor(palette.color(color_role))
                 if not color.isValid():
                     continue
-                self._add_color_row(page, f"palette {role_name}", color, "paints text")
                 tokens = sorted(
                     tokens_for_color(tm, color),
                     key=lambda t: (0 if self._token_sources.get(t) else 1, t),
                 )
                 for token in tokens[:4]:
                     source = self._token_sources.get(token, "")
-                    self._add_color_row(
-                        page, "= token", QColor(tm.get_color(token)),
-                        f"{token}  {source}" if source else token,
-                    )
+                    resolved = self._resolve_token_source_path(source) if source else None
+                    if resolved is not None:
+                        path, line = resolved
+                        self._add_color_button_row(
+                            page, "= token", QColor(tm.get_color(token)), token,
+                            path=path, line=line,
+                        )
 
         # ---- border ----
         border_rows = qss_border_rows(self._qss_rows, tm)
         if border_rows:
             self._add_title(page, "Border (QSS)")
             for row in border_rows:
-                if row.source_path:
-                    self._add_color_source_row(
-                        page, row.label, row.color,
-                        f"{row.selector} — {row.value}", row.source_path, row.source_line,
-                    )
-                else:
-                    self._add_color_row(page, row.label, row.color, f"{row.value}  ← {row.origin}")
+                self._add_color_button_row(
+                    page, row.label, row.color,
+                    f"{row.selector} — {row.value}",
+                    path=row.source_path, line=row.source_line,
+                )
 
         # ---- flags ----
         self._add_title(page, "Paint flags")

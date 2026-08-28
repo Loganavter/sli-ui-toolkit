@@ -8,8 +8,6 @@
 
 from __future__ import annotations
 
-import logging
-import os
 from dataclasses import dataclass
 from typing import Callable
 
@@ -18,22 +16,6 @@ from PySide6.QtGui import QColor
 from sli_ui_toolkit.theme import ThemeManager
 
 from .state import ButtonState, StateSet
-
-# [button-bg-debug] fires on every button paint once the host app's --debug
-# is on, drowning out other subsystems' debug output. Gated on its own
-# opt-in flag, off by default even under --debug -- same convention as
-# UI_NAV_DEBUG / SLI_UI_NAVLIST_DEBUG.
-logger = logging.getLogger(__name__)
-if os.environ.get("SLI_UI_BUTTON_BG_DEBUG", "").strip().lower() in (
-    "",
-    "0",
-    "false",
-    "no",
-    "off",
-):
-    logger.setLevel(logging.WARNING)
-else:
-    logger.setLevel(logging.DEBUG)
 
 
 BackgroundResolver = Callable[[StateSet, ThemeManager], QColor]
