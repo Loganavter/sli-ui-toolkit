@@ -155,6 +155,7 @@ class _InspectionPane(
         self._render_object(widget)
         self._render_fields("Config", inspection.config)
         self._render_fields("State", inspection.state)
+        self._render_colors()
         self._render_regions(inspection.regions)
         self._render_layers(inspection.layers)
         self._render_theme(inspection)
@@ -260,6 +261,7 @@ class InspectorWindow(QDialog):
         "Object",
         "Config",
         "State",
+        "Colors",
         "Regions",
         "Layers",
         "Theme",

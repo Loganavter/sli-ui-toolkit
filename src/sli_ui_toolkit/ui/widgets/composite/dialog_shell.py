@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -61,21 +61,21 @@ class ScrollableDialogPage(QWidget):
 
         The viewport and the content widget are stock QWidgets: with the
         host's QSS active they auto-fill the QPalette Window role, which
-        hosts often keep darker than the dialog surface token (the app's
-        dark palette: Window ``#1e1e1e`` vs ``dialog.background``
-        ``#2b2b2b``) — the empty page area then renders near-black against
-        the gray panels. Resolve the dialog surface token instead, matching
-        the ``@dialog.background`` QSS rules the dialog roots already use.
+        hosts keep darker than the dialog surface token (the app's dark
+        palette: Window ``#1e1e1e`` vs ``dialog.background`` ``#2b2b2b``) —
+        the empty page area then renders near-black against the gray
+        panels. A per-widget palette is NOT enough here: ``QStyle::polish``
+        at ``show()`` (and on any host stylesheet re-apply) resets widget
+        palettes to the app palette. A widget-level stylesheet survives
+        polish, so the surface is set as ``background-color`` on the scroll
+        area (cascades to the viewport and the content widget) and re-tinted
+        on ``theme_changed``.
         """
         try:
             color = QColor(ThemeManager.get_instance().get_color("dialog.background"))
         except Exception:
             return
-        for widget in (self.scroll_area.viewport(), self.content_widget):
-            palette = widget.palette()
-            palette.setBrush(QPalette.ColorRole.Window, QColor(color))
-            widget.setPalette(palette)
-            widget.setAutoFillBackground(True)
+        self.scroll_area.setStyleSheet(f"background-color: {color.name()};")
 
     def _on_theme_changed(self, *_args) -> None:
         """Re-tint the scroll surface after a theme switch. Bound method, so

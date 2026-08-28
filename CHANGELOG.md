@@ -1152,9 +1152,18 @@
   `Window` role, which hosts keep darker than `dialog.background` (the
   app's dark palette: `Window` `#1e1e1e` vs `dialog.background` `#2b2b2b`),
   so the empty page area rendered near-black against the gray panels. The
-  page now resolves the `dialog.background` token (ThemeManager, re-tinted
-  on `theme_changed`) for both the viewport and the content widget,
-  matching the `@dialog.background` QSS rules the dialog roots use.
+  page now sets the surface as a widget-level `background-color` stylesheet
+  on the scroll area, resolved from the `dialog.background` token and
+  re-tinted on `theme_changed`. (A per-widget palette is not enough:
+  `QStyle::polish` at `show()` — and on any host stylesheet re-apply —
+  resets widget palettes to the app palette; a widget stylesheet survives.)
+- **Inspector Colors section added** — the pane's new **Colors** page shows
+  the selected widget's background / text / border colors and WHERE each
+  comes from: matched QSS rules (selector + file:line), the effective
+  palette role + `autoFillBackground` (with the first painting ancestor for
+  transparent containers), the ThemeManager tokens behind the values
+  (reverse lookup, app-defined tokens first, `themes.json` source labels),
+  custom `paintEvent` detection, and paint-relevant widget flags.
 
 ## 3.1.12
 

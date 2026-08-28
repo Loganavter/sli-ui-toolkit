@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QColor, QDesktopServices
+from PySide6.QtGui import QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
@@ -298,6 +298,149 @@ class _PaneRenderingMixin:
                 page,
                 InspectField(name=layer.name, value=layer.scope),
             )
+        page.content_layout.addStretch(1)
+
+
+    def _add_color_row(
+        self,
+        page: ScrollableDialogPage,
+        label: str,
+        color,
+        detail: str,
+    ) -> None:
+        """One Colors-section row: label + swatch + hex + origin detail."""
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        lay.addWidget(Label(label, pixel_size=13, bold=True, elide=True, selectable=True))
+        if color is not None and color.isValid():
+            lay.addWidget(_Swatch(QColor(color)))
+            lay.addWidget(Label(QColor(color).name(), pixel_size=13, selectable=True))
+        lay.addWidget(Label(detail, pixel_size=13, elide=True, selectable=True))
+        lay.addStretch(1)
+        page.content_layout.addWidget(row)
+
+
+    def _render_colors(self) -> None:
+        """Colors section: the selected widget's background / text / border
+        colors and WHERE each comes from (QSS rule → palette role →
+        ThemeManager token → custom painting)."""
+        from .colors import (
+            first_painting_ancestor,
+            has_custom_paint,
+            palette_background,
+            qss_background_rows,
+            qss_border_rows,
+            qss_text_rows,
+            tokens_for_color,
+            widget_flags,
+        )
+
+        page = self.pages["Colors"]
+        self._clear(page)
+        widget = self.widget
+        if widget is None:
+            return
+        tm = self._theme_manager
+        self._add_title(page, f"{type(widget).__name__} — colors")
+
+        # ---- background ----
+        self._add_title(page, "Background")
+        bg_rows = qss_background_rows(self._qss_rows, tm)
+        if bg_rows:
+            for row in bg_rows:
+                self._add_color_row(page, "QSS", row.color, f"{row.value}  ← {row.origin}")
+        else:
+            role, color, auto_fill = palette_background(widget)
+            painted = "paints from palette" if auto_fill else "transparent — does NOT paint"
+            self._add_color_row(
+                page, f"palette {role}", color, f"{painted} (autoFillBackground {'on' if auto_fill else 'off'})"
+            )
+            if not auto_fill:
+                ancestor = first_painting_ancestor(widget)
+                if ancestor is not None:
+                    ancestor_role, ancestor_color, _on = palette_background(ancestor)
+                    self._add_color_row(
+                        page,
+                        f"shows {type(ancestor).__name__}#{ancestor.objectName() or ''}",
+                        ancestor_color,
+                        f"paints palette {ancestor_role} (autoFill on)",
+                    )
+        if has_custom_paint(widget):
+            self._add_color_row(
+                page,
+                "paint",
+                None,
+                "custom paintEvent — the fill comes from the widget's own painter "
+                "(see Regions / Layers / Config)",
+            )
+        if widget.styleSheet():
+            self._add_color_row(page, "styleSheet", None, widget.styleSheet())
+        trace_color = bg_rows[0].color if bg_rows else palette_background(widget)[1]
+        if trace_color is not None and trace_color.isValid():
+            # The reverse lookup collects every alias of the same color;
+            # prefer the app-defined tokens (with source labels) and the
+            # core roles, then cap the row spam.
+            tokens = sorted(
+                tokens_for_color(tm, trace_color),
+                key=lambda t: (0 if self._token_sources.get(t) else 1, t),
+            )
+            shown = tokens[:8]
+            for token in shown:
+                source = self._token_sources.get(token, "")
+                self._add_color_row(
+                    page,
+                    "= token",
+                    QColor(tm.get_color(token)),
+                    f"{token}  {source}" if source else token,
+                )
+            if len(tokens) > len(shown):
+                self._add_color_row(
+                    page,
+                    "= token",
+                    None,
+                    f"… +{len(tokens) - len(shown)} more aliases of this color",
+                )
+
+        # ---- text ----
+        self._add_title(page, "Text")
+        text_rows = qss_text_rows(self._qss_rows, tm)
+        if text_rows:
+            for row in text_rows:
+                self._add_color_row(page, "QSS", row.color, f"{row.value}  ← {row.origin}")
+        else:
+            palette = widget.palette()
+            for role_name in ("Text", "WindowText"):
+                color_role = getattr(QPalette.ColorRole, role_name, None)
+                if color_role is None:
+                    continue
+                color = QColor(palette.color(color_role))
+                if not color.isValid():
+                    continue
+                self._add_color_row(page, f"palette {role_name}", color, "paints text")
+                tokens = sorted(
+                    tokens_for_color(tm, color),
+                    key=lambda t: (0 if self._token_sources.get(t) else 1, t),
+                )
+                for token in tokens[:4]:
+                    source = self._token_sources.get(token, "")
+                    self._add_color_row(
+                        page, "= token", QColor(tm.get_color(token)),
+                        f"{token}  {source}" if source else token,
+                    )
+
+        # ---- border ----
+        border_rows = qss_border_rows(self._qss_rows, tm)
+        if border_rows:
+            self._add_title(page, "Border (QSS)")
+            for row in border_rows:
+                self._add_color_row(page, row.label, row.color, f"{row.value}  ← {row.origin}")
+
+        # ---- flags ----
+        self._add_title(page, "Paint flags")
+        for name, state in widget_flags(widget):
+            self._add_field_row(page, InspectField(name=name, value=state))
         page.content_layout.addStretch(1)
 
 
