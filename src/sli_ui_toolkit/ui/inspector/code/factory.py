@@ -35,6 +35,35 @@ class _CodeEditorClamp(QObject):
         return False
 
 
+def _is_toolkit_source(path: str | None, widget: QWidget | None = None) -> bool:
+    """Whether ``path`` (or the widget's module) lives inside the toolkit
+    package — its source must not be exposed as an editable file in the
+    inspector (the inspector should show app-side configuration instead)."""
+    if widget is not None:
+        try:
+            mod = type(widget).__module__ or ""
+            if mod == "sli_ui_toolkit" or mod.startswith("sli_ui_toolkit."):
+                return True
+        except Exception:
+            pass
+    if not path:
+        return False
+    try:
+        import sli_ui_toolkit
+        from pathlib import Path
+
+        pkg = Path(sli_ui_toolkit.__file__).resolve().parent
+        target = Path(path).resolve()
+        try:
+            return target.is_relative_to(pkg)  # Python 3.9+
+        except AttributeError:
+            t = str(target)
+            p = str(pkg)
+            return t == p or t.startswith(p + "/")
+    except Exception:
+        return False
+
+
 def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | None:
     """Construct + wire the Code section editor into the owner pane's Code
     page (thin-owner split: the pane's ``_render_code`` delegates here).
@@ -53,12 +82,15 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
         source_lines, source_start = _inspect.getsourcelines(type(widget))
     except (OSError, TypeError):
         return None
-    owner._add_title(page, "Code")
     config = owner._current.config if owner._current is not None else ()
     config_text = (
         _config_snippet(type(widget).__name__, config) if config else None
     )
     qss_text = _qss_snippet(getattr(owner, "_qss_rows", None))
+    if _is_toolkit_source(source, widget):
+        _build_toolkit_config_only(owner, page, config_text, qss_text)
+        return None
+    owner._add_title(page, "Code")
 
     editor = CodeSectionEditor()
     docs_ref = (
@@ -99,6 +131,56 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
     clamp._apply()
     owner._code_section = editor
     return editor
+
+
+def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: str | None) -> None:
+    """Toolkit widgets: show only the live configuration (app-side values)
+    and QSS candidates — never the toolkit's own class source.
+
+    The toolkit source is not app configuration and must not be editable
+    from the app's inspector (editing it would patch the installed
+    package). The Code page becomes a read-only synthetic view instead
+    of the full ``CodeSectionEditor``."""
+    from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+    from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
+
+    owner._add_title(page, "Code")
+    info = Label(
+        "Source is inside sli-ui-toolkit — showing live configuration "
+        "(see Config / State sections for the full field list).",
+        pixel_size=11,
+        word_wrap=True,
+        selectable=True,
+    )
+    page.content_layout.addWidget(info)
+    if owner._current is not None and owner._current.docs:
+        from sli_ui_toolkit.ui.widgets.buttons.button import Button as _Btn
+
+        docs_btn = _Btn(text="Docs", variant="surface", size=(0, 26))
+        docs_btn.setToolTip("Open the widget family's documentation section")
+        docs_btn.clicked.connect(lambda: owner.show_section("Docs"))
+        page.content_layout.addWidget(docs_btn)
+    parts: list[str] = []
+    if qss_text:
+        parts.append(qss_text)
+    if config_text:
+        parts.append(config_text)
+    if parts:
+        combined = "\n\n".join(parts)
+        view = TextView(combined)
+        # read-only: never enter edit mode, just a selectable code view
+        page.content_layout.addWidget(view, 1)
+    else:
+        page.content_layout.addWidget(
+            Label(
+                "No synthetic configuration to show for this widget.",
+                pixel_size=11,
+                selectable=True,
+            )
+        )
+        page.content_layout.addStretch(1)
+    owner._code_section = None
+    return None
 
 
 def _qss_snippet(qss_rows) -> str | None:
