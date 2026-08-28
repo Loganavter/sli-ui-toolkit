@@ -16,7 +16,8 @@ theme_logger = logging.getLogger("ThemeManager")
 # Alias table for theme token de-duplication (plan_theme_token_unification.md Phase 4).
 # Canonical surface.* → many whites/grays previously duplicated across 20 keys.
 # Keep old keys working for one breaking window via indirection, so themes.json can drop them.
-_THEME_ALIASES: dict[str, str] = {
+# Public ALIAS dict — callers/tests may inspect it; _THEME_ALIASES kept for backward compat.
+ALIAS: dict[str, str] = {
     # #ffffff cluster → surface.background
     "Window": "surface.background",
     "Base": "surface.background",
@@ -44,6 +45,194 @@ _THEME_ALIASES: dict[str, str] = {
     "Button": "surface.button",
     "dialog.button.background": "surface.button",
 }
+
+# Backward-compat private name — one-version window keeps old import path working.
+_THEME_ALIASES: dict[str, str] = ALIAS
+
+# Derive expression: lighten(token, 10%) / darken(token, 8%) / alpha(token, 60%)
+_DERIVE_RE = re.compile(
+    r"^\s*(lighten|darken|alpha)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _resolve_alias(key: str, *, _seen: set[str] | None = None) -> str:
+    """Follow ALIAS chain (e.g. dialog.background -> surface.background).
+
+    Cycle-safe; depth limited to len(ALIAS) to avoid infinite loop on bad table.
+    """
+    seen: set[str] = set() if _seen is None else _seen
+    cur = key
+    for _ in range(len(ALIAS) + 1):
+        nxt = ALIAS.get(cur)
+        if nxt is None or nxt in seen:
+            break
+        seen.add(cur)
+        cur = nxt
+    return cur
+
+
+def _parse_amount(amount_str: str, *, for_alpha: bool = False) -> float | None:
+    s = amount_str.strip()
+    try:
+        if s.endswith("%"):
+            return float(s[:-1].strip()) / 100.0 if for_alpha else float(s[:-1].strip())
+        # plain number: 0.6 (fraction) or 10 / 60  (percent without %)
+        v = float(s)
+        return v
+    except ValueError:
+        return None
+
+
+def _apply_derive(base: QColor, func: str, amount_str: str) -> QColor | None:
+    c = QColor(base)
+    if not c.isValid():
+        return None
+    func_l = func.lower()
+    if func_l == "lighten":
+        pct = _parse_amount(amount_str, for_alpha=False)
+        if pct is None:
+            return None
+        # 0.1 -> 10%, 10 -> 10%
+        if 0 < pct < 1:
+            pct *= 100.0
+        # QColor.lighter(110) = 10% lighter
+        factor = int(round(100 + pct))
+        factor = max(100, factor)
+        return c.lighter(factor)
+    if func_l == "darken":
+        pct = _parse_amount(amount_str, for_alpha=False)
+        if pct is None:
+            return None
+        if 0 < pct < 1:
+            pct *= 100.0
+        factor = int(round(100 + pct))
+        factor = max(100, factor)
+        return c.darker(factor)
+    if func_l == "alpha":
+        raw = amount_str.strip()
+        # percent case: "60%"
+        if raw.endswith("%"):
+            pct = _parse_amount(raw, for_alpha=True)
+            if pct is None:
+                return None
+            a = int(round(255 * pct))
+        else:
+            try:
+                v = float(raw)
+            except ValueError:
+                return None
+            if 0 <= v <= 1:
+                # 0.6 -> 60% opacity
+                a = int(round(255 * v))
+            elif 1 < v <= 100:
+                # 60 -> 60% (common derive syntax without %); 128 would be >100 so raw alpha
+                a = int(round(255 * (v / 100.0)))
+            elif 100 < v <= 255:
+                # raw 0-255 alpha
+                a = int(round(v))
+            else:
+                return None
+        a = max(0, min(255, a))
+        c.setAlpha(a)
+        return c
+    return None
+
+
+def _resolve_palette_value(
+    raw: object,
+    palette: Dict[str, object],
+    *,
+    _seen_tokens: set[str] | None = None,
+    _depth: int = 0,
+) -> QColor | None:
+    """Turn a palette entry (QColor | str derive | alias token) into QColor.
+
+    Handles:
+    - QColor pass-through
+    - derive strings: lighten(surface.background, 10%) / alpha(accent, 0.6)
+    - indirection strings that are themselves token names
+    """
+    if _depth > 10:
+        return None
+    if _seen_tokens is None:
+        _seen_tokens = set()
+    if isinstance(raw, QColor):
+        return QColor(raw)
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    # derive?
+    m = _DERIVE_RE.match(s)
+    if m:
+        func, base_token, amount = m.group(1), m.group(2).strip(), m.group(3).strip()
+        base_token = base_token.strip().strip("'\"")
+        base_color: QColor | None = None
+        # base may be hex literal
+        if base_token.startswith("#"):
+            candidate = QColor(base_token)
+            if candidate.isValid():
+                base_color = candidate
+        if base_color is None:
+            # prevent cycle: token derives from itself
+            if base_token in _seen_tokens:
+                return None
+            new_seen = set(_seen_tokens)
+            new_seen.add(base_token)
+            # resolve base token recursively via alias + palette lookup
+            canonical = _resolve_alias(base_token)
+            # try canonical first, then original
+            candidates = (canonical, base_token) if canonical != base_token else (canonical,)
+            for k in candidates:
+                if k in palette:
+                    val = palette.get(k)
+                    # if base entry itself is a derive, recurse
+                    resolved = _resolve_palette_value(val, palette, _seen_tokens=new_seen, _depth=_depth + 1)
+                    if resolved is not None and resolved.isValid():
+                        base_color = resolved
+                        break
+                    # fallback: if palette value is plain string color, try QColor
+                    if isinstance(val, str) and QColor(val).isValid():
+                        base_color = QColor(val)
+                        break
+                    if isinstance(val, QColor):
+                        base_color = QColor(val)
+                        break
+            if base_color is None:
+                # last resort: try interpreting base_token as literal color
+                cand = QColor(base_token)
+                if cand.isValid():
+                    base_color = cand
+        if base_color is None or not base_color.isValid():
+            return None
+        derived = _apply_derive(base_color, func, amount)
+        return derived
+    # plain color literal?
+    cand = QColor(s)
+    if cand.isValid():
+        return cand
+    # indirection: value is another token name (e.g. palette["dialog.background"] = "surface.background")
+    if s in palette:
+        if s in _seen_tokens:
+            return None
+        new_seen = set(_seen_tokens)
+        new_seen.add(s)
+        # resolve via alias mapping as well
+        canonical = _resolve_alias(s)
+        candidates = (canonical, s) if canonical != s else (canonical,)
+        for k in candidates:
+            if k in palette:
+                v = palette.get(k)
+                # avoid infinite recursion on self
+                if v is s:
+                    continue
+                res = _resolve_palette_value(v, palette, _seen_tokens=new_seen, _depth=_depth + 1)
+                if res is not None and res.isValid():
+                    return res
+        # fallback: try alias resolution without palette re-entry
+        if canonical != s and canonical in palette:
+            return _resolve_palette_value(palette.get(canonical), palette, _seen_tokens=new_seen, _depth=_depth + 1)
+    return None
 
 
 _QSS_PX_LITERAL = re.compile(r"(-?\d+(?:\.\d+)?)px")
@@ -182,48 +371,96 @@ class ThemeManager(QObject):
             theme_logger.warning("QSS file not found: %s", qss_path)
 
     def _resolve_key(self, color_key: str) -> str:
-        # One-level alias indirection; canonical must exist in palette
-        return _THEME_ALIASES.get(color_key, color_key)
+        # Chain-aware alias indirection; canonical must exist in palette.
+        # Kept for external callers; get_color/try_get_color use full resolver.
+        return _resolve_alias(color_key)
+
+    def _lookup_raw_with_alias(self, color_key: str, palette: Dict) -> object | None:
+        """Find raw palette entry for *color_key* considering ALIAS both directions.
+
+        One-version compat: alias -> canonical and canonical -> alias fallback.
+        """
+        canonical = _resolve_alias(color_key)
+        # primary: canonical (if alias, this is the target)
+        if canonical in palette:
+            return palette[canonical]
+        # migration window: alias present but canonical missing
+        if canonical != color_key and color_key in palette:
+            return palette[color_key]
+        # reverse: canonical requested but only alias exists (old themes.json)
+        if canonical == color_key:
+            for alias, target in ALIAS.items():
+                if target == canonical and alias in palette:
+                    return palette[alias]
+        return None
 
     def get_color(self, color_key: str) -> QColor:
         palette = self._dark_palette if self.is_dark() else self._light_palette
-        key = self._resolve_key(color_key)
-        value = palette.get(key)
-        # Fallback: if canonical missing but alias present (migration window), try original
-        if value is None and key != color_key:
-            value = palette.get(color_key)
-
-        if isinstance(value, QColor):
-            return QColor(value)
-        if isinstance(value, str):
-            return QColor(value)
-        # Unknown token — warn and fall back via try_get_color / palette default
-        theme_logger.warning("unknown theme token: %s", color_key)
+        # One-version deprecated alias warning (debug to avoid spam, but visible with -v)
+        canonical = _resolve_alias(color_key)
+        if canonical != color_key:
+            theme_logger.debug("deprecated alias token %r -> %r (one-version compat)", color_key, canonical)
+        raw = self._lookup_raw_with_alias(color_key, palette)
+        if raw is not None:
+            # _resolve_palette_value handles QColor, derive strings, indirection
+            seen: set[str] = {color_key}
+            if canonical != color_key:
+                seen.add(canonical)
+            resolved = _resolve_palette_value(raw, palette, _seen_tokens=seen)  # type: ignore[arg-type]
+            if resolved is not None and resolved.isValid():
+                return QColor(resolved)
+            # raw was plain string color? _resolve already tried; fallback direct QColor
+            if isinstance(raw, QColor) and raw.isValid():
+                return QColor(raw)
+            if isinstance(raw, str):
+                cand = QColor(raw)
+                if cand.isValid():
+                    return cand
+        # Derive fallback via try_get_color with alias-aware resolver
         fallback = self.try_get_color(color_key)
         if fallback is not None:
             return fallback
-        # Palette default: Window / WindowText or black as last resort
-        for default_key in ("Window", "WindowText", "Base", "Text"):
-            candidate = palette.get(default_key)
-            if isinstance(candidate, QColor):
-                return QColor(candidate)
-            if isinstance(candidate, str):
-                return QColor(candidate)
+        # Unknown token — warn and fall back to palette default
+        theme_logger.warning("unknown theme token: %s", color_key)
+        for default_key in ("surface.background", "Window", "WindowText", "Base", "Text"):
+            # also alias-aware for defaults
+            raw_def = self._lookup_raw_with_alias(default_key, palette)
+            if raw_def is not None:
+                seen_def: set[str] = {default_key, _resolve_alias(default_key)}
+                resolved_def = _resolve_palette_value(raw_def, palette, _seen_tokens=seen_def)  # type: ignore[arg-type]
+                if resolved_def is not None and resolved_def.isValid():
+                    return QColor(resolved_def)
+                if isinstance(raw_def, QColor) and raw_def.isValid():
+                    return QColor(raw_def)
+                if isinstance(raw_def, str):
+                    cand = QColor(raw_def)
+                    if cand.isValid():
+                        return cand
         return QColor("#000000")
 
     def try_get_color(self, color_key: str) -> QColor | None:
-        """Return the color for *color_key*, or ``None`` if the key is absent."""
+        """Return the color for *color_key*, or ``None`` if the key is absent.
+
+        Alias-aware and derive-aware (lighten/alpha). Returns None for unknown
+        tokens instead of black, preserving previous contract.
+        """
         palette = self._dark_palette if self.is_dark() else self._light_palette
-        key = self._resolve_key(color_key)
-        value = palette.get(key)
-        if value is None and key != color_key:
-            value = palette.get(color_key)
-        if value is None:
+        raw = self._lookup_raw_with_alias(color_key, palette)
+        if raw is None:
             return None
-        if isinstance(value, QColor):
-            return QColor(value)
-        if isinstance(value, str):
-            return QColor(value)
+        canonical = _resolve_alias(color_key)
+        seen: set[str] = {color_key}
+        if canonical != color_key:
+            seen.add(canonical)
+        resolved = _resolve_palette_value(raw, palette, _seen_tokens=seen)  # type: ignore[arg-type]
+        if resolved is not None and resolved.isValid():
+            return QColor(resolved)
+        if isinstance(raw, QColor) and raw.isValid():
+            return QColor(raw)
+        if isinstance(raw, str):
+            cand = QColor(raw)
+            if cand.isValid():
+                return QColor(cand)
         return None
 
     def set_color(self, color_key: str, color: QColor):
@@ -372,11 +609,32 @@ class ThemeManager(QObject):
 
         # Expand aliases so QSS @help.nav.background etc. still resolve to canonical surface.*
         # and QPalette roles Window/Base etc. resolve to surface.background if Window was dropped.
+        # Keep backward compat for one version: expand both directions.
         expanded = palette_data.copy()
-        for alias, canonical in _THEME_ALIASES.items():
+        for alias, canonical in ALIAS.items():
             if alias not in expanded and canonical in palette_data:
                 expanded[alias] = palette_data[canonical]
-        palette_data = expanded
+            if canonical not in expanded and alias in palette_data:
+                expanded[canonical] = palette_data[alias]
+        # Resolve derive strings (lighten/alpha) and normalize all entries to QColor where possible
+        resolved: dict[str, QColor] = {}
+        for k, raw in expanded.items():
+            if isinstance(raw, QColor):
+                if raw.isValid():
+                    resolved[k] = QColor(raw)
+                continue
+            if isinstance(raw, str):
+                c = _resolve_palette_value(raw, expanded)
+                if c is not None and c.isValid():
+                    resolved[k] = c
+                else:
+                    # fallback: plain hex / named color
+                    cand = QColor(raw)
+                    if cand.isValid():
+                        resolved[k] = cand
+                continue
+        # Merge resolved QColors back into palette_data for QPalette/QSS
+        palette_data = {**expanded, **resolved}
 
         q_palette = QPalette()
         color_roles = {
@@ -396,27 +654,47 @@ class ThemeManager(QObject):
 
         for name, role in color_roles.items():
             if name in palette_data:
-                color = QColor(palette_data[name])
-                q_palette.setColor(role, color)
+                raw = palette_data[name]
+                if isinstance(raw, QColor):
+                    color = QColor(raw)
+                elif isinstance(raw, str):
+                    tmp = _resolve_palette_value(raw, palette_data)  # type: ignore[arg-type]
+                    color = tmp if tmp is not None and tmp.isValid() else QColor(raw)
+                else:
+                    continue
+                if color.isValid():
+                    q_palette.setColor(role, color)
 
         app.setPalette(q_palette)
 
-        processed_palette = palette_data.copy()
-        if "accent" in processed_palette:
+        processed_palette: dict[str, QColor] = {}
+        for k, v in palette_data.items():
+            if isinstance(v, QColor) and v.isValid():
+                processed_palette[k] = QColor(v)
+            elif isinstance(v, str):
+                tmp = _resolve_palette_value(v, palette_data)  # type: ignore[arg-type]
+                if tmp is not None and tmp.isValid():
+                    processed_palette[k] = tmp
+                else:
+                    cand = QColor(v)
+                    if cand.isValid():
+                        processed_palette[k] = cand
+        if "accent" in processed_palette and "accent.hover" not in processed_palette:
             accent_color = QColor(processed_palette["accent"])
-            hover_color = (
-                accent_color.lighter(115)
-                if self.is_dark()
-                else accent_color.darker(115)
-            )
-            processed_palette["accent.hover"] = hover_color
+            if accent_color.isValid():
+                hover_color = (
+                    accent_color.lighter(115)
+                    if self.is_dark()
+                    else accent_color.darker(115)
+                )
+                processed_palette["accent.hover"] = hover_color
 
         current_qss = self._qss_template
         sorted_keys = sorted(processed_palette.keys(), key=len, reverse=True)
 
         for key in sorted_keys:
             color = processed_palette[key]
-            if isinstance(color, QColor):
+            if isinstance(color, QColor) and color.isValid():
                 placeholder = f"@{key}"
                 if placeholder in current_qss:
                     current_qss = current_qss.replace(
@@ -473,12 +751,29 @@ class ThemeManager(QObject):
         dialog.style().unpolish(dialog)
         dialog.style().polish(dialog)
 
+        # Alias + derive aware palette for dialog (one-version compat)
+        expanded = palette_data.copy()
+        for alias, canonical in ALIAS.items():
+            if alias not in expanded and canonical in palette_data:
+                expanded[alias] = palette_data[canonical]
+            if canonical not in expanded and alias in palette_data:
+                expanded[canonical] = palette_data[alias]
+        palette_data = expanded
+
         app = _qapp_instance()
         q_palette = QPalette(app.palette()) if app is not None else QPalette()
         for name, role in color_roles.items():
             if name in palette_data:
-                color = QColor(palette_data[name])
-                q_palette.setColor(role, color)
+                raw = palette_data[name]
+                if isinstance(raw, QColor):
+                    color = QColor(raw)
+                elif isinstance(raw, str):
+                    tmp = _resolve_palette_value(raw, palette_data)  # type: ignore[arg-type]
+                    color = tmp if tmp is not None and tmp.isValid() else QColor(raw)
+                else:
+                    continue
+                if color.isValid():
+                    q_palette.setColor(role, color)
 
         dialog.setPalette(q_palette)
         dialog.updateGeometry()
