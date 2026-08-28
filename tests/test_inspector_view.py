@@ -364,8 +364,8 @@ def test_tree_rows_collapse_and_expand_on_twist_click(qapp):
 
 
 def test_tree_row_hover_emits_widget_signals(qapp):
-    from PySide6.QtCore import QEvent, QPointF
-    from PySide6.QtGui import QEnterEvent
+    from PySide6.QtCore import QPoint, QEvent
+    from PySide6.QtTest import QTest
 
     from sli_ui_toolkit.ui.inspector.view import _TreeNodeRow
 
@@ -373,17 +373,45 @@ def test_tree_row_hover_emits_widget_signals(qapp):
     node = QWidget()
     child = QWidget(node)
     win.set_layout_nodes((("QWidget", node, 0), ("QWidget", child, 1)))
+    # expand parent so child row is visible (tree is hierarchical)
+    from PySide6.QtCore import QPoint as _QPoint
+
+    win.show()
+    qapp.processEvents()
+    # find tree container (holds hover filter, not per-row signals)
+    page = win._pages["Layout"]
+    # tree is inside wrapper (Title+tree) with spacing 0
+    tree = None
+    for w in page.content_widget.findChildren(QWidget):
+        if hasattr(w, "_hover_filter"):
+            tree = w
+            break
+    assert tree is not None
+    # expand the collapsed root (first row) so child becomes visible
+    rows = page.content_widget.findChildren(_TreeNodeRow)
+    # rows[0] is parent, click its twist to expand
+    QTest.mouseClick(rows[0], Qt.MouseButton.LeftButton, pos=QPoint(5, 13))
+    qapp.processEvents()
+    rows = page.content_widget.findChildren(_TreeNodeRow)
+    assert len(rows) >= 2
     hovered: list[object] = []
     cleared = []
     win.widget_hovered.connect(hovered.append)
     win.widget_hover_cleared.connect(lambda: cleared.append(1))
-    page = win._pages["Layout"]
-    rows = page.content_widget.findChildren(_TreeNodeRow)
-    qapp.sendEvent(
-        rows[1], QEnterEvent(QPointF(10, 10), QPointF(10, 10), QPointF(10, 10))
-    )
+    # Hover is now tree-level (childAt), not per-row Enter — simulate via tree MouseMove
+    assert tree is not None
+    # find child row (second visible row)
+    child_row = [r for r in rows if r.isVisible()][1]
+    # map child row center to tree coords
+    local_pos = tree.mapFromGlobal(child_row.mapToGlobal(child_row.rect().center()))
+    QTest.mouseMove(tree, local_pos)
+    qapp.processEvents()
     assert hovered == [child]
-    qapp.sendEvent(rows[1], QEvent(QEvent.Type.Leave))
+    # Leave tree entirely
+    QTest.mouseMove(tree, QPoint(-10, -10))
+    # send Leave to tree
+    qapp.sendEvent(tree, QEvent(QEvent.Type.Leave))
+    qapp.processEvents()
     assert cleared == [1]
 
 

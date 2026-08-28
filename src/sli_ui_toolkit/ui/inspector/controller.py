@@ -464,41 +464,6 @@ class InspectorController(QObject):
         ``tree._log_tree_gaps`` at build time (no QCursor guessing).
         """
         return
-                # If cursor is inside tree's global rect but not over a row → gap
-                try:
-                    tree_global_rect = tree.mapToGlobal(tree.rect().topLeft())
-                    # Actually use geometry mapping: tree rect in global coords
-                    tl = tree.mapToGlobal(tree.rect().topLeft())
-                    br = tree.mapToGlobal(tree.rect().bottomRight())
-                    inside_tree = (
-                        tl.x() <= pos.x() <= br.x() and tl.y() <= pos.y() <= br.y()
-                    )
-                    is_row = False
-                    try:
-                        from sli_ui_toolkit.ui.inspector.tree import _TreeNodeRow
-
-                        is_row = isinstance(under, _TreeNodeRow)
-                        if not is_row and under is not None:
-                            # Label is mouse-transparent, but check parent chain
-                            p = under.parentWidget()
-                            while p is not None:
-                                if isinstance(p, _TreeNodeRow):
-                                    is_row = True
-                                    break
-                                p = p.parentWidget()
-                    except Exception:
-                        pass
-                    if inside_tree and not is_row:
-                        logger.debug(
-                            "  gap detected: cursor inside tree %s but under is %s (not a row) — likely spacing/margin gap",
-                            page_name,
-                            type(under).__name__ if under else "none",
-                        )
-                except Exception:
-                    pass
-                break
-        except Exception:
-            pass
 
     def _on_region_selected(self, region_id: str) -> None:
         logger.debug("region selected: %s (suspended=%s)", region_id, self._overlay_suspended)

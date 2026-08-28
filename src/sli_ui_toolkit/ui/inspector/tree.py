@@ -233,12 +233,38 @@ class _TreeHoverFilter(QObject):
         tree.setMouseTracking(True)
         tree.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         tree.installEventFilter(self)
+        # Visual cursor debug — small tooltip-like label directly at cursor
+        try:
+            import logging
+
+            if logging.getLogger("sli_ui_toolkit.inspector.tree").isEnabledFor(logging.DEBUG):
+                from PySide6.QtWidgets import QLabel
+
+                self._cursor_label = QLabel("", None)  # type: ignore[attr-defined]
+                self._cursor_label.setWindowFlags(
+                    Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
+                )
+                self._cursor_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+                self._cursor_label.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+                self._cursor_label.setStyleSheet(
+                    "background: rgba(30,30,30,210); color: #00ff00; font: 10px monospace; padding: 3px; border: 1px solid #00ff00; border-radius: 3px;"
+                )
+                self._cursor_label.hide()
+            else:
+                self._cursor_label = None  # type: ignore[attr-defined]
+        except Exception:
+            self._cursor_label = None  # type: ignore[attr-defined]
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         if watched is not self._tree:
             return False
         t = event.type()
         if t == QEvent.Type.Leave:
+            try:
+                if hasattr(self, "_cursor_label") and self._cursor_label is not None:
+                    self._cursor_label.hide()
+            except Exception:
+                pass
             if self._current is not None:
                 try:
                     import logging
@@ -279,10 +305,63 @@ class _TreeHoverFilter(QObject):
                     row = None
                     break
             widget = row.widget() if isinstance(row, _TreeNodeRow) else None  # type: ignore[attr-defined]
+            # --- cursor debug label (visual, at cursor) ---
+            try:
+                if hasattr(self, "_cursor_label") and self._cursor_label is not None:
+                    # global pos for label placement
+                    try:
+                        if hasattr(event, "globalPosition"):
+                            gpos = event.globalPosition().toPoint()  # type: ignore[attr-defined]
+                        elif hasattr(event, "globalPos"):
+                            gpos = event.globalPos()  # type: ignore[attr-defined]
+                        else:
+                            from PySide6.QtGui import QCursor
+
+                            gpos = QCursor.pos()
+                    except Exception:
+                        from PySide6.QtGui import QCursor
+
+                        gpos = QCursor.pos()
+                    w_at_dbg = self._tree.childAt(pos)
+                    gap_marker = " GAP" if widget is None else ""
+                    txt = f"tree pos={pos.x()},{pos.y()} childAt={type(w_at_dbg).__name__ if w_at_dbg else 'None'}{gap_marker} cur={type(self._current).__name__ if self._current else 'None'}→{type(widget).__name__ if widget else 'None'}"
+                    self._cursor_label.setText(txt)
+                    self._cursor_label.adjustSize()
+                    self._cursor_label.move(gpos.x() + 16, gpos.y() + 16)
+                    self._cursor_label.show()
+                    self._cursor_label.raise_()
+            except Exception:
+                pass
             # suppress None (gap) → keep current until leave; only switch on real rows
             if widget is None:
-                # cursor over tree background but not a row — treat as gap;
-                # do not emit cleared immediately, keep current hover (prevents
+                # Stable gap: cursor over tree background but not a row.
+                # Log deterministically (no QCursor guessing) — helps pinpoint
+                # the visual "nothing" between buttons.
+                try:
+                    import logging
+
+                    logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        # Check if pos is actually inside tree's height but not covered
+                        # (i.e., y in y_gaps)
+                        h = self._tree.height()
+                        inside_h = 0 <= pos.y() < h
+                        w_at = self._tree.childAt(pos)
+                        logger.debug(
+                            "tree gap hit: tree pos=%s h=%s inside_h=%s childAt=%s (%s) geo=%s current=%s",
+                            pos,
+                            h,
+                            inside_h,
+                            type(w_at).__name__ if w_at else "None",
+                            w_at.objectName() if w_at and hasattr(w_at, "objectName") else "",
+                            w_at.geometry() if w_at else "None",
+                            type(self._current).__name__ if self._current else "None",
+                        )
+                        # Also dump full gap intervals for this tree
+                        _log_tree_gaps(self._tree, prefix="gap-hit")
+                except Exception:
+                    pass
+                # Do not emit cleared immediately, keep current hover (prevents
                 # flicker on 1px gaps). Cleared only on tree Leave.
                 return False
             if widget is self._current:
@@ -312,8 +391,9 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
     Logs layout spacing/margins, row count/heights and any vertical gap
     between consecutive visible rows (via geometry in tree coords). A gap
     !=0 means a real layout void between buttons, not a hover timing
-    artifact. Also dumps per-container coverage to pinpoint which branch
-    has the void. Called after every tree build; cheap (O(n)).
+    artifact. Also dumps per-container coverage and a full Y-coverage scan
+    (every py in tree height) to pinpoint stable "nothing" gaps.
+    Called after every tree build; cheap (O(n + h)).
     """
     try:
         import logging
@@ -352,6 +432,36 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
             except Exception as e:
                 gaps.append(999)
                 details.append(f"err {e}")
+        # Y-coverage scan: every y in tree height should be covered by a visible row
+        y_gaps: list[tuple[int, int]] = []
+        try:
+            h = tree.height()
+            # Build intervals of visible rows in tree coords
+            intervals: list[tuple[int, int]] = []
+            for r in rows:
+                try:
+                    y0 = r.mapTo(tree, r.rect().topLeft()).y()
+                    y1 = r.mapTo(tree, r.rect().bottomRight()).y()
+                    intervals.append((y0, y1))
+                except Exception:
+                    pass
+            intervals.sort()
+            # Scan for uncovered y
+            uncovered_start = None
+            for y in range(h):
+                covered = any(y0 <= y <= y1 for y0, y1 in intervals)
+                if not covered:
+                    if uncovered_start is None:
+                        uncovered_start = y
+                else:
+                    if uncovered_start is not None:
+                        y_gaps.append((uncovered_start, y - 1))
+                        uncovered_start = None
+            if uncovered_start is not None:
+                y_gaps.append((uncovered_start, h - 1))
+        except Exception as e:
+            y_gaps = [(-1, -1)]
+            details.append(f"y_scan err {e}")
         # also check hierarchical containers coverage
         containers: list[str] = []
         for w in tree.findChildren(QWidget):
@@ -366,29 +476,77 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
                             containers.append(f"{type(w).__name__} margins=({m2.left()},{m2.top()},{m2.right()},{m2.bottom()}) geo={w.geometry()}")
                     except Exception:
                         pass
+                # Style pixelMetric for layout spacing (QStyle can add default spacing)
+                try:
+                    from PySide6.QtWidgets import QStyle
+
+                    style = w.style()
+                    if style is not None:
+                        pm_spacing = style.pixelMetric(QStyle.PixelMetric.PM_LayoutVerticalSpacing, None, w)
+                        pm_margin = style.pixelMetric(QStyle.PixelMetric.PM_LayoutLeftMargin, None, w)
+                        if pm_spacing != 0 or pm_margin != 0:
+                            containers.append(f"{type(w).__name__} style PM_VSpacing={pm_spacing} PM_LeftMargin={pm_margin}")
+                except Exception:
+                    pass
             except Exception:
                 pass
         # Use set to dedup container messages
         uniq_containers = sorted(set(containers))
+        # Detailed Y-gap dump
+        y_gap_str = f" y_uncovered={y_gaps}" if y_gaps else " y_covered_fully"
         logger.debug(
-            "%s gaps: spacing=%s margins=%s visible_rows=%s gaps=%s tree_geo=%s details=%s containers=%s",
+            "%s gaps: spacing=%s margins=%s visible_rows=%s gaps=%s tree_geo=%s h=%s details=%s containers=%s%s",
             prefix,
             spacing,
             margins,
             len(rows),
             gaps,
             tree.geometry(),
+            tree.height(),
             details if details else "all 0",
             uniq_containers if uniq_containers else "ok",
+            y_gap_str,
         )
-        # If any gap !=0, also dump full row table
-        if any(g != 0 for g in gaps):
+        # If any gap !=0 or y_uncovered, also dump full row table + childAt probe for gap ys
+        if any(g != 0 for g in gaps) or y_gaps:
             for r in rows:
                 try:
                     y = r.mapTo(tree, r.rect().topLeft()).y()
-                    logger.debug("  row %s y=%s h=%s geo=%s depth=%s", r._label, y, r.height(), r.geometry(), r._depth)
+                    y1 = r.mapTo(tree, r.rect().bottomRight()).y()
+                    logger.debug("  row %s y=%s..%s h=%s geo=%s depth=%s parent=%s", r._label, y, y1, r.geometry(), r._depth, type(r.parentWidget()).__name__)
                 except Exception:
                     pass
+            # Probe childAt for first gap y to see what widget is there
+            if y_gaps:
+                try:
+                    gy = y_gaps[0][0]
+                    # probe at x=5 and x=width/2
+                    for probe_x in (5, max(5, tree.width() // 2), max(5, tree.width() - 5)):
+                        pos = tree.mapFromGlobal(tree.mapToGlobal(tree.rect().topLeft()))  # dummy to avoid unused
+                        from PySide6.QtCore import QPoint
+
+                        probe_pos = QPoint(probe_x, gy)
+                        w_at = tree.childAt(probe_pos)
+                        w_at_global = None
+                        try:
+                            # also check via QApplication.widgetAt for compare
+                            from PySide6.QtWidgets import QApplication
+                            from PySide6.QtGui import QCursor
+
+                            # Use tree-local childAt, not global, for deterministic
+                            pass
+                        except Exception:
+                            pass
+                        logger.debug(
+                            "  gap probe y=%s x=%s childAt=%s (%s) geo=%s",
+                            gy,
+                            probe_x,
+                            type(w_at).__name__ if w_at else "None",
+                            w_at.objectName() if w_at else "",
+                            w_at.geometry() if w_at else "None",
+                        )
+                except Exception as e:
+                    logger.debug("  gap probe err %s", e)
     except Exception:
         pass
 
