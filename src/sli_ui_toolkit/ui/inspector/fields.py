@@ -67,6 +67,8 @@ def _config_literal(value: Any, depth: int = 0) -> str:
     ``Type.MEMBER``, colors hex strings, child widgets degrade to a
     ``Type(...)`` placeholder, nested ``InspectField`` blocks become dicts.
     """
+    import dataclasses
+
     pad = "    " * depth
     if isinstance(value, bool):
         return "True" if value else "False"
@@ -83,10 +85,6 @@ def _config_literal(value: Any, depth: int = 0) -> str:
         return repr(value)
     if isinstance(value, QWidget):
         return f"{type(value).__name__}(...)  # child widget"
-    if not isinstance(value, (str, int, float, bool)) and not isinstance(value, Enum):
-        # opaque object (QIcon, QBrush, ...): a Call placeholder — keeps the
-        # snippet parseable and the preview's kwarg extractor skips it
-        return f"{type(value).__name__}(...)"
     if isinstance(value, tuple) and value and all(
         isinstance(item, InspectField) for item in value
     ):
@@ -109,7 +107,68 @@ def _config_literal(value: Any, depth: int = 0) -> str:
         if isinstance(value, tuple) and len(value) == 1:
             inner += ","
         return f"[{inner}]" if isinstance(value, list) else f"({inner})"
+    if dataclasses.is_dataclass(value):
+        try:
+            fields = dataclasses.fields(value)
+        except Exception:
+            return f"{type(value).__name__}(...)"
+        if not fields:
+            return f"{type(value).__name__}()"
+        inner = ", ".join(
+            f"{f.name}={_config_literal(getattr(value, f.name), depth + 1)}"
+            for f in fields
+            # hide noisy defaults for compact output
+            if _should_show_dataclass_field(value, f)
+        )
+        # if all fields were hidden, still show at least the visible ones
+        if not inner:
+            inner = ", ".join(
+                f"{f.name}={_config_literal(getattr(value, f.name), depth + 1)}"
+                for f in fields
+            )
+        return f"{type(value).__name__}({inner})"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if not isinstance(value, (str, int, float, bool)) or isinstance(value, Enum):
+        # opaque object (QIcon, QBrush, ...): a Call placeholder — keeps the
+        # snippet parseable and the preview's kwarg extractor skips it
+        # (only reached after containers / dataclasses / primitives)
+        if not isinstance(value, (str, int, float, bool, Enum, QColor, QRect, QRectF, QWidget, dict, list, tuple)):
+            return f"{type(value).__name__}(...)"
+        # if it is a str/int/float/bool that slipped through, use repr
+        if isinstance(value, (str, int, float, bool)):
+            return repr(value)
+        return f"{type(value).__name__}(...)"
     return repr(value)
+
+
+def _should_show_dataclass_field(obj: Any, field) -> bool:
+    """Hide noisy dataclass defaults for ButtonRow/ButtonRegion etc."""
+    try:
+        val = getattr(obj, field.name)
+        default = field.default
+        if default is not dataclasses.MISSING and val == default:
+            # keep text-like fields even when default is '' to avoid
+            # hiding the actual display text, but skip empty containers
+            if field.name in {"text", "rows"} and val in ("", [], (), {}):
+                return False
+            # skip default weight/ratio etc. when they are the factory default
+            if field.name in {"weight", "ratio", "marquee", "strikethrough", "italic"}:
+                return False
+            if field.name in {"size"} and val == 12:
+                # ButtonRow default size
+                return False
+            if field.name in {"h_align"} and str(val) == "PySide6.QtCore.Qt.AlignmentFlag.AlignHCenter":
+                return False
+        # for ButtonRow, always show text when non-empty
+        if field.name == "text" and isinstance(val, str) and val:
+            return True
+        # hide None colors
+        if field.name == "color" and val is None:
+            return False
+        return True
+    except Exception:
+        return True
 
 
 def _config_snippet(class_name: str, config) -> str:

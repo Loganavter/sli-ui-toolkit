@@ -97,15 +97,10 @@ class _TreeNodeRow(QWidget):
         )
         if widget is not None or has_children:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Selectable label for content text (real_design: all text fields selectable)
         object_name = widget.objectName() if widget is not None else ""
         display = f"{label}#{object_name}" if object_name else label
-        self._text_label = Label(display, pixel_size=13, selectable=True, elide=True, parent=self)
-        self._text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
-        # Let row handle hover/click, but label should still allow text selection via mouse drag
-        self._text_label.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
+        self._text_label = Label(display, pixel_size=13, selectable=False, elide=True, parent=self)
+        self._text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     # -- public state -------------------------------------------------------
 
