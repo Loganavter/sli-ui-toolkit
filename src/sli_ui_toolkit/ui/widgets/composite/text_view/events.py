@@ -11,6 +11,8 @@ methods.
 
 from __future__ import annotations
 
+import logging
+import os
 import time
 
 from PySide6.QtCore import QEvent, QRect, Qt
@@ -19,6 +21,8 @@ from PySide6.QtGui import QKeySequence
 from . import constants
 from .editing import Position
 from .selection import TextSelection
+
+_logger = logging.getLogger(__name__)
 
 
 class _CanvasEventsApi:
@@ -107,6 +111,15 @@ class _CanvasEventsApi:
         self.update()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        dbg_all = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+        if dbg_all and event.buttons() & Qt.MouseButton.LeftButton:
+            msg = f"drag raw editing={self._editing} anchor={self._selection.anchor} buttons={event.buttons()} pos={event.position().toPoint()}"
+            _logger.warning(msg)
+            try:
+                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                    f.write(msg + "\n")
+            except Exception:
+                pass
         if self._document_layout is not None:
             self._document_mouse_move(event)
             super().mouseMoveEvent(event)
@@ -127,13 +140,32 @@ class _CanvasEventsApi:
             # Throttle drag to 60Hz — selecting 2 chars on one line was
             # firing update() at 100+Hz (mouse poll) × 29 lines paint
             # → 3ms×100 = 300ms/s. Coalesce to one frame.
+            dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+            t0 = time.perf_counter() if dbg else 0
             now = time.perf_counter()
             last = getattr(self, "_last_drag_ts", 0.0)
             if now - last < 0.016:
+                if dbg:
+                    msg = f"drag throttled interval={(now-last)*1000:.1f}ms"
+                    _logger.warning(msg)
+                    try:
+                        with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                            f.write(msg + "\n")
+                    except Exception:
+                        pass
                 super().mouseMoveEvent(event)
                 return
             self._last_drag_ts = now
             pos = self._pos_from_point(event.position().toPoint())
+            if dbg:
+                dt = (time.perf_counter() - t0) * 1000
+                msg = f"drag hit_test line={pos[0]} col={pos[1]} dt={dt:.2f}ms throttled={(now-last)*1000:.1f}ms"
+                _logger.warning(msg)
+                try:
+                    with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                        f.write(msg + "\n")
+                except Exception:
+                    pass
             # Avoid redundant update when pos hasn't moved (jitter)
             if pos == getattr(self, "_last_drag_pos", None):
                 super().mouseMoveEvent(event)

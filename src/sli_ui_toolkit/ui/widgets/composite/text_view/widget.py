@@ -26,7 +26,7 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.image_lightbox import (
     HelpImageLightbox,
 )
 
-_tv_logger = logging.getLogger("ImproveImgSLI")
+_tv_logger = logging.getLogger(__name__)
 _last_scroll_log = 0.0
 
 from . import constants

@@ -41,7 +41,7 @@ from .canvas_paint import _CanvasPaintApi
 from .editing import Position, _CanvasEditingApi
 from .events import _CanvasEventsApi
 
-_canvas_logger = logging.getLogger("ImproveImgSLI")
+_canvas_logger = logging.getLogger(__name__)
 _update_counter = 0
 _last_update_ts = 0.0
 
