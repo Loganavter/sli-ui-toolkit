@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import IconListWidget
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
@@ -45,6 +47,44 @@ class ScrollableDialogPage(QWidget):
 
         self.scroll_area.setWidget(self.content_widget)
         layout.addWidget(self.scroll_area)
+
+        self._apply_dialog_surface()
+        try:
+            ThemeManager.get_instance().theme_changed.connect(
+                self._on_theme_changed
+            )
+        except Exception:
+            pass
+
+    def _apply_dialog_surface(self) -> None:
+        """Paint the scroll surface with the ``dialog.background`` token.
+
+        The viewport and the content widget are stock QWidgets: with the
+        host's QSS active they auto-fill the QPalette Window role, which
+        hosts often keep darker than the dialog surface token (the app's
+        dark palette: Window ``#1e1e1e`` vs ``dialog.background``
+        ``#2b2b2b``) — the empty page area then renders near-black against
+        the gray panels. Resolve the dialog surface token instead, matching
+        the ``@dialog.background`` QSS rules the dialog roots already use.
+        """
+        try:
+            color = QColor(ThemeManager.get_instance().get_color("dialog.background"))
+        except Exception:
+            return
+        for widget in (self.scroll_area.viewport(), self.content_widget):
+            palette = widget.palette()
+            palette.setBrush(QPalette.ColorRole.Window, QColor(color))
+            widget.setPalette(palette)
+            widget.setAutoFillBackground(True)
+
+    def _on_theme_changed(self, *_args) -> None:
+        """Re-tint the scroll surface after a theme switch. Bound method, so
+        the connection dies with the widget (a lambda would survive the
+        widget and raise on the deleted C++ view)."""
+        try:
+            self._apply_dialog_surface()
+        except RuntimeError:
+            pass
 
 class SidebarDialogShell(QWidget):
     def __init__(

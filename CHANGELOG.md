@@ -1134,6 +1134,28 @@
   drawing. Fence blocks no longer set a per-character tint at all (the box
   is their background) instead of stripping it after layout.
 
+### Fixed
+- **Inspector Code section showed the whole ancestor class for bare
+  `QWidget` containers** — selecting an anonymous `QWidget` (e.g.
+  `ScrollableDialogPage.content_widget`) loaded the entire app ancestor
+  class (the whole `SettingsDialog`) into the Code editor. The fallback now
+  locates the widget's own creation site — the enclosing function whose
+  line references the widget by objectName or by an instance attribute on
+  its parent chain (searched in the ancestor's file and the files its
+  module imports) — and shows only that region, with the rest of the file
+  collapsed into the usual gap rows. Apply stays disabled for such
+  function-only regions (there is no class to hot-patch); Save still
+  rewrites the file.
+- **`ScrollableDialogPage` scroll surface painted the raw QPalette Window
+  role instead of the dialog surface token** — the viewport and content
+  widget are stock `QWidget`s; with a host QSS active they auto-fill the
+  `Window` role, which hosts keep darker than `dialog.background` (the
+  app's dark palette: `Window` `#1e1e1e` vs `dialog.background` `#2b2b2b`),
+  so the empty page area rendered near-black against the gray panels. The
+  page now resolves the `dialog.background` token (ThemeManager, re-tinted
+  on `theme_changed`) for both the viewport and the content widget,
+  matching the `@dialog.background` QSS rules the dialog roots use.
+
 ## 3.1.12
 
 ### Added
