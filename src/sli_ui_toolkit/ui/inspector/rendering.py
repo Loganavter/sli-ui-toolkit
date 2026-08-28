@@ -12,6 +12,8 @@ their own mixins (``code/factory.py`` and ``tree.py``).
 from __future__ import annotations
 
 import inspect as _inspect
+import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,22 @@ from sli_ui_toolkit.ui.widgets.composite.dialog_shell import ScrollableDialogPag
 
 from .contract import FieldKind, InspectField, WidgetInspection
 from .fields import _Swatch, _field_text
+
+# [colors-source-debug] trace lines fire on every Colors-section render /
+# chip click once the host app's --debug is on. Gated on its own opt-in flag,
+# off by default even under --debug -- same convention as UI_NAV_DEBUG /
+# SLI_UI_NAVLIST_DEBUG.
+logger = logging.getLogger(__name__)
+if os.environ.get("SLI_UI_COLORS_DEBUG", "").strip().lower() in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+):
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.DEBUG)
 
 
 class _PathButton(Button):
@@ -78,7 +96,7 @@ class _PaneRenderingMixin:
         and the row's marquee scrolls the overflowing text."""
         button = _PathButton(
             rows=[ButtonRow(text=text, size=None, ratio=1.0, marquee=True)],
-            variant="surface",
+            variant="default",
             size=(0, 26),
             text_fit=True,
         )
@@ -360,9 +378,26 @@ class _PaneRenderingMixin:
             f"Open {path}:{line} in the system text editor" if line else
             f"Open {path} in the system text editor"
         )
+        theme = self._theme_manager.get_current_theme() if hasattr(
+            self._theme_manager, "get_current_theme"
+        ) else "?"
+        logger.debug(
+            "[colors-source-debug] row created: label=%r color=%s name=%r "
+            "path=%s:%s variant=%s size=%s theme=%s",
+            label,
+            QColor(color).name() if color is not None and color.isValid() else "<invalid>",
+            name_text,
+            path,
+            line,
+            button.getVariant(),
+            button.size().width(),
+            theme,
+        )
         button.clicked.connect(
-            lambda _checked=False, target=path: QDesktopServices.openUrl(
-                QUrl.fromLocalFile(target)
+            lambda _checked=False, target=path: logger.debug(
+                "[colors-source-debug] chip clicked: target=%s opened=%s",
+                target,
+                QDesktopServices.openUrl(QUrl.fromLocalFile(target)),
             )
         )
         lay.addWidget(button)
@@ -462,6 +497,14 @@ class _PaneRenderingMixin:
             tokens = sorted(
                 tokens_for_color(tm, trace_color),
                 key=lambda t: (0 if self._token_sources.get(t) else 1, t),
+            )
+            logger.debug(
+                "[colors-source-debug] trace color=%s tokens=%d "
+                "token_sources=%d qss_rows=%d",
+                trace_color.name(),
+                len(tokens),
+                len(self._token_sources),
+                len(bg_rows),
             )
             shown = tokens[:8]
             for token in shown:
