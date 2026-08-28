@@ -14,12 +14,20 @@ from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen, QPixmap, QRegion
 from PySide6.QtWidgets import QFrame, QScrollArea, QSizePolicy, QWidget
 
+import logging
+import os
+import time
+import traceback
+
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec  # noqa: E402
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.help_document.image_lightbox import (
     HelpImageLightbox,
 )
+
+_tv_logger = logging.getLogger("ImproveImgSLI")
+_last_scroll_log = 0.0
 
 from . import constants
 from .canvas import TextCanvas
@@ -72,6 +80,13 @@ class TextView(QScrollArea):
         self._canvas.linkActivated.connect(self.linkActivated)
         self._canvas.imageActivated.connect(self._on_image_activated)
         self.setWidget(self._canvas)
+        # Debug: who scrolls the view (wheel / bar drag / HoverCoordinator)
+        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1":
+            try:
+                self.verticalScrollBar().valueChanged.connect(self._dbg_scroll_value)
+                self._canvas.installEventFilter(self)
+            except Exception:
+                pass
         self._lightbox: HelpImageLightbox | None = None
         self._overlay = _FrameOverlay(self)
         self._overlay.setParent(self)
@@ -186,6 +201,90 @@ class TextView(QScrollArea):
 
     def exit_edit_mode(self) -> None:
         self._canvas.set_editing(False)
+
+    def _dbg_scroll_value(self, value: int) -> None:
+        if os.getenv("SLI_TEXTVIEW_DEBUG") != "1":
+            return
+        global _last_scroll_log
+        now = time.perf_counter()
+        if now - _last_scroll_log < 0.05:  # throttle 20Hz
+            return
+        _last_scroll_log = now
+        stack = "".join(traceback.format_stack()[-8:-3])
+        msg = f"TextView scroll value={value} stack:\n{stack}"
+        _tv_logger.warning(msg)
+        try:
+            with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+        except Exception:
+            pass
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+        if dbg:
+            stack = "".join(traceback.format_stack()[-6:-2])
+            msg = f"TextView wheel delta={event.angleDelta().y()} pixel={event.pixelDelta().y() if not event.pixelDelta().isNull() else 'null'} mods={event.modifiers()} stack:\n{stack}"
+            _tv_logger.warning(msg)
+            try:
+                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                    f.write(msg + "\n")
+            except Exception:
+                pass
+        # Coalesce high-frequency touchpad wheel events (Wayland/X11 smooth
+        # scroll sends dozens of small deltas per second, each would paint
+        # 590 lines → 3ms × 100Hz = 300ms/s). Accumulate and flush once per
+        # frame via singleShot(0) — best-practice for code editors.
+        if not hasattr(self, "_wheel_accum"):
+            from PySide6.QtCore import QTimer
+
+            self._wheel_accum = 0
+            self._wheel_timer = QTimer(self)
+            self._wheel_timer.setSingleShot(True)
+            self._wheel_timer.timeout.connect(self._flush_wheel)
+
+        # Normalize to pixels: pixelDelta (touchpad smooth) is already pixels,
+        # angleDelta (mouse wheel) is 120 per notch → ~15px per notch (Qt docs).
+        if not event.pixelDelta().isNull():
+            delta_px = event.pixelDelta().y()
+        else:
+            delta_px = int(event.angleDelta().y() / 8)
+        self._wheel_accum += delta_px
+        event.accept()
+        if not self._wheel_timer.isActive():
+            self._wheel_timer.start(0)
+        return
+
+    def _flush_wheel(self) -> None:
+        if not hasattr(self, "_wheel_accum") or self._wheel_accum == 0:
+            return
+        delta_px = self._wheel_accum
+        self._wheel_accum = 0
+        bar = self.verticalScrollBar()
+        bar.setValue(bar.value() - delta_px)
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:  # noqa: N802
+        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+        if dbg and dy != 0:
+            stack = "".join(traceback.format_stack()[-7:-3])
+            msg = f"TextView scrollContentsBy dy={dy} stack:\n{stack}"
+            _tv_logger.warning(msg)
+            try:
+                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                    f.write(msg + "\n")
+            except Exception:
+                pass
+        super().scrollContentsBy(dx, dy)
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        # Catch HoverCoordinator-driven updates: it installs app eventFilter,
+        # but the canvas still gets MouseMove/HoverMove before reconcile.
+        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1" and watched is self._canvas:
+            from PySide6.QtCore import QEvent
+
+            if event.type() in (QEvent.Type.HoverMove, QEvent.Type.MouseMove, QEvent.Type.Wheel):
+                # Throttle heavily — log only bursts
+                pass
+        return super().eventFilter(watched, event)
 
     # -- geometry / frame ---------------------------------------------------
 

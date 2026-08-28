@@ -22,6 +22,11 @@ from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QFontDatabase, QFontMetrics, QKeySequence, QGuiApplication
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+import logging
+import os
+import time
+import traceback
+
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from . import constants
@@ -35,6 +40,10 @@ from sli_ui_toolkit.ui.widgets.composite.text_view.layout.hit_test import (
 from .canvas_paint import _CanvasPaintApi
 from .editing import Position, _CanvasEditingApi
 from .events import _CanvasEventsApi
+
+_canvas_logger = logging.getLogger("ImproveImgSLI")
+_update_counter = 0
+_last_update_ts = 0.0
 
 __all__ = ["TextCanvas", "Position"]
 
@@ -326,15 +335,38 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             )
         self.update()
 
+    def update(self, *args, **kwargs) -> None:  # noqa: N802  # debug probe for repaint storm
+        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1" or os.getenv("IMGSLI_TRACE") == "1"
+        if dbg:
+            global _update_counter, _last_update_ts
+            _update_counter += 1
+            now = time.perf_counter()
+            interval = (now - _last_update_ts) * 1000 if _last_update_ts else 0
+            _last_update_ts = now
+            # Log every 10th update or when interval < 20ms (storm) — WARNING so it shows
+            if _update_counter % 10 == 0 or interval < 20 and interval != 0:
+                stack = "".join(traceback.format_stack()[-7:-3])
+                msg = f"TextCanvas update#{_update_counter} interval={interval:.1f}ms stack:\n{stack}"
+                _canvas_logger.warning(msg)
+                try:
+                    with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                        f.write(msg + "\n")
+                except Exception:
+                    pass
+        super().update(*args, **kwargs)
+
+    def repaint(self, *args, **kwargs) -> None:  # noqa: N802
+        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+        if dbg:
+            stack = "".join(traceback.format_stack()[-6:-2])
+            _canvas_logger.warning("TextCanvas repaint stack:\n%s", stack)
+        super().repaint(*args, **kwargs)
+
     def _sync_height(self) -> None:
         # The content height is a MINIMUM, not a fixed size: the host scroll
         # area stretches the canvas to its viewport (the text view fills the
         # window and only scrolls when the content exceeds it) — a fixed
         # height forced the renderer to expand to the whole document.
-        import logging
-        import os
-        import time
-
         _dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
         t0 = time.perf_counter() if _dbg else 0
         if self._document_layout is not None:
@@ -345,19 +377,14 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             h = self._line_height * lines + 2 * constants.PAD
             self.setMinimumHeight(h)
             if _dbg and lines > 1000:
-                logging.getLogger("sli_ui_toolkit.textview").debug(
-                    "TextCanvas _sync_height N=%d h=%d line_h=%d",
-                    lines,
-                    h,
-                    self._line_height,
+                _canvas_logger.warning(
+                    "TextCanvas _sync_height N=%d h=%d line_h=%d", lines, h, self._line_height
                 )
         self.updateGeometry()
         if _dbg and t0:
             dt = (time.perf_counter() - t0) * 1000
             if dt > 5:
-                logging.getLogger("sli_ui_toolkit.textview").debug(
-                    "TextCanvas _sync_height dt=%.2fms", dt
-                )
+                _canvas_logger.warning("TextCanvas _sync_height dt=%.2fms", dt)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
