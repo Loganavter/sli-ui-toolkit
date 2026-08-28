@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 
 
 def _nest_nodes(nodes) -> list[dict]:
@@ -96,6 +97,15 @@ class _TreeNodeRow(QWidget):
         )
         if widget is not None or has_children:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Selectable label for content text (real_design: all text fields selectable)
+        object_name = widget.objectName() if widget is not None else ""
+        display = f"{label}#{object_name}" if object_name else label
+        self._text_label = Label(display, pixel_size=13, selectable=True, elide=True, parent=self)
+        self._text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        # Let row handle hover/click, but label should still allow text selection via mouse drag
+        self._text_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
 
     # -- public state -------------------------------------------------------
 
@@ -107,6 +117,17 @@ class _TreeNodeRow(QWidget):
 
     def widget(self) -> QWidget | None:
         return self._widget
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        try:
+            text_x = self._depth * self._INDENT_STEP
+            if self._has_children:
+                text_x += self._CHEVRON_WIDTH
+            text_x += self._TEXT_GAP
+            self._text_label.setGeometry(text_x, 0, max(0, self.width() - text_x - self._TEXT_GAP), self.height())
+        except Exception:
+            pass
 
     # -- events -------------------------------------------------------------
 
@@ -177,26 +198,13 @@ class _TreeNodeRow(QWidget):
             text_x += self._CHEVRON_WIDTH
         text_x += self._TEXT_GAP
 
-        font = painter.font()
-        font.setPixelSize(13)
-        painter.setFont(font)
-        if self._widget is not None:
-            name = self._widget.objectName()
-            label = f"{self._label}#{name}" if name else self._label
-        else:
-            label = self._label
-        metrics = QFontMetrics(font)
-        width = max(0, self.width() - text_x - self._TEXT_GAP)
-        elided = metrics.elidedText(label, Qt.TextElideMode.ElideRight, width)
-        painter.setPen(text_color)
-        painter.drawText(
-            text_x,
-            0,
-            width,
-            self.height(),
-            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-            elided,
-        )
+        # Position selectable label for content text (all text fields selectable)
+        try:
+            width = max(0, self.width() - text_x - self._TEXT_GAP)
+            self._text_label.setGeometry(text_x, 0, width, self.height())
+            self._text_label.raise_()
+        except Exception:
+            pass
 
 
 class _PaneTreeMixin:
