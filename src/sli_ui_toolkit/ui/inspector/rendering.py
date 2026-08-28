@@ -11,7 +11,6 @@ their own mixins (``code/factory.py`` and ``tree.py``).
 
 from __future__ import annotations
 
-import inspect as _inspect
 import logging
 import os
 from pathlib import Path
@@ -192,12 +191,12 @@ class _PaneRenderingMixin:
             self._add_field_row(
                 page, InspectField(name=name, value=value)
             )
-        import inspect as _inspect
+        from .code.factory import resolve_widget_source
 
         try:
-            source = _inspect.getsourcefile(type(widget))
-            line = _inspect.getsourcelines(type(widget))[1]
-            if source:
+            resolved = resolve_widget_source(widget)
+            if resolved is not None:
+                source, _lines, line, _use_site, _ancestor = resolved
                 self._add_source_row(page, source, line)
         except (OSError, TypeError):
             pass
@@ -401,6 +400,25 @@ class _PaneRenderingMixin:
         page.content_layout.addWidget(button)
 
 
+    def _resolve_color_source(self, color, tm) -> tuple[str, int]:
+        """First resolvable token source for a palette color (``themes.json``
+        lives adjacent to the registered QSS resources). Palette rows paint
+        from theme tokens, so the click opens that token's file."""
+        from .colors import tokens_for_color
+
+        if color is None or not color.isValid():
+            return "", 0
+        tokens = sorted(
+            tokens_for_color(tm, color),
+            key=lambda t: (0 if self._token_sources.get(t) else 1, t),
+        )
+        for token in tokens[:8]:
+            source = self._token_sources.get(token, "")
+            resolved = self._resolve_token_source_path(source) if source else None
+            if resolved is not None:
+                return resolved
+        return "", 0
+
     def _resolve_token_source_path(self, source_label: str) -> tuple[str, int] | None:
         """Full path for a ``themes.json:72``-style token source label:
         the same-named file adjacent to the registered QSS resources (the
@@ -460,18 +478,23 @@ class _PaneRenderingMixin:
         else:
             role, color, auto_fill = palette_background(widget)
             painted = "paints from palette" if auto_fill else "transparent — does NOT paint"
+            path, line = self._resolve_color_source(color, tm)
             self._add_color_button_row(
-                page, f"palette {role}", color, f"{painted} (autoFillBackground {'on' if auto_fill else 'off'})"
+                page, f"palette {role}", color,
+                f"{painted} (autoFillBackground {'on' if auto_fill else 'off'})",
+                path=path, line=line,
             )
             if not auto_fill:
                 ancestor = first_painting_ancestor(widget)
                 if ancestor is not None:
                     ancestor_role, ancestor_color, _on = palette_background(ancestor)
+                    a_path, a_line = self._resolve_color_source(ancestor_color, tm)
                     self._add_color_button_row(
                         page,
                         f"shows {type(ancestor).__name__}#{ancestor.objectName() or ''}",
                         ancestor_color,
                         f"paints palette {ancestor_role} (autoFill on)",
+                        path=a_path, line=a_line,
                     )
         if has_custom_paint(widget):
             self._add_color_button_row(

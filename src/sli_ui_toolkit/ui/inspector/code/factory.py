@@ -67,18 +67,19 @@ def _is_toolkit_source(path: str | None, widget: QWidget | None = None) -> bool:
         return False
 
 
-def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | None:
-    """Construct + wire the Code section editor into the owner pane's Code
-    page (thin-owner split: the pane's ``_render_code`` delegates here).
-    Returns the editor, or ``None`` when the widget has no source file."""
-    from sli_ui_toolkit.ui.inspector.fields import _config_snippet
+def resolve_widget_source(
+    widget: QWidget | None,
+) -> tuple[str, list[str], int, bool, QWidget | None] | None:
+    """Shared source resolution for the inspector's Object and Code
+    sections: (path, source_lines, start_line, use_creation_site,
+    site_ancestor), or ``None`` when no source can be found.
 
-    page = owner.pages["Code"]
-    owner._clear(page)
+    Mirrors the Code section's full chain: plain ``QWidget`` containers have
+    no app file of their own (``getsourcefile(QWidget)`` is ``None``), so the
+    nearest app ancestor's creation site or class is used instead."""
     if widget is None:
         return None
     import inspect as _inspect
-    import sys
 
     try:
         source = _inspect.getsourcefile(type(widget))
@@ -87,38 +88,16 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
         source = None
         source_lines = None
         source_start = 1
-    # Plain QWidget containers (e.g. gallery_toolbar_view_switch_container) are
-    # created as ``QWidget`` in app code — ``type(widget) is QWidget`` has no
-    # app file, so fall back to the nearest app ancestor that defines its
-    # objectName (toolbar.py). Without this the Code tab stays empty.
     use_creation_site = False
     site_ancestor: QWidget | None = None
     try:
-        is_plain = False
-        try:
-            # Bare QWidget containers (e.g. ScrollableDialogPage.content_widget)
-            # are plain QWidget instances with no app file. Previously this
-            # required a truthy objectName, so anonymous layout containers
-            # like the Settings page content widget (QWidget, no name, 978x819)
-            # never fell back to the owning app ancestor and the Code tab stayed
-            # empty. Treat any exact QWidget as plain when its type has no
-            # app source — the objectName helps _find_app_ancestor pick the
-            # right file when present, but is not required for the fallback.
-            is_plain = type(widget) is QWidget
-        except Exception:
-            pass
+        is_plain = type(widget) is QWidget
         if is_plain and (source is None or _is_toolkit_source(source, widget) is False):
-            # Own type is Qt's QWidget — not app code. Check if its module is Qt.
             mod = getattr(type(widget), "__module__", "") or ""
             is_qt = mod.startswith("PySide6") or mod.startswith("PyQt")
             if is_qt or source is None:
                 anc = _find_app_ancestor(widget)
                 if anc is not None:
-                    # Prefer the widget's OWN creation site — the enclosing
-                    # function of the line that creates/configures it (matched
-                    # by objectName or attribute reference). Without this the
-                    # whole ancestor class (the entire SettingsDialog) would be
-                    # shown for one anonymous container QWidget.
                     site = _creation_site_region(widget, anc)
                     if site is not None:
                         site_src, site_lines, site_start = site
@@ -142,6 +121,25 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
         pass
     if source is None or source_lines is None:
         return None
+    return (source, source_lines, source_start, use_creation_site, site_ancestor)
+
+
+def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | None:
+    """Construct + wire the Code section editor into the owner pane's Code
+    page (thin-owner split: the pane's ``_render_code`` delegates here).
+    Returns the editor, or ``None`` when the widget has no source file."""
+    from sli_ui_toolkit.ui.inspector.fields import _config_snippet
+
+    page = owner.pages["Code"]
+    owner._clear(page)
+    if widget is None:
+        return None
+    import sys
+
+    resolved = resolve_widget_source(widget)
+    if resolved is None:
+        return None
+    source, source_lines, source_start, use_creation_site, site_ancestor = resolved
     config = owner._current.config if owner._current is not None else ()
     config_text = (
         _config_snippet(type(widget).__name__, config) if config else None

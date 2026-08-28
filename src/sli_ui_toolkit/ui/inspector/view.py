@@ -97,13 +97,24 @@ class _InspectionPane(
             watched is self.shell.pages_stack
             and event.type() == QEvent.Type.Resize
         ):
-            page = self.shell.pages_stack.currentWidget()
-            if page is not None:
-                page.resize(self.shell.pages_stack.size())
+            # QStackedWidget only lays out its current page — the others keep
+            # their creation size, so their scroll areas (Code section etc.)
+            # stay stale: the code canvas would freeze at the width the page
+            # had when it was first opened. Resize EVERY page, not just the
+            # current one.
+            size = self.shell.pages_stack.size()
+            for page in self.pages.values():
+                page.resize(size)
         return super().eventFilter(watched, event)
 
     def _on_sidebar_row(self, row: int) -> None:
         self.shell.pages_stack.setCurrentIndex(row)
+        page = self.shell.pages_stack.currentWidget()
+        if page is not None:
+            # Hidden pages do not follow the stack size (see eventFilter);
+            # sync the freshly shown page so its scroll area/canvas relayouts
+            # at the current window width instead of the opening-time one.
+            page.resize(self.shell.pages_stack.size())
 
     def add_section(self, name: str) -> ScrollableDialogPage:
         """Append an extra sidebar section (app layer: Native)."""
