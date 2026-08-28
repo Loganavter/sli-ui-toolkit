@@ -118,11 +118,16 @@ def test_widget_flags_rows(qapp):
 
 def _page_labels(window: InspectorWindow, section: str) -> list[str]:
     from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+    from sli_ui_toolkit.widgets import Button
 
     page = window._pages[section]
     out: list[str] = []
     for label in page.content_widget.findChildren(Label):
         out.append(label.text())
+    for button in page.content_widget.findChildren(Button):
+        out.append(str(getattr(button, "_text", "") or ""))
+        for row in getattr(button, "_rows", ()) or ():
+            out.append(str(getattr(row, "text", "") or ""))
     return out
 
 

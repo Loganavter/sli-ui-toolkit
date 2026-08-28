@@ -71,6 +71,9 @@ class ColorRow:
     value: str
     origin: str
     color: QColor | None = None
+    selector: str = ""
+    source_path: str = ""
+    source_line: int = 0
 
 
 def _iter_qss_rules(qss_rows) -> Iterable[tuple[Any, Any]]:
@@ -120,6 +123,9 @@ def qss_border_rows(qss_rows, theme_manager) -> list[ColorRow]:
                     value=value,
                     origin=f"QSS {rule.selector}  ({rule.source}:{rule.line})",
                     color=resolve_qss_value(value, theme_manager),
+                    selector=rule.selector,
+                    source_path=rule.source,
+                    source_line=rule.line,
                 )
             )
     return rows
@@ -137,6 +143,9 @@ def _qss_property_rows(qss_rows, theme_manager, prop_names, label: str) -> list[
                     value=value,
                     origin=f"QSS {rule.selector}  ({rule.source}:{rule.line})",
                     color=resolve_qss_value(value, theme_manager),
+                    selector=rule.selector,
+                    source_path=rule.source,
+                    source_line=rule.line,
                 )
             )
     return rows

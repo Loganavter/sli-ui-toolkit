@@ -308,18 +308,84 @@ class _PaneRenderingMixin:
         color,
         detail: str,
     ) -> None:
-        """One Colors-section row: label + swatch + hex + origin detail."""
+        """One Colors-section row: label + swatch + hex + origin detail
+        (non-selectable — the row's source opens via its button)."""
         row = QWidget()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(6)
-        lay.addWidget(Label(label, pixel_size=13, bold=True, elide=True, selectable=True))
+        lay.addWidget(Label(label, pixel_size=13, bold=True, elide=True))
         if color is not None and color.isValid():
             lay.addWidget(_Swatch(QColor(color)))
-            lay.addWidget(Label(QColor(color).name(), pixel_size=13, selectable=True))
-        lay.addWidget(Label(detail, pixel_size=13, elide=True, selectable=True))
+            lay.addWidget(Label(QColor(color).name(), pixel_size=13))
+        lay.addWidget(Label(detail, pixel_size=13, elide=True))
         lay.addStretch(1)
         page.content_layout.addWidget(row)
+
+
+    def _add_color_source_row(
+        self,
+        page: ScrollableDialogPage,
+        label: str,
+        color,
+        name_text: str,
+        path: str,
+        line: int,
+    ) -> None:
+        """Colors-section row with an openable source: label + swatch +
+        hex + name, and a button that opens the source file in the system
+        editor. The button carries a SHORT ``basename:line`` label (the
+        full path lives in the tooltip) so it always renders as a real
+        button instead of a squeezed marquee strip."""
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        lay.addWidget(Label(label, pixel_size=13, bold=True, elide=True))
+        if color is not None and color.isValid():
+            lay.addWidget(_Swatch(QColor(color)))
+            lay.addWidget(Label(QColor(color).name(), pixel_size=13))
+        lay.addWidget(Label(name_text, pixel_size=13, elide=True))
+        button = Button(
+            text=f"{Path(path).name}:{line}" if line else Path(path).name,
+            variant="surface",
+            size=(0, 26),
+        )
+        button.setToolTip(
+            f"Open {path}:{line} in the system text editor" if line else
+            f"Open {path} in the system text editor"
+        )
+        button.clicked.connect(
+            lambda _checked=False, target=path: QDesktopServices.openUrl(
+                QUrl.fromLocalFile(target)
+            )
+        )
+        lay.addWidget(button)
+        lay.addStretch(1)
+        page.content_layout.addWidget(row)
+
+
+    def _resolve_token_source_path(self, source_label: str) -> tuple[str, int] | None:
+        """Full path for a ``themes.json:72``-style token source label:
+        the same-named file adjacent to the registered QSS resources (the
+        same heuristic the app's token-source lookup uses)."""
+        if not source_label or ":" not in source_label:
+            return None
+        name, _, line_part = source_label.rpartition(":")
+        if not name:
+            return None
+        try:
+            line = int(line_part)
+        except ValueError:
+            line = 0
+        for raw in getattr(self._theme_manager, "_qss_paths", ()) or ():
+            path = str(raw)
+            if "resources" not in path or not path.endswith(".qss"):
+                continue
+            candidate = Path(path).parent.parent / name
+            if candidate.exists():
+                return str(candidate), line
+        return None
 
 
     def _render_colors(self) -> None:
@@ -350,7 +416,13 @@ class _PaneRenderingMixin:
         bg_rows = qss_background_rows(self._qss_rows, tm)
         if bg_rows:
             for row in bg_rows:
-                self._add_color_row(page, "QSS", row.color, f"{row.value}  ← {row.origin}")
+                if row.source_path:
+                    self._add_color_source_row(
+                        page, "QSS", row.color,
+                        f"{row.selector} — {row.value}", row.source_path, row.source_line,
+                    )
+                else:
+                    self._add_color_row(page, "QSS", row.color, f"{row.value}  ← {row.origin}")
         else:
             role, color, auto_fill = palette_background(widget)
             painted = "paints from palette" if auto_fill else "transparent — does NOT paint"
@@ -389,12 +461,19 @@ class _PaneRenderingMixin:
             shown = tokens[:8]
             for token in shown:
                 source = self._token_sources.get(token, "")
-                self._add_color_row(
-                    page,
-                    "= token",
-                    QColor(tm.get_color(token)),
-                    f"{token}  {source}" if source else token,
-                )
+                resolved = self._resolve_token_source_path(source) if source else None
+                if resolved is not None:
+                    path, line = resolved
+                    self._add_color_source_row(
+                        page, "= token", QColor(tm.get_color(token)), token, path, line,
+                    )
+                else:
+                    self._add_color_row(
+                        page,
+                        "= token",
+                        QColor(tm.get_color(token)),
+                        f"{token}  {source}" if source else token,
+                    )
             if len(tokens) > len(shown):
                 self._add_color_row(
                     page,
@@ -408,7 +487,13 @@ class _PaneRenderingMixin:
         text_rows = qss_text_rows(self._qss_rows, tm)
         if text_rows:
             for row in text_rows:
-                self._add_color_row(page, "QSS", row.color, f"{row.value}  ← {row.origin}")
+                if row.source_path:
+                    self._add_color_source_row(
+                        page, "QSS", row.color,
+                        f"{row.selector} — {row.value}", row.source_path, row.source_line,
+                    )
+                else:
+                    self._add_color_row(page, "QSS", row.color, f"{row.value}  ← {row.origin}")
         else:
             palette = widget.palette()
             for role_name in ("Text", "WindowText"):
@@ -435,7 +520,13 @@ class _PaneRenderingMixin:
         if border_rows:
             self._add_title(page, "Border (QSS)")
             for row in border_rows:
-                self._add_color_row(page, row.label, row.color, f"{row.value}  ← {row.origin}")
+                if row.source_path:
+                    self._add_color_source_row(
+                        page, row.label, row.color,
+                        f"{row.selector} — {row.value}", row.source_path, row.source_line,
+                    )
+                else:
+                    self._add_color_row(page, row.label, row.color, f"{row.value}  ← {row.origin}")
 
         # ---- flags ----
         self._add_title(page, "Paint flags")

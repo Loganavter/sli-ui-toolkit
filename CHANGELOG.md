@@ -1159,11 +1159,13 @@
   resets widget palettes to the app palette; a widget stylesheet survives.)
 - **Inspector Colors section added** — the pane's new **Colors** page shows
   the selected widget's background / text / border colors and WHERE each
-  comes from: matched QSS rules (selector + file:line), the effective
-  palette role + `autoFillBackground` (with the first painting ancestor for
-  transparent containers), the ThemeManager tokens behind the values
-  (reverse lookup, app-defined tokens first, `themes.json` source labels),
-  custom `paintEvent` detection, and paint-relevant widget flags.
+  comes from: matched QSS rules (selector + value, with a button opening
+  the QSS file at the rule's line), the effective palette role +
+  `autoFillBackground` (with the first painting ancestor for transparent
+  containers), the ThemeManager tokens behind the values (reverse lookup,
+  app-defined tokens first, each with a button opening `themes.json` at the
+  token's line), custom `paintEvent` detection, and paint-relevant widget
+  flags.
 
 ## 3.1.12
 
