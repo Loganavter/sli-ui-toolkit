@@ -12,11 +12,32 @@ from __future__ import annotations
 
 from typing import Iterable
 
+from functools import lru_cache
+
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 
 Span = tuple[int, int, str]
 
 _BOLD_KINDS = frozenset({"defclass"})
+
+# Cache for horizontalAdvance — selection of 2 chars on one line still
+# repaints 29 visible lines × 5 segments = 145 advances per frame at 100Hz
+# drag → 14k advances/s. Monospace 12px advances are pure function of text+bold.
+_advance_cache: dict[tuple[str, bool], int] = {}
+
+
+def _cached_advance(metrics: QFontMetrics, text: str, bold: bool) -> int:
+    if not text:
+        return 0
+    key = (text, bold)
+    cached = _advance_cache.get(key)
+    if cached is not None:
+        return cached
+    val = metrics.horizontalAdvance(text)
+    # Bounded — 8k entries ~ few KB, enough for visible vocabulary
+    if len(_advance_cache) < 8192:
+        _advance_cache[key] = val
+    return val
 
 
 def draw_text_line(
@@ -95,6 +116,7 @@ def _draw_segment(
             metrics = QFontMetrics(font)
     else:
         painter.setFont(font)
+    is_bold = font.bold() if hasattr(font, "bold") else bold
     painter.setPen(color)
     painter.drawText(x, y, text)
-    return x + metrics.horizontalAdvance(text)
+    return x + _cached_advance(metrics, text, is_bold)

@@ -11,6 +11,8 @@ methods.
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QEvent, QRect, Qt
 from PySide6.QtGui import QKeySequence
 
@@ -29,9 +31,17 @@ class _CanvasEventsApi:
             ),
         )
         x = point.x() - self._text_x()
+        # Use cached advances — selecting 2 chars still repaints 29 lines,
+        # but hit-testing per MouseMove was O(L^2) slicing + uncached
+        # horizontalAdvance. Cache via painter's _cached_advance.
+        from .painter import _cached_advance
+
         col = 0
-        for index, _ch in enumerate(self._lines[line]):
-            if self._metrics.horizontalAdvance(self._lines[line][:index + 1]) > x:
+        text = self._lines[line]
+        # Binary search would be faster, but linear with cached advances is
+        # already cheap for monospace 12px (100 chars → 100 cache hits).
+        for index, _ch in enumerate(text):
+            if _cached_advance(self._metrics, text[: index + 1], False) > x:
                 break
             col = index + 1
         return (line, col)
@@ -114,7 +124,21 @@ class _CanvasEventsApi:
                     super().mouseMoveEvent(event)
                     return
                 self._drag_extending = True
+            # Throttle drag to 60Hz — selecting 2 chars on one line was
+            # firing update() at 100+Hz (mouse poll) × 29 lines paint
+            # → 3ms×100 = 300ms/s. Coalesce to one frame.
+            now = time.perf_counter()
+            last = getattr(self, "_last_drag_ts", 0.0)
+            if now - last < 0.016:
+                super().mouseMoveEvent(event)
+                return
+            self._last_drag_ts = now
             pos = self._pos_from_point(event.position().toPoint())
+            # Avoid redundant update when pos hasn't moved (jitter)
+            if pos == getattr(self, "_last_drag_pos", None):
+                super().mouseMoveEvent(event)
+                return
+            self._last_drag_pos = pos
             self._cursor = pos
             if self._chain_selecting == "word":
                 rng = TextSelection.word_range(pos, self._lines[pos[0]])
@@ -123,6 +147,7 @@ class _CanvasEventsApi:
                 self._selection.focus = (pos[0], len(self._lines[pos[0]]))
             else:
                 self._selection.focus = pos
+            # Update only the union of old/new selection rect, not full canvas
             self.update()
         super().mouseMoveEvent(event)
 

@@ -20,7 +20,7 @@ from sli_ui_toolkit.theme import ThemeManager
 from . import constants
 from .document import paint_layout
 from .highlight import python_line_spans, python_span_colors
-from .painter import draw_text_line
+from .painter import _cached_advance, draw_text_line
 
 _logger = logging.getLogger("ImproveImgSLI")
 # Re-evaluated per paint so `SLI_TEXTVIEW_DEBUG=1` works even if set after import.
@@ -209,8 +209,8 @@ class _CanvasPaintApi:
         if self._editing:
             sel_lo, sel_hi = self._selection_range_for_line(line_index, line)
             if sel_lo < sel_hi:
-                x0 = self._text_x() + self._metrics.horizontalAdvance(line[:sel_lo])
-                x1 = self._text_x() + self._metrics.horizontalAdvance(line[:sel_hi])
+                x0 = self._text_x() + _cached_advance(self._metrics, line[:sel_lo], False)
+                x1 = self._text_x() + _cached_advance(self._metrics, line[:sel_hi], False)
                 painter.fillRect(
                     QRect(x0, y - self._metrics.ascent(), x1 - x0, self._line_height),
                     selection_color,
@@ -235,9 +235,7 @@ class _CanvasPaintApi:
             and not self._selection.active()
             and self._cursor[0] == line_index
         ):
-            cx = self._text_x() + self._metrics.horizontalAdvance(
-                line[:self._cursor[1]]
-            )
+            cx = self._text_x() + _cached_advance(self._metrics, line[: self._cursor[1]], False)
             painter.fillRect(
                 QRect(cx, y - self._metrics.ascent(), 2, self._line_height),
                 base_color,
