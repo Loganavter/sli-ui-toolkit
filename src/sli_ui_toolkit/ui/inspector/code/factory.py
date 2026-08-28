@@ -86,6 +86,10 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
     config_text = (
         _config_snippet(type(widget).__name__, config) if config else None
     )
+    # Enrich Button-like configs: the visible text lives in regions/rows,
+    # not in ``text``/``rows`` — without it GallerySeriesHeader shows
+    # ``Button(text='', rows=[])`` which is not informative.
+    config_text = _maybe_add_region_info(config_text, widget, owner._current)
     qss_text = _qss_snippet(getattr(owner, "_qss_rows", None))
     if _is_toolkit_source(source, widget):
         _build_toolkit_config_only(owner, page, config_text, qss_text)
@@ -134,30 +138,114 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
 
 
 def _find_app_ancestor(widget: QWidget | None) -> QWidget | None:
-    """Nearest parent whose Python source lives outside sli-ui-toolkit.
+    """Nearest *meaningful* app parent for a toolkit primitive.
 
-    Toolkit primitives (Button, Switch, …) are typically instantiated
-    inside an app composite — the inspector's ``Code`` tab should point
-    at that app container, not at the toolkit internals. ``Layout``/
-    ``Constructor`` already show the full tree; this helper gives the
-    Code section a one-click jump to the editable parent."""
+    The old version returned the immediate ``parentWidget()`` even when
+    it was a plain ``QWidget`` container (``GallerySeriesHeader_…`` is a
+    generic ``QWidget``) or a generic host (``OpaqueFillHost``).  For
+    ``GallerySeriesHeader_ungrouped_btn`` that made ``Show parent code``
+    jump to the top-level window instead of ``GalleryGridView``.
+    """
     if widget is None:
         return None
+    import inspect as _inspect
+
+    obj_name = ""
+    try:
+        obj_name = widget.objectName() or ""
+    except Exception:
+        pass
+
+    candidates: list[QWidget] = []
     cur = widget.parentWidget()
     while cur is not None:
         try:
-            mod = type(cur).__module__ or ""
-            is_toolkit_mod = mod == "sli_ui_toolkit" or mod.startswith("sli_ui_toolkit.")
-            if not is_toolkit_mod:
-                import inspect as _inspect
-
-                src = _inspect.getsourcefile(type(cur))
-                if src is None or not _is_toolkit_source(src, cur):
-                    return cur
+            t = type(cur)
+            mod = t.__module__ or ""
+            is_toolkit = mod == "sli_ui_toolkit" or mod.startswith("sli_ui_toolkit.")
+            is_qt = mod.startswith("PySide6.") or mod.startswith("PyQt")
+            if is_toolkit or is_qt:
+                cur = cur.parentWidget()
+                continue
+            # Generic ``QWidget`` containers (GallerySeriesHeader_… is a
+            # plain QWidget) have no app source — skip them.
+            if t is QWidget:
+                cur = cur.parentWidget()
+                continue
+            src = _inspect.getsourcefile(t)
+            if src is None or _is_toolkit_source(src, cur):
+                cur = cur.parentWidget()
+                continue
+            # Prefer the ancestor whose file actually defines the button's
+            # objectName (grid_view.py contains GallerySeriesHeader_…).
+            if obj_name:
+                try:
+                    txt = open(src, encoding="utf-8", errors="ignore").read()
+                    if obj_name in txt:
+                        return cur
+                except Exception:
+                    pass
+            candidates.append(cur)
         except Exception:
             pass
         cur = cur.parentWidget()
-    return None
+
+    # No objectName match — prefer the closest app view whose file
+    # actually creates buttons (grid_view.py does, shelf.py/host does not).
+    for cand in candidates:
+        try:
+            if cand.isWindow():
+                continue
+            src = _inspect.getsourcefile(type(cand))
+            if src:
+                try:
+                    txt = open(src, encoding="utf-8", errors="ignore").read()
+                    if "Button(" in txt or "ButtonRegion" in txt:
+                        return cand
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    for cand in candidates:
+        try:
+            if cand.isWindow():
+                continue
+        except Exception:
+            pass
+        return cand
+    return candidates[0] if candidates else None
+
+
+def _maybe_add_region_info(config_text: str | None, widget, inspection) -> str | None:
+    """Append region display text to the synthetic snippet.
+
+    For ``Button`` with ``regions=[ButtonRegion(rows=[ButtonRow(...)])]``
+    the ``text``/``rows`` config is empty — the real visible string lives
+    in ``InspectRegion.rows[].text``. Without it the Code tab shows
+    ``Button(text='', rows=[])`` for e.g. ``GallerySeriesHeader_ungrouped_btn``.
+    """
+    try:
+        regions = getattr(inspection, "regions", None) if inspection else None
+        if not regions:
+            return config_text
+        row_texts: list[str] = []
+        for reg in regions:
+            for row in getattr(reg, "rows", ()) or ():
+                txt = getattr(row, "text", None)
+                if isinstance(txt, str) and txt.strip():
+                    row_texts.append(txt.strip())
+        if not row_texts:
+            return config_text
+        display_comment = "display: " + " | ".join(repr(t) for t in row_texts)
+        if config_text:
+            stripped = config_text.rstrip()
+            if stripped.endswith(")"):
+                inner = stripped[:-1].rstrip()
+                return inner + f"\n    # {display_comment}\n)"
+            return config_text + f"\n# {display_comment}"
+        return f"# {display_comment}"
+    except Exception:
+        return config_text
 
 
 def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: str | None) -> None:
@@ -244,9 +332,9 @@ def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: s
         import sys as _sys
 
         selected = widget
-        # Use a minimal placeholder source so the editor's class-region
-        # logic stays intact but no toolkit file is exposed.
-        placeholder_src = "# toolkit primitive — no class source to edit here\n# edit the parent widget's file (button above) or Apply the config below\n"
+        # No toolkit file is exposed — the editor shows only the synthetic
+        # config (now enriched with region display text).
+        placeholder_src = ""
         module = _sys.modules.get(type(selected).__module__) if selected is not None else None
         editor = CodeSectionEditor()
         editor.set_source(

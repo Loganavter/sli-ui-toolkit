@@ -8,6 +8,7 @@ widget used by COLOR-kind rows.
 
 from __future__ import annotations
 
+import dataclasses
 from enum import Enum
 from typing import Any
 
@@ -67,9 +68,9 @@ def _config_literal(value: Any, depth: int = 0) -> str:
     ``Type.MEMBER``, colors hex strings, child widgets degrade to a
     ``Type(...)`` placeholder, nested ``InspectField`` blocks become dicts.
     """
-    import dataclasses
-
     pad = "    " * depth
+    if value is None:
+        return "None"
     if isinstance(value, bool):
         return "True" if value else "False"
     if isinstance(value, Enum):
@@ -129,23 +130,17 @@ def _config_literal(value: Any, depth: int = 0) -> str:
         return f"{type(value).__name__}({inner})"
     if isinstance(value, (int, float)):
         return repr(value)
-    if not isinstance(value, (str, int, float, bool)) or isinstance(value, Enum):
-        # opaque object (QIcon, QBrush, ...): a Call placeholder — keeps the
-        # snippet parseable and the preview's kwarg extractor skips it
-        # (only reached after containers / dataclasses / primitives)
-        if not isinstance(value, (str, int, float, bool, Enum, QColor, QRect, QRectF, QWidget, dict, list, tuple)):
-            return f"{type(value).__name__}(...)"
-        # if it is a str/int/float/bool that slipped through, use repr
-        if isinstance(value, (str, int, float, bool)):
-            return repr(value)
-        return f"{type(value).__name__}(...)"
-    return repr(value)
+    # fallback: opaque object (QIcon, QBrush, custom types)
+    return f"{type(value).__name__}(...)"
 
 
 def _should_show_dataclass_field(obj: Any, field) -> bool:
     """Hide noisy dataclass defaults for ButtonRow/ButtonRegion etc."""
     try:
         val = getattr(obj, field.name)
+        # hide None — not informative
+        if val is None:
+            return False
         default = field.default
         if default is not dataclasses.MISSING and val == default:
             # keep text-like fields even when default is '' to avoid
@@ -158,14 +153,11 @@ def _should_show_dataclass_field(obj: Any, field) -> bool:
             if field.name in {"size"} and val == 12:
                 # ButtonRow default size
                 return False
-            if field.name in {"h_align"} and str(val) == "PySide6.QtCore.Qt.AlignmentFlag.AlignHCenter":
+            if field.name == "h_align":
                 return False
         # for ButtonRow, always show text when non-empty
         if field.name == "text" and isinstance(val, str) and val:
             return True
-        # hide None colors
-        if field.name == "color" and val is None:
-            return False
         return True
     except Exception:
         return True
