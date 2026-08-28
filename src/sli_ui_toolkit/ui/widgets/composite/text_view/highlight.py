@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import re
 
+from functools import lru_cache
+
 from PySide6.QtGui import QColor
 
 PY_KEYWORDS = frozenset(
@@ -47,10 +49,18 @@ _QUOTE_RE = re.compile(r"(\"|')(?:\\.|[^\\\"'])*?(\"|')")
 _DEF_NAME_RE = re.compile(r"\s+([A-Za-z_][A-Za-z0-9_]*)")
 
 
-def python_line_spans(line: str) -> list[tuple[int, int, str]]:
+@lru_cache(maxsize=4096)
+def python_line_spans(line: str) -> tuple[tuple[int, int, str], ...]:
     """``(start, end, kind)`` spans for one line (single-line constructs;
     triple-quoted strings are handled line-by-line: an opening triple
-    without a same-line closer marks the rest of the line as string)."""
+    without a same-line closer marks the rest of the line as string).
+
+    Cached per ``line`` string — the Code view repaints the same visible
+    lines on every scroll tick, so a per-line memo avoids re-running the
+    regex tokenizer at 60 fps (best-practice editors keep a line-token cache
+    with incremental invalidation; this is the same idea for a read-mostly
+    viewer). The return is a tuple for hashability.
+    """
     spans: list[tuple[int, int, str]] = []
     index = 0
     length = len(line)
@@ -111,15 +121,12 @@ def python_line_spans(line: str) -> list[tuple[int, int, str]]:
             index = end
             continue
         index += 1
-    return spans
+    return tuple(spans)
 
 
-def python_span_colors(theme_manager) -> dict[str, QColor]:
-    """Theme-aware palette for the span kinds."""
-    dark = bool(theme_manager.is_dark())
-    accent = theme_manager.try_get_color("accent")
-    if accent is None or not accent.isValid():
-        accent = theme_manager.get_color("accent")
+@lru_cache(maxsize=16)
+def _cached_span_colors(dark: bool, accent_name: str) -> dict[str, QColor]:
+    accent = QColor(accent_name) if accent_name else QColor("#000000")
     return {
         "comment": QColor("#6a737d" if not dark else "#8b949e"),
         "string": QColor("#2e7d32" if not dark else "#7ee787"),
@@ -129,3 +136,13 @@ def python_span_colors(theme_manager) -> dict[str, QColor]:
         "decorator": QColor("#795e26" if not dark else "#d2a8ff"),
         "defclass": QColor("#6f42c1" if not dark else "#d2a8ff"),
     }
+
+
+def python_span_colors(theme_manager) -> dict[str, QColor]:
+    """Theme-aware palette for the span kinds (cached per dark/accent)."""
+    dark = bool(theme_manager.is_dark())
+    accent = theme_manager.try_get_color("accent")
+    if accent is None or not accent.isValid():
+        accent = theme_manager.get_color("accent")
+    key = accent.name() if accent is not None and accent.isValid() else ""
+    return _cached_span_colors(dark, key)

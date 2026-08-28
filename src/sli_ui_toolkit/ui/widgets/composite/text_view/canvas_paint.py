@@ -8,6 +8,10 @@ override wins, same trick as ``base_flyout``.
 
 from __future__ import annotations
 
+import logging
+import os
+import time
+
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QPainter
 
@@ -18,30 +22,110 @@ from .document import paint_layout
 from .highlight import python_line_spans, python_span_colors
 from .painter import draw_text_line
 
+_logger = logging.getLogger("ImproveImgSLI")
+# Re-evaluated per paint so `SLI_TEXTVIEW_DEBUG=1` works even if set after import.
+# Use WARNING so it shows with default host logging (DEBUG is filtered).
+def _debug_enabled() -> bool:
+    return os.getenv("SLI_TEXTVIEW_DEBUG") == "1" or os.getenv("IMGSLI_TRACE") == "1"
+
+_DEBUG_PAINT_EVERY = 1  # log every paint while debugging — zero useful info means throttle hid the storm
+_paint_counter = 0
+_slow_threshold_ms = 0  # log everything when debug on
+_last_paint_ts = 0.0
+_burst_start = 0.0
+_burst_count = 0
+
 
 class _CanvasPaintApi:
     _FOLD_ARROW = "▸"  # ▸
 
-    def paintEvent(self, _event) -> None:  # noqa: N802
+    def paintEvent(self, event) -> None:  # noqa: N802
+        # Debug probe: use WARNING + file so it is visible even with default
+        # host log level (DEBUG is filtered → "НОЛЬ полезной информации").
+        dbg = _debug_enabled()
+        t0 = time.perf_counter() if dbg else 0
+        global _paint_counter
         if self._document_layout is not None:
             self._paint_document()
+            if dbg:
+                dt = (time.perf_counter() - t0) * 1000
+                _paint_counter += 1
+                from .highlight import python_line_spans as _pls
+
+                info = _pls.cache_info() if hasattr(_pls, "cache_info") else None
+                msg = (
+                    f"TextCanvas paint doc paint#{_paint_counter} lines={len(self._lines)} "
+                    f"h={self.height()} clip={getattr(event, 'rect', lambda: self.rect())()} dt={dt:.2f}ms cache={info}"
+                )
+                _logger.warning(msg)
+                # Also to /tmp for headless runs where log.txt is overwritten
+                try:
+                    with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                        f.write(msg + "\n")
+                except Exception:
+                    pass
             return
         painter = QPainter(self)
         tm = ThemeManager.get_instance()
         foreground = tm.try_get_color("WindowText")
         if foreground is None or not foreground.isValid():
             foreground = QColor(0, 0, 0)
-        self._paint_gutter(painter, foreground)
+        self._paint_gutter(painter, foreground, clip_rect=getattr(event, "rect", lambda: self.rect())())
         colors = python_span_colors(tm)
         selection_color = QColor(tm.try_get_color("accent") or QColor(0, 0, 0))
         selection_color.setAlpha(70)
-        y = constants.PAD + self._metrics.ascent()
-        for line_index, line in enumerate(self._lines):
+        # Clip to the exposed rect — painting every line for a 2k-line file
+        # on every scroll tick is O(N) and makes the Code view lag badly.
+        # The QScrollArea moves the canvas; only the viewport slice is exposed.
+        clip = getattr(event, "rect", lambda: self.rect())() if event is not None else self.rect()
+        first = max(0, (clip.y() - constants.PAD) // max(1, self._line_height))
+        last = min(
+            len(self._lines) - 1,
+            (clip.y() + clip.height() - constants.PAD) // max(1, self._line_height) + 1,
+        )
+        # gutter already paints its own visible slice, but fold arrows are
+        # cheap — still draw them (few lines). Lines: only the visible span.
+        y0 = constants.PAD + self._metrics.ascent() + first * self._line_height
+        y = y0
+        for line_index in range(first, last + 1):
+            line = self._lines[line_index]
             self._paint_line(
                 painter, y, line, line_index, foreground, colors, selection_color
             )
             y += self._line_height
         self._paint_fold_arrows(painter, foreground)
+        if dbg:
+            dt = (time.perf_counter() - t0) * 1000
+            _paint_counter += 1
+            from .highlight import python_line_spans as _pls
+
+            info = _pls.cache_info() if hasattr(_pls, "cache_info") else None
+            # Detect repaint storm: >10 paints in <200ms with same clip
+            global _last_paint_ts, _burst_start, _burst_count
+            now = time.perf_counter()
+            if now - _burst_start > 0.2:
+                _burst_start = now
+                _burst_count = 0
+            _burst_count += 1
+            interval = (now - _last_paint_ts) * 1000 if _last_paint_ts else 0
+            _last_paint_ts = now
+            msg = (
+                f"TextCanvas paint code paint#{_paint_counter} N={len(self._lines)} "
+                f"visible=[{first}..{last}] ({max(0, last-first+1)}) h={self.height()} clip={clip} dt={dt:.2f}ms interval={interval:.1f}ms burst={_burst_count} cache={info}"
+            )
+            _logger.warning(msg)
+            try:
+                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
+                    f.write(msg + "\n")
+                    # On storm, dump stack to locate trigger (update() caller)
+                    if _burst_count > 5 and interval < 20:
+                        import traceback
+
+                        stack = "".join(traceback.format_stack()[-6:-2])
+                        f.write(f"  STACK burst#{_burst_count} interval {interval:.1f}ms:\n{stack}\n")
+                        _logger.warning("TextCanvas burst stack:\n%s", stack)
+            except Exception:
+                pass
 
     def _paint_document(self) -> None:
         painter = QPainter(self)  # type: ignore[call-overload]
@@ -84,7 +168,7 @@ class _CanvasPaintApi:
                     self._FOLD_ARROW,
                 )
 
-    def _paint_gutter(self, painter: QPainter, foreground: QColor) -> None:
+    def _paint_gutter(self, painter: QPainter, foreground: QColor, clip_rect=None) -> None:
         """VS Code-style line-number gutter (only when a start is set):
         right-aligned muted numbers + a thin separator on its right edge."""
         if self._line_number_start is None:
@@ -95,15 +179,22 @@ class _CanvasPaintApi:
         separator = QColor(foreground)
         separator.setAlpha(50)
         painter.setFont(self._font)
-        y = constants.PAD + self._metrics.ascent()
-        for index, _line in enumerate(self._lines):
+        clip = clip_rect if clip_rect is not None else self.rect()
+        first = max(0, (clip.y() - constants.PAD) // max(1, self._line_height))
+        last = min(
+            len(self._lines) - 1,
+            (clip.y() + clip.height() - constants.PAD) // max(1, self._line_height) + 1,
+        )
+        y = constants.PAD + self._metrics.ascent() + first * self._line_height
+        for index in range(first, last + 1):
             number = self._gutter_text(index)
             num_width = self._metrics.horizontalAdvance(number)
             painter.setPen(text_color)
             painter.drawText(width - constants.GUTTER_PAD - num_width, y, number)
             y += self._line_height
         painter.setPen(separator)
-        painter.drawLine(width - 1, 0, width - 1, self.height())
+        # Separator previously spanned the whole 80k widget — clipped to viewport
+        painter.drawLine(width - 1, clip.y(), width - 1, clip.y() + clip.height())
 
     def _paint_line(
         self,

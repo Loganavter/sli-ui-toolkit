@@ -331,16 +331,33 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         # area stretches the canvas to its viewport (the text view fills the
         # window and only scrolls when the content exceeds it) — a fixed
         # height forced the renderer to expand to the whole document.
+        import logging
+        import os
+        import time
+
+        _dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+        t0 = time.perf_counter() if _dbg else 0
         if self._document_layout is not None:
-            self.setMinimumHeight(
-                int(self._document_layout.height) + 2 * constants.PAD
-            )
+            h = int(self._document_layout.height) + 2 * constants.PAD
+            self.setMinimumHeight(h)
         else:
             lines = max(1, len(self._lines))
-            self.setMinimumHeight(
-                self._line_height * lines + 2 * constants.PAD
-            )
+            h = self._line_height * lines + 2 * constants.PAD
+            self.setMinimumHeight(h)
+            if _dbg and lines > 1000:
+                logging.getLogger("sli_ui_toolkit.textview").debug(
+                    "TextCanvas _sync_height N=%d h=%d line_h=%d",
+                    lines,
+                    h,
+                    self._line_height,
+                )
         self.updateGeometry()
+        if _dbg and t0:
+            dt = (time.perf_counter() - t0) * 1000
+            if dt > 5:
+                logging.getLogger("sli_ui_toolkit.textview").debug(
+                    "TextCanvas _sync_height dt=%.2fms", dt
+                )
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)

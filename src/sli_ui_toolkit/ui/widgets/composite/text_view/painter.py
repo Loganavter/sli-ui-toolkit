@@ -32,25 +32,40 @@ def draw_text_line(
     bold_kinds: frozenset[str] = _BOLD_KINDS,
 ) -> int:
     """Paint one line segment-by-segment; returns the final x position."""
+    # Pre-create bold font + metrics once per line — the old version
+    # allocated a new QFont + QFontMetrics per segment (expensive at 60fps
+    # for 40 visible lines). Editors cache glyph advances per font.
+    bold_font: QFont | None = None
+    regular_metrics = QFontMetrics(font)
+    bold_metrics: QFontMetrics | None = None
+    if any(k in bold_kinds for _, _, k in spans):
+        bold_font = QFont(font)
+        bold_font.setBold(True)
+        bold_metrics = QFontMetrics(bold_font)
     pos = 0
     for start, end, kind in spans:
         if start > pos:
-            x = _draw_segment(painter, x, y, line[pos:start], base_color, font)
+            x = _draw_segment(
+                painter, x, y, line[pos:start], base_color, font, regular_metrics
+            )
         color = colors.get(kind)
         if color is None:
             continue
+        is_bold = kind in bold_kinds
+        seg_font = bold_font if is_bold else font
+        seg_metrics = bold_metrics if is_bold else regular_metrics
         x = _draw_segment(
             painter,
             x,
             y,
             line[start:end],
             color,
-            font,
-            bold=(kind in bold_kinds),
+            seg_font,  # type: ignore[arg-type]
+            seg_metrics,  # type: ignore[arg-type]
         )
         pos = end
     if pos < len(line):
-        x = _draw_segment(painter, x, y, line[pos:], base_color, font)
+        x = _draw_segment(painter, x, y, line[pos:], base_color, font, regular_metrics)
     return x
 
 
@@ -61,17 +76,25 @@ def _draw_segment(
     text: str,
     color,
     font: QFont,
+    metrics: QFontMetrics | None = None,
     *,
     bold: bool = False,
 ) -> int:
     if not text:
         return x
-    if bold:
-        bold_font = QFont(font)
-        bold_font.setBold(True)
-        painter.setFont(bold_font)
+    # Legacy signature compatibility: _draw_segment was previously called with
+    # bold= kwarg and no metrics. Keep it working for external callers.
+    if metrics is None:
+        if bold:
+            bf = QFont(font)
+            bf.setBold(True)
+            painter.setFont(bf)
+            metrics = QFontMetrics(bf)
+        else:
+            painter.setFont(font)
+            metrics = QFontMetrics(font)
     else:
         painter.setFont(font)
     painter.setPen(color)
     painter.drawText(x, y, text)
-    return x + QFontMetrics(painter.font()).horizontalAdvance(text)
+    return x + metrics.horizontalAdvance(text)
