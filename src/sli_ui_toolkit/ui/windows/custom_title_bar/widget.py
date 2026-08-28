@@ -330,16 +330,12 @@ class CustomTitleBar(
             from sli_ui_toolkit.managers import FlyoutManager
 
             mgr = FlyoutManager.get_instance()
-            # Opening a tall in-window context menu (e.g. File with Open/Save
-            # Project) can trigger a host Resize/Move while the menu is being
-            # attached. Closing *all* flyouts here makes the first File/Help
-            # click look like a no-op; keep context menus open.
-            #
-            # ``pinned=True`` flyouts (persistent HUDs, see FLYOUT_SYSTEM.md
-            # "Pinned flyouts") are exempt from every other anchor-move/resize
-            # auto-dismiss path in FlyoutManager (``_close_flyouts_with_moved_anchors``
-            # explicitly skips them) -- this sweep must honor that same
-            # contract instead of hiding them unconditionally.
+            # Coalesce bursts: dialog.show() + capture.grab() can pump 9
+            # Resize/Move events in one frame, each would call hide() on the
+            # same flyout. Once a flyout is already fading, further hides are
+            # no-ops (lifecycle duplicate-suppressed) but still spam
+            # should_fade_out. Skip them here systemically for any CSD, not
+            # just File menu.
             for flyout in list(getattr(mgr, "_registered_flyouts", ())):
                 try:
                     if not flyout.isVisible():
@@ -347,6 +343,10 @@ class CustomTitleBar(
                     if getattr(flyout, "flyout_group", None) == "context_menu":
                         continue
                     if getattr(flyout, "pinned", False):
+                        continue
+                    # Already fading — don't re-enter hide() and don't re-run
+                    # should_fade_out/capture.grab() reentrantly.
+                    if getattr(getattr(flyout, "_fade", None), "hide_fade_in_progress", False):
                         continue
                     flyout.hide()
                 except RuntimeError:

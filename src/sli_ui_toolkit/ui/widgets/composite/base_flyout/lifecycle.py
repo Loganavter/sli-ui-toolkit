@@ -80,12 +80,22 @@ class _FlyoutLifecycleApi:
         # this was always-on WARNING, which drowned navigation logs.
         # DIAGNOSTIC: always capture caller for duplicate-hide spams (file.settings → dialog)
         _caller = "".join(traceback.format_stack()[-5:-3])
+        # Systemic: check duplicate first before probing should_fade_out — avoids
+        # 9× should_fade_out spam during capture.grab() reentrancy for any CSD.
+        if self._fade.hide_fade_in_progress:
+            logging.getLogger("ImproveImgSLI").debug(
+                "[flyout-nav] hide() duplicate-suppressed id=%s caller=%s",
+                id(self),
+                _caller.strip(),
+            )
+            return
+        should = self._fade.should_fade_out(self)
         if _flyout_debug_enabled():
             logger.warning(
                 "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s\nCaller:\n%s",
                 type(self).__name__, id(self),
                 self._fade.hide_fade_in_progress,
-                self._fade.should_fade_out(self),
+                should,
                 "".join(traceback.format_stack()[:-2]),
             )
         # Use ImproveImgSLI logger so it shows with host --debug even without SLI_FLYOUT_DEBUG
@@ -93,22 +103,14 @@ class _FlyoutLifecycleApi:
             "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s caller=%s",
             type(self).__name__, id(self),
             self._fade.hide_fade_in_progress,
-            self._fade.should_fade_out(self),
+            should,
             _caller.strip(),
         )
         fm = getattr(self, "flyout_manager", None)
         if fm is not None:
             fm.request_hide(self)
 
-        if self._fade.hide_fade_in_progress:
-            # Already fading out; _on_hide_fade_finished does the real hide.
-            logging.getLogger("ImproveImgSLI").debug(
-                "[flyout-nav] hide() duplicate-suppressed id=%s caller=%s",
-                id(self),
-                _caller.strip(),
-            )
-            return
-        if self._fade.should_fade_out(self):
+        if should:
             # Guard must be removed before the fade — otherwise every
             # FocusIn(SettingsDialog/MainWindow) during the fade is bounced
             # back to the flyout's CsdMenuRow, spamming focusChanged and
