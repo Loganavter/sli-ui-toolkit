@@ -91,7 +91,15 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
     try:
         is_plain = False
         try:
-            is_plain = type(widget) is QWidget and bool(widget.objectName())
+            # Bare QWidget containers (e.g. ScrollableDialogPage.content_widget)
+            # are plain QWidget instances with no app file. Previously this
+            # required a truthy objectName, so anonymous layout containers
+            # like the Settings page content widget (QWidget, no name, 978x819)
+            # never fell back to the owning app ancestor and the Code tab stayed
+            # empty. Treat any exact QWidget as plain when its type has no
+            # app source — the objectName helps _find_app_ancestor pick the
+            # right file when present, but is not required for the fallback.
+            is_plain = type(widget) is QWidget
         except Exception:
             pass
         if is_plain and (source is None or _is_toolkit_source(source, widget) is False):
