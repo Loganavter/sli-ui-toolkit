@@ -256,8 +256,11 @@ class _PaneRenderingMixin:
         lay.addWidget(Label("source", pixel_size=13, bold=True, selectable=True))
         button = self._path_button(f"{source}:{line}", "Open in the system text editor")
         button.clicked.connect(
-            lambda _checked=False, path=source: QDesktopServices.openUrl(
-                QUrl.fromLocalFile(path)
+            lambda _checked=False, path=source: logger.debug(
+                "[colors-source-debug] object-source chip clicked: target=%s "
+                "opened=%s",
+                path,
+                QDesktopServices.openUrl(QUrl.fromLocalFile(path)),
             )
         )
         lay.addWidget(button)

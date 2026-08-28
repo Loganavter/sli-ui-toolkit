@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 
 from PySide6.QtCore import QRectF, Qt
@@ -20,6 +22,22 @@ from ..variants import (
 )
 
 from ._base import Layer
+
+# [button-bg-debug] fires on every button paint once the host app's --debug
+# is on, drowning out other subsystems' debug output. Gated on its own
+# opt-in flag, off by default even under --debug -- same convention as
+# UI_NAV_DEBUG / SLI_UI_NAVLIST_DEBUG.
+logger = logging.getLogger(__name__)
+if os.environ.get("SLI_UI_BUTTON_BG_DEBUG", "").strip().lower() in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+):
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.DEBUG)
 
 # Ambient group hover strength when hover_compose="stack".
 _AMBIENT_HOVER_FACTOR = 0.45
@@ -264,6 +282,19 @@ class BackgroundLayer(Layer):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         backgrounds, border_color = self._resolve(ctx, tm)
+        logger.debug(
+            "[button-bg-debug] widget=%s#%s text=%r variant=%s states=%s "
+            "geo=%s layers=%s border=%s theme=%s",
+            type(ctx.widget).__name__,
+            ctx.widget.objectName(),
+            getattr(ctx.widget, "_text", "") or "",
+            ctx.effective_variant.name,
+            ",".join(sorted(s.name for s in ctx.effective_states)) or "-",
+            (ctx.widget.width(), ctx.widget.height()),
+            ",".join(c.name() for c in backgrounds) or "<none>",
+            border_color.name() if border_color is not None else "-",
+            tm.get_current_theme(),
+        )
         override_border = ctx.effective_override_border
         if override_border is not None:
             border_color = override_border
