@@ -348,7 +348,12 @@ class _PaneRenderingMixin:
         lay.addWidget(Label(name_text, pixel_size=13, elide=True))
         button = Button(
             text=f"{Path(path).name}:{line}" if line else Path(path).name,
-            variant="surface",
+            # ``surface`` resolves its fill to surface.background via the
+            # ALIAS chain — the same color as this page's background, so
+            # the chip would be invisible at rest (the host palette drops
+            # button.dialog.default.background). ``default`` resolves
+            # surface.list, a visible chip on the page.
+            variant="default",
             size=(0, 26),
         )
         button.setToolTip(
