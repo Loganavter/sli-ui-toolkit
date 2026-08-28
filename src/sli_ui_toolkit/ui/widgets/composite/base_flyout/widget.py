@@ -387,8 +387,14 @@ class BaseFlyout(
         # focus chain from redirecting it to a widget outside the flyout
         # (e.g. CsdMenuTrigger getting TabFocusReason after the flyout
         # opens).  Redirect back to the target child.
+        # While a hide-fade is in progress the guard must not fight focus
+        # moving to a newly opened dialog (File → Settings) — otherwise
+        # every FocusIn(MainWindow/SettingsDialog) during the ~fade ms is
+        # bounced back to CsdMenuRow, creating a focusChanged flood and
+        # transient re-probes (see Improve-ImgSLI transient_ui_manager).
         if (
             getattr(self, "_focus_guard_installed", False)
+            and not getattr(getattr(self, "_fade", None), "hide_fade_in_progress", False)
             and event.type() == QEvent.Type.FocusIn
             and obj is not self
             and isinstance(obj, QWidget)

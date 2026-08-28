@@ -102,6 +102,18 @@ class _FlyoutLifecycleApi:
             # Already fading out; _on_hide_fade_finished does the real hide.
             return
         if self._fade.should_fade_out(self):
+            # Guard must be removed before the fade — otherwise every
+            # FocusIn(SettingsDialog/MainWindow) during the fade is bounced
+            # back to the flyout's CsdMenuRow, spamming focusChanged and
+            # transient probes until the fade finishes.
+            if getattr(self, "_focus_guard_installed", False):
+                app = QApplication.instance()
+                if app is not None:
+                    try:
+                        app.removeEventFilter(self)
+                    except Exception:
+                        pass
+                self._focus_guard_installed = False
             self._fade.start_hide_fade(
                 self,
                 on_finished=self._on_hide_fade_finished,
