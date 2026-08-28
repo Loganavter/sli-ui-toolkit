@@ -133,16 +133,55 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
     return editor
 
 
-def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: str | None) -> None:
-    """Toolkit widgets: show only the live configuration (app-side values)
-    and QSS candidates — never the toolkit's own class source.
+def _find_app_ancestor(widget: QWidget | None) -> QWidget | None:
+    """Nearest parent whose Python source lives outside sli-ui-toolkit.
 
-    The toolkit source is not app configuration and must not be editable
-    from the app's inspector (editing it would patch the installed
-    package). The Code page becomes a read-only synthetic view instead
-    of the full ``CodeSectionEditor``."""
+    Toolkit primitives (Button, Switch, …) are typically instantiated
+    inside an app composite — the inspector's ``Code`` tab should point
+    at that app container, not at the toolkit internals. ``Layout``/
+    ``Constructor`` already show the full tree; this helper gives the
+    Code section a one-click jump to the editable parent."""
+    if widget is None:
+        return None
+    cur = widget.parentWidget()
+    while cur is not None:
+        try:
+            mod = type(cur).__module__ or ""
+            is_toolkit_mod = mod == "sli_ui_toolkit" or mod.startswith("sli_ui_toolkit.")
+            if not is_toolkit_mod:
+                import inspect as _inspect
+
+                src = _inspect.getsourcefile(type(cur))
+                if src is None or not _is_toolkit_source(src, cur):
+                    return cur
+        except Exception:
+            pass
+        cur = cur.parentWidget()
+    return None
+
+
+def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: str | None) -> None:
+    """Toolkit widgets: show live configuration (app-side values) plus an
+    editable parent-file editor.
+
+    The toolkit's own class source is never exposed as editable (patching
+    the installed package). Instead the page shows:
+
+    * the synthetic ``QSS + Button(...)`` snippet for the *selected*
+      toolkit primitive — editable, ``Apply`` writes the snippet's kwargs
+      onto the live instance (``apply_config_to_instance``);
+    * a ``Show parent code`` button that jumps to the nearest app-side
+      ancestor (found via ``_find_app_ancestor``) — its file *is* editable
+      and ``Save`` works there.
+
+    This restores editing for the ``only config`` case and makes the
+    parent location discoverable even though the Constructor tree already
+    shows the hierarchy."""
+    from PySide6.QtWidgets import QHBoxLayout, QWidget
+
     from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
-    from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
+    from sli_ui_toolkit.ui.widgets.buttons.button import Button as _Btn
+    from sli_ui_toolkit.ui.inspector.code.editor import CodeSectionEditor
 
     owner._add_title(page, "Code")
     info = Label(
@@ -154,31 +193,117 @@ def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: s
     )
     page.content_layout.addWidget(info)
     if owner._current is not None and owner._current.docs:
-        from sli_ui_toolkit.ui.widgets.buttons.button import Button as _Btn
-
         docs_btn = _Btn(text="Docs", variant="surface", size=(0, 26))
         docs_btn.setToolTip("Open the widget family's documentation section")
         docs_btn.clicked.connect(lambda: owner.show_section("Docs"))
         page.content_layout.addWidget(docs_btn)
-    parts: list[str] = []
-    if qss_text:
-        parts.append(qss_text)
-    if config_text:
-        parts.append(config_text)
-    if parts:
-        combined = "\n\n".join(parts)
-        view = TextView(combined)
-        # read-only: never enter edit mode, just a selectable code view
-        page.content_layout.addWidget(view, 1)
+
+    # Parent jump row — makes the app-side file discoverable.
+    widget = getattr(owner, "widget", None)
+    ancestor = _find_app_ancestor(widget)
+    if ancestor is not None:
+        import inspect as _inspect
+
+        try:
+            src = _inspect.getsourcefile(type(ancestor)) or ""
+            line = _inspect.getsourcelines(type(ancestor))[1] if src else 0
+            src_label = f"{src}:{line}" if src else type(ancestor).__name__
+        except Exception:
+            src_label = type(ancestor).__name__
+        row = QWidget()
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+        lay.addWidget(Label(f"Parent: {type(ancestor).__name__}", pixel_size=11, bold=True, selectable=True))
+        lay.addWidget(Label(src_label, pixel_size=11, elide=True, selectable=True))
+        jump = _Btn(text="Show parent code", variant="surface", size=(0, 26))
+        jump.setToolTip("Inspect the app-side parent that owns this toolkit widget")
+        # capture ancestor via default arg (avoid late binding)
+        jump.clicked.connect(lambda _c=False, anc=ancestor: owner.widget_activated.emit(anc))
+        lay.addWidget(jump)
+        lay.addStretch(1)
+        page.content_layout.addWidget(row)
     else:
+        # No app ancestor — hint where to find hierarchy.
         page.content_layout.addWidget(
             Label(
-                "No synthetic configuration to show for this widget.",
+                "No app-side parent found — see Layout / Constructor tabs for the containing tree.",
                 pixel_size=11,
                 selectable=True,
+                word_wrap=True,
             )
         )
-        page.content_layout.addStretch(1)
+
+    # Editable synthetic config for the *selected* toolkit widget.
+    # Reuse CodeSectionEditor so the snippet is selectable, editable
+    # and ``Apply`` works (writes kwargs onto the live primitive).
+    # The editor's file part is empty / non-toolkit — ``Save`` is a
+    # no-op for the primitive itself; the parent's file is edited after
+    # the jump button above.
+    if config_text or qss_text:
+        import sys as _sys
+
+        selected = widget
+        # Use a minimal placeholder source so the editor's class-region
+        # logic stays intact but no toolkit file is exposed.
+        placeholder_src = "# toolkit primitive — no class source to edit here\n# edit the parent widget's file (button above) or Apply the config below\n"
+        module = _sys.modules.get(type(selected).__module__) if selected is not None else None
+        editor = CodeSectionEditor()
+        editor.set_source(
+            path=None,
+            source_text=placeholder_src,
+            source_start=1,
+            config_text=config_text,
+            qss_text=qss_text,
+            module_vars=vars(module) if module is not None else None,
+            target_class=type(selected) if selected is not None else None,
+            target_instance=selected,
+        )
+        # The placeholder source is not app code — never treat class
+        # edits as dirty and never enable Save (path is None anyway).
+        # Config snippet remains editable and Apply stays enabled.
+        try:
+            editor.is_dirty = lambda: False  # type: ignore[method-assign]
+        except Exception:
+            pass
+
+        def _toolkit_on_changed() -> None:
+            snippet_dirty = editor.snippet_dirty()
+            try:
+                editor._save_btn.setEnabled(False)
+                editor._apply_btn.setEnabled(snippet_dirty)
+            except Exception:
+                pass
+            # keep preview in sync when the snippet changes
+            try:
+                from sli_ui_toolkit.ui.inspector.code.preview import schedule_rebuild
+
+                schedule_rebuild(editor)
+            except Exception:
+                pass
+
+        try:
+            editor._on_changed = _toolkit_on_changed  # type: ignore[method-assign]
+            editor._on_changed()
+        except Exception:
+            try:
+                editor._save_btn.setEnabled(False)
+            except Exception:
+                pass
+        page.content_layout.addWidget(editor, 1)
+        # Keep the editor alive under the same attribute the view expects,
+        # so ``_code_view`` / ``is_dirty`` / ``snippet_dirty`` keep working.
+        owner._code_section = editor
+        return None
+
+    page.content_layout.addWidget(
+        Label(
+            "No synthetic configuration to show for this widget.",
+            pixel_size=11,
+            selectable=True,
+        )
+    )
+    page.content_layout.addStretch(1)
     owner._code_section = None
     return None
 
