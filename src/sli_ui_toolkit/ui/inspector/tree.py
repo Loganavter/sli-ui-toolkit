@@ -230,6 +230,7 @@ class _TreeHoverFilter(QObject):
         self._pane = pane
         self._tree = tree
         self._current: QWidget | None = None
+        self._last_cursor_shape: str | None = None
         tree.setMouseTracking(True)
         tree.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         tree.installEventFilter(self)
@@ -305,6 +306,101 @@ class _TreeHoverFilter(QObject):
                     row = None
                     break
             widget = row.widget() if isinstance(row, _TreeNodeRow) else None  # type: ignore[attr-defined]
+            # --- unambiguous per-move debug (every HoverMove/MouseMove, DEBUG) ---
+            try:
+                import logging
+
+                dbg_logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
+                if dbg_logger.isEnabledFor(logging.DEBUG):
+                    try:
+                        # global pos for this event
+                        if hasattr(event, "globalPosition"):
+                            gpos_dbg = event.globalPosition().toPoint()  # type: ignore[attr-defined]
+                        elif hasattr(event, "globalPos"):
+                            gpos_dbg = event.globalPos()  # type: ignore[attr-defined]
+                        else:
+                            from PySide6.QtGui import QCursor
+
+                            gpos_dbg = QCursor.pos()
+                    except Exception:
+                        gpos_dbg = None
+                    # childAt raw details
+                    w_at_raw = w
+                    w_at_geo = w_at_raw.geometry() if w_at_raw else None
+                    w_at_y_in_tree = None
+                    try:
+                        if w_at_raw is not None:
+                            w_at_y_in_tree = w_at_raw.mapTo(self._tree, w_at_raw.rect().topLeft()).y()
+                    except Exception:
+                        pass
+                    # row details
+                    row_label = getattr(row, "_label", None) if isinstance(row, _TreeNodeRow) else None
+                    row_depth = getattr(row, "_depth", None) if isinstance(row, _TreeNodeRow) else None
+                    row_geo = row.geometry() if isinstance(row, _TreeNodeRow) else None
+                    row_y_in_tree = None
+                    try:
+                        if isinstance(row, _TreeNodeRow):
+                            row_y_in_tree = row.mapTo(self._tree, row.rect().topLeft()).y()
+                    except Exception:
+                        pass
+                    widget_name = widget.objectName() if widget is not None and hasattr(widget, "objectName") else ""
+                    widget_type = type(widget).__name__ if widget is not None else "None"
+                    # parent chain of w for gap diagnosis
+                    chain = []
+                    try:
+                        cur = w
+                        for _ in range(5):
+                            if cur is None:
+                                break
+                            chain.append(f"{type(cur).__name__}#{cur.objectName() if hasattr(cur, 'objectName') else ''} geo={cur.geometry() if hasattr(cur, 'geometry') else '?'}")
+                            cur = cur.parentWidget()
+                            if cur is self._tree or cur is None:
+                                if cur is self._tree:
+                                    chain.append("TreeRoot")
+                                break
+                    except Exception:
+                        chain = [str(chain)]
+                    # y coverage at this pos.y
+                    h_dbg = self._tree.height()
+                    inside_h_dbg = 0 <= pos.y() < h_dbg
+                    # check if pos.y is inside any visible row's y-interval
+                    y_covered_by = None
+                    try:
+                        for r in self._tree.findChildren(_TreeNodeRow):
+                            if not r.isVisible():
+                                continue
+                            y0 = r.mapTo(self._tree, r.rect().topLeft()).y()
+                            y1 = r.mapTo(self._tree, r.rect().bottomRight()).y()
+                            if y0 <= pos.y() <= y1:
+                                y_covered_by = f"{r._label} y={y0}..{y1} depth={r._depth}"
+                                break
+                    except Exception:
+                        pass
+                    is_gap = widget is None
+                    dbg_logger.debug(
+                        "tree hit: ev=%s tree_pos=%s global=%s tree_h=%s inside_h=%s gap=%s childAt=%s#%s geo=%s y_in_tree=%s row=%s#%s depth=%s row_geo=%s row_y=%s y_covered_by=%s chain=%s cur=%s -> %s",
+                        t.name if hasattr(t, "name") else t,
+                        pos,
+                        gpos_dbg,
+                        h_dbg,
+                        inside_h_dbg,
+                        is_gap,
+                        type(w_at_raw).__name__ if w_at_raw else "None",
+                        w_at_raw.objectName() if w_at_raw and hasattr(w_at_raw, "objectName") else "",
+                        w_at_geo,
+                        w_at_y_in_tree,
+                        row_label,
+                        widget_type,
+                        row_depth,
+                        row_geo,
+                        row_y_in_tree,
+                        y_covered_by,
+                        " -> ".join(chain) if chain else "[]",
+                        type(self._current).__name__ if self._current else "None",
+                        widget_type,
+                    )
+            except Exception:
+                pass
             # --- cursor debug label (visual, at cursor) ---
             try:
                 if hasattr(self, "_cursor_label") and self._cursor_label is not None:
@@ -371,11 +467,24 @@ class _TreeHoverFilter(QObject):
                 import logging
 
                 logger = logging.getLogger("sli_ui_toolkit.inspector.controller")
+                row_label_dbg = getattr(row, "_label", "?") if isinstance(row, _TreeNodeRow) else "?"
+                row_depth_dbg = getattr(row, "_depth", "?") if isinstance(row, _TreeNodeRow) else "?"
+                row_geo_dbg = row.geometry() if isinstance(row, _TreeNodeRow) else None
+                w_name = widget.objectName() if widget is not None and hasattr(widget, "objectName") else ""
+                cur_name = self._current.objectName() if self._current is not None and hasattr(self._current, "objectName") else ""
                 logger.debug(
-                    "tree hover: %s -> %s at tree pos=%s",
+                    "tree hover: %s#%s -> %s#%s at tree pos=%s row=%s depth=%s row_geo=%s childAt=%s#%s geo=%s",
                     type(self._current).__name__ if self._current else "None",
+                    cur_name,
                     type(widget).__name__,
+                    w_name,
                     pos,
+                    row_label_dbg,
+                    row_depth_dbg,
+                    row_geo_dbg,
+                    type(w).__name__ if w else "None",
+                    w.objectName() if w and hasattr(w, "objectName") else "",
+                    w.geometry() if w else None,
                 )
             except Exception:
                 pass
