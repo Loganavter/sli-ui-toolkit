@@ -439,11 +439,27 @@ class InspectorController(QObject):
             return
         if self._hover_widget is widget:
             return
-        logger.debug(
-            "tree hover: %s (suspended=%s)",
-            type(widget).__name__,
-            self._overlay_suspended,
-        )
+        # Enhanced gap diagnostics: log what is under cursor and tree geometry
+        try:
+            pos = QCursor.pos()
+            under = QApplication.widgetAt(pos)
+            under_desc = (
+                f"{type(under).__name__}#{under.objectName()}" if under is not None else "none"
+            )
+            logger.debug(
+                "tree hover: %s (suspended=%s) pos=%s under=%s",
+                type(widget).__name__,
+                self._overlay_suspended,
+                pos,
+                under_desc,
+            )
+            self._log_tree_gap_diagnostics(pos, under)
+        except Exception:
+            logger.debug(
+                "tree hover: %s (suspended=%s)",
+                type(widget).__name__,
+                self._overlay_suspended,
+            )
         self._hover_widget = widget
         self._hovered_region = None
         self._refresh_overlay()
@@ -451,10 +467,161 @@ class InspectorController(QObject):
     def _on_tree_hover_cleared(self) -> None:
         if self._hover_widget is None:
             return
-        logger.debug("tree hover cleared")
+        try:
+            pos = QCursor.pos()
+            under = QApplication.widgetAt(pos)
+            under_desc = (
+                f"{type(under).__name__}#{under.objectName()}" if under is not None else "none"
+            )
+            # Is cursor still inside inspector window's tree page but not over a row?
+            pane = self._window.active_pane()
+            pane_desc = "no-pane"
+            gap_info = ""
+            if pane is not None:
+                # Find tree container (holds _TreeNodeRow) in Layout/Constructor
+                for page_name in ("Layout", "Constructor"):
+                    page = pane.pages.get(page_name)
+                    if page is None:
+                        continue
+                    # layout spacing diagnostics
+                    try:
+                        page_spacing = page.content_layout.spacing()
+                        page_margins = page.content_layout.contentsMargins()
+                    except Exception:
+                        page_spacing = -1
+                        page_margins = None
+                    # locate tree widget (contains rows)
+                    tree = None
+                    for i in range(page.content_layout.count()):
+                        try:
+                            w = page.content_layout.itemAt(i).widget()
+                            if w is not None and w.findChildren(QWidget):
+                                # heuristic: contains _TreeNodeRow
+                                from sli_ui_toolkit.ui.inspector.tree import _TreeNodeRow
+
+                                if w.findChildren(_TreeNodeRow):
+                                    tree = w
+                                    break
+                        except Exception:
+                            continue
+                    if tree is not None:
+                        try:
+                            t_layout = tree.layout()
+                            t_spacing = t_layout.spacing() if t_layout else -1
+                            t_margins = t_layout.contentsMargins() if t_layout else None
+                            rows = tree.findChildren(QWidget)
+                            # filter rows
+                            from sli_ui_toolkit.ui.inspector.tree import _TreeNodeRow
+
+                            t_rows = tree.findChildren(_TreeNodeRow)
+                            # compute gaps between visible rows
+                            gaps = []
+                            visible = [r for r in t_rows if r.isVisible()]
+                            # sort by y in tree coordinates
+                            def _y_in_tree(w):
+                                try:
+                                    return w.mapTo(tree, w.rect().topLeft()).y()
+                                except Exception:
+                                    return 999999
+
+                            visible.sort(key=_y_in_tree)
+                            for idx in range(len(visible) - 1):
+                                cur = visible[idx]
+                                nxt = visible[idx + 1]
+                                try:
+                                    cur_b = cur.mapTo(tree, cur.rect().bottomLeft()).y()
+                                    nxt_t = nxt.mapTo(tree, nxt.rect().topLeft()).y()
+                                    gap = nxt_t - cur_b - 1
+                                    gaps.append(gap)
+                                except Exception:
+                                    gaps.append(999)
+                            gap_info = (
+                                f" page={page_name} page_spacing={page_spacing}"
+                                f" page_margins={page_margins.getCoords() if page_margins else None}"
+                                f" tree_spacing={t_spacing} tree_margins={t_margins.getCoords() if t_margins else None}"
+                                f" visible_rows={len(visible)} gaps={gaps}"
+                                f" tree_geo={tree.geometry()} page_geo={page.geometry()}"
+                            )
+                            pane_desc = f"{page_name}{gap_info}"
+                            break
+                        except Exception as e:
+                            pane_desc = f"{page_name} err={e}"
+                            break
+            logger.debug(
+                "tree hover cleared pos=%s under=%s pane=%s",
+                pos,
+                under_desc,
+                pane_desc,
+            )
+        except Exception:
+            logger.debug("tree hover cleared")
         self._hover_widget = None
         self._hovered_region = None
         self._refresh_overlay()
+
+    def _log_tree_gap_diagnostics(self, pos: QPoint, under: QWidget | None) -> None:
+        """Extra diagnostics for hover (gap) investigation — logs row gaps.
+
+        Separated so it can be called from both hover/cleared paths without
+        duplicating logic. Logs at DEBUG; no-ops if pane/tree not found.
+        """
+        try:
+            pane = self._window.active_pane()
+            if pane is None:
+                return
+            for page_name in ("Layout", "Constructor"):
+                page = pane.pages.get(page_name)
+                if page is None:
+                    continue
+                tree = None
+                for i in range(page.content_layout.count()):
+                    try:
+                        w = page.content_layout.itemAt(i).widget()
+                        if w is not None:
+                            from sli_ui_toolkit.ui.inspector.tree import _TreeNodeRow
+
+                            if w.findChildren(_TreeNodeRow):
+                                tree = w
+                                break
+                    except Exception:
+                        continue
+                if tree is None:
+                    continue
+                # If cursor is inside tree's global rect but not over a row → gap
+                try:
+                    tree_global_rect = tree.mapToGlobal(tree.rect().topLeft())
+                    # Actually use geometry mapping: tree rect in global coords
+                    tl = tree.mapToGlobal(tree.rect().topLeft())
+                    br = tree.mapToGlobal(tree.rect().bottomRight())
+                    inside_tree = (
+                        tl.x() <= pos.x() <= br.x() and tl.y() <= pos.y() <= br.y()
+                    )
+                    is_row = False
+                    try:
+                        from sli_ui_toolkit.ui.inspector.tree import _TreeNodeRow
+
+                        is_row = isinstance(under, _TreeNodeRow)
+                        if not is_row and under is not None:
+                            # Label is mouse-transparent, but check parent chain
+                            p = under.parentWidget()
+                            while p is not None:
+                                if isinstance(p, _TreeNodeRow):
+                                    is_row = True
+                                    break
+                                p = p.parentWidget()
+                    except Exception:
+                        pass
+                    if inside_tree and not is_row:
+                        logger.debug(
+                            "  gap detected: cursor inside tree %s but under is %s (not a row) — likely spacing/margin gap",
+                            page_name,
+                            type(under).__name__ if under else "none",
+                        )
+                except Exception:
+                    pass
+                break
+        except Exception:
+            pass
 
     def _on_region_selected(self, region_id: str) -> None:
         logger.debug("region selected: %s (suspended=%s)", region_id, self._overlay_suspended)

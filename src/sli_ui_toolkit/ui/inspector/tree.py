@@ -139,7 +139,104 @@ class _TreeNodeRow(QWidget):
     def leaveEvent(self, event) -> None:  # noqa: N802
         self._hovered = False
         self.update()
+        # Gap diagnostics: when leaving a row, check if cursor is still inside
+        # the tree but not over another row — that indicates a dead spacing/
+        # margin gap between rows (or between title and first row). Logged at
+        # DEBUG so the controller's flicker (cleared → hover within 1-50ms) can
+        # be correlated with the actual gap geometry.
         if self._widget is not None:
+            try:
+                import logging
+
+                from PySide6.QtGui import QCursor
+                from PySide6.QtWidgets import QApplication
+
+                logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
+                pos = QCursor.pos()
+                under = QApplication.widgetAt(pos)
+                under_desc = (
+                    f"{type(under).__name__}#{under.objectName()}"
+                    if under is not None
+                    else "none"
+                )
+                # Is cursor still inside the tree container?
+                tree = self.parentWidget()
+                # walk up to find the top tree container (holds rows)
+                cur = self
+                top_tree = None
+                while cur is not None:
+                    # top tree is the QWidget directly added to page.content_layout
+                    # heuristic: its layout spacing is 0 and it contains rows
+                    try:
+                        lay = cur.layout()
+                        if lay is not None and lay.spacing() == 0:
+                            # check contains rows
+                            if cur.findChildren(_TreeNodeRow):
+                                top_tree = cur
+                    except Exception:
+                        pass
+                    cur = cur.parentWidget()
+                    if cur is not None and cur.objectName() == "UiInspectorWindow":
+                        break
+                inside_tree = False
+                is_row = isinstance(under, _TreeNodeRow)
+                # check parent chain for row (Label is transparent, but just in case)
+                if not is_row and under is not None:
+                    p = under.parentWidget()
+                    while p is not None:
+                        if isinstance(p, _TreeNodeRow):
+                            is_row = True
+                            break
+                        p = p.parentWidget()
+                if top_tree is not None:
+                    try:
+                        tl = top_tree.mapToGlobal(top_tree.rect().topLeft())
+                        br = top_tree.mapToGlobal(top_tree.rect().bottomRight())
+                        inside_tree = (
+                            tl.x() <= pos.x() <= br.x() and tl.y() <= pos.y() <= br.y()
+                        )
+                    except Exception:
+                        pass
+                if inside_tree and not is_row:
+                    logger.debug(
+                        "row leave gap: %s#%s pos=%s under=%s inside_tree=%s -> dead gap between rows",
+                        self._label,
+                        self._widget.objectName() if self._widget else "",
+                        pos,
+                        under_desc,
+                        inside_tree,
+                    )
+                # Also log row geometry for gap size correlation
+                try:
+                    # gap to next visible row (if any) for debugging
+                    if top_tree is not None:
+                        rows = [r for r in top_tree.findChildren(_TreeNodeRow) if r.isVisible()]
+                        # find next row by y
+                        def _y(w):
+                            try:
+                                return w.mapTo(top_tree, w.rect().topLeft()).y()
+                            except Exception:
+                                return 999999
+
+                        rows.sort(key=_y)
+                        for idx, r in enumerate(rows):
+                            if r is self and idx + 1 < len(rows):
+                                nxt = rows[idx + 1]
+                                cur_b = self.mapTo(top_tree, self.rect().bottomLeft()).y()
+                                nxt_t = nxt.mapTo(top_tree, nxt.rect().topLeft()).y()
+                                gap = nxt_t - cur_b - 1
+                                if gap != 0:
+                                    logger.debug(
+                                        "  row gap size %s -> %s = %spx (expected 0)",
+                                        self._label,
+                                        nxt._label,
+                                        gap,
+                                    )
+                                break
+                except Exception:
+                    pass
+            except Exception:
+                pass
             self.unhovered.emit()
         super().leaveEvent(event)
 
@@ -258,10 +355,10 @@ class _PaneTreeMixin:
         # ``_render_tree_node``). If rows were added directly to
         # ``page.content_layout`` (``content_spacing=4``), the 4px gaps
         # would be dead hover zones. The wrapper reduces the dead zone to
-        # the widget boundary itself; per-row ``enterEvent``/``leaveEvent``
-        # still emits ``unhovered``/``hovered`` across the boundary, so a
-        # brief flicker at the edge remains (by design — no parent-level
-        # hover tracking).
+        # the widget boundary itself; the remaining per-row
+        # ``leave (unhovered)`` → ``enter (hovered)`` 1-50ms flicker on
+        # every boundary is debounced in ``controller._on_tree_hover_cleared``
+        # (50ms singleShot), so the overlay does not flash between rows.
         tree = QWidget()
         tree_layout = QVBoxLayout(tree)
         tree_layout.setContentsMargins(0, 0, 0, 0)
