@@ -70,6 +70,11 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._line_number_start: int | None = None
         self._line_number_map: dict[int, str] | None = None
         self._fold_lines: set[int] | None = None
+        #: cached ``_gutter_width`` — the width depends only on the map /
+        #: start / fold set / metrics, and recomputing it by walking the
+        #: whole line-number map is O(N) per call (paint calls ``_text_x()``
+        #: twice per visible line, so a 5000-line map cost ~20 ms per frame)
+        self._gutter_cache: int | None = None
         self._font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self._font.setPixelSize(constants.FONT_PIXEL_SIZE)
         self._metrics = QFontMetrics(self._font)
@@ -121,6 +126,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             self._metrics = QFontMetrics(self._font)
             self._line_height = self._metrics.lineSpacing()
             self._char_width = self._metrics.horizontalAdvance("0") or self._metrics.averageCharWidth() or 1
+            self._gutter_cache = None
         except Exception:
             pass
         if self._document_blocks is not None:
@@ -156,6 +162,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._document_layout = None
         self._document_asset_resolver = None
         self._doc_selection.reset()
+        self._gutter_cache = None
         self._sync_height()
         self.update()
 
@@ -172,6 +179,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._selection.clear()
         self._chain_selecting = None
         self._editing = False
+        self._gutter_cache = None
         self._document_blocks = parse_help_blocks(markdown) if markdown else ()
         self._document_index = build_text_index(self._document_blocks)
         self._doc_selection.index = self._document_index
@@ -276,6 +284,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         disables the gutter. Code mode only — document mode never shows it.
         """
         self._line_number_start = start
+        self._gutter_cache = None
         self.update()
 
     def set_line_number_map(self, mapping: dict[int, str] | None) -> None:
@@ -283,6 +292,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         numbers in a view with collapsed gaps). Lines not in the map fall
         back to ``start + index``. ``None`` clears the override."""
         self._line_number_map = dict(mapping) if mapping else None
+        self._gutter_cache = None
         self.update()
 
     def set_fold_lines(self, lines: set[int] | None) -> None:
@@ -291,6 +301,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         empty set keeps folding enabled (the constant arrow offset stays
         reserved); ``None`` disables it entirely."""
         self._fold_lines = set(lines) if lines is not None else None
+        self._gutter_cache = None
         self.update()
 
     def line_at(self, y: int) -> int:
@@ -314,7 +325,14 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
 
         Sized from the widest label — with numeric labels (file line
         numbers, gap boundary numbers) the width is identical in every
-        collapse state, so the text's left offset never jumps."""
+        collapse state, so the text's left offset never jumps.
+
+        Cached: the width depends only on the map / start / fold set /
+        metrics, so walking the whole map again on every call would be
+        O(N) per painted line (``_text_x`` runs twice per visible line)."""
+        cached = self._gutter_cache
+        if cached is not None:
+            return cached
         if self._line_number_start is None:
             return 0
         digits = 2
@@ -324,11 +342,13 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         else:
             last = self._line_number_start + max(1, len(self._lines)) - 1
             digits = max(digits, len(str(last)))
-        return (
+        width = (
             digits * self._metrics.horizontalAdvance("0")
             + 2 * constants.GUTTER_PAD
             + self._fold_arrow_reserve()
         )
+        self._gutter_cache = width
+        return width
 
     def _text_x(self) -> int:
         """Left edge of the code text: page padding + line-number gutter."""
