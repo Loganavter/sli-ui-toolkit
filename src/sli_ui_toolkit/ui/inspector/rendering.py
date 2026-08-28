@@ -90,6 +90,7 @@ class _PaneRenderingMixin:
                 pixel_size=15,
                 bold=True,
                 elide=True,
+                selectable=True,
             )
         )
 
@@ -102,16 +103,16 @@ class _PaneRenderingMixin:
         lay.setContentsMargins(indent, 0, 0, 0)
         lay.setSpacing(6)
         name = field.name + (" (private)" if field.private else "")
-        lay.addWidget(Label(name, pixel_size=13, bold=True, elide=True))
+        lay.addWidget(Label(name, pixel_size=13, bold=True, elide=True, selectable=True))
         if field.kind is FieldKind.COLOR and isinstance(field.value, str):
             color = QColor(field.value)
             if color.isValid():
                 lay.addWidget(_Swatch(color))
             if field.meta.get("missing"):
-                lay.addWidget(Label("missing token", pixel_size=13))
-                lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True))
+                lay.addWidget(Label("missing token", pixel_size=13, selectable=True))
+                lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True, selectable=True))
             else:
-                lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True))
+                lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True, selectable=True))
         elif field.kind is FieldKind.REF and isinstance(field.value, QWidget):
             widget = field.value
             object_name = widget.objectName()
@@ -137,7 +138,7 @@ class _PaneRenderingMixin:
             )
             lay.addWidget(button)
         else:
-            lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True))
+            lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True, selectable=True))
         lay.addStretch(1)
         page.content_layout.addWidget(row)
 
@@ -212,7 +213,7 @@ class _PaneRenderingMixin:
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(6)
-        lay.addWidget(Label("docs", pixel_size=13, bold=True))
+        lay.addWidget(Label("docs", pixel_size=13, bold=True, selectable=True))
         button = self._path_button(str(path), docs_ref)
         button.clicked.connect(
             lambda _checked=False, target=path: QDesktopServices.openUrl(
@@ -230,7 +231,7 @@ class _PaneRenderingMixin:
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(6)
-        lay.addWidget(Label("source", pixel_size=13, bold=True))
+        lay.addWidget(Label("source", pixel_size=13, bold=True, selectable=True))
         button = self._path_button(f"{source}:{line}", "Open in the system text editor")
         button.clicked.connect(
             lambda _checked=False, path=source: QDesktopServices.openUrl(
@@ -276,7 +277,7 @@ class _PaneRenderingMixin:
                 lambda _checked=False, rid=region.id: self.region_selected.emit(rid)
             )
             lay.addWidget(button)
-            lay.addWidget(Label(f"[{states}]  {rect_text}", pixel_size=13, elide=True))
+            lay.addWidget(Label(f"[{states}]  {rect_text}", pixel_size=13, elide=True, selectable=True))
             lay.addStretch(1)
             page.content_layout.addWidget(row)
         page.content_layout.addStretch(1)
