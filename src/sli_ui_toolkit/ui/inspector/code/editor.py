@@ -108,6 +108,19 @@ class CodeSectionEditor(QWidget):
         self._applied = False
         self._patched_names: set[str] = set()
         self._original_class_dict: dict = {}
+        #: incremental dirty state — the class region differs from the
+        #: loaded source (updated per keystroke at O(1) from the canvas's
+        #: last edit line; the full recompute runs on structural edits
+        #: (newline add/remove) and on rebuild/save/revert)
+        self._class_dirty = False
+        #: incremental dirty state for the config snippet — recomputed
+        #: exactly on every edit (the snippet is only a few display lines,
+        #: so the check is O(snippet), not O(buffer))
+        self._snippet_dirty = False
+        #: display-line count of the last authoritative buffer snapshot —
+        #: a differing count means a structural edit (region boundaries
+        #: may have shifted) and triggers a full recompute
+        self._last_edit_count = 0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -133,7 +146,7 @@ class CodeSectionEditor(QWidget):
         self._top_buttons = top_buttons
 
         self._view = TextView("")
-        self._view.changed.connect(self._on_changed)
+        self._view.changed.connect(self._on_edit)
         self._canvas = self._view.canvas()
         self._canvas.installEventFilter(self)
         root.addWidget(self._view)
@@ -313,25 +326,30 @@ class CodeSectionEditor(QWidget):
         return None
 
     def is_dirty(self) -> bool:
-        return self._class_region() != self._source_lines
+        """Whether the class region of the live buffer differs from the
+        loaded source. Incrementally maintained on the keystroke path
+        (``_on_edit``) and recomputed exactly on rebuild/save/revert."""
+        return self._class_dirty
 
     def _snippet_text(self) -> str:
         """The CURRENT config-snippet text from the live buffer — the
         first ``_config_display_lines`` rows (the snippet's original span;
         edits within it are picked up, including added/removed lines that
         shift the gap/class rows below). The loaded snippet is
-        ``self._config_text``."""
+        ``self._config_text``. O(snippet) — reads the canvas lines
+        directly instead of re-splitting the whole buffer."""
         if self._config_display_lines <= 0:
             return ""
-        current = self._view.text().split("\n")
-        return "\n".join(current[: self._config_display_lines])
+        canvas = self._canvas
+        n = min(self._config_display_lines, canvas.line_count())
+        return "\n".join(canvas.line_text(i) for i in range(n))
 
     def snippet_dirty(self) -> bool:
         """Whether the config snippet in the buffer differs from the loaded
         one. Snippet edits drive the preview AND can be applied to the live
         instance's config attributes — but never enable Save (the snippet
         is synthetic, not file content)."""
-        return self._snippet_text() != (self._config_text or "")
+        return self._snippet_dirty
 
     # -- apply to the live widget (hot class patch + config apply) ----------
     # thin delegators: the mechanics live in apply.py
@@ -521,6 +539,7 @@ class CodeSectionEditor(QWidget):
         # set_text — this way the diff in _on_changed sees a clean rebuild
         self._last_build_text = "\n".join(lines)
         self._view.set_text("\n".join(lines))
+        self._last_edit_count = len(lines)
         self._view.set_line_number_start(1)
         self._canvas.set_line_number_map(gutter)
         # collapsed gap rows carry a disclosure arrow in the gutter; folding
@@ -623,15 +642,24 @@ class CodeSectionEditor(QWidget):
     # -- editing ------------------------------------------------------------
 
     def _on_changed(self) -> None:
-        dirty = self.is_dirty()
-        snippet_dirty = self.snippet_dirty()
+        """Authoritative re-sync of the dirty flags + buttons.
+
+        Full-buffer recompute (``_class_region``/``_snippet_text`` are
+        O(buffer)) — called on rebuild/save/revert and on structural edits
+        (newline added/removed). The per-keystroke path uses ``_on_edit``,
+        which is O(1) and delegates here only when the line count moved."""
+        self._last_edit_count = self._canvas.line_count()
+        class_dirty = self._class_region() != self._source_lines
+        snippet_dirty = self._snippet_text() != (self._config_text or "")
+        self._class_dirty = class_dirty
+        self._snippet_dirty = snippet_dirty
         # Save and Apply stay enabled while ANY change exists (class region
         # or config snippet): Save persists the class region, Apply
         # hot-patches the live class and writes snippet config values onto
         # the live instance. A snippet-only edit is still a change — Save
         # then rewrites the file with the (unchanged) class region, which
         # clears its own enablement while Apply keeps the snippet applyable.
-        any_changed = dirty or snippet_dirty
+        any_changed = class_dirty or snippet_dirty
         self._save_btn.setEnabled(any_changed)
         self._apply_btn.setEnabled(any_changed)
         old_lines = self._last_build_text.split("\n")
@@ -658,15 +686,47 @@ class CodeSectionEditor(QWidget):
                 "[inspector-preview] changed: class_dirty=%s "
                 "snippet_dirty=%s changed_lines=%s in_class_region=%s "
                 "region=%d..%d apply=%s save=%s",
-                dirty,
+                class_dirty,
                 snippet_dirty,
                 changed[:12],
                 in_region,
                 lo,
                 hi,
-                dirty or snippet_dirty,
-                dirty,
+                class_dirty or snippet_dirty,
+                class_dirty,
             )
+        schedule_rebuild(self)
+
+    def _on_edit(self) -> None:
+        """Per-keystroke handler (canvas ``changed`` signal) — O(1).
+
+        The class-region dirty flag is derived from the single edited
+        line: while the flag is clean, the region equals the loaded source
+        exactly, so the region is dirty iff the edited line differs from
+        its loaded counterpart. Structural edits (newline added/removed,
+        which shift the region boundaries) fall back to the authoritative
+        ``_on_changed`` recompute. The snippet check is O(snippet) — the
+        snippet is a handful of display lines."""
+        canvas = self._canvas
+        line = canvas.last_edit_line()
+        if canvas.line_count() != self._last_edit_count:
+            self._on_changed()
+            return
+        self._snippet_dirty = self._snippet_text() != (self._config_text or "")
+        lo = (
+            self._config_display_lines
+            + self._qss_display_lines
+            + self._gap_a_display_lines
+        )
+        hi = max(lo, canvas.line_count() - self._gap_b_display_lines)
+        if not self._class_dirty and lo <= line < hi:
+            idx = line - lo
+            if idx < len(self._source_lines):
+                if canvas.line_text(line) != self._source_lines[idx]:
+                    self._class_dirty = True
+        any_changed = self._class_dirty or self._snippet_dirty
+        self._save_btn.setEnabled(any_changed)
+        self._apply_btn.setEnabled(any_changed)
         schedule_rebuild(self)
 
     def _toggle_editing(self) -> None:

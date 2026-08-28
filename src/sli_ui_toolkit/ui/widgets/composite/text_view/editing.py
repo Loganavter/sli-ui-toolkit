@@ -87,6 +87,7 @@ class _CanvasEditingApi:
             self._cursor = (line, col + len(text))
 
     def _after_edit(self) -> None:
+        self._last_edit_line = self._cursor[0]
         self._sync_height()
         self.changed.emit()
         self.update()

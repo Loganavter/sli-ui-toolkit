@@ -70,6 +70,10 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._line_number_start: int | None = None
         self._line_number_map: dict[int, str] | None = None
         self._fold_lines: set[int] | None = None
+        #: display line of the last edit (``_after_edit``) — lets hosts
+        #: track dirty state incrementally instead of re-splitting the
+        #: whole buffer per keystroke
+        self._last_edit_line = 0
         #: cached ``_gutter_width`` — the width depends only on the map /
         #: start / fold set / metrics, and recomputing it by walking the
         #: whole line-number map is O(N) per call (paint calls ``_text_x()``
@@ -146,6 +150,22 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
     def text(self) -> str:
         return "\n".join(self._lines)
 
+    def line_count(self) -> int:
+        """Number of display lines — O(1) (avoids re-joining the buffer)."""
+        return len(self._lines)
+
+    def line_text(self, index: int) -> str:
+        """The display line at ``index`` — O(1) for hosts that need to
+        re-check a single edited line."""
+        if 0 <= index < len(self._lines):
+            return self._lines[index]
+        return ""
+
+    def last_edit_line(self) -> int:
+        """Display line of the most recent edit (``_after_edit``), for
+        incremental dirty tracking. 0 before any edit."""
+        return self._last_edit_line
+
     def plain_text(self) -> str:
         """Full plain text of the current content (document or code)."""
         if self._document_index is not None:
@@ -155,6 +175,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
     def set_text(self, text: str) -> None:
         self._lines = text.split("\n") if text else [""]
         self._cursor = (0, 0)
+        self._last_edit_line = 0
         self._selection.clear()
         self._chain_selecting = None
         self._document_blocks = None
@@ -176,6 +197,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         """Switch to read-only document mode (markdown blocks)."""
         self._lines = []
         self._cursor = (0, 0)
+        self._last_edit_line = 0
         self._selection.clear()
         self._chain_selecting = None
         self._editing = False
