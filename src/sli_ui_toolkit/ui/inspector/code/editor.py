@@ -661,7 +661,9 @@ class CodeSectionEditor(QWidget):
         # clears its own enablement while Apply keeps the snippet applyable.
         any_changed = class_dirty or snippet_dirty
         self._save_btn.setEnabled(any_changed)
-        self._apply_btn.setEnabled(any_changed)
+        # Apply hot-patches a live CLASS — a creation-site region (a bare
+        # QWidget container's enclosing function) has no class to patch.
+        self._apply_btn.setEnabled(any_changed and self._target_class is not None)
         old_lines = self._last_build_text.split("\n")
         new_lines = self._view.text().split("\n")
         changed = [
@@ -726,7 +728,9 @@ class CodeSectionEditor(QWidget):
                     self._class_dirty = True
         any_changed = self._class_dirty or self._snippet_dirty
         self._save_btn.setEnabled(any_changed)
-        self._apply_btn.setEnabled(any_changed)
+        # Apply hot-patches a live CLASS — a creation-site region (a bare
+        # QWidget container's enclosing function) has no class to patch.
+        self._apply_btn.setEnabled(any_changed and self._target_class is not None)
         schedule_rebuild(self)
 
     def _toggle_editing(self) -> None:

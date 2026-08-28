@@ -8,6 +8,9 @@ document model, mirroring the thin-owner split already used for
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from PySide6.QtCore import QEvent, QObject
 from PySide6.QtWidgets import QWidget
 
@@ -88,6 +91,8 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
     # created as ``QWidget`` in app code — ``type(widget) is QWidget`` has no
     # app file, so fall back to the nearest app ancestor that defines its
     # objectName (toolbar.py). Without this the Code tab stays empty.
+    use_creation_site = False
+    site_ancestor: QWidget | None = None
     try:
         is_plain = False
         try:
@@ -109,15 +114,30 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
             if is_qt or source is None:
                 anc = _find_app_ancestor(widget)
                 if anc is not None:
-                    try:
-                        anc_src = _inspect.getsourcefile(type(anc))
-                        if anc_src and not _is_toolkit_source(anc_src, anc):
-                            anc_lines, anc_start = _inspect.getsourcelines(type(anc))
-                            source = anc_src
-                            source_lines = anc_lines
-                            source_start = anc_start
-                    except (OSError, TypeError):
-                        pass
+                    # Prefer the widget's OWN creation site — the enclosing
+                    # function of the line that creates/configures it (matched
+                    # by objectName or attribute reference). Without this the
+                    # whole ancestor class (the entire SettingsDialog) would be
+                    # shown for one anonymous container QWidget.
+                    site = _creation_site_region(widget, anc)
+                    if site is not None:
+                        site_src, site_lines, site_start = site
+                        if not _is_toolkit_source(site_src, anc):
+                            source = site_src
+                            source_lines = site_lines
+                            source_start = site_start
+                            use_creation_site = True
+                            site_ancestor = anc
+                    if not use_creation_site:
+                        try:
+                            anc_src = _inspect.getsourcefile(type(anc))
+                            if anc_src and not _is_toolkit_source(anc_src, anc):
+                                anc_lines, anc_start = _inspect.getsourcelines(type(anc))
+                                source = anc_src
+                                source_lines = anc_lines
+                                source_start = anc_start
+                        except (OSError, TypeError):
+                            pass
     except Exception:
         pass
     if source is None or source_lines is None:
@@ -151,7 +171,16 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
         )
         docs_btn.clicked.connect(lambda: owner.show_section("Docs"))
         editor.add_top_action(docs_btn)
-    module = sys.modules.get(type(widget).__module__)
+    # For a creation-site region (a function, not a class) Apply cannot
+    # hot-patch anything — target_class=None makes the editor keep Apply
+    # disabled; module_vars come from the ancestor's module so the
+    # preview/apply error paths see the real app namespace.
+    if use_creation_site and site_ancestor is not None:
+        module = sys.modules.get(type(site_ancestor).__module__)
+        target_class = None
+    else:
+        module = sys.modules.get(type(widget).__module__)
+        target_class = type(widget)
     editor.set_source(
         path=source,
         source_text="".join(source_lines),
@@ -159,7 +188,7 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
         config_text=config_text,
         qss_text=qss_text,
         module_vars=vars(module) if module is not None else None,
-        target_class=type(widget),
+        target_class=target_class,
         target_instance=widget,
     )
     # The editor fills the page (stretch 1; no trailing spacer): the
@@ -254,6 +283,156 @@ def _find_app_ancestor(widget: QWidget | None) -> QWidget | None:
             pass
         return cand
     return candidates[0] if candidates else None
+
+
+def _creation_markers(widget: QWidget, ancestor: QWidget) -> list[tuple[str, str]]:
+    """Names that identify ``widget`` in source code, for locating its
+    creation site inside an app file.
+
+    Two kinds, in priority order:
+    - ``("object_name", name)`` — a Qt objectName; app code usually
+      assigns it right at the creation site (``setObjectName(...)``);
+    - ``("attr", name)`` — an instance attribute on any widget in the
+      parent chain that points at the selected widget itself
+      (``page.content_widget`` — a ``vars()`` identity match), which
+      lets anonymous containers be located even without an objectName.
+    """
+    markers: list[tuple[str, str]] = []
+    try:
+        obj_name = widget.objectName()
+        if obj_name:
+            markers.append(("object_name", obj_name))
+    except Exception:
+        pass
+    node: QWidget | None = widget
+    while node is not None:
+        try:
+            for name, value in vars(node).items():
+                if value is widget:
+                    markers.append(("attr", name))
+        except Exception:
+            pass
+        if node is ancestor:
+            break
+        node = node.parentWidget()
+    return markers
+
+
+def _line_references(line: str, marker: tuple[str, str]) -> bool:
+    """Whether a source line references the creation marker (objectName
+    assignment, or an attribute access/assignment/call on the name)."""
+    kind, name = marker
+    if kind == "object_name":
+        # the Qt method is ``setObjectName`` (capital O)
+        if "ObjectName" not in line:
+            return False
+        return f'"{name}"' in line or f"'{name}'" in line
+    return bool(
+        re.search(
+            rf"\.{re.escape(name)}\b|{re.escape(name)}\s*=|{re.escape(name)}\(",
+            line,
+        )
+    )
+
+
+def _enclosing_def(full: list[str], idx: int) -> int | None:
+    """Index of the ``def``/``async def`` line enclosing the marker line
+    ``idx`` — the nearest function start above it with strictly shallower
+    indentation. ``None`` when the marker sits outside any function
+    (class/module level) — then the caller keeps the whole-class fallback.
+    """
+    marker_indent = len(full[idx]) - len(full[idx].lstrip())
+    for i in range(idx, -1, -1):
+        line = full[i]
+        if not line.strip() or not line.lstrip().startswith(("def ", "async def ")):
+            continue
+        if (len(line) - len(line.lstrip())) < marker_indent:
+            return i
+    return None
+
+
+def _candidate_files(ancestor: QWidget) -> list[str]:
+    """App-side source files worth searching for the widget's creation
+    site: the ancestor's own file, plus the files of the app-side
+    functions/classes its module imports (the settings pattern creates
+    pages in imported builder modules, e.g. ``create_scrollable_page``).
+    Toolkit files are never candidates — their source stays hidden."""
+    import inspect as _inspect
+    import sys
+
+    files: list[str] = []
+    try:
+        src = _inspect.getsourcefile(type(ancestor))
+        if src and not _is_toolkit_source(src, ancestor):
+            files.append(src)
+    except (OSError, TypeError):
+        pass
+    module = sys.modules.get(type(ancestor).__module__)
+    if module is not None:
+        for value in vars(module).values():
+            if not (_inspect.isfunction(value) or _inspect.isclass(value)):
+                continue
+            try:
+                f = _inspect.getsourcefile(value)
+            except (OSError, TypeError):
+                continue
+            if f and not _is_toolkit_source(f) and f not in files:
+                files.append(f)
+    return files
+
+
+def _creation_site_region(
+    widget: QWidget, ancestor: QWidget
+) -> tuple[str, list[str], int] | None:
+    """The slice of app source that CREATES ``widget`` — the enclosing
+    function of the first creation-marker hit — as ``(file, lines,
+    start_line)``.
+
+    Without this the fallback would show the whole ancestor class (e.g.
+    the entire SettingsDialog) for one anonymous container QWidget. The
+    markers (objectName / attribute identity) are matched against the
+    ancestor's file and the files its module imports; the first hit wins.
+    Returns ``None`` when nothing matches (e.g. the widget is built purely
+    by toolkit code and app code only holds a local reference) — the
+    caller then falls back to the whole ancestor class."""
+    hits: list[tuple[str, int]] = []
+    for candidate in _candidate_files(ancestor):
+        try:
+            full = Path(candidate).read_text(encoding="utf-8").split("\n")
+        except OSError:
+            continue
+        for marker in _creation_markers(widget, ancestor):
+            for i, line in enumerate(full):
+                if not _line_references(line, marker):
+                    continue
+                if line.lstrip().startswith(("def ", "async def ", "class ")):
+                    # a marker hit on a def/class line itself (e.g. the
+                    # ``content(`` pattern matching ``def create_content``)
+                    # is not a creation reference — keep looking
+                    continue
+                hits.append((candidate, i))
+                break
+    for candidate, idx in hits:
+        try:
+            full = Path(candidate).read_text(encoding="utf-8").split("\n")
+        except OSError:
+            continue
+        lo = _enclosing_def(full, idx)
+        if lo is None:
+            continue
+        indent = len(full[lo]) - len(full[lo].lstrip())
+        hi = len(full)
+        for i in range(lo + 1, len(full)):
+            line = full[i]
+            if not line.strip():
+                continue
+            if (len(line) - len(line.lstrip())) <= indent and line.lstrip().startswith(
+                ("def ", "async def ", "class ", "@")
+            ):
+                hi = i
+                break
+        return candidate, full[lo:hi], lo + 1
+    return None
 
 
 def _maybe_add_region_info(config_text: str | None, widget, inspection) -> str | None:
