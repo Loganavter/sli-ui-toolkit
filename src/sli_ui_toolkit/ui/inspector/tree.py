@@ -146,6 +146,48 @@ class _TreeNodeRow(QWidget):
         self.update()
         super().leaveEvent(event)
 
+    def event(self, event) -> bool:  # noqa: N802
+        # Filter log: cursor Arrow <-> PointingHand change — unambiguous gap signal.
+        # _TreeHoverFilter childAt may lie (hidden containers, WA_Transparent, Z-order),
+        # but CursorChange is emitted by Qt itself when the displayed cursor actually
+        # changes, so a gap between rows shows as PointingHand -> Arrow -> PointingHand.
+        if event.type() == QEvent.Type.CursorChange:
+            try:
+                import logging
+
+                logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
+                if logger.isEnabledFor(logging.DEBUG):
+                    # Only log real hover cursor changes, not construction setCursor spam.
+                    # During tree construction all rows have placeholder geo 640x26 and
+                    # are not yet visible/laid out (y=0 for all) — filter those.
+                    if not self.isVisible():
+                        return super().event(event)
+                    # Require the row to be actually under mouse — otherwise this is
+                    # just the initial setCursor(PointingHand) during __init__.
+                    try:
+                        from PySide6.QtGui import QCursor
+
+                        gpos = QCursor.pos()
+                        local = self.mapFromGlobal(gpos)
+                        if not self.rect().contains(local):
+                            return super().event(event)
+                    except Exception:
+                        pass
+                    cs = self.cursor().shape()
+                    name = cs.name if hasattr(cs, "name") else str(int(cs))
+                    logger.debug(
+                        "filter cursor changed: row=%s#%s depth=%s cursor=%s global=%s geo=%s",
+                        self._label,
+                        type(self._widget).__name__ if self._widget else "None",
+                        self._depth,
+                        name,
+                        gpos,
+                        self.geometry(),
+                    )
+            except Exception:
+                pass
+        return super().event(event)
+
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
             if self._has_children and self._chevron_rect().contains(
@@ -279,6 +321,35 @@ class _TreeHoverFilter(QObject):
                     pass
                 self._pane.widget_hover_cleared.emit()
                 self._current = None
+                # cursor back to Arrow on leave — unambiguous
+                try:
+                    import logging
+
+                    dbg = logging.getLogger("sli_ui_toolkit.inspector.tree")
+                    if dbg.isEnabledFor(logging.DEBUG):
+                        prev = getattr(self, "_last_cursor_shape", None)
+                        cur_shape = "ArrowCursor (leave)"
+                        if prev is not None and prev != cur_shape:
+                            dbg.debug("cursor changed: %s -> %s at tree leave", prev, cur_shape)
+                        self._last_cursor_shape = cur_shape
+                except Exception:
+                    pass
+            else:
+                # leave without current hover — still ensure cursor shape reset logged once
+                try:
+                    import logging
+
+                    dbg = logging.getLogger("sli_ui_toolkit.inspector.tree")
+                    if dbg.isEnabledFor(logging.DEBUG):
+                        if getattr(self, "_last_cursor_shape", None) != "ArrowCursor (leave)":
+                            dbg.debug(
+                                "cursor changed: %s -> %s at tree leave (no hover)",
+                                getattr(self, "_last_cursor_shape", None),
+                                "ArrowCursor (leave)",
+                            )
+                            self._last_cursor_shape = "ArrowCursor (leave)"
+                except Exception:
+                    pass
             return False
         if t in (QEvent.Type.MouseMove, QEvent.Type.HoverMove, QEvent.Type.HoverEnter):
             try:
@@ -377,14 +448,47 @@ class _TreeHoverFilter(QObject):
                     except Exception:
                         pass
                     is_gap = widget is None
+                    # cursor shape for this hit (unambiguous gap signal)
+                    cursor_shape = "?"
+                    try:
+                        if isinstance(row, _TreeNodeRow):
+                            cs = row.cursor().shape()
+                            cursor_shape = cs.name if hasattr(cs, "name") else str(int(cs))
+                        else:
+                            # gap or tree background -> actual tree cursor (usually Arrow)
+                            cs = self._tree.cursor().shape()
+                            cursor_shape = cs.name if hasattr(cs, "name") else str(int(cs))
+                            if is_gap:
+                                cursor_shape = f"{cursor_shape} (gap)"
+                    except Exception:
+                        cursor_shape = "?"
+                    # log cursor shape change (Arrow <-> PointingHand) — unambiguous gap answer
+                    try:
+                        if self._last_cursor_shape is None:
+                            self._last_cursor_shape = cursor_shape
+                        elif cursor_shape != self._last_cursor_shape:
+                            dbg_logger.debug(
+                                "cursor changed: %s -> %s at tree_pos=%s gap=%s row=%s depth=%s y_covered_by=%s",
+                                self._last_cursor_shape,
+                                cursor_shape,
+                                pos,
+                                is_gap,
+                                row_label,
+                                row_depth,
+                                y_covered_by,
+                            )
+                            self._last_cursor_shape = cursor_shape
+                    except Exception:
+                        pass
                     dbg_logger.debug(
-                        "tree hit: ev=%s tree_pos=%s global=%s tree_h=%s inside_h=%s gap=%s childAt=%s#%s geo=%s y_in_tree=%s row=%s#%s depth=%s row_geo=%s row_y=%s y_covered_by=%s chain=%s cur=%s -> %s",
+                        "tree hit: ev=%s tree_pos=%s global=%s tree_h=%s inside_h=%s gap=%s cursor=%s childAt=%s#%s geo=%s y_in_tree=%s row=%s#%s depth=%s row_geo=%s row_y=%s y_covered_by=%s chain=%s cur=%s -> %s",
                         t.name if hasattr(t, "name") else t,
                         pos,
                         gpos_dbg,
                         h_dbg,
                         inside_h_dbg,
                         is_gap,
+                        cursor_shape,
                         type(w_at_raw).__name__ if w_at_raw else "None",
                         w_at_raw.objectName() if w_at_raw and hasattr(w_at_raw, "objectName") else "",
                         w_at_geo,
