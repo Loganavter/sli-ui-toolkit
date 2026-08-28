@@ -412,9 +412,12 @@ class InspectorWindow(QDialog):
     def set_layout_nodes(self, nodes: tuple[tuple[str, object, int], ...]) -> None:
         """Layout tree rows — the whole window's tree, for context.
 
-        Cached per window: the tree is identical for every tab, so it is
-        built once and re-attached to the active tab instead of re-creating
-        hundreds of row widgets on every tab open.
+        Cached per window (``_layout_tree_key``: window id + count +
+        first/last identities): the tree is identical for every tab of
+        that window, so it is built once and re-attached to the active tab
+        instead of re-creating hundreds of row widgets on every tab open.
+        Staleness is approximate — subtle changes that keep count and
+        endpoints leave a stale cache until the next count/endpoint change.
         """
         pane = self._ensure_pane()
         key = _layout_tree_key(nodes)

@@ -1,10 +1,11 @@
 """Tree rows for the inspector Layout/Constructor sections.
 
-``_TreeNodeRow`` is a web-inspector-style painted row (twist indicator
-+
-``Class#objectName``); ``_nest_nodes`` rebuilds a tree from a pre-order
-flat list; the ``_PaneTreeMixin`` renders a node tree into a page (or a
-standalone cached container for the window-level Layout tree).
+``_TreeNodeRow`` is a web-inspector-style row — chevron polygon is
+painted, ``Class#objectName`` is a child ``Label`` (mouse-transparent,
+elided, ``selectable=False`` because the row itself handles hover/click);
+``_nest_nodes`` rebuilds a tree from a pre-order flat list; the
+``_PaneTreeMixin`` renders a node tree into a page (or a standalone
+cached container for the window-level Layout tree).
 """
 
 from __future__ import annotations
@@ -57,11 +58,13 @@ def _layout_tree_key(nodes) -> tuple | None:
 class _TreeNodeRow(QWidget):
     """Web-inspector-style tree row: twist indicator + ``Class#objectName``.
 
-    Painted (no QSS), theme-aware: chevron polygon like the timeline groups,
-    hover background from ``list_item.background.hover``. Emits ``activated``
-    on a click outside the twist, ``toggled`` on a twist click, and
-    ``hovered``/``unhovered`` on enter/leave so the controller can highlight
-    the widget in the app via the overlay.
+    Chevron is painted (no QSS), text is a child ``Label``
+    (``WA_TransparentForMouseEvents``, ``elide=True``, ``selectable=False``),
+    theme-aware: chevron polygon like the timeline groups, hover background
+    from ``list_item.background.hover`` (fallback ``QColor(0,0,0,12)``).
+    Emits ``activated`` on a click outside the twist, ``toggled`` on a
+    twist click, and ``hovered``/``unhovered`` on enter/leave so the
+    controller can highlight the widget in the app via the overlay.
     """
 
     activated = Signal(object)
@@ -193,7 +196,10 @@ class _TreeNodeRow(QWidget):
             text_x += self._CHEVRON_WIDTH
         text_x += self._TEXT_GAP
 
-        # Position selectable label for content text (all text fields selectable)
+        # Position the mouse-transparent Label for the text. The row's
+        # Label is ``selectable=False`` (unlike field rows) because it is
+        # ``WA_TransparentForMouseEvents`` — mouse goes to the row for
+        # hover/click/overlay; making it selectable would be dead.
         try:
             width = max(0, self.width() - text_x - self._TEXT_GAP)
             self._text_label.setGeometry(text_x, 0, width, self.height())
@@ -226,9 +232,11 @@ class _PaneTreeMixin:
         """Render the tree into a standalone container widget.
 
         Used for the window-level Layout cache: the whole-window tree is
-        identical for every tab, so it is built once and re-attached to the
-        active tab instead of re-creating hundreds of row widgets per tab.
-        Collapse state lives inside the returned widget.
+        per-window (``_layout_tree_key``: window id + count + first/last
+        identities), identical for every tab of that window, so it is built
+        once and re-attached to the active tab instead of re-creating
+        hundreds of row widgets per tab. Collapse state lives inside the
+        returned widget (a fresh ``set()``, not the pane's ``_expanded``).
         """
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -245,9 +253,15 @@ class _PaneTreeMixin:
         if not nodes:
             return
         self._add_title(page, title)
-        # All rows live in one zero-spacing container: the page layout's
-        # spacing would leave dead gaps between rows where the hover
-        # highlight blinks while the cursor moves across the tree.
+        # Rows are grouped in hierarchical zero-spacing containers (one
+        # ``QVBoxLayout(spacing=0, margins=0)`` per expanded branch, see
+        # ``_render_tree_node``). If rows were added directly to
+        # ``page.content_layout`` (``content_spacing=4``), the 4px gaps
+        # would be dead hover zones. The wrapper reduces the dead zone to
+        # the widget boundary itself; per-row ``enterEvent``/``leaveEvent``
+        # still emits ``unhovered``/``hovered`` across the boundary, so a
+        # brief flicker at the edge remains (by design — no parent-level
+        # hover tracking).
         tree = QWidget()
         tree_layout = QVBoxLayout(tree)
         tree_layout.setContentsMargins(0, 0, 0, 0)

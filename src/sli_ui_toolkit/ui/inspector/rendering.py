@@ -3,8 +3,10 @@
 One page per concern: Object identity, Config/State field rows,
 Button-family Regions/Layers, Theme tokens (+live capture), and the
 shared row/title/source-row helpers. QSS rules are assembled into a
-synthetic code block at the top of the Code page (see ``code.factory._qss_snippet``).
-The Code section and the Layout/Constructor trees live in their own mixins.
+synthetic code block at the top of the Code page
+(see ``code.factory._qss_snippet`` — owned by the Code section, not
+this mixin). The Code section and the Layout/Constructor trees live in
+their own mixins (``code/factory.py`` and ``tree.py``).
 """
 
 from __future__ import annotations
@@ -34,12 +36,14 @@ class _PathButton(Button):
 
 
 class _PaneRenderingMixin:
-    """Mixin: render the Object/Config/State/Regions/Layers/Theme/QSS pages.
+    """Mixin: render the Object/Config/State/Regions/Layers/Theme pages.
 
     Not a QWidget itself — mixed into _InspectionPane; relies on the pane's
     ``pages`` dict, ``widget``/``_current``/``_theme_manager``/
-    ``_token_sources``/``_qss_rows`` state and the ``widget_activated``
-    signal, plus ScrollableDialogPage's ``content_layout``.
+    ``_token_sources`` state and the ``widget_activated``/``region_selected``
+    signals, plus ``ScrollableDialogPage.content_layout``.
+    QSS rows (``_qss_rows``) are owned by the Code section
+    (``code.factory._qss_snippet``) and not rendered here.
     """
 
     # Declared here only so mypy can resolve them across the mixin split —
