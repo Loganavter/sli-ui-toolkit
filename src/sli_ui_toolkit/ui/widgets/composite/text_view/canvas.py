@@ -74,6 +74,9 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._font.setPixelSize(constants.FONT_PIXEL_SIZE)
         self._metrics = QFontMetrics(self._font)
         self._line_height = self._metrics.lineSpacing()
+        self._char_width = self._metrics.horizontalAdvance("0") or self._metrics.averageCharWidth() or 1
+        # theme cache generation for canvas_paint invalidation
+        self._theme_generation = 0
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
@@ -98,10 +101,28 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             pass
 
     def _on_theme_changed(self, *_args) -> None:
+        # Invalidate theme color cache in canvas_paint
+        try:
+            import sli_ui_toolkit.ui.widgets.composite.text_view.canvas_paint as _cp
+
+            _cp._cached_foreground = None
+            _cp._cached_span_colors = None
+            _cp._cached_selection_color = None
+        except Exception:
+            pass
         if self._document_blocks is not None:
             self._relayout_document()
+        else:
+            self.update()
 
     def _on_scale_changed(self, *_args) -> None:
+        # Scale may affect font metrics; refresh cached widths
+        try:
+            self._metrics = QFontMetrics(self._font)
+            self._line_height = self._metrics.lineSpacing()
+            self._char_width = self._metrics.horizontalAdvance("0") or self._metrics.averageCharWidth() or 1
+        except Exception:
+            pass
         if self._document_blocks is not None:
             # The singleton connections outlive the widget: a canvas whose
             # C++ side is already deleted (GC'd wrapper, scale test teardown)
@@ -110,6 +131,9 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
                 self._relayout_document()
             except RuntimeError:
                 pass
+        else:
+            self._sync_height()
+            self.update()
 
     # -- state --------------------------------------------------------------
 
@@ -336,28 +360,21 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self.update()
 
     def update(self, *args, **kwargs) -> None:  # noqa: N802  # debug probe for repaint storm
-        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1" or os.getenv("IMGSLI_TRACE") == "1"
-        if dbg:
+        # Single getenv per update, logger only — no file IO on hot path
+        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1" or os.getenv("IMGSLI_TRACE") == "1":
             global _update_counter, _last_update_ts
             _update_counter += 1
             now = time.perf_counter()
             interval = (now - _last_update_ts) * 1000 if _last_update_ts else 0
             _last_update_ts = now
-            # Log every 10th update or when interval < 20ms (storm) — WARNING so it shows
-            if _update_counter % 10 == 0 or interval < 20 and interval != 0:
+            if _update_counter % 10 == 0 or (interval < 20 and interval != 0):
                 stack = "".join(traceback.format_stack()[-7:-3])
                 msg = f"TextCanvas update#{_update_counter} interval={interval:.1f}ms stack:\n{stack}"
                 _canvas_logger.warning(msg)
-                try:
-                    with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                        f.write(msg + "\n")
-                except Exception:
-                    pass
         super().update(*args, **kwargs)
 
     def repaint(self, *args, **kwargs) -> None:  # noqa: N802
-        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
-        if dbg:
+        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1":
             stack = "".join(traceback.format_stack()[-6:-2])
             _canvas_logger.warning("TextCanvas repaint stack:\n%s", stack)
         super().repaint(*args, **kwargs)

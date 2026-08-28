@@ -213,23 +213,12 @@ class TextView(QScrollArea):
         stack = "".join(traceback.format_stack()[-8:-3])
         msg = f"TextView scroll value={value} stack:\n{stack}"
         _tv_logger.warning(msg)
-        try:
-            with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                f.write(msg + "\n")
-        except Exception:
-            pass
 
     def wheelEvent(self, event) -> None:  # noqa: N802
-        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
-        if dbg:
+        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1":
             stack = "".join(traceback.format_stack()[-6:-2])
             msg = f"TextView wheel delta={event.angleDelta().y()} pixel={event.pixelDelta().y() if not event.pixelDelta().isNull() else 'null'} mods={event.modifiers()} stack:\n{stack}"
             _tv_logger.warning(msg)
-            try:
-                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                    f.write(msg + "\n")
-            except Exception:
-                pass
         # Coalesce high-frequency touchpad wheel events (Wayland/X11 smooth
         # scroll sends dozens of small deltas per second, each would paint
         # 590 lines → 3ms × 100Hz = 300ms/s). Accumulate and flush once per
@@ -263,27 +252,13 @@ class TextView(QScrollArea):
         bar.setValue(bar.value() - delta_px)
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:  # noqa: N802
-        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
-        if dbg and dy != 0:
+        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1" and dy != 0:
             stack = "".join(traceback.format_stack()[-7:-3])
             msg = f"TextView scrollContentsBy dy={dy} stack:\n{stack}"
             _tv_logger.warning(msg)
-            try:
-                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                    f.write(msg + "\n")
-            except Exception:
-                pass
         super().scrollContentsBy(dx, dy)
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
-        # Catch HoverCoordinator-driven updates: it installs app eventFilter,
-        # but the canvas still gets MouseMove/HoverMove before reconcile.
-        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1" and watched is self._canvas:
-            from PySide6.QtCore import QEvent
-
-            if event.type() in (QEvent.Type.HoverMove, QEvent.Type.MouseMove, QEvent.Type.Wheel):
-                # Throttle heavily — log only bursts
-                pass
         return super().eventFilter(watched, event)
 
     # -- geometry / frame ---------------------------------------------------

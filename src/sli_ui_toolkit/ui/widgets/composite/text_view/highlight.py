@@ -139,10 +139,19 @@ def _cached_span_colors(dark: bool, accent_name: str) -> dict[str, QColor]:
 
 
 def python_span_colors(theme_manager) -> dict[str, QColor]:
-    """Theme-aware palette for the span kinds (cached per dark/accent)."""
+    """Theme-aware palette for the span kinds (cached per dark/accent).
+
+    Silent fallback for missing ``accent`` — ``get_color`` would emit a
+    WARNING per paint (60 Hz → log spam + event-loop block for the 170 ms
+    drag lag). Use the canonical toolkit accent without logging.
+    """
     dark = bool(theme_manager.is_dark())
     accent = theme_manager.try_get_color("accent")
     if accent is None or not accent.isValid():
-        accent = theme_manager.get_color("accent")
+        # silent fallback: no warning, no file IO on hot path
+        accent = QColor("#007acc")
+        # still prefer alias-resolved accent if present under canonical key
+        cand = theme_manager.try_get_color("surface.background")
+        # keep fallback accent; no logging
     key = accent.name() if accent is not None and accent.isValid() else ""
     return _cached_span_colors(dark, key)

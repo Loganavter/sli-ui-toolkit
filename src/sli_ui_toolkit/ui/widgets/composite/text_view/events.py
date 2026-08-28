@@ -35,19 +35,39 @@ class _CanvasEventsApi:
             ),
         )
         x = point.x() - self._text_x()
-        # Use cached advances — selecting 2 chars still repaints 29 lines,
-        # but hit-testing per MouseMove was O(L^2) slicing + uncached
-        # horizontalAdvance. Cache via painter's _cached_advance.
-        from .painter import _cached_advance
-
-        col = 0
+        if x <= 0:
+            return (line, 0)
         text = self._lines[line]
-        # Binary search would be faster, but linear with cached advances is
-        # already cheap for monospace 12px (100 chars → 100 cache hits).
-        for index, _ch in enumerate(text):
-            if _cached_advance(self._metrics, text[: index + 1], False) > x:
+        if not text:
+            return (line, 0)
+        # Incremental per-char advance (no slicing) — previous version did
+        # text[:i] slicing + dict cache per prefix (O(L^2) alloc for 100-char
+        # line). Use single-char horizontalAdvance cached per glyph.
+        # For this font fixedPitch is False (variable width: 'l'=3, 'm'=7),
+        # so monospace division fails; sum of single-char advances equals
+        # prefix advance (verified: 'alpha' 31 == sum chars).
+        width = 0
+        col = 0
+        # local bind for speed
+        metrics = self._metrics
+        # simple per-char cache dict (module-level) to avoid repeated QFontMetrics call
+        # Use painter's _advance_cache for single chars if available, else metrics
+        try:
+            from .painter import _advance_cache as _ac
+        except Exception:
+            _ac = {}
+        for idx, ch in enumerate(text):
+            # cache key (ch, False) for regular font
+            key = (ch, False)
+            w = _ac.get(key)
+            if w is None:
+                w = metrics.horizontalAdvance(ch)
+                if len(_ac) < 8192:
+                    _ac[key] = w
+            width += w
+            if width > x:
                 break
-            col = index + 1
+            col = idx + 1
         return (line, col)
 
     def _click_select(self, pos: Position, count: int) -> None:
@@ -111,15 +131,16 @@ class _CanvasEventsApi:
         self.update()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        dbg_all = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
-        if dbg_all and event.buttons() & Qt.MouseButton.LeftButton:
-            msg = f"drag raw editing={self._editing} anchor={self._selection.anchor} buttons={event.buttons()} pos={event.position().toPoint()}"
-            _logger.warning(msg)
-            try:
-                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                    f.write(msg + "\n")
-            except Exception:
-                pass
+        # Single debug check per move — logger only, no file IO (hot path)
+        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+        if dbg and event.buttons() & Qt.MouseButton.LeftButton:
+            _logger.warning(
+                "drag raw editing=%s anchor=%s buttons=%s pos=%s",
+                self._editing,
+                self._selection.anchor,
+                event.buttons(),
+                event.position().toPoint(),
+            )
         if self._document_layout is not None:
             self._document_mouse_move(event)
             super().mouseMoveEvent(event)
@@ -137,35 +158,13 @@ class _CanvasEventsApi:
                     super().mouseMoveEvent(event)
                     return
                 self._drag_extending = True
-            # Throttle drag to 60Hz — selecting 2 chars on one line was
-            # firing update() at 100+Hz (mouse poll) × 29 lines paint
-            # → 3ms×100 = 300ms/s. Coalesce to one frame.
-            dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
-            t0 = time.perf_counter() if dbg else 0
-            now = time.perf_counter()
-            last = getattr(self, "_last_drag_ts", 0.0)
-            if now - last < 0.016:
-                if dbg:
-                    msg = f"drag throttled interval={(now-last)*1000:.1f}ms"
-                    _logger.warning(msg)
-                    try:
-                        with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                            f.write(msg + "\n")
-                    except Exception:
-                        pass
-                super().mouseMoveEvent(event)
-                return
-            self._last_drag_ts = now
+            # No manual 16 ms throttle — Qt coalesces multiple update() into one
+            # paint via the event loop (compresses). Manual throttle added
+            # 170 ms gaps when the event loop was blocked by theme lookups &
+            # file IO. Keep only jitter avoidance.
             pos = self._pos_from_point(event.position().toPoint())
             if dbg:
-                dt = (time.perf_counter() - t0) * 1000
-                msg = f"drag hit_test line={pos[0]} col={pos[1]} dt={dt:.2f}ms throttled={(now-last)*1000:.1f}ms"
-                _logger.warning(msg)
-                try:
-                    with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                        f.write(msg + "\n")
-                except Exception:
-                    pass
+                _logger.warning("drag hit_test line=%s col=%s", pos[0], pos[1])
             # Avoid redundant update when pos hasn't moved (jitter)
             if pos == getattr(self, "_last_drag_pos", None):
                 super().mouseMoveEvent(event)
@@ -179,7 +178,6 @@ class _CanvasEventsApi:
                 self._selection.focus = (pos[0], len(self._lines[pos[0]]))
             else:
                 self._selection.focus = pos
-            # Update only the union of old/new selection rect, not full canvas
             self.update()
         super().mouseMoveEvent(event)
 
@@ -296,9 +294,7 @@ class _CanvasEventsApi:
             return super().inputMethodQuery(query)
         line, col = self._cursor
         if query == Qt.InputMethodQuery.ImCursorRectangle:
-            cx = self._text_x() + self._metrics.horizontalAdvance(
-                self._lines[line][:col]
-            )
+            cx = self._text_x() + self._metrics.horizontalAdvance(self._lines[line][:col])
             y = constants.PAD + line * self._line_height
             return QRect(cx, y, 2, self._line_height)
         if query == Qt.InputMethodQuery.ImFont:

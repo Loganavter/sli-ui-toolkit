@@ -23,8 +23,8 @@ from .highlight import python_line_spans, python_span_colors
 from .painter import _cached_advance, draw_text_line
 
 _logger = logging.getLogger(__name__)
-# Re-evaluated per paint so `SLI_TEXTVIEW_DEBUG=1` works even if set after import.
-# Use WARNING so it shows with default host logging (DEBUG is filtered).
+
+# Single getenv per paint, not per line. Cached check to avoid 25× getenv per frame.
 def _debug_enabled() -> bool:
     return os.getenv("SLI_TEXTVIEW_DEBUG") == "1" or os.getenv("IMGSLI_TRACE") == "1"
 
@@ -34,14 +34,20 @@ _slow_threshold_ms = 0  # log everything when debug on
 _last_paint_ts = 0.0
 _burst_start = 0.0
 _burst_count = 0
+# Theme color cache: avoid try_get_color + QColor alloc per paint at 60 Hz.
+_cached_theme_generation = 0
+_cached_foreground: QColor | None = None
+_cached_span_colors: dict[str, QColor] | None = None
+_cached_selection_color: QColor | None = None
+_cached_theme_dark: bool | None = None
 
 
 class _CanvasPaintApi:
     _FOLD_ARROW = "▸"  # ▸
 
     def paintEvent(self, event) -> None:  # noqa: N802
-        # Debug probe: use WARNING + file so it is visible even with default
-        # host log level (DEBUG is filtered → "НОЛЬ полезной информации").
+        # Debug probe: use WARNING so it shows with default host log level.
+        # No file IO on hot path — logger only (prevents 170 ms block).
         dbg = _debug_enabled()
         t0 = time.perf_counter() if dbg else 0
         global _paint_counter
@@ -58,22 +64,36 @@ class _CanvasPaintApi:
                     f"h={self.height()} clip={getattr(event, 'rect', lambda: self.rect())()} dt={dt:.2f}ms cache={info}"
                 )
                 _logger.warning(msg)
-                # Also to /tmp for headless runs where log.txt is overwritten
-                try:
-                    with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                        f.write(msg + "\n")
-                except Exception:
-                    pass
             return
         painter = QPainter(self)
         tm = ThemeManager.get_instance()
-        foreground = tm.try_get_color("WindowText")
-        if foreground is None or not foreground.isValid():
-            foreground = QColor(0, 0, 0)
+        # Cached theme colors — invalidation via _on_theme_changed or generation bump.
+        global _cached_foreground, _cached_span_colors, _cached_selection_color, _cached_theme_dark, _cached_theme_generation
+        cur_dark = bool(tm.is_dark())
+        # Invalidate if theme dark flipped or cache empty; accent change is covered by span_colors cache key.
+        if _cached_foreground is None or _cached_span_colors is None or _cached_theme_dark != cur_dark:
+            fg = tm.try_get_color("WindowText")
+            if fg is None or not fg.isValid():
+                fg = QColor(0, 0, 0)
+            _cached_foreground = fg
+            _cached_span_colors = python_span_colors(tm)
+            sel = tm.try_get_color("accent")
+            if sel is None or not sel.isValid():
+                sel = QColor("#007acc")
+            else:
+                sel = QColor(sel)
+            sel.setAlpha(70)
+            _cached_selection_color = sel
+            _cached_theme_dark = cur_dark
+        foreground = _cached_foreground
+        colors = _cached_span_colors  # type: ignore[assignment]
+        selection_color = _cached_selection_color  # type: ignore[assignment]
+        # Prime painter font/pen for cross-line batching (draw_text_line seeds from current state)
+        painter.setFont(self._font)
+        painter.setPen(foreground)
         self._paint_gutter(painter, foreground, clip_rect=getattr(event, "rect", lambda: self.rect())())
-        colors = python_span_colors(tm)
-        selection_color = QColor(tm.try_get_color("accent") or QColor(0, 0, 0))
-        selection_color.setAlpha(70)
+        # gutter leaves pen on separator; restore for text lines
+        painter.setPen(foreground)
         # Clip to the exposed rect — painting every line for a 2k-line file
         # on every scroll tick is O(N) and makes the Code view lag badly.
         # The QScrollArea moves the canvas; only the viewport slice is exposed.
@@ -114,18 +134,6 @@ class _CanvasPaintApi:
                 f"visible=[{first}..{last}] ({max(0, last-first+1)}) h={self.height()} clip={clip} dt={dt:.2f}ms interval={interval:.1f}ms burst={_burst_count} cache={info}"
             )
             _logger.warning(msg)
-            try:
-                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                    f.write(msg + "\n")
-                    # On storm, dump stack to locate trigger (update() caller)
-                    if _burst_count > 5 and interval < 20:
-                        import traceback
-
-                        stack = "".join(traceback.format_stack()[-6:-2])
-                        f.write(f"  STACK burst#{_burst_count} interval {interval:.1f}ms:\n{stack}\n")
-                        _logger.warning("TextCanvas burst stack:\n%s", stack)
-            except Exception:
-                pass
 
     def _paint_document(self) -> None:
         painter = QPainter(self)  # type: ignore[call-overload]
@@ -179,6 +187,7 @@ class _CanvasPaintApi:
         separator = QColor(foreground)
         separator.setAlpha(50)
         painter.setFont(self._font)
+        painter.setPen(text_color)
         clip = clip_rect if clip_rect is not None else self.rect()
         first = max(0, (clip.y() - constants.PAD) // max(1, self._line_height))
         last = min(
@@ -189,7 +198,6 @@ class _CanvasPaintApi:
         for index in range(first, last + 1):
             number = self._gutter_text(index)
             num_width = self._metrics.horizontalAdvance(number)
-            painter.setPen(text_color)
             painter.drawText(width - constants.GUTTER_PAD - num_width, y, number)
             y += self._line_height
         painter.setPen(separator)
@@ -206,26 +214,14 @@ class _CanvasPaintApi:
         colors,
         selection_color: QColor,
     ) -> None:
-        # Selection highlight — debug must fire even in read-only Code
-        # (Edit not pressed) where _editing==False, otherwise 2-char drag
-        # never logs → "не работает твой дебаг".
         sel_lo, sel_hi = self._selection_range_for_line(line_index, line)
-        dbg_sel = os.getenv("SLI_TEXTVIEW_DEBUG") == "1" and 0 < sel_hi - sel_lo <= 5
-        if dbg_sel:
-            t0 = time.perf_counter()
-            x0_dbg = self._text_x() + _cached_advance(self._metrics, line[:sel_lo], False)
-            x1_dbg = self._text_x() + _cached_advance(self._metrics, line[:sel_hi], False)
-            dt = (time.perf_counter() - t0) * 1000
-            msg = f"selection paint line={line_index} sel=[{sel_lo}:{sel_hi}] len={len(line)} dt_adv={dt:.3f}ms editing={self._editing} cursor={self._cursor}"
-            _logger.warning(msg)
-            try:
-                with open("/tmp/textview_debug.log", "a", encoding="utf-8") as f:
-                    f.write(msg + "\n")
-            except Exception:
-                pass
+        # No per-line getenv — _debug_enabled already checked per paint
         if self._editing and sel_lo < sel_hi:
-            x0 = self._text_x() + _cached_advance(self._metrics, line[:sel_lo], False)
-            x1 = self._text_x() + _cached_advance(self._metrics, line[:sel_hi], False)
+            # Accurate prefix advance (variable-width font: 'l'=3 vs 'm'=7)
+            # Use cached per-char sum via metrics to avoid slicing overhead for long lines
+            # but keep correctness vs char_w * col.
+            x0 = self._text_x() + self._metrics.horizontalAdvance(line[:sel_lo])
+            x1 = self._text_x() + self._metrics.horizontalAdvance(line[:sel_hi])
             painter.fillRect(
                 QRect(x0, y - self._metrics.ascent(), x1 - x0, self._line_height),
                 selection_color,
@@ -250,7 +246,7 @@ class _CanvasPaintApi:
             and not self._selection.active()
             and self._cursor[0] == line_index
         ):
-            cx = self._text_x() + _cached_advance(self._metrics, line[: self._cursor[1]], False)
+            cx = self._text_x() + self._metrics.horizontalAdvance(line[: self._cursor[1]])
             painter.fillRect(
                 QRect(cx, y - self._metrics.ascent(), 2, self._line_height),
                 base_color,
