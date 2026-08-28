@@ -449,11 +449,36 @@ class InspectorWindow(QDialog):
 
     def _attach_layout_tree(self, pane: _InspectionPane, tree: QWidget) -> None:
         self._detach_widget(tree)
+        # If tree was previously wrapped (wrapper contains title + tree),
+        # detaching only the tree would leave the wrapper's title behind —
+        # but build_tree trees are never wrapped with title, they are bare
+        # tree containers. For _render_tree the wrapper is page-owned, not
+        # cached, so no detach needed there.
         page = pane.pages["Layout"]
         pane._clear(page)
-        pane._add_title(page, "Layout tree")
-        tree.setParent(page.content_widget)
-        page.content_layout.addWidget(tree)
+        # Use zero-spacing wrapper for Title → tree so the 4px page spacing
+        # does not create a dead hover gap between the title and first row.
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+        from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+
+        wrapper = QWidget()
+        wlay = QVBoxLayout(wrapper)
+        wlay.setContentsMargins(0, 0, 0, 0)
+        wlay.setSpacing(0)
+        wlay.addWidget(
+            Label(
+                "Layout tree",
+                variant="group-title",
+                pixel_size=15,
+                bold=True,
+                elide=True,
+                selectable=True,
+            )
+        )
+        tree.setParent(wrapper)
+        wlay.addWidget(tree)
+        page.content_layout.addWidget(wrapper)
         page.content_layout.addStretch(1)
         pane._sync_section_visibility()
 

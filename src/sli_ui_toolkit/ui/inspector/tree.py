@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QPointF, QRect, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPointF, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
@@ -63,14 +63,18 @@ class _TreeNodeRow(QWidget):
     theme-aware: chevron polygon like the timeline groups, hover background
     from ``list_item.background.hover`` (fallback ``QColor(0,0,0,12)``).
     Emits ``activated`` on a click outside the twist, ``toggled`` on a
-    twist click, and ``hovered``/``unhovered`` on enter/leave so the
-    controller can highlight the widget in the app via the overlay.
+    twist click. Visual hover (``_hovered``) is per-row for painting;
+    controller hover (overlay highlight) is handled at the tree-container
+    level via ``_TreeHoverFilter`` — no per-row ``hovered``/``unhovered``
+    signals, so moving between zero-spaced rows does not emit a spurious
+    ``cleared → hover`` flicker. ``hovered``/``unhovered`` signals are
+    retained only for compatibility (not used by the tree).
     """
 
     activated = Signal(object)
     toggled = Signal(object)
-    hovered = Signal(object)
-    unhovered = Signal()
+    hovered = Signal(object)  # compat, unused for overlay
+    unhovered = Signal()  # compat, unused for overlay
 
     _ROW_HEIGHT = 26
     _INDENT_STEP = 14
@@ -130,114 +134,16 @@ class _TreeNodeRow(QWidget):
     # -- events -------------------------------------------------------------
 
     def enterEvent(self, event) -> None:  # noqa: N802
+        # Visual hover only — controller hover is handled at the tree level
+        # (see _TreeHoverFilter) so per-row hover does not flicker on
+        # zero-gap boundaries.
         self._hovered = True
         self.update()
-        if self._widget is not None:
-            self.hovered.emit(self._widget)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         self._hovered = False
         self.update()
-        # Gap diagnostics: when leaving a row, check if cursor is still inside
-        # the tree but not over another row — that indicates a dead spacing/
-        # margin gap between rows (or between title and first row). Logged at
-        # DEBUG so the controller's flicker (cleared → hover within 1-50ms) can
-        # be correlated with the actual gap geometry.
-        if self._widget is not None:
-            try:
-                import logging
-
-                from PySide6.QtGui import QCursor
-                from PySide6.QtWidgets import QApplication
-
-                logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
-                pos = QCursor.pos()
-                under = QApplication.widgetAt(pos)
-                under_desc = (
-                    f"{type(under).__name__}#{under.objectName()}"
-                    if under is not None
-                    else "none"
-                )
-                # Is cursor still inside the tree container?
-                tree = self.parentWidget()
-                # walk up to find the top tree container (holds rows)
-                cur = self
-                top_tree = None
-                while cur is not None:
-                    # top tree is the QWidget directly added to page.content_layout
-                    # heuristic: its layout spacing is 0 and it contains rows
-                    try:
-                        lay = cur.layout()
-                        if lay is not None and lay.spacing() == 0:
-                            # check contains rows
-                            if cur.findChildren(_TreeNodeRow):
-                                top_tree = cur
-                    except Exception:
-                        pass
-                    cur = cur.parentWidget()
-                    if cur is not None and cur.objectName() == "UiInspectorWindow":
-                        break
-                inside_tree = False
-                is_row = isinstance(under, _TreeNodeRow)
-                # check parent chain for row (Label is transparent, but just in case)
-                if not is_row and under is not None:
-                    p = under.parentWidget()
-                    while p is not None:
-                        if isinstance(p, _TreeNodeRow):
-                            is_row = True
-                            break
-                        p = p.parentWidget()
-                if top_tree is not None:
-                    try:
-                        tl = top_tree.mapToGlobal(top_tree.rect().topLeft())
-                        br = top_tree.mapToGlobal(top_tree.rect().bottomRight())
-                        inside_tree = (
-                            tl.x() <= pos.x() <= br.x() and tl.y() <= pos.y() <= br.y()
-                        )
-                    except Exception:
-                        pass
-                if inside_tree and not is_row:
-                    logger.debug(
-                        "row leave gap: %s#%s pos=%s under=%s inside_tree=%s -> dead gap between rows",
-                        self._label,
-                        self._widget.objectName() if self._widget else "",
-                        pos,
-                        under_desc,
-                        inside_tree,
-                    )
-                # Also log row geometry for gap size correlation
-                try:
-                    # gap to next visible row (if any) for debugging
-                    if top_tree is not None:
-                        rows = [r for r in top_tree.findChildren(_TreeNodeRow) if r.isVisible()]
-                        # find next row by y
-                        def _y(w):
-                            try:
-                                return w.mapTo(top_tree, w.rect().topLeft()).y()
-                            except Exception:
-                                return 999999
-
-                        rows.sort(key=_y)
-                        for idx, r in enumerate(rows):
-                            if r is self and idx + 1 < len(rows):
-                                nxt = rows[idx + 1]
-                                cur_b = self.mapTo(top_tree, self.rect().bottomLeft()).y()
-                                nxt_t = nxt.mapTo(top_tree, nxt.rect().topLeft()).y()
-                                gap = nxt_t - cur_b - 1
-                                if gap != 0:
-                                    logger.debug(
-                                        "  row gap size %s -> %s = %spx (expected 0)",
-                                        self._label,
-                                        nxt._label,
-                                        gap,
-                                    )
-                                break
-                except Exception:
-                    pass
-            except Exception:
-                pass
-            self.unhovered.emit()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
@@ -305,6 +211,188 @@ class _TreeNodeRow(QWidget):
             pass
 
 
+class _TreeHoverFilter(QObject):
+    """Tree-level hover tracker — no per-row leave/enter gap.
+
+    The tree's rows are zero-spaced (``spacing=0``) but per-row
+    ``enterEvent``/``leaveEvent`` still fires a ``leave (cleared) → enter
+    (hover)`` sequence on every boundary (1-50ms in logs) → overlay
+    flickers and ``tree hover cleared`` spam. Instead, the tree container
+    tracks the mouse itself: ``MouseMove``/``HoverMove`` finds the deepest
+    ``_TreeNodeRow`` under the cursor via ``childAt`` and emits
+    ``widget_hovered`` only when the hovered widget actually changes, and
+    ``widget_hover_cleared`` only when the cursor leaves the tree entirely.
+    No intermediate ``cleared`` between adjacent rows, no dead-gap spam.
+    """
+
+    def __init__(self, pane: Any, tree: QWidget):
+        super().__init__(tree)
+        self._pane = pane
+        self._tree = tree
+        self._current: QWidget | None = None
+        tree.setMouseTracking(True)
+        tree.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        tree.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if watched is not self._tree:
+            return False
+        t = event.type()
+        if t == QEvent.Type.Leave:
+            if self._current is not None:
+                try:
+                    import logging
+
+                    logger = logging.getLogger("sli_ui_toolkit.inspector.controller")
+                    logger.debug(
+                        "tree hover cleared (tree leave) last=%s",
+                        type(self._current).__name__,
+                    )
+                except Exception:
+                    pass
+                self._pane.widget_hover_cleared.emit()
+                self._current = None
+            return False
+        if t in (QEvent.Type.MouseMove, QEvent.Type.HoverMove, QEvent.Type.HoverEnter):
+            try:
+                # position() for QHoverEvent, pos() for QMouseEvent
+                if hasattr(event, "position"):
+                    pos = event.position().toPoint()  # type: ignore[attr-defined]
+                elif hasattr(event, "pos"):
+                    pos = event.pos()  # type: ignore[attr-defined]
+                else:
+                    pos = event.posF().toPoint() if hasattr(event, "posF") else None
+                    if pos is None:
+                        return False
+            except Exception:
+                return False
+            # childAt returns deepest child; if over Label (transparent) it
+            # still returns the row because Label is WA_TransparentForMouseEvents
+            w = self._tree.childAt(pos)
+            row: QWidget | None = w
+            # walk up through nested containers to find the row
+            while row is not None and not isinstance(row, _TreeNodeRow):
+                # if we hit a nested container, drill into its childAt
+                # childAt already gave deepest, so walk parents
+                row = row.parentWidget()
+                if row is self._tree:
+                    row = None
+                    break
+            widget = row.widget() if isinstance(row, _TreeNodeRow) else None  # type: ignore[attr-defined]
+            # suppress None (gap) → keep current until leave; only switch on real rows
+            if widget is None:
+                # cursor over tree background but not a row — treat as gap;
+                # do not emit cleared immediately, keep current hover (prevents
+                # flicker on 1px gaps). Cleared only on tree Leave.
+                return False
+            if widget is self._current:
+                return False
+            # switching rows — direct hover, no intermediate cleared
+            try:
+                import logging
+
+                logger = logging.getLogger("sli_ui_toolkit.inspector.controller")
+                logger.debug(
+                    "tree hover: %s -> %s at tree pos=%s",
+                    type(self._current).__name__ if self._current else "None",
+                    type(widget).__name__,
+                    pos,
+                )
+            except Exception:
+                pass
+            self._current = widget
+            self._pane.widget_hovered.emit(widget)
+            return False
+        return False
+
+
+def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
+    """Deterministic gap diagnostics — no QCursor/widgetAt guessing.
+
+    Logs layout spacing/margins, row count/heights and any vertical gap
+    between consecutive visible rows (via geometry in tree coords). A gap
+    !=0 means a real layout void between buttons, not a hover timing
+    artifact. Also dumps per-container coverage to pinpoint which branch
+    has the void. Called after every tree build; cheap (O(n)).
+    """
+    try:
+        import logging
+
+        logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+        lay = tree.layout()
+        spacing = lay.spacing() if lay is not None else -1
+        try:
+            m = lay.contentsMargins() if lay is not None else None
+            margins = f"({m.left()},{m.top()},{m.right()},{m.bottom()})" if m else "None"
+        except Exception:
+            margins = str(m) if "m" in locals() else "?"
+        rows = [r for r in tree.findChildren(_TreeNodeRow) if r.isVisible()]
+        # sort by y in tree coords
+        def _y(w):
+            try:
+                return w.mapTo(tree, w.rect().topLeft()).y()
+            except Exception:
+                return 999999
+
+        rows.sort(key=_y)
+        gaps: list[int] = []
+        details: list[str] = []
+        for i in range(len(rows) - 1):
+            cur = rows[i]
+            nxt = rows[i + 1]
+            try:
+                cur_b = cur.mapTo(tree, cur.rect().bottomLeft()).y()
+                nxt_t = nxt.mapTo(tree, nxt.rect().topLeft()).y()
+                gap = nxt_t - cur_b - 1
+                gaps.append(gap)
+                if gap != 0:
+                    details.append(f"{cur._label}->{nxt._label} gap={gap} cur_geo={cur.geometry()} nxt_geo={nxt.geometry()}")
+            except Exception as e:
+                gaps.append(999)
+                details.append(f"err {e}")
+        # also check hierarchical containers coverage
+        containers: list[str] = []
+        for w in tree.findChildren(QWidget):
+            try:
+                lay2 = w.layout()
+                if lay2 is not None and lay2.spacing() != 0:
+                    containers.append(f"{type(w).__name__} spacing={lay2.spacing()} geo={w.geometry()}")
+                if lay2 is not None:
+                    try:
+                        m2 = lay2.contentsMargins()
+                        if m2.left() != 0 or m2.top() != 0 or m2.right() != 0 or m2.bottom() != 0:
+                            containers.append(f"{type(w).__name__} margins=({m2.left()},{m2.top()},{m2.right()},{m2.bottom()}) geo={w.geometry()}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        # Use set to dedup container messages
+        uniq_containers = sorted(set(containers))
+        logger.debug(
+            "%s gaps: spacing=%s margins=%s visible_rows=%s gaps=%s tree_geo=%s details=%s containers=%s",
+            prefix,
+            spacing,
+            margins,
+            len(rows),
+            gaps,
+            tree.geometry(),
+            details if details else "all 0",
+            uniq_containers if uniq_containers else "ok",
+        )
+        # If any gap !=0, also dump full row table
+        if any(g != 0 for g in gaps):
+            for r in rows:
+                try:
+                    y = r.mapTo(tree, r.rect().topLeft()).y()
+                    logger.debug("  row %s y=%s h=%s geo=%s depth=%s", r._label, y, r.height(), r.geometry(), r._depth)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 class _PaneTreeMixin:
     """Mixin: render a node tree into a section page (or a cached container).
 
@@ -342,6 +430,10 @@ class _PaneTreeMixin:
         expanded: set[int] = set()
         for node in _nest_nodes(nodes):
             self._render_tree_node(layout, node, expanded, depth=0)
+        # Tree-level hover: no per-row leave/enter gap, so overlay does not
+        # flicker between zero-spaced rows. Filter is parented to the tree.
+        container._hover_filter = _TreeHoverFilter(self, container)  # type: ignore[attr-defined]
+        _log_tree_gaps(container, prefix="build_tree")
         return container
 
     def _render_tree(self, page_name: str, title: str, nodes) -> None:
@@ -349,16 +441,29 @@ class _PaneTreeMixin:
         self._clear(page)
         if not nodes:
             return
-        self._add_title(page, title)
-        # Rows are grouped in hierarchical zero-spacing containers (one
-        # ``QVBoxLayout(spacing=0, margins=0)`` per expanded branch, see
-        # ``_render_tree_node``). If rows were added directly to
-        # ``page.content_layout`` (``content_spacing=4``), the 4px gaps
-        # would be dead hover zones. The wrapper reduces the dead zone to
-        # the widget boundary itself; the remaining per-row
-        # ``leave (unhovered)`` → ``enter (hovered)`` 1-50ms flicker on
-        # every boundary is debounced in ``controller._on_tree_hover_cleared``
-        # (50ms singleShot), so the overlay does not flash between rows.
+        # Wrapper with spacing=0 so Title → first row has no dead 4px gap
+        # (page.content_layout has content_spacing=4 for other sections).
+        # Title + tree live together with zero gap; the tree itself is a
+        # hierarchical zero-spacing container (one QVBoxLayout spacing=0 per
+        # branch, see _render_tree_node). Hover is tracked at the tree level
+        # (_TreeHoverFilter) so moving between adjacent rows switches
+        # directly hover A → hover B without intermediate cleared.
+        from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.setSpacing(0)
+        wrapper_layout.addWidget(
+            Label(
+                title,
+                variant="group-title",
+                pixel_size=15,
+                bold=True,
+                elide=True,
+                selectable=True,
+            )
+        )
         tree = QWidget()
         tree_layout = QVBoxLayout(tree)
         tree_layout.setContentsMargins(0, 0, 0, 0)
@@ -366,8 +471,11 @@ class _PaneTreeMixin:
         expanded = self._expanded.setdefault(page_name, set())
         for node in _nest_nodes(nodes):
             self._render_tree_node(tree_layout, node, expanded, depth=0)
-        page.content_layout.addWidget(tree)
+        tree._hover_filter = _TreeHoverFilter(self, tree)  # type: ignore[attr-defined]
+        wrapper_layout.addWidget(tree)
+        page.content_layout.addWidget(wrapper)
         page.content_layout.addStretch(1)
+        _log_tree_gaps(tree, prefix=f"_render_tree:{page_name}")
 
     def _render_tree_node(self, layout, node, expanded, depth: int) -> None:
         widget = node["widget"]
@@ -386,8 +494,8 @@ class _PaneTreeMixin:
             row.activated.connect(
                 lambda _w=widget: self.widget_activated.emit(_w)
             )
-            row.hovered.connect(self.widget_hovered.emit)
-            row.unhovered.connect(self.widget_hover_cleared.emit)
+            # Hover is handled at the tree-container level (_TreeHoverFilter),
+            # not per-row, to avoid leave/enter gaps between zero-spaced rows.
         layout.addWidget(row)
         if not has_children:
             return
