@@ -364,7 +364,7 @@ def test_tree_rows_collapse_and_expand_on_twist_click(qapp):
 
 
 def test_tree_row_hover_emits_widget_signals(qapp):
-    from PySide6.QtCore import QPoint, QEvent
+    from PySide6.QtCore import QPoint, QEvent, Qt
     from PySide6.QtTest import QTest
 
     from sli_ui_toolkit.ui.inspector.view import _TreeNodeRow
@@ -376,19 +376,27 @@ def test_tree_row_hover_emits_widget_signals(qapp):
     # expand parent so child row is visible (tree is hierarchical)
     from PySide6.QtCore import QPoint as _QPoint
 
+    layout_index = {name: index for index, name in enumerate(win._pages)}["Layout"]
+    win._shell.sidebar.setCurrentRow(layout_index)
     win.show()
     qapp.processEvents()
-    # find tree container (holds hover filter, not per-row signals)
+    # find tree container (Button per-row hover, no _hover_filter)
     page = win._pages["Layout"]
-    # tree is inside wrapper (Title+tree) with spacing 0
-    tree = None
-    for w in page.content_widget.findChildren(QWidget):
-        if hasattr(w, "_hover_filter"):
-            tree = w
-            break
-    assert tree is not None
-    # expand the collapsed root (first row) so child becomes visible
     rows = page.content_widget.findChildren(_TreeNodeRow)
+    assert rows
+    tree = rows[0].parentWidget()
+    # rows are inside nested containers; climb to the top-level tree (direct child of wrapper)
+    while tree is not None and tree.parentWidget() is not page.content_widget:
+        # wrapper is direct child of content_widget, tree is child of wrapper
+        # climb until parent is wrapper
+        parent = tree.parentWidget()
+        if parent is None:
+            break
+        # check if parent is wrapper (contains Label + tree)
+        if parent.parentWidget() is page.content_widget:
+            break
+        tree = parent
+    assert tree is not None
     # rows[0] is parent, click its twist to expand
     QTest.mouseClick(rows[0], Qt.MouseButton.LeftButton, pos=QPoint(5, 13))
     qapp.processEvents()
@@ -506,9 +514,18 @@ def test_close_tab_preserves_cached_layout_tree(qapp):
     win.open_widget(QWidget(host), "B")
     pane2 = win.active_pane()
     tree = next(iter(win._layout_tree_cache.values()))
-    assert tree.parentWidget() is pane2.pages["Layout"].content_widget
+    # tree is inside wrapper (Title+tree) which is inside content_widget
+    def _is_descendant(ancestor, widget):
+        cur = widget.parentWidget()
+        while cur is not None:
+            if cur is ancestor:
+                return True
+            cur = cur.parentWidget()
+        return False
+
+    assert _is_descendant(pane2.pages["Layout"].content_widget, tree)
     win._close_tab(win.tabs.indexOf(pane2))
     qapp.processEvents()
     # the shared tree survived the pane deletion and moved to the next tab
-    assert tree.parentWidget() is pane1.pages["Layout"].content_widget
+    assert _is_descendant(pane1.pages["Layout"].content_widget, tree)
     assert win.tabs.count() == 1

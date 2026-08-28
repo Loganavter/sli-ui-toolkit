@@ -18,6 +18,51 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.buttons.regions import ButtonRegion
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+from sli_ui_toolkit.ui.widgets.buttons.variants import VariantSpec, register_variant
+
+class _TreeRowSplit:
+    """Split for tree row: twist 12px at depth indent, content fills rest."""
+    def __init__(self, depth: int, has_twist: bool):
+        self._depth = depth
+        self._has_twist = has_twist
+
+    def compute(self, rect, regions):
+        from PySide6.QtCore import QRectF
+        if not self._has_twist:
+            # single content region with indent
+            indent = self._depth * 14
+            return [QRectF(rect.left() + indent, rect.top(), max(0, rect.width() - indent), rect.height())]
+        # two regions: twist 12px at indent, content rest
+        indent = self._depth * 14
+        twist_w = 12
+        twist_x = rect.left() + indent + 2
+        twist_rect = QRectF(twist_x, rect.top(), twist_w, rect.height())
+        content_x = twist_x + twist_w + 4
+        content_w = max(0, rect.right() - content_x + 1)
+        content_rect = QRectF(content_x, rect.top(), content_w, rect.height())
+        # regions order is [twist, content]
+        return [twist_rect, content_rect]
+
+    def dividers(self, rects):
+        return []
+
+
+# Tree-row variant: transparent idle, list_item.background.hover on hover/pressed.
+# Uses toolkit Button pipeline instead of manual QSS/painter.
+def _tree_row_bg(states, tm: ThemeManager):  # type: ignore[no-untyped-def]
+    if ButtonState.HOVERED in states or ButtonState.PRESSED in states:
+        c = tm.try_get_color("list_item.background.hover")
+        return QColor(c) if c is not None else QColor(0, 0, 0, 12)
+    return QColor(0, 0, 0, 0)
+
+
+try:
+    register_variant(VariantSpec("tree_row", "list_item", resolve_bg=_tree_row_bg))
+except Exception:
+    pass
 
 
 def _nest_nodes(nodes) -> list[dict]:
@@ -55,20 +100,14 @@ def _layout_tree_key(nodes) -> tuple | None:
     return (id(first.window()), len(nodes), id(first), id(last))
 
 
-class _TreeNodeRow(QWidget):
-    """Web-inspector-style tree row: twist indicator + ``Class#objectName``.
+class _TreeNodeRow(Button):
+    """Web-inspector-style tree row as toolkit Button (no QSS).
 
-    Chevron is painted (no QSS), text is a child ``Label``
-    (``WA_TransparentForMouseEvents``, ``elide=True``, ``selectable=False``),
-    theme-aware: chevron polygon like the timeline groups, hover background
-    from ``list_item.background.hover`` (fallback ``QColor(0,0,0,12)``).
+    Uses Button variant "tree_row" (list_item.background.hover on hover,
+    transparent idle) and paints the twist chevron via overlay painter.
     Emits ``activated`` on a click outside the twist, ``toggled`` on a
-    twist click. Visual hover (``_hovered``) is per-row for painting;
-    controller hover (overlay highlight) is handled at the tree-container
-    level via ``_TreeHoverFilter`` — no per-row ``hovered``/``unhovered``
-    signals, so moving between zero-spaced rows does not emit a spurious
-    ``cleared → hover`` flicker. ``hovered``/``unhovered`` signals are
-    retained only for compatibility (not used by the tree).
+    twist click. Hover is handled by Button's HOVERED state; controller
+    overlay is still driven via _TreeHoverFilter for gap-free tracking.
     """
 
     activated = Signal(object)
@@ -91,23 +130,42 @@ class _TreeNodeRow(QWidget):
         depth: int,
         parent=None,
     ):
-        super().__init__(parent)
         self._label = label
         self._widget = widget
         self._has_children = has_children
         self._expanded = expanded
         self._depth = depth
-        self._hovered = False
-        self.setFixedHeight(self._ROW_HEIGHT)
-        self.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        if widget is not None or has_children:
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
         object_name = widget.objectName() if widget is not None else ""
         display = f"{label}#{object_name}" if object_name else label
-        self._text_label = Label(display, pixel_size=13, selectable=False, elide=True, parent=self)
-        self._text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        # Button-based row with regions: twist (chevron) + content (text), no QSS.
+        # Let Button handle hover/press/cursor via variant tree_row.
+        if has_children:
+            twist_text = "▾" if expanded else "▸"
+            regions = [
+                ButtonRegion(id="twist", text=twist_text, weight=0),
+                ButtonRegion(id="content", text=display, weight=1),
+            ]
+            split = _TreeRowSplit(depth, has_twist=True)
+        else:
+            regions = [
+                ButtonRegion(id="content", text=display, weight=1),
+            ]
+            split = _TreeRowSplit(depth, has_twist=False)
+        super().__init__(
+            regions=regions,
+            split=split,
+            variant="tree_row",
+            size=(0, self._ROW_HEIGHT),
+            content_align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            corner_radius=0,
+            parent=parent,
+        )
+        self.setFixedHeight(self._ROW_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        if widget is not None or has_children:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Route region clicks to toggled/activated (Button handles hit-testing)
+        self.regionClicked.connect(self._on_region_clicked)
 
     # -- public state -------------------------------------------------------
 
@@ -115,88 +173,46 @@ class _TreeNodeRow(QWidget):
         if expanded == self._expanded:
             return
         self._expanded = expanded
+        # Update twist chevron via region text
+        if self._has_children:
+            try:
+                twist_text = "▾" if expanded else "▸"
+                self.update_region("twist", text=twist_text)
+            except Exception:
+                pass
         self.update()
+
+    def _on_region_clicked(self, region_id: str) -> None:
+        if region_id == "twist" and self._has_children:
+            self.toggled.emit(self._widget)
+        else:
+            self.activated.emit(self._widget)
 
     def widget(self) -> QWidget | None:
         return self._widget
 
     def resizeEvent(self, event) -> None:  # noqa: N802
+        # Button handles its own content layout via content_padding
         super().resizeEvent(event)
-        try:
-            text_x = self._depth * self._INDENT_STEP
-            if self._has_children:
-                text_x += self._CHEVRON_WIDTH
-            text_x += self._TEXT_GAP
-            self._text_label.setGeometry(text_x, 0, max(0, self.width() - text_x - self._TEXT_GAP), self.height())
-        except Exception:
-            pass
 
     # -- events -------------------------------------------------------------
 
     def enterEvent(self, event) -> None:  # noqa: N802
-        # Visual hover only — controller hover is handled at the tree level
-        # (see _TreeHoverFilter) so per-row hover does not flicker on
-        # zero-gap boundaries.
-        self._hovered = True
-        self.update()
+        # Let Button set HOVERED state, then emit for overlay highlight
         super().enterEvent(event)
+        try:
+            self.hovered.emit(self._widget)
+        except Exception:
+            pass
 
     def leaveEvent(self, event) -> None:  # noqa: N802
-        self._hovered = False
-        self.update()
         super().leaveEvent(event)
+        try:
+            self.unhovered.emit()
+        except Exception:
+            pass
 
-    def event(self, event) -> bool:  # noqa: N802
-        # Filter log: cursor Arrow <-> PointingHand change — unambiguous gap signal.
-        # _TreeHoverFilter childAt may lie (hidden containers, WA_Transparent, Z-order),
-        # but CursorChange is emitted by Qt itself when the displayed cursor actually
-        # changes, so a gap between rows shows as PointingHand -> Arrow -> PointingHand.
-        if event.type() == QEvent.Type.CursorChange:
-            try:
-                import logging
 
-                logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
-                if logger.isEnabledFor(logging.DEBUG):
-                    # Only log real hover cursor changes, not construction setCursor spam.
-                    # During tree construction all rows have placeholder geo 640x26 and
-                    # are not yet visible/laid out (y=0 for all) — filter those.
-                    if not self.isVisible():
-                        return super().event(event)
-                    # Require the row to be actually under mouse — otherwise this is
-                    # just the initial setCursor(PointingHand) during __init__.
-                    try:
-                        from PySide6.QtGui import QCursor
-
-                        gpos = QCursor.pos()
-                        local = self.mapFromGlobal(gpos)
-                        if not self.rect().contains(local):
-                            return super().event(event)
-                    except Exception:
-                        pass
-                    cs = self.cursor().shape()
-                    name = cs.name if hasattr(cs, "name") else str(int(cs))
-                    logger.debug(
-                        "filter cursor changed: row=%s#%s depth=%s cursor=%s global=%s geo=%s",
-                        self._label,
-                        type(self._widget).__name__ if self._widget else "None",
-                        self._depth,
-                        name,
-                        gpos,
-                        self.geometry(),
-                    )
-            except Exception:
-                pass
-        return super().event(event)
-
-    def mousePressEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton:
-            if self._has_children and self._chevron_rect().contains(
-                event.position().toPoint()
-            ):
-                self.toggled.emit(self._widget)
-            else:
-                self.activated.emit(self._widget)
-        super().mousePressEvent(event)
 
     # -- painting -----------------------------------------------------------
 
@@ -204,53 +220,11 @@ class _TreeNodeRow(QWidget):
         x = self._depth * self._INDENT_STEP + 2
         return QRect(x, 0, self._CHEVRON_WIDTH, self.height())
 
-    def paintEvent(self, _event) -> None:  # noqa: N802
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        tm = ThemeManager.get_instance()
-        if self._hovered:
-            background = tm.try_get_color("list_item.background.hover")
-            painter.fillRect(self.rect(), background or QColor(0, 0, 0, 12))
-        text_color = tm.try_get_color("WindowText") or QColor(0, 0, 0)
+    def paintEvent(self, event) -> None:  # noqa: N802
+        # Button paints background (tree_row) and regions (twist+content)
+        super().paintEvent(event)
 
-        text_x = self._depth * self._INDENT_STEP
-        if self._has_children:
-            chevron_rect = self._chevron_rect()
-            cy = self.height() / 2
-            cx = chevron_rect.center().x()
-            painter.setPen(text_color)
-            painter.setBrush(text_color)
-            if self._expanded:
-                points = QPolygonF(
-                    [
-                        QPointF(cx - 3, cy - 3),
-                        QPointF(cx + 3, cy - 3),
-                        QPointF(cx, cy + 3),
-                    ]
-                )
-            else:
-                points = QPolygonF(
-                    [
-                        QPointF(cx - 3, cy - 4),
-                        QPointF(cx + 3, cy),
-                        QPointF(cx - 3, cy + 4),
-                    ]
-                )
-            painter.drawPolygon(points)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            text_x += self._CHEVRON_WIDTH
-        text_x += self._TEXT_GAP
 
-        # Position the mouse-transparent Label for the text. The row's
-        # Label is ``selectable=False`` (unlike field rows) because it is
-        # ``WA_TransparentForMouseEvents`` — mouse goes to the row for
-        # hover/click/overlay; making it selectable would be dead.
-        try:
-            width = max(0, self.width() - text_x - self._TEXT_GAP)
-            self._text_label.setGeometry(text_x, 0, width, self.height())
-            self._text_label.raise_()
-        except Exception:
-            pass
 
 
 class _TreeHoverFilter(QObject):
@@ -801,9 +775,8 @@ class _PaneTreeMixin:
         expanded: set[int] = set()
         for node in _nest_nodes(nodes):
             self._render_tree_node(layout, node, expanded, depth=0)
-        # Tree-level hover: no per-row leave/enter gap, so overlay does not
-        # flicker between zero-spaced rows. Filter is parented to the tree.
-        container._hover_filter = _TreeHoverFilter(self, container)  # type: ignore[attr-defined]
+        # Hover now via Button per-row enter/leave (no childAt gap); filter kept for debug only.
+        # container._hover_filter = _TreeHoverFilter(self, container)  # type: ignore[attr-defined]
         _log_tree_gaps(container, prefix="build_tree")
         return container
 
@@ -816,9 +789,7 @@ class _PaneTreeMixin:
         # (page.content_layout has content_spacing=4 for other sections).
         # Title + tree live together with zero gap; the tree itself is a
         # hierarchical zero-spacing container (one QVBoxLayout spacing=0 per
-        # branch, see _render_tree_node). Hover is tracked at the tree level
-        # (_TreeHoverFilter) so moving between adjacent rows switches
-        # directly hover A → hover B without intermediate cleared.
+        # branch, see _render_tree_node). Hover via Button per-row signals.
         from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 
         wrapper = QWidget()
@@ -842,7 +813,7 @@ class _PaneTreeMixin:
         expanded = self._expanded.setdefault(page_name, set())
         for node in _nest_nodes(nodes):
             self._render_tree_node(tree_layout, node, expanded, depth=0)
-        tree._hover_filter = _TreeHoverFilter(self, tree)  # type: ignore[attr-defined]
+        # tree._hover_filter = _TreeHoverFilter(self, tree)  # type: ignore[attr-defined]  # Button hover via row signals
         wrapper_layout.addWidget(tree)
         page.content_layout.addWidget(wrapper)
         page.content_layout.addStretch(1)
@@ -865,8 +836,9 @@ class _PaneTreeMixin:
             row.activated.connect(
                 lambda _w=widget: self.widget_activated.emit(_w)
             )
-            # Hover is handled at the tree-container level (_TreeHoverFilter),
-            # not per-row, to avoid leave/enter gaps between zero-spaced rows.
+            # Button per-row hover (Qt handles Enter/Leave, no childAt gap)
+            row.hovered.connect(lambda _w=widget: self.widget_hovered.emit(_w))
+            row.unhovered.connect(lambda: self.widget_hover_cleared.emit())
         layout.addWidget(row)
         if not has_children:
             return
