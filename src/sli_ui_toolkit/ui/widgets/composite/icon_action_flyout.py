@@ -4,6 +4,8 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 from dataclasses import dataclass
 from typing import Iterable
 
+import shiboken6 as sip
+
 from PySide6.QtCore import QEvent, QEasingCurve, QSize, Signal
 from PySide6.QtWidgets import QHBoxLayout
 
@@ -65,14 +67,33 @@ class IconActionFlyout(BaseFlyout):
 
     def _on_scale_changed(self, _factor: float) -> None:
         self.h_layout.setSpacing(scaled_px(6))
-        for button in self._buttons.values():
+        for action_id, button in list(self._buttons.items()):
+            if not sip.isValid(button):  # type: ignore[attr-defined]
+                self._purge_action(action_id)
+                continue
             button.setFixedSize(scaled_px(self._button_size), scaled_px(self._button_size))
             button.setIconSize(QSize(scaled_px(self._icon_size), scaled_px(self._icon_size)))
         self.updateGeometry()
         self.update()
 
+    def _purge_action(self, action_id: str) -> None:
+        """Drop a stale action whose button's C++ object was deleted.
+
+        A host signal connection can keep this flyout's Python wrapper alive
+        past its buttons' deletion (``set_actions`` deleteLater processed by
+        the event loop, or parent teardown while the host still holds the
+        wrapper). Every ``_buttons`` consumer guards with
+        ``sip.isValid`` so a freed button self-heals instead of raising
+        ``RuntimeError: Internal C++ object (Button) already deleted``
+        (same pattern as the 4.1.0 ``AutoNavigationSection`` stale-row fix).
+        """
+        self._buttons.pop(action_id, None)
+        self._actions.pop(action_id, None)
+
     def set_actions(self, actions: Iterable[IconAction]) -> None:
         for button in self._buttons.values():
+            if not sip.isValid(button):  # type: ignore[attr-defined]
+                continue
             button.removeEventFilter(self)
             self.h_layout.removeWidget(button)
             button.deleteLater()
@@ -113,6 +134,9 @@ class IconActionFlyout(BaseFlyout):
         button = self._buttons.get(action_id)
         spec = self._actions.get(action_id)
         if button is None or spec is None:
+            return
+        if not sip.isValid(button):  # type: ignore[attr-defined]
+            self._purge_action(action_id)
             return
 
         if icon is not None:
