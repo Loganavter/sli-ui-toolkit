@@ -27,6 +27,27 @@
 
 ## Unreleased
 
+### Added
+- **`OverlayScrollArea` smooth wheel scrolling** — wheel deltas now
+  accumulate into a target scroll position and the viewport eases toward it
+  Chrome/Firefox-style (timer-driven ease-out at ~60fps, zero idle cost).
+  Direction follows the Qt convention (wheel up moves the viewport toward
+  the top); touchpad `pixelDelta` and `ScrollBegin` phases are handled;
+  external `setValue` (thumb drag, keyboard, programmatic scroll) cancels
+  the glide instantly. The mirrored `MinimalistScrollBar` thumb glides with
+  the content.
+- **`VirtualListController` / `RowPool` incremental rebinding** —
+  `RowPool.rebind(reuse=True)` keeps slots whose item index stays inside
+  the window: they are repositioned without re-running `bind()`, so a
+  scroll step binds only the rows entering the window (the previous code
+  re-bound every visible row on every scroll step — visible jank at the
+  start of scrolling on heavy rows). `VirtualListController.rebind(force=True)`
+  (used by `ListPanel` rebuild/sync paths and `set_count`) restores a full
+  rebind when item data may have changed. The ComboBox dropdown keeps full
+  rebinding (`reuse=False` default) because its bind index is positional.
+  `RowPool` also gained `height_fn`/`offset_fn` for variable-height lists
+  and `indexed_widgets()` for the live index→widget map.
+
 ### Changed
 - **`RadioButton` / `CheckBox` rebased onto `Button`** — were standalone
   `QRadioButton` / `QCheckBox` subclasses with hand-rolled hover animation

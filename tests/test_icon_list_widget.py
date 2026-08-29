@@ -266,6 +266,11 @@ def test_scrollbar_appearance_does_not_shift_content(qapp):
     for i in range(1):
         widget.add_item(f"Item {i}")
     _spin_event_loop(qapp)
+    # The overlay bar fades out instead of disappearing instantly.
+    for _ in range(40):
+        if not widget._scroll.custom_v_scrollbar.isVisible():
+            break
+        _spin_event_loop(qapp)
     assert not widget._scroll.custom_v_scrollbar.isVisible()
     assert widget._host.width() == width_with_scrollbar
 

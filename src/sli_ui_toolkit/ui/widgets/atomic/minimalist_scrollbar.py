@@ -41,6 +41,12 @@ _MINIMAL_SCROLLBAR_THICKNESS_HOVER = 6
 _MINIMAL_SCROLLBAR_THICKNESS_DRAG = MINIMAL_SCROLLBAR_WIDTH
 _MINIMAL_SCROLLBAR_HANDLE_PADDING = 8
 
+# Visual interpolation for the bar itself: thickness (idle/hover/drag) and
+# opacity (fade in/out) ease toward their state targets at tick rate; the
+# timer only runs while a transition is in flight.
+_BAR_ANIM_TICK_MS = 16
+_BAR_ANIM_EASE = 0.3
+
 # Wheel-scroll glide (Chrome/Firefox-style): deltas accumulate into a target
 # scroll position and the viewport eases toward it at tick rate, stopping
 # when the target is reached. The timer only runs while a glide is in flight.
@@ -61,8 +67,25 @@ class MinimalistScrollBar(QScrollBar):
         self._hovered = False
         self._idle_color = QColor()
         self._hover_color = QColor()
+        # Animated visuals: current thickness/alpha ease toward state targets.
+        self._anim_thickness = float(self._idle_thickness)
+        self._anim_alpha = 1.0
+        self._anim_target_thickness = float(self._idle_thickness)
+        self._anim_target_alpha = 1.0
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(_BAR_ANIM_TICK_MS)
+        self._anim_timer.timeout.connect(self._anim_tick)
+        # Idle auto-hide (opt-in): after `_auto_hide_seconds` without scroll
+        # activity the bar fades out; any value change / hover / drag brings
+        # it back. None keeps the bar always visible.
+        self._auto_hide_seconds: float | None = None
+        self._hide_requested = False
+        self._idle_timer = QTimer(self)
+        self._idle_timer.setSingleShot(True)
+        self._idle_timer.timeout.connect(self._on_idle_timeout)
         self._update_colors()
         self.theme_manager.theme_changed.connect(self._update_colors)
+        self.valueChanged.connect(self._on_activity)
         self.setMouseTracking(True)
         # TextCanvas (inside TextView) sets IBeam while editing — without an
         # explicit cursor the bar would inherit the parent's shape on some
@@ -82,17 +105,20 @@ class MinimalistScrollBar(QScrollBar):
     def paintEvent(self, event):
         if self.minimum() == self.maximum():
             return
+        if self._anim_alpha <= 0.01:
+            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         handle_rect = self._get_handle_rect()
         if handle_rect.isEmpty():
             return
         if self._is_dragging:
-            current_color = self.theme_manager.get_color("accent")
+            current_color = QColor(self.theme_manager.get_color("accent"))
         elif self._hovered:
-            current_color = self._hover_color
+            current_color = QColor(self._hover_color)
         else:
-            current_color = self._idle_color
+            current_color = QColor(self._idle_color)
+        current_color.setAlpha(int(current_color.alpha() * self._anim_alpha))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(current_color)
         radius = min(handle_rect.width(), handle_rect.height()) / 2.0
@@ -101,12 +127,7 @@ class MinimalistScrollBar(QScrollBar):
     def _get_handle_rect(self):
         if self.minimum() == self.maximum():
             return QRect()
-        if self._is_dragging:
-            current_thickness = self._drag_thickness
-        elif self._hovered:
-            current_thickness = self._hover_thickness
-        else:
-            current_thickness = self._idle_thickness
+        current_thickness = self._anim_thickness
         padding = _MINIMAL_SCROLLBAR_HANDLE_PADDING
         total_range = self.maximum() - self.minimum() + self.pageStep()
         scroll_range = self.maximum() - self.minimum()
@@ -152,6 +173,8 @@ class MinimalistScrollBar(QScrollBar):
             sdbg(f"press -> on-handle (start drag) value={self.value()}")
             self._is_dragging = True
             self._drag_start_offset = pos_val - handle_start
+            self._update_state_targets()
+            self._poke()
             self.update()
             event.accept()
             return
@@ -166,6 +189,8 @@ class MinimalistScrollBar(QScrollBar):
             self.setValue(int(new_value))
             self._is_dragging = True
             self._drag_start_offset = handle_len / 2
+            self._update_state_targets()
+            self._poke()
             self.update()
         event.accept()
 
@@ -198,6 +223,8 @@ class MinimalistScrollBar(QScrollBar):
         )
         if event.button() == Qt.MouseButton.LeftButton:
             self._is_dragging = False
+            self._update_state_targets()
+            self._poke()
             self.update()
             event.accept()
 
@@ -209,6 +236,7 @@ class MinimalistScrollBar(QScrollBar):
     def leaveEvent(self, event):
         sdbg(f"leave widget={self.__class__.__name__} rect={self.rect()}")
         self.setHoverActive(False)
+        self._restart_idle_timer()
         super().leaveEvent(event)
 
     def hoverHitTest(self, pos) -> bool:
@@ -221,7 +249,118 @@ class MinimalistScrollBar(QScrollBar):
         active = bool(active)
         if self._hovered != active:
             self._hovered = active
+            self._update_state_targets()
+            if active:
+                self._poke()
             self.update()
+
+    # -------- animated visuals / auto-hide --------
+
+    def _update_state_targets(self) -> None:
+        if self._is_dragging:
+            self._anim_target_thickness = float(self._drag_thickness)
+        elif self._hovered:
+            self._anim_target_thickness = float(self._hover_thickness)
+        else:
+            self._anim_target_thickness = float(self._idle_thickness)
+        self._start_anim()
+
+    def _start_anim(self) -> None:
+        if not self._anim_timer.isActive():
+            self._anim_timer.start()
+
+    def _anim_tick(self) -> None:
+        moved = False
+        d = self._anim_target_thickness - self._anim_thickness
+        if abs(d) > 0.05:
+            self._anim_thickness += d * _BAR_ANIM_EASE
+            moved = True
+        else:
+            self._anim_thickness = self._anim_target_thickness
+        d = self._anim_target_alpha - self._anim_alpha
+        if abs(d) > 0.01:
+            self._anim_alpha += d * _BAR_ANIM_EASE
+            moved = True
+        else:
+            self._anim_alpha = self._anim_target_alpha
+        self.update()
+        if not moved:
+            self._anim_timer.stop()
+            if self._hide_requested and self._anim_alpha <= 0.01:
+                self._hide_requested = False
+                super().setVisible(False)
+
+    def _restart_idle_timer(self) -> None:
+        if self._auto_hide_seconds is None:
+            return
+        self._idle_timer.start(int(self._auto_hide_seconds * 1000))
+
+    def _on_idle_timeout(self) -> None:
+        if not self.isVisible():
+            return
+        if self._is_dragging or self._hovered:
+            self._restart_idle_timer()
+            return
+        self._hide_requested = True
+        self._anim_target_alpha = 0.0
+        self._start_anim()
+
+    def _on_activity(self, *_args) -> None:
+        # Scroll activity (mirrored value changes), hover, or drag keeps the
+        # bar around; it also re-shows a faded-out bar.
+        if self._auto_hide_seconds is None:
+            return
+        if not self.isVisible():
+            super().setVisible(True)
+            self._anim_alpha = 0.0
+        self._hide_requested = False
+        self._anim_target_alpha = 1.0
+        self._start_anim()
+        self._restart_idle_timer()
+
+    def _poke(self) -> None:
+        if self._auto_hide_seconds is None:
+            return
+        if not self.isVisible():
+            super().setVisible(True)
+            self._anim_alpha = 0.0
+        self._hide_requested = False
+        self._anim_target_alpha = 1.0
+        self._start_anim()
+        self._restart_idle_timer()
+
+    def set_auto_hide(self, seconds: float | None) -> None:
+        """Fade the bar out after ``seconds`` without scroll activity.
+
+        Value changes (mirrored from the scroll area), hovering, and
+        dragging all count as activity and re-show a faded bar. ``None``
+        (default) keeps the bar always visible.
+        """
+        self._auto_hide_seconds = float(seconds) if seconds is not None else None
+        if self._auto_hide_seconds is None:
+            self._idle_timer.stop()
+            self._hide_requested = False
+            self._anim_target_alpha = 1.0
+            self._start_anim()
+        else:
+            self._restart_idle_timer()
+
+    def set_animated_visible(self, visible: bool) -> None:
+        """Show/hide with a fade instead of an instant ``setVisible``."""
+        if visible:
+            if not self.isVisible():
+                super().setVisible(True)
+                self._anim_alpha = 0.0
+            self._hide_requested = False
+            self._anim_target_alpha = 1.0
+            self._start_anim()
+            self._restart_idle_timer()
+        else:
+            if not self.isVisible() or self._hide_requested:
+                return
+            self._hide_requested = True
+            self._anim_target_alpha = 0.0
+            self._start_anim()
 
 def overlay_scrollbar_max_inset(
     bar_width: int = MINIMAL_SCROLLBAR_WIDTH,
@@ -261,9 +400,9 @@ class OverlayScrollArea(QScrollArea):
         self._scroll_timer.timeout.connect(self._scroll_tick)
         self.verticalScrollBar().valueChanged.connect(self.custom_v_scrollbar.setValue)
         self.verticalScrollBar().valueChanged.connect(self._on_native_scroll_changed)
-        self.custom_v_scrollbar.valueChanged.connect(self.verticalScrollBar().setValue)
         self.verticalScrollBar().rangeChanged.connect(self.custom_v_scrollbar.setRange)
         self.verticalScrollBar().rangeChanged.connect(lambda *_: self._sync_steps_from_native())
+        self.custom_v_scrollbar.set_auto_hide(1.2)
         self.custom_v_scrollbar.setVisible(False)
         self._sync_steps_from_native()
         self._apply_viewport_mask()
@@ -290,6 +429,11 @@ class OverlayScrollArea(QScrollArea):
     def set_reserve_scrollbar_space(self, reserve: bool):
         self._reserve_scrollbar_space = bool(reserve)
         self._update_scrollbar_visibility()
+
+    def set_scrollbar_auto_hide(self, seconds: float | None) -> None:
+        """Idle auto-hide for the overlay bar (default 1.2s; ``None`` keeps
+        it always visible once shown)."""
+        self.custom_v_scrollbar.set_auto_hide(seconds)
 
     def overlay_scrollbar_inset(self) -> int:
         """Content-side clearance (px) content must leave for the bar.
@@ -331,7 +475,7 @@ class OverlayScrollArea(QScrollArea):
             self._scroll_target = native.value()
         pixel = event.pixelDelta().y()
         if pixel:
-            delta = int(round(pixel))
+            delta = -int(round(pixel))
         else:
             angle = event.angleDelta().y()
             if not angle:
@@ -343,16 +487,19 @@ class OverlayScrollArea(QScrollArea):
                 base = max(base, int(self.viewport().height() * 0.8))
             else:
                 base = max(base * lines, _SCROLL_MIN_NOTCH_PX)
-            delta = int(round(angle / 120 * base))
+            # Qt convention: positive angleDelta (wheel up / finger up) moves
+            # the viewport toward the top, i.e. decreases the scroll value.
+            delta = -int(round(angle / 120 * base))
         current = (
             self._scroll_target
             if self._scroll_target is not None
             else native.value()
         )
         target = max(native.minimum(), min(current + delta, native.maximum()))
-        self._scroll_target = target
-        if target != native.value() and not self._scroll_timer.isActive():
-            self._scroll_timer.start()
+        if target != native.value():
+            self._scroll_target = target
+            if not self._scroll_timer.isActive():
+                self._scroll_timer.start()
         event.accept()
 
     def _on_native_scroll_changed(self, _value: int) -> None:
@@ -427,7 +574,7 @@ class OverlayScrollArea(QScrollArea):
             f"OverlayScrollArea visibility native_max={native.maximum()} native_min={native.minimum()} "
             f"should_show={should_show} reserve={self._reserve_scrollbar_space}"
         )
-        self.custom_v_scrollbar.setVisible(should_show)
+        self.custom_v_scrollbar.set_animated_visible(should_show)
         # Reserve the bar's gap CONSTANTLY when reserve_scrollbar_space is on,
         # never toggle with visibility: flipping viewport margins on every
         # show/hide (which can oscillate at the content-fits boundary during
