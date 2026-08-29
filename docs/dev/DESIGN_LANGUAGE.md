@@ -13,6 +13,7 @@ For other needs:
 The toolkit implements a custom theme-aware design language with the following principles:
 
 - **Custom-painted controls** — all interactive widgets (checkbox, radio, slider, switch, combobox, spinbox) are painted entirely via `QPainter`, not styled via QSS.
+- **No QSS on toolkit widgets** — toolkit widgets are never styled with `setStyleSheet` (local or app-wide); the painter pipeline owns all visual output. QSS templates (`register_qss_path` with `@token` placeholders) are a host-facing path for native/stock Qt widgets only.
 - **Smooth animated transitions** — state changes (hover, check, toggle) use `QPropertyAnimation` with `OutCubic` easing and short durations (100–200 ms).
 - **Accent-driven color** — a single accent color (from `ThemeManager`) propagates through all active/focus/selected states.
 - **Light and dark themes** — two palette sets registered at startup; widgets resolve colors from the active palette at paint time. Light mode is a first-class target, and dark mode stays reliable because the same token system drives both palettes.
@@ -50,7 +51,11 @@ button = palette.get("Button")       # Button surface
 
 ### Semantic QSS Tokens
 
-QSS files use `@token` placeholders resolved at theme-apply time:
+QSS files use `@token` placeholders resolved at theme-apply time. These tokens
+target **native/stock Qt widgets** via host QSS sheets
+(`ThemeManager.register_qss_path`). Toolkit widgets never read QSS — they
+resolve tokens directly from the palette at paint time; never style toolkit
+widgets with `setStyleSheet`.
 
 - `@accent` — primary accent
 - `@dialog.text` — text in dialogs

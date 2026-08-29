@@ -1167,6 +1167,13 @@
   token's line), custom `paintEvent` detection, and paint-relevant widget
   flags.
 
+### Docs
+- **QSS hard rule documented** — `AGENTS.md` and
+  `docs/dev/DESIGN_LANGUAGE.md` now state explicitly that toolkit widgets
+  are never styled via QSS (`setStyleSheet`); the painter pipeline owns all
+  visual output. QSS templates (`register_qss_path`, `@token` sheets)
+  remain a host-facing path for native/stock Qt widgets only.
+
 ## 3.1.12
 
 ### Added
