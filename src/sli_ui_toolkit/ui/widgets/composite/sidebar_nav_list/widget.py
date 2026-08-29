@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Callable, Iterable
 
 from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -108,13 +109,64 @@ class IconListWidget(QWidget):
         self._host_layout.setSpacing(scaled_px(8))
         self._host_layout.addStretch(1)
         self._scroll.setWidget(self._host)
+        # QScrollArea.setWidget flips autoFillBackground on for the content
+        # widget and the viewport autofills by default: both would paint the
+        # QPalette Window role over the token surface painted in paintEvent
+        # (hosts keep Window darker than ``dialog.background``). Pin them
+        # transparent so the surface shows (same "pin it off" pattern as the
+        # host's shelf widget).
+        self._host.setAutoFillBackground(False)
+        self._scroll.viewport().setAutoFillBackground(False)
         layout.addWidget(self._scroll)
 
+        self._read_surface_color()
         try:
-            ThemeManager.get_instance().theme_changed.connect(self.refresh_icons)
+            ThemeManager.get_instance().theme_changed.connect(self._on_theme_changed)
         except Exception:
             pass
         UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        """Fill the list surface with the ``dialog.background`` token.
+
+        IconListWidget is a custom QWidget subclass, so Qt never sets
+        ``WA_StyledBackground`` for it and application-QSS background rules
+        silently no-op — the list then renders the QPalette Window role,
+        which hosts keep darker than the dialog surface (dark Window
+        ``#1e1e1e`` vs ``dialog.background`` ``#2b2b2b``). Painting the
+        token explicitly (THEMING.md's explicit-paint pattern) makes the
+        list own its surface like ``ScrollableDialogPage`` does.
+        """
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self._surface_color)
+        painter.end()
+
+    def _read_surface_color(self) -> None:
+        """Re-read the ``dialog.background`` token into ``_surface_color``.
+
+        Re-read on every ``theme_changed`` (never cached forever): hosts
+        may override the token via ``ThemeManager.set_color``. ThemeManager
+        may be uninitialized in some test contexts — fall back to the
+        palette Window role as a last resort.
+        """
+        try:
+            color = QColor(ThemeManager.get_instance().get_color("dialog.background"))
+        except Exception:
+            color = QColor(self.palette().window().color())
+        self._surface_color = color
+
+    def _on_theme_changed(self, *_args) -> None:
+        """Re-tint the surface and refresh row icons after a theme switch.
+
+        Bound method, so the connection dies with the widget (a lambda
+        would survive the widget and raise on the deleted C++ view).
+        """
+        try:
+            self._read_surface_color()
+            self.refresh_icons()
+            self.update()
+        except RuntimeError:
+            pass
 
 
     def resizeEvent(self, event) -> None:
