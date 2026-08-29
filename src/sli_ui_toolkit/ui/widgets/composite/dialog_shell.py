@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -86,6 +86,51 @@ class ScrollableDialogPage(QWidget):
         except RuntimeError:
             pass
 
+class _SurfaceWidget(QWidget):
+    """Paints its own surface from the ``dialog.background`` token.
+
+    Host QSS background rules do not paint on a parented plain QWidget
+    (``WA_StyledBackground`` is only set for the exact ``QWidget`` class as
+    a top level; subclasses and parented instances fall back to the QPalette
+    ``Window`` role, which hosts keep darker than the dialog surface token —
+    the same mechanism ``ScrollableDialogPage._apply_dialog_surface`` works
+    around). An explicit ``paintEvent`` fill is the reliable path; the color
+    is re-read on ``theme_changed`` so palette overrides via ``set_color``
+    take effect.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._surface_color = QColor("#000000")
+        self._apply_dialog_surface()
+        try:
+            ThemeManager.get_instance().theme_changed.connect(
+                self._on_theme_changed
+            )
+        except Exception:
+            pass
+
+    def _apply_dialog_surface(self) -> None:
+        try:
+            self._surface_color = QColor(
+                ThemeManager.get_instance().get_color("dialog.background")
+            )
+        except Exception:
+            self._surface_color = QColor(self.palette().window().color())
+
+    def _on_theme_changed(self, *_args) -> None:
+        try:
+            self._apply_dialog_surface()
+            self.update()
+        except RuntimeError:
+            pass
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self._surface_color)
+        painter.end()
+
+
 class SidebarDialogShell(QWidget):
     def __init__(
         self,
@@ -128,7 +173,7 @@ class SidebarDialogShell(QWidget):
             sidebar_widget = self.sidebar
         self._apply_sidebar_width()
 
-        self.content_area = QWidget()
+        self.content_area = _SurfaceWidget()
         self.content_layout = QVBoxLayout(self.content_area)
         self.content_layout.setContentsMargins(*content_margins)
         self.content_layout.setSpacing(content_spacing)
