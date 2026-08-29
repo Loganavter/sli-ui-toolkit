@@ -1174,6 +1174,16 @@
   visual output. QSS templates (`register_qss_path`, `@token` sheets)
   remain a host-facing path for native/stock Qt widgets only.
 
+### Fixed
+- **`HelpDocumentView` painted on the near-black QPalette Window role** —
+  the view is a transparent custom widget inside host scroll areas; stock
+  `QScrollArea`/viewport auto-fill the `Window` role, which hosts keep
+  darker than the dialog surface token (dark `Window` `#1e1e1e` vs
+  `dialog.background` `#2b2b2b`), so the document rendered on a black
+  substrate. The view now paints its own surface from the
+  `dialog.background` token in `paintEvent` (same explicit-paint pattern as
+  `_SurfaceWidget`), re-read on `theme_changed`.
+
 ## 3.1.12
 
 ### Added

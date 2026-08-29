@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPaintEvent, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QSizePolicy,
@@ -59,6 +59,8 @@ class HelpDocumentView(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setMinimumWidth(0)
         self._theme = ThemeManager.get_instance()
+        self._surface_color = QColor("#000000")
+        self._read_surface_color()
         self._resolve_asset = resolve_asset
         self._open_external_links = open_external_links
         self._show_toc = show_toc
@@ -159,6 +161,31 @@ class HelpDocumentView(QWidget):
         """
         return self._canvas.scroll_to_text(query)
 
+    def _read_surface_color(self) -> None:
+        """Re-read the ``dialog.background`` token into ``_surface_color``.
+
+        The document view typically sits inside a host ``QScrollArea``: the
+        stock scroll area and its viewport auto-fill the QPalette Window
+        role, which hosts keep darker than the dialog surface token (dark
+        ``Window`` ``#1e1e1e`` vs ``dialog.background`` ``#2b2b2b``), so a
+        transparent document renders on a near-black substrate. An explicit
+        ``paintEvent`` fill is the reliable path — same as ``_SurfaceWidget``
+        — re-read on ``theme_changed`` so palette overrides via ``set_color``
+        take effect.
+        """
+        try:
+            self._surface_color = QColor(
+                self._theme.get_color("dialog.background")
+            )
+        except Exception:
+            self._surface_color = QColor(self.palette().window().color())
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self._surface_color)
+        painter.end()
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._canvas.relayout()
@@ -231,6 +258,8 @@ class HelpDocumentView(QWidget):
         return pix if not pix.isNull() else None
 
     def _repolish(self, *_args) -> None:
+        self._read_surface_color()
+        self.update()
         toc = self.findChild(QFrame, "HelpDocumentToc")
         if toc is not None:
             sep = self._theme.try_get_color("help.separator")
