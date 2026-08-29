@@ -80,6 +80,17 @@ class TextView(QScrollArea):
         self._canvas.linkActivated.connect(self.linkActivated)
         self._canvas.imageActivated.connect(self._on_image_activated)
         self.setWidget(self._canvas)
+        # Stock QScrollArea viewports and setWidget-flipped content widgets
+        # auto-fill the QPalette Window role, darker than the dialog surface
+        # token the host paints — pin both transparent so the host surface
+        # shows behind the frame overlay.
+        self.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
+        self.viewport().setAutoFillBackground(False)
+        self.viewport().setStyleSheet("background: transparent;")
+        self._canvas.setAutoFillBackground(False)
+        self._canvas.setStyleSheet("background: transparent;")
         # Debug: who scrolls the view (wheel / bar drag / HoverCoordinator)
         if os.getenv("SLI_TEXTVIEW_DEBUG") == "1":
             try:
@@ -154,18 +165,23 @@ class TextView(QScrollArea):
     def set_panel_fill(self, color: QColor | None) -> None:
         """Paint a shelf-style rounded well behind the text: the viewport
         gets an opaque fill clipped to the same rounded radius as the frame.
-        ``None`` restores the default (page) background. Used by hosts that
-        want the code surface to read as a raised panel (e.g. the inspector
-        Code section), like the app's recent-projects shelf.
+        ``None`` restores the default transparent state (the host surface
+        shows behind the frame overlay). Used by hosts that want the code
+        surface to read as a raised panel (e.g. the inspector Code section),
+        like the app's recent-projects shelf.
         """
         viewport = self.viewport()
         if color is None:
+            viewport.setStyleSheet("background: transparent;")
             viewport.setAutoFillBackground(False)
             viewport.clearMask()
             palette = viewport.palette()
             palette.setBrush(QPalette.ColorRole.Window, QPalette().window())
             viewport.setPalette(palette)
             return
+        # The default transparent pin would override the palette fill —
+        # clear it so the raised well paints.
+        viewport.setStyleSheet("")
         palette = viewport.palette()
         palette.setBrush(QPalette.ColorRole.Window, QColor(color))
         viewport.setPalette(palette)

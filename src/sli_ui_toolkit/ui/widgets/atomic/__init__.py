@@ -15,6 +15,7 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
     MinimalistScrollBar,
     OverlayScrollArea,
+    SurfaceScrollArea,
     overlay_scrollbar_max_inset,
 )
 # ComboBox's dropdown overlay (comboboxes/_overlay.py) is now a BaseFlyout
@@ -63,6 +64,7 @@ __all__ = [
     "InstancesCounterButton",
     "MinimalistScrollBar",
     "OverlayScrollArea",
+    "SurfaceScrollArea",
     "MINIMAL_SCROLLBAR_WIDTH",
     "overlay_scrollbar_max_inset",
     "ScrollableComboBox",

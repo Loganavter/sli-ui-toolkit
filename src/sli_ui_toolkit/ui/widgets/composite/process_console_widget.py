@@ -4,7 +4,7 @@ import html
 import os
 
 from PySide6.QtCore import QProcess, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QTextEdit, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.managers import UiScale
@@ -31,6 +31,7 @@ class ProcessConsoleWidget(QWidget):
         self._max_entries = max(1, int(max_entries))
         self._entries: list[tuple[str, str]] = []
         self.theme_manager = ThemeManager.get_instance()
+        self._surface_color = QColor("#000000")
         self.process = QProcess(self)
 
         layout = QVBoxLayout(self)
@@ -238,6 +239,12 @@ class ProcessConsoleWidget(QWidget):
         self.processStateChanged.emit(_qt_enum_value(state))
 
     def _apply_styles(self) -> None:
+        try:
+            self._surface_color = QColor(
+                self.theme_manager.get_color("dialog.background")
+            )
+        except Exception:
+            self._surface_color = QColor(self.palette().window().color())
         info_color = self.theme_manager.get_color("dialog.text").name()
         bg_color = self.theme_manager.get_color("dialog.input.background").name(QColor.NameFormat.HexArgb)
         border_color = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
@@ -270,3 +277,15 @@ class ProcessConsoleWidget(QWidget):
         self.output.style().unpolish(self.output)
         self.output.style().polish(self.output)
         self.output.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        """Fill the widget surface from the ``dialog.background`` token.
+
+        A plain QWidget would otherwise fall back to the QPalette Window
+        role, which hosts keep darker than the dialog surface token — the
+        gaps around the output/input rows then read darker than the rest of
+        the dialog surface. Re-read in ``_apply_styles`` (theme_changed).
+        """
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self._surface_color)
+        painter.end()

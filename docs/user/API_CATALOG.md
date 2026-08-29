@@ -306,6 +306,7 @@ setters for every widget below: **[INPUTS_API.md](INPUTS_API.md)**.
 | `ComboBox` / `ScrollableComboBox` | Custom-painted combo box family. |
 | `TimeLineEdit` | Compact toolkit-painted `HH:mm` input. |
 | `MinimalistScrollBar` / `OverlayScrollArea` | Thin/overlay-style scrollbars. |
+| `SurfaceScrollArea` | Scroll area painting its surface from a theme token (`dialog.background` default) — token fill or transparent mode. |
 | `LoadingSpinner` | Animated conical-gradient loading spinner. |
 | `CustomGroupWidget` / `CustomGroupBuilder` | Grouped widget container with builder pattern. |
 

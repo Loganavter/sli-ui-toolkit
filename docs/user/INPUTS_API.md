@@ -126,6 +126,7 @@ switch.set_show_state_text(False)
 |--------|-------------|
 | `MinimalistScrollBar` | Thin minimalist scrollbar for custom scroll areas. |
 | `OverlayScrollArea` | Scroll area with overlay-style thin scrollbars. |
+| `SurfaceScrollArea` | `OverlayScrollArea` that paints its surface from a theme token (default `dialog.background`), or pins viewport + content transparent. |
 
 Neither widget takes constructor kwargs beyond the standard
 `orientation`/`parent` (`MinimalistScrollBar`, a plain `QScrollBar`
@@ -148,6 +149,27 @@ width plus a small margin — so content never sits flush against the thumb in
 any state, and hosts don't have to chase the idle/hover/drag thickness. It
 returns `0` when nothing overflows (or when `reserve_scrollbar_space` is on,
 since the bar then gets its own viewport margin).
+
+`SurfaceScrollArea(parent=None, *, surface_token="dialog.background")` is an
+`OverlayScrollArea` that also owns its surface. Stock `QScrollArea`
+viewports and `setWidget`-flipped content widgets auto-fill the QPalette
+`Window` role, which hosts keep darker than the dialog surface token — the
+scroll area instead resolves the token to a widget-level
+`background-color` stylesheet (cascades to the viewport and the content
+widget, survives `QStyle::polish`) and re-tints it on `theme_changed`:
+
+```python
+from sli_ui_toolkit.widgets import SurfaceScrollArea
+
+area = SurfaceScrollArea()                 # token fill: dialog.background
+area.setWidget(content)
+area.set_surface_token("flyout.background")  # any token; re-tinted live
+area.set_surface_token(None)                 # transparent: ancestor paints
+```
+
+With `surface_token=None` the viewport and the content widget are pinned
+transparent, so a host ancestor that paints the surface (e.g. a pane fill)
+shows through — the same pattern `SimpleOptionsFlyout` uses for its panel.
 
 The scrollbar's public API is deliberately small:
 

@@ -1184,6 +1184,48 @@
   `dialog.background` token in `paintEvent` (same explicit-paint pattern as
   `_SurfaceWidget`), re-read on `theme_changed`.
 
+### Added
+- **`SurfaceScrollArea`** (`sli_ui_toolkit.widgets`) — scroll area that
+  paints its surface from a theme token (default `dialog.background`),
+  extending `OverlayScrollArea` (overlay scrollbar kept). The token is
+  resolved to a widget-level `background-color` stylesheet on the scroll
+  area — it cascades to the viewport and the content widget, survives
+  `QStyle::polish` at `show()` (a per-widget palette does not), and is
+  re-tinted on `theme_changed`. `set_surface_token(token)` switches at
+  runtime; `set_surface_token(None)` pins the viewport and the content
+  widget transparent instead, so a host ancestor that paints the surface
+  shows through (the `SimpleOptionsFlyout` pattern). Closes the stock
+  scroll-container black-substrate mechanism for toolkit widgets: stock
+  `QScrollArea` viewports and `setWidget`-flipped content widgets auto-fill
+  the `Window` role, darker than the dialog surface token (dark `Window`
+  `#1e1e1e` vs `dialog.background` `#2b2b2b`).
+
+### Fixed
+- **`MarkdownHelpDialog` help body rendered on the `Window` role** — the
+  content scroll area is now a `SurfaceScrollArea`, so the body surface
+  reads `dialog.background` like the shell panels instead of the darker
+  `Window` fill (same black-substrate mechanism as `ScrollableDialogPage` /
+  `HelpDocumentView`, which already painted their surfaces).
+- **`TextView` viewport rendered on the `Window` role** — the viewport and
+  the text canvas are now pinned transparent by default, so the host
+  surface shows behind the frame overlay (`_paint_frame` draws border only,
+  no fill); `set_panel_fill(color)` still paints the raised rounded-panel
+  well (it clears the transparency pin), and `set_panel_fill(None)`
+  restores the transparent default.
+- **`CalendarWidget` surface fell back to the `Window` role** — the widget
+  now paints its own surface from the resolved `dialog.background`
+  (`self._bg`) in `paintEvent` (the view stack, the views and the day
+  buttons are transparent, so the fill shows through them), re-painted on
+  `theme_changed` and on `set_colors`.
+- **`BaseDialog` surface fell back to the `Window` role** — `paintEvent`
+  now fills the dialog surface from the `dialog.background` token (mirrors
+  `MarkdownHelpDialog.paintEvent`), re-read on `theme_changed`.
+- **`ProcessConsoleWidget` surface fell back to the `Window` role** — the
+  widget paints its own surface from the `dialog.background` token in
+  `paintEvent` (same pattern as `_SurfaceWidget`), re-read in
+  `_apply_styles`; the gaps around the output/input rows no longer read
+  darker than the dialog surface. The `QTextEdit` QSS styling is unchanged.
+
 ## 3.1.12
 
 ### Added

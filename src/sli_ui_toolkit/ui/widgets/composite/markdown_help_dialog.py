@@ -9,14 +9,15 @@ from PySide6.QtGui import QColor, QDesktopServices, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
-    QScrollArea,
     QSizePolicy,
     QTextBrowser,
 )
 from markdown import markdown
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
+    SurfaceScrollArea,
+)
 from sli_ui_toolkit.ui.widgets.composite.dialog_shell import SidebarDialogShell
 
 @dataclass(frozen=True)
@@ -191,13 +192,7 @@ class MarkdownHelpDialog(QDialog):
         self.nav_widget.enable_minimal_scrollbar()
         self.nav_widget.currentRowChanged.connect(self.change_page)
 
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.scroll_area.setVerticalScrollBar(MinimalistScrollBar())
-        self.scroll_area.setHorizontalScrollBar(MinimalistScrollBar())
+        self.scroll_area = SurfaceScrollArea()
         self.scroll_area.viewport().installEventFilter(self)
 
         self.shell.pages_stack.hide()

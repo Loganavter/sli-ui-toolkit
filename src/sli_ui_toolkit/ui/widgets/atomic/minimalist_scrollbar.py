@@ -5,7 +5,7 @@ import os
 
 from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QRegion
-from PySide6.QtWidgets import QScrollArea, QScrollBar
+from PySide6.QtWidgets import QScrollArea, QScrollBar, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
@@ -368,3 +368,79 @@ class OverlayScrollArea(QScrollArea):
     def _delayed_update_scrollbar(self):
         self._sync_steps_from_native()
         self._position_scrollbar()
+
+
+class SurfaceScrollArea(OverlayScrollArea):
+    """Scroll area that paints its surface from a theme token.
+
+    Stock ``QScrollArea`` viewports and ``setWidget``-flipped content
+    widgets auto-fill the QPalette ``Window`` role, which hosts keep darker
+    than the dialog surface token (dark ``Window`` ``#1e1e1e`` vs
+    ``dialog.background`` ``#2b2b2b``) — transparent content then renders on
+    a near-black substrate. A per-widget palette is not enough here:
+    ``QStyle::polish`` at ``show()`` (and on any host stylesheet re-apply)
+    resets widget palettes to the app palette. A widget-level stylesheet
+    survives polish, so the surface is set as ``background-color`` on the
+    scroll area (cascades to the viewport and the content widget) and
+    re-tinted on ``theme_changed``. With ``surface_token=None`` the viewport
+    and the content widget are pinned transparent instead, so an ancestor
+    that paints the surface (e.g. a pane fill) shows through.
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        surface_token: str | None = "dialog.background",
+    ) -> None:
+        super().__init__(parent)
+        self._surface_token: str | None = None
+        try:
+            ThemeManager.get_instance().theme_changed.connect(
+                self._on_theme_changed
+            )
+        except Exception:
+            pass
+        self.set_surface_token(surface_token)
+
+    def set_surface_token(self, token: str | None) -> None:
+        """Switch the surface between token fill and transparent mode.
+
+        A token is resolved to its color and set as a widget-level
+        ``background-color`` stylesheet on the scroll area itself (cascades
+        to the viewport and the content widget). ``None`` pins the viewport
+        and the content widget transparent so the ancestor's painted
+        surface shows through.
+        """
+        self._surface_token = token
+        if token is None:
+            self.setStyleSheet("background: transparent;")
+            viewport = self.viewport()
+            viewport.setAutoFillBackground(False)
+            viewport.setStyleSheet("background: transparent;")
+            self._pin_content_transparent()
+            return
+        try:
+            color = QColor(ThemeManager.get_instance().get_color(token))
+        except Exception:
+            color = QColor(self.palette().window().color())
+        self.setStyleSheet(f"background-color: {color.name()};")
+
+    def setWidget(self, widget):  # noqa: N802
+        super().setWidget(widget)
+        if self._surface_token is None:
+            self._pin_content_transparent()
+
+    def _pin_content_transparent(self) -> None:
+        content = self.widget()
+        if content is not None:
+            content.setAutoFillBackground(False)
+            content.setStyleSheet("background: transparent;")
+
+    def _on_theme_changed(self, *_args) -> None:
+        # Bound method, so the connection dies with the widget; a lambda
+        # would survive the widget and raise on the deleted C++ view.
+        try:
+            self.set_surface_token(self._surface_token)
+        except RuntimeError:
+            pass

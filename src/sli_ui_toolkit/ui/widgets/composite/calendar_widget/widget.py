@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QDate, Qt, Signal
-from PySide6.QtGui import QColor, QWheelEvent
+from PySide6.QtGui import QColor, QPainter, QWheelEvent
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -189,10 +189,22 @@ class CalendarWidget(QWidget):
                 self._color_overrides[name] = value
         self._resolve_palette()
         self._apply_styles()
+        self.update()
 
     def _on_theme_changed(self, *args, **kwargs) -> None:
         self._resolve_palette()
         self._apply_styles()
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        """Fill the calendar surface from the resolved ``dialog.background``
+        token (``self._bg``) — a plain QWidget would otherwise fall back to
+        the QPalette ``Window`` role, darker than the dialog surface token.
+        The view stack, the views and the day buttons are transparent, so
+        the fill shows through them."""
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(self._bg))
+        painter.end()
 
     def _font_unit(self) -> int:
         """Базовая единица — высота строки шрифта виджета."""
