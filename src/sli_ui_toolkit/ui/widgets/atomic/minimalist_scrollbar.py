@@ -4,8 +4,8 @@ import logging
 import os
 
 from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QRegion
-from PySide6.QtWidgets import QScrollArea, QScrollBar, QWidget
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QRegion, QWheelEvent
+from PySide6.QtWidgets import QApplication, QScrollArea, QScrollBar, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
@@ -40,6 +40,13 @@ _MINIMAL_SCROLLBAR_THICKNESS_IDLE = 4
 _MINIMAL_SCROLLBAR_THICKNESS_HOVER = 6
 _MINIMAL_SCROLLBAR_THICKNESS_DRAG = MINIMAL_SCROLLBAR_WIDTH
 _MINIMAL_SCROLLBAR_HANDLE_PADDING = 8
+
+# Wheel-scroll glide (Chrome/Firefox-style): deltas accumulate into a target
+# scroll position and the viewport eases toward it at tick rate, stopping
+# when the target is reached. The timer only runs while a glide is in flight.
+_SCROLL_TICK_MS = 16
+_SCROLL_EASE = 0.14
+_SCROLL_MIN_NOTCH_PX = 40
 
 class MinimalistScrollBar(QScrollBar):
     def __init__(self, orientation=Qt.Orientation.Vertical, parent=None):
@@ -246,7 +253,14 @@ class OverlayScrollArea(QScrollArea):
         self._update_timer = QTimer(self)
         self._update_timer.setSingleShot(True)
         self._update_timer.timeout.connect(self._delayed_update_scrollbar)
+        # Wheel glide state: an accumulated target the ticker eases toward.
+        self._scroll_target: int | None = None
+        self._syncing_scroll = False
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setInterval(_SCROLL_TICK_MS)
+        self._scroll_timer.timeout.connect(self._scroll_tick)
         self.verticalScrollBar().valueChanged.connect(self.custom_v_scrollbar.setValue)
+        self.verticalScrollBar().valueChanged.connect(self._on_native_scroll_changed)
         self.custom_v_scrollbar.valueChanged.connect(self.verticalScrollBar().setValue)
         self.verticalScrollBar().rangeChanged.connect(self.custom_v_scrollbar.setRange)
         self.verticalScrollBar().rangeChanged.connect(lambda *_: self._sync_steps_from_native())
@@ -300,6 +314,79 @@ class OverlayScrollArea(QScrollArea):
             return
         self._corner_radius = radius
         self._apply_viewport_mask()
+
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
+        """Glide the vertical scroll position to an accumulated target.
+
+        Wheel deltas accumulate Chrome/Firefox-style and the ticker eases
+        toward the target instead of jumping in discrete steps. A new
+        ``ScrollBegin`` phase (touchpads) re-bases the target on the live
+        position so leftover glide never fights a fresh gesture.
+        """
+        native = self.verticalScrollBar()
+        if native.minimum() == native.maximum():
+            event.ignore()
+            return
+        if event.phase() == Qt.ScrollPhase.ScrollBegin:
+            self._scroll_target = native.value()
+        pixel = event.pixelDelta().y()
+        if pixel:
+            delta = int(round(pixel))
+        else:
+            angle = event.angleDelta().y()
+            if not angle:
+                event.ignore()
+                return
+            lines = QApplication.wheelScrollLines()
+            base = max(1, native.singleStep())
+            if lines == 0:
+                base = max(base, int(self.viewport().height() * 0.8))
+            else:
+                base = max(base * lines, _SCROLL_MIN_NOTCH_PX)
+            delta = int(round(angle / 120 * base))
+        current = (
+            self._scroll_target
+            if self._scroll_target is not None
+            else native.value()
+        )
+        target = max(native.minimum(), min(current + delta, native.maximum()))
+        self._scroll_target = target
+        if target != native.value() and not self._scroll_timer.isActive():
+            self._scroll_timer.start()
+        event.accept()
+
+    def _on_native_scroll_changed(self, _value: int) -> None:
+        # An external setValue (thumb drag, keyboard, programmatic scroll)
+        # cancels an in-flight wheel glide so the bar never fights it.
+        if not self._syncing_scroll and self._scroll_target is not None:
+            self._scroll_target = None
+            self._scroll_timer.stop()
+
+    def _scroll_tick(self) -> None:
+        native = self.verticalScrollBar()
+        target = self._scroll_target
+        if target is None:
+            self._scroll_timer.stop()
+            return
+        value = native.value()
+        remaining = target - value
+        if abs(remaining) <= 0.5:
+            self._syncing_scroll = True
+            try:
+                native.setValue(target)
+            finally:
+                self._syncing_scroll = False
+            self._scroll_target = None
+            self._scroll_timer.stop()
+            return
+        step = remaining * _SCROLL_EASE
+        if abs(step) < 1:
+            step = 1 if step > 0 else -1
+        self._syncing_scroll = True
+        try:
+            native.setValue(value + int(step))
+        finally:
+            self._syncing_scroll = False
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

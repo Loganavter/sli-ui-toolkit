@@ -228,7 +228,7 @@ class ListPanel(QWidget):
         preserve_scroll = self.isVisible()
         self._controller.set_row_height(self._row_pitch())
         self._controller.set_count(len(self._items))
-        self._controller.rebind()
+        self._controller.rebind(force=True)
         self.recalculate_and_set_height()
         self.clear_selection()
         if not preserve_scroll and self._current_app_index >= 0:
@@ -262,7 +262,7 @@ class ListPanel(QWidget):
         preserve_scroll = self.isVisible()
         self._controller.set_row_height(self._row_pitch())
         self._controller.set_count(len(self._items))
-        self._controller.rebind()
+        self._controller.rebind(force=True)
         self.recalculate_and_set_height()
         if content_changed:
             self.clear_selection()

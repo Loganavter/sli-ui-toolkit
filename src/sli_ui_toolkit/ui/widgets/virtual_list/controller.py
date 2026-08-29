@@ -80,13 +80,13 @@ class VirtualListController(QObject):
     def set_count(self, count: int) -> None:
         count = max(0, int(count))
         if count == self._count and self._heights is None:
-            self.rebind()
+            self.rebind(force=True)
             return
         self._count = count
         if self._heights is not None:
             self._heights.set_count(count)
             self._measure_all()
-        self.rebind()
+        self.rebind(force=True)
 
     def set_row_height(self, height: int) -> None:
         self._row_height = max(1, int(height))
@@ -209,11 +209,18 @@ class VirtualListController(QObject):
 
     # -------- rebinding --------
 
-    def rebind(self) -> None:
-        """Recompute scroll range, content height, and the visible window."""
+    def rebind(self, *, force: bool = False) -> None:
+        """Recompute scroll range, content height, and the visible window.
+
+        ``force=True`` re-runs ``bind()`` for every row in the window (item
+        data may have changed, e.g. after a rebuild). The default keeps
+        already-bound rows in place and only binds rows entering the window
+        — cheap scroll/resize/overscan changes, safe because ``bind``
+        reflects item identity.
+        """
         self._scroll_offset = max(0, min(self._scroll_offset, self._max_scroll()))
         self._sync_scrollbar()
-        self._rebind_rows()
+        self._rebind_rows(reuse=not force)
 
     def _sync_scrollbar(self) -> None:
         native = self._scroll_area.verticalScrollBar()
@@ -239,7 +246,7 @@ class VirtualListController(QObject):
         if callable(queue_sync):
             queue_sync()
 
-    def _rebind_rows(self) -> None:
+    def _rebind_rows(self, *, reuse: bool = True) -> None:
         if self._count <= 0:
             self._pool.hide_all()
             self._index_to_widget.clear()
@@ -247,35 +254,26 @@ class VirtualListController(QObject):
             return
         start, end = self._window()
         self._last_window = (start, end)
-        self._index_to_widget = {}
         row_h = self._row_height
         if row_h is None:
-            row_h = 1
-            self._pool.ensure(end - start)
-            slots = self._pool.widgets()
-            shown = 0
-            for idx in range(start, end):
-                widget = slots[shown]
-                self._bind(idx, widget)
-                self._index_to_widget[idx] = widget
-                h = self._heights.height(idx) if self._heights is not None else 1
-                widget.setGeometry(
-                    self._x_margin,
-                    self._offset_of_index(idx) - self._scroll_offset,
-                    max(0, self._host.width() - 2 * self._x_margin),
-                    h,
-                )
-                widget.show()
-                widget.raise_()
-                shown += 1
-            for widget in slots[shown:]:
-                widget.hide()
-            return
-        self._pool.rebind(
-            start, end, self._bind,
-            row_height=row_h, scroll_offset=self._scroll_offset,
-            widget_height=self._widget_height, x_margin=self._x_margin,
-        )
-        slots = self._pool.widgets()
-        for i, idx in enumerate(range(start, end)):
-            self._index_to_widget[idx] = slots[i]
+            self._pool.rebind(
+                start, end, self._bind,
+                row_height=1,
+                scroll_offset=self._scroll_offset,
+                x_margin=self._x_margin,
+                height_fn=lambda idx: (
+                    self._heights.height(idx) if self._heights is not None else 1
+                ),
+                offset_fn=lambda idx: self._offset_of_index(idx) - self._scroll_offset,
+                reuse=reuse,
+            )
+        else:
+            self._pool.rebind(
+                start, end, self._bind,
+                row_height=row_h,
+                scroll_offset=self._scroll_offset,
+                widget_height=self._widget_height,
+                x_margin=self._x_margin,
+                reuse=reuse,
+            )
+        self._index_to_widget = self._pool.indexed_widgets()
