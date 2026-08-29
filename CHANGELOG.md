@@ -47,6 +47,14 @@
   rebinding (`reuse=False` default) because its bind index is positional.
   `RowPool` also gained `height_fn`/`offset_fn` for variable-height lists
   and `indexed_widgets()` for the live index→widget map.
+- **`MinimalistScrollBar` animated visuals** — thumb thickness now eases
+  between idle/hover/drag (4→6→10px) and opacity fades instead of snapping
+  (timer-driven, stops when settled). `set_animated_visible(bool)` shows/
+  hides with a fade; `set_auto_hide(seconds)` (default `1.2` on
+  `OverlayScrollArea`, off elsewhere) fades the bar out after inactivity —
+  scroll activity, hovering, and dragging re-show it. Fade-ins are never
+  interrupted by the idle timer. `OverlayScrollArea.set_scrollbar_auto_hide(
+  seconds | None)` toggles it per area.
 
 ### Changed
 - **`RadioButton` / `CheckBox` rebased onto `Button`** — were standalone

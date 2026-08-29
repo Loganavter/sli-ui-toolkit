@@ -24,10 +24,10 @@ def _make_bar(qtbot):
     bar.resize(10, 300)
     bar.setRange(0, 100)
     bar.setPageStep(50)
+    # Keep the (0,0) offscreen cursor away from the bar so the hover
+    # coordinator never reconciles it as hovered; tests drive hover manually.
+    bar.move(500, 500)
     bar.show()
-    # The hover coordinator may reconcile the (0,0) offscreen cursor over the
-    # unparented bar; tests drive hover explicitly.
-    bar.setHoverActive(False)
     return bar
 
 

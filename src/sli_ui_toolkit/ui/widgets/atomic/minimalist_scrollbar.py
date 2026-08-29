@@ -301,6 +301,10 @@ class MinimalistScrollBar(QScrollBar):
         if self._is_dragging or self._hovered:
             self._restart_idle_timer()
             return
+        if self._anim_alpha < 0.99:
+            # Still fading in — never interrupt the fade with a hide.
+            self._restart_idle_timer()
+            return
         self._hide_requested = True
         self._anim_target_alpha = 0.0
         self._start_anim()

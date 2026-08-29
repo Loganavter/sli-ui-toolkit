@@ -141,8 +141,19 @@ area = OverlayScrollArea()
 area.setWidget(content)
 area.set_corner_radius(12)               # default: 8px, clips the viewport
 area.set_reserve_scrollbar_space(False)  # bar floats over content instead of reserving a margin
+area.set_scrollbar_auto_hide(None)       # keep the bar visible once shown (default: 1.2s idle fade)
 inset = area.overlay_scrollbar_inset()   # px content should leave clear when space isn't reserved
 ```
+
+Wheel scrolling is Chrome/Firefox-style: wheel deltas accumulate into a
+target scroll position and the viewport eases toward it (~60fps, the ticker
+stops when the target is reached). Touchpad `pixelDelta` and `ScrollBegin`
+phases are handled; thumb drags, keyboard scrolling, and programmatic
+`setValue` cancel the glide and jump directly. The overlay bar fades out
+after 1.2s of inactivity and re-fades in on scroll activity (hovering or
+dragging it also keeps it around) — `set_scrollbar_auto_hide(None)` disables
+that. `MinimalistScrollBar` thumb thickness and opacity interpolate between
+idle/hover/drag states instead of snapping.
 
 `overlay_scrollbar_inset()` is a single fixed value — the bar's maximum
 width plus a small margin — so content never sits flush against the thumb in
