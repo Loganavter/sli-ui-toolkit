@@ -5,7 +5,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QSize, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QFontMetrics
+from PySide6.QtGui import QColor, QDesktopServices, QFontMetrics, QPainter
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -159,6 +159,8 @@ class MarkdownHelpDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("MarkdownHelpDialog")
         self.theme_manager = ThemeManager.get_instance()
+        self._dialog_surface_color = QColor("#000000")
+        self._read_dialog_surface_color()
         self._pages: list[MarkdownHelpPageBrowser] = []
         self._sections: tuple[MarkdownHelpSection, ...] = ()
         self._toc_title_text = str(toc_title)
@@ -424,7 +426,38 @@ class MarkdownHelpDialog(QDialog):
             if slug:
                 self._navigate_to_help_target(slug, url.fragment().strip() or None)
 
+    def _read_dialog_surface_color(self) -> None:
+        """Re-read the ``dialog.background`` token into ``_dialog_surface_color``.
+
+        Re-read on every ``theme_changed`` (via ``_apply_styles``, never
+        cached forever): hosts may override the token via
+        ``ThemeManager.set_color``. ThemeManager may be uninitialized in
+        some test contexts — fall back to the palette Window role as a last
+        resort.
+        """
+        try:
+            color = QColor(
+                ThemeManager.get_instance().get_color("dialog.background")
+            )
+        except Exception:
+            color = QColor(self.palette().window().color())
+        self._dialog_surface_color = color
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        """Fill the dialog surface with the ``dialog.background`` token.
+
+        Top-level QDialog QSS surface paint dies with host QSS: with no
+        stylesheet the dialog paints the QPalette Window role, which hosts
+        keep darker than the dialog surface token — the explicit paint keeps
+        the surface consistent with the shell's ``_SurfaceWidget`` /
+        ``IconListWidget`` fills.
+        """
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self._dialog_surface_color)
+        painter.end()
+
     def _apply_styles(self) -> None:
+        self._read_dialog_surface_color()
         self.theme_manager.apply_theme_to_dialog(self)
         tm = self.theme_manager
         text_color = tm.get_color("dialog.text").name()
