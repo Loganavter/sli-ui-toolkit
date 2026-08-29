@@ -4,10 +4,14 @@ Stock ``QScrollArea`` viewports and ``setWidget``-flipped content widgets
 auto-fill the QPalette ``Window`` role, which hosts keep darker than the
 dialog surface token (dark ``Window`` ``#1e1e1e`` vs ``dialog.background``
 ``#2b2b2b``) — transparent content then renders on a near-black substrate.
-``SurfaceScrollArea`` sets the surface as a widget-level ``background-color``
-stylesheet resolved from the token (survives ``QStyle::polish``, re-tinted on
-``theme_changed``), or pins viewport + content transparent when
-``surface_token=None`` so an ancestor paints the surface.
+``SurfaceScrollArea`` sets the surface as the scroll area's own
+``background-color`` stylesheet (survives ``QStyle::polish``, re-tinted on
+``theme_changed``) with the viewport + content pinned transparent via
+attributes — a stylesheet on the viewport/content would force a full
+repaint per scroll step instead of Qt's scroll blit, and a ``paintEvent``
+fill is impossible on ``QAbstractScrollArea`` (inactive ``QPainter``). The
+corner mask is disabled for the same reason. ``surface_token=None`` clears
+the stylesheet so an ancestor paints the surface.
 """
 
 from __future__ import annotations
@@ -81,20 +85,20 @@ def test_token_mode_paints_surface_from_token(qapp, qtbot, themed):
     host, area, content = _make_area(qtbot, token="dialog.background", host_color="#111111")
     qapp.processEvents()
     assert "background-color: #202020;" in area.styleSheet()
+    assert area.viewport().styleSheet() == ""
+    assert content.styleSheet() == ""
+    assert not area.viewport().autoFillBackground()
+    assert not content.autoFillBackground()
     assert _pixel(host, 300, 200) == "#202020"
-    assert _pixel(area, 300, 200) == "#202020"
-    assert _pixel(area.viewport(), 300, 200) == "#202020"
-    assert _pixel(content, 300, 200) == "#202020"
 
 
 def test_transparent_mode_shows_ancestor_paint(qapp, qtbot, themed):
     host, area, content = _make_area(qtbot, token=None, host_color="#111111")
     qapp.processEvents()
-    assert "background: transparent;" in area.styleSheet()
+    assert area.styleSheet() == ""
     assert _pixel(host, 300, 200) == "#111111"
     assert not area.viewport().autoFillBackground()
     assert not content.autoFillBackground()
-    assert "background: transparent;" in content.styleSheet()
 
 
 def test_transparent_pinning_survives_late_set_widget(qapp, qtbot, themed):
@@ -110,7 +114,6 @@ def test_transparent_pinning_survives_late_set_widget(qapp, qtbot, themed):
     host.show()
     qapp.processEvents()
     assert not content.autoFillBackground()
-    assert "background: transparent;" in content.styleSheet()
     assert _pixel(host, 300, 200) == "#111111"
 
 
@@ -121,7 +124,7 @@ def test_surface_survives_unpolish_polish(qapp, qtbot, themed):
     area.style().unpolish(area)
     area.style().polish(area)
     qapp.processEvents()
-    assert "background-color: #202020;" in area.styleSheet()
+    assert not area.viewport().autoFillBackground()
     assert _pixel(host, 300, 200) == "#202020"
 
 
@@ -140,9 +143,15 @@ def test_surface_switches_to_transparent_at_runtime(qapp, qtbot, themed):
     qapp.processEvents()
     area.set_surface_token(None)
     qapp.processEvents()
-    assert "background: transparent;" in area.styleSheet()
+    assert area.styleSheet() == ""
     assert _pixel(host, 300, 200) == "#111111"
     area.set_surface_token("dialog.background")
     qapp.processEvents()
     assert "background-color: #202020;" in area.styleSheet()
     assert _pixel(host, 300, 200) == "#202020"
+
+
+def test_no_corner_mask(qapp, qtbot, themed):
+    host, area, _content = _make_area(qtbot, token="dialog.background", host_color="#111111")
+    qapp.processEvents()
+    assert area.viewport().mask().isEmpty()

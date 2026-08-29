@@ -341,7 +341,12 @@ class OverlayScrollArea(QScrollArea):
             f"should_show={should_show} reserve={self._reserve_scrollbar_space}"
         )
         self.custom_v_scrollbar.setVisible(should_show)
-        if self._reserve_scrollbar_space and should_show:
+        # Reserve the bar's gap CONSTANTLY when reserve_scrollbar_space is on,
+        # never toggle with visibility: flipping viewport margins on every
+        # show/hide (which can oscillate at the content-fits boundary during
+        # a scroll) changes the viewport width and re-flows the content
+        # widget every step — visible jank on relayout-heavy content.
+        if self._reserve_scrollbar_space:
             self.setViewportMargins(0, 0, self._scrollbar_width, 0)
         else:
             self.setViewportMargins(0, 0, 0, 0)
@@ -377,14 +382,21 @@ class SurfaceScrollArea(OverlayScrollArea):
     widgets auto-fill the QPalette ``Window`` role, which hosts keep darker
     than the dialog surface token (dark ``Window`` ``#1e1e1e`` vs
     ``dialog.background`` ``#2b2b2b``) — transparent content then renders on
-    a near-black substrate. A per-widget palette is not enough here:
-    ``QStyle::polish`` at ``show()`` (and on any host stylesheet re-apply)
-    resets widget palettes to the app palette. A widget-level stylesheet
-    survives polish, so the surface is set as ``background-color`` on the
-    scroll area (cascades to the viewport and the content widget) and
-    re-tinted on ``theme_changed``. With ``surface_token=None`` the viewport
-    and the content widget are pinned transparent instead, so an ancestor
-    that paints the surface (e.g. a pane fill) shows through.
+    a near-black substrate.
+
+    The surface is the scroll area's own ``background-color`` (a
+    widget-level stylesheet survives ``QStyle::polish`` at ``show()``,
+    which per-widget palettes do not), with the viewport and the content
+    widget pinned transparent via attributes. A ``paintEvent`` fill is NOT
+    possible here: ``QPainter`` on a ``QAbstractScrollArea`` in its own
+    paint event is inactive (Qt special-cases scroll-area painting), and a
+    stylesheet on the viewport/content would put ``QStyleSheetStyle`` on
+    the blitted path — a full viewport repaint per scroll step (visible
+    jerk on relayout-heavy content). The corner mask is disabled for the
+    same reason. ``surface_token=None`` clears the stylesheet and lets an
+    ancestor that paints the surface (e.g. a pane fill) show through. The
+    color is re-read on ``theme_changed`` so palette overrides via
+    ``set_color`` take effect.
     """
 
     def __init__(
@@ -394,7 +406,9 @@ class SurfaceScrollArea(OverlayScrollArea):
         surface_token: str | None = "dialog.background",
     ) -> None:
         super().__init__(parent)
+        self.set_corner_radius(0)
         self._surface_token: str | None = None
+        self.viewport().setAutoFillBackground(False)
         try:
             ThemeManager.get_instance().theme_changed.connect(
                 self._on_theme_changed
@@ -404,38 +418,33 @@ class SurfaceScrollArea(OverlayScrollArea):
         self.set_surface_token(surface_token)
 
     def set_surface_token(self, token: str | None) -> None:
-        """Switch the surface between token fill and transparent mode.
-
-        A token is resolved to its color and set as a widget-level
-        ``background-color`` stylesheet on the scroll area itself (cascades
-        to the viewport and the content widget). ``None`` pins the viewport
-        and the content widget transparent so the ancestor's painted
-        surface shows through.
-        """
+        """Switch the surface between token fill and transparent mode."""
         self._surface_token = token
         if token is None:
-            self.setStyleSheet("background: transparent;")
-            viewport = self.viewport()
-            viewport.setAutoFillBackground(False)
-            viewport.setStyleSheet("background: transparent;")
-            self._pin_content_transparent()
-            return
-        try:
-            color = QColor(ThemeManager.get_instance().get_color(token))
-        except Exception:
-            color = QColor(self.palette().window().color())
-        self.setStyleSheet(f"background-color: {color.name()};")
+            self.setStyleSheet("")
+        else:
+            try:
+                color = QColor(ThemeManager.get_instance().get_color(token))
+            except Exception:
+                color = QColor(self.palette().window().color())
+            self.setStyleSheet(f"background-color: {color.name()};")
+        # Pin AFTER the stylesheet change: applying a background rule makes
+        # QStyleSheetStyle flip autoFillBackground on for the content
+        # widget, and clearing it (unpolish) restores the flip — an
+        # attribute would otherwise silently come back and paint the Window
+        # role again.
+        self._pin_content_transparent()
 
     def setWidget(self, widget):  # noqa: N802
         super().setWidget(widget)
-        if self._surface_token is None:
-            self._pin_content_transparent()
+        self._pin_content_transparent()
 
     def _pin_content_transparent(self) -> None:
         content = self.widget()
         if content is not None:
+            # QScrollArea.setWidget flips autoFillBackground on for the
+            # content widget; an attribute survives polish, unlike palette.
             content.setAutoFillBackground(False)
-            content.setStyleSheet("background: transparent;")
 
     def _on_theme_changed(self, *_args) -> None:
         # Bound method, so the connection dies with the widget; a lambda
