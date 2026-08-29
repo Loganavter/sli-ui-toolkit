@@ -27,6 +27,19 @@
 
 ## Unreleased
 
+### Fixed
+- **`IconActionFlyout` crash on stale action buttons** — a host signal
+  connection (e.g. a store `state_changed` observer) can keep the flyout's
+  Python wrapper alive past its buttons' C++ deletion (parent teardown or
+  `set_actions` `deleteLater` processed by the event loop). `set_action_state`
+  then hit `button.setVisible(...)` on a freed `Button` →
+  `RuntimeError: Internal C++ object (Button) already deleted`
+  (`magnifier_color_controls.py` `_on_store_state_changed` → `update_state`).
+  Now `set_action_state`, `_on_scale_changed` and the `set_actions` cleanup
+  loop guard every cached button with `sip.isValid` and self-heal the
+  action dicts via `_purge_action` (same pattern as the 4.1.0
+  `AutoNavigationSection` stale-row fix).
+
 ### Added
 - **`OverlayScrollArea` smooth wheel scrolling** — wheel deltas now
   accumulate into a target scroll position and the viewport eases toward it
