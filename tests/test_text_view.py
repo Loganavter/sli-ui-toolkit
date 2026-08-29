@@ -464,7 +464,17 @@ def test_caret_hidden_while_selection_active(qapp):
     # select "beta" (cols 6..10) and park the cursor inside the selection
     canvas._selection.set_range((0, 6), (0, 10))
     canvas._cursor = (0, 8)
-    img = canvas.grab().toImage()
+    # The canvas is transparent by default (the host paints the surface) —
+    # composite it over white so unpainted pixels read as white instead of
+    # transparent black when probing for the caret.
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QImage, QPainter
+
+    img = QImage(canvas.size(), QImage.Format.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    painter = QPainter(img)
+    canvas.render(painter, QPoint(0, 0))
+    painter.end()
     adv = canvas._metrics.horizontalAdvance
     caret_x = canvas._text_x() + adv("alpha be")
     # a caret bar spans the FULL line height (top and bottom rows included);

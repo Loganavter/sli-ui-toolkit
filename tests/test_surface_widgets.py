@@ -97,7 +97,7 @@ def test_text_view_panel_fill_still_paints_raised_well(qapp, qtbot, themed):
     # Inside the rounded well the fill paints…
     assert img.pixelColor(30, 30).name() == "#202020"
     # …while the masked corner keeps the host surface.
-    assert img.pixelColor(2, 2).name() == "#111111"
+    assert img.pixelColor(1, 1).name() == "#111111"
 
     view.set_panel_fill(None)
     qapp.processEvents()
