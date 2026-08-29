@@ -14,6 +14,7 @@ The toolkit implements a custom theme-aware design language with the following p
 
 - **Custom-painted controls** — all interactive widgets (checkbox, radio, slider, switch, combobox, spinbox) are painted entirely via `QPainter`, not styled via QSS.
 - **No QSS on toolkit widgets** — toolkit widgets are never styled with `setStyleSheet` (local or app-wide); the painter pipeline owns all visual output. QSS templates (`register_qss_path` with `@token` placeholders) are a host-facing path for native/stock Qt widgets only.
+- **Surface scroll areas** — hosts host scrollable content in `SurfaceScrollArea` (token fill, `dialog.background` by default, or `surface_token=None` transparent mode when an ancestor paints), never in a stock `QScrollArea`: stock scroll viewports auto-fill the QPalette `Window` role, which hosts keep darker than the surface token — the "black substrate".
 - **Smooth animated transitions** — state changes (hover, check, toggle) use `QPropertyAnimation` with `OutCubic` easing and short durations (100–200 ms).
 - **Accent-driven color** — a single accent color (from `ThemeManager`) propagates through all active/focus/selected states.
 - **Light and dark themes** — two palette sets registered at startup; widgets resolve colors from the active palette at paint time. Light mode is a first-class target, and dark mode stays reliable because the same token system drives both palettes.
