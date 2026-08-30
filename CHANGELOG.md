@@ -25,9 +25,19 @@
 - **`HelpDialog` focus loss on close** — `hideEvent`/`closeEvent` left `QApplication.focusWidget() → None` after `HelpDialogWindow` lost focus (`23:42:16:980`), because external focus (`CsdMenuRow`/`MainWindow`) was cleared by `SimpleOptionsFlyout` hide before Help opened and never saved. Now `showEvent` saves `_external_prev_focus`/`_external_prev_window` (incl. `NavigationManager.last_keyboard_focus` fallback) and `hideEvent` restores it with `OtherFocusReason` + `activateWindow`, so closing Help never leaves `None`.
 - **`AutoNavigationSection` crash on stale Help sidebar** — `HelpDialog._sync_sidebar` `clear()` deletes old `Button`s but `Auto._cached_rows_widgets` kept deleted `C++` pointers; `Key_Down` from `HelpSearchField` on next row did `min(target_row, key=lambda w: w.mapToGlobal(...))` on deleted `Button` → `RuntimeError: Internal C++ object (Button) already deleted` (`navigation_sections.py:589`, лог `23:49:46:925`). Now `_auto_rows` filters `shiboken6.isValid`/`isVisible`/`isEnabled`, `navigate`/`focus_first`/`focus_last` re-scan and filter target rows, `mapToGlobal` wrapped in `try/except`, so stale cache self-heals without crash.
 
-## Unreleased
+## 4.2.2 — IconActionFlyout layout teardown guard
 
 ### Fixed
+- **`IconActionFlyout` crash on deleted layout** — `update_state()` called
+  `h_layout.invalidate()` on a freed `QHBoxLayout` when a host
+  `store.state_changed` observer (e.g.
+  `magnifier_color_controls.py:251` `_on_store_state_changed`) was still
+  connected at app shutdown (Python wrapper kept alive by the bound-method
+  signal connection). Now `update_state` guards `self`, `h_layout` and
+  `container` with `sip.isValid` + `try/except RuntimeError` before any
+  layout touch; `set_actions` and `_on_scale_changed` also guard layout
+  validity (same class as the 4.1.0 `AutoNavigationSection` / 4.2.1
+  stale-button fixes, but for the layout object).
 - **`IconActionFlyout` crash on stale action buttons** — a host signal
   connection (e.g. a store `state_changed` observer) can keep the flyout's
   Python wrapper alive past its buttons' C++ deletion (parent teardown or
@@ -39,6 +49,8 @@
   loop guard every cached button with `sip.isValid` and self-heal the
   action dicts via `_purge_action` (same pattern as the 4.1.0
   `AutoNavigationSection` stale-row fix).
+
+## Unreleased
 
 ### Added
 - **`OverlayScrollArea` smooth wheel scrolling** — wheel deltas now

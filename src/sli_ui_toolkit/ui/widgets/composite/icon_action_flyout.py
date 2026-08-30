@@ -66,15 +66,32 @@ class IconActionFlyout(BaseFlyout):
         self.set_actions(actions or [])
 
     def _on_scale_changed(self, _factor: float) -> None:
-        self.h_layout.setSpacing(scaled_px(6))
+        if not sip.isValid(self):  # type: ignore[attr-defined]
+            return
+        h_layout = getattr(self, "h_layout", None)
+        if h_layout is None or not sip.isValid(h_layout):  # type: ignore[attr-defined]
+            return
+        try:
+            h_layout.setSpacing(scaled_px(6))
+        except RuntimeError:
+            return
+        # remaining body continues below — h_layout valid, but keep
+        # the original spacing call guarded above for early teardown
+        # (don't duplicate setSpacing)
         for action_id, button in list(self._buttons.items()):
             if not sip.isValid(button):  # type: ignore[attr-defined]
                 self._purge_action(action_id)
                 continue
-            button.setFixedSize(scaled_px(self._button_size), scaled_px(self._button_size))
-            button.setIconSize(QSize(scaled_px(self._icon_size), scaled_px(self._icon_size)))
-        self.updateGeometry()
-        self.update()
+            try:
+                button.setFixedSize(scaled_px(self._button_size), scaled_px(self._button_size))
+                button.setIconSize(QSize(scaled_px(self._icon_size), scaled_px(self._icon_size)))
+            except RuntimeError:
+                self._purge_action(action_id)
+        try:
+            self.updateGeometry()
+            self.update()
+        except RuntimeError:
+            return
 
     def _purge_action(self, action_id: str) -> None:
         """Drop a stale action whose button's C++ object was deleted.
@@ -91,12 +108,24 @@ class IconActionFlyout(BaseFlyout):
         self._actions.pop(action_id, None)
 
     def set_actions(self, actions: Iterable[IconAction]) -> None:
+        h_layout = getattr(self, "h_layout", None)
+        h_valid = h_layout is not None and sip.isValid(h_layout)  # type: ignore[attr-defined]
         for button in self._buttons.values():
             if not sip.isValid(button):  # type: ignore[attr-defined]
                 continue
-            button.removeEventFilter(self)
-            self.h_layout.removeWidget(button)
-            button.deleteLater()
+            try:
+                button.removeEventFilter(self)
+            except RuntimeError:
+                pass
+            if h_valid:
+                try:
+                    h_layout.removeWidget(button)  # type: ignore[union-attr]
+                except RuntimeError:
+                    pass
+            try:
+                button.deleteLater()
+            except RuntimeError:
+                pass
         self._buttons.clear()
         self._actions.clear()
 
@@ -113,7 +142,11 @@ class IconActionFlyout(BaseFlyout):
             )
             button.installEventFilter(self)
             button.setProperty("element_name", spec.action_id)
-            self.h_layout.addWidget(button)
+            if h_valid:
+                try:
+                    h_layout.addWidget(button)  # type: ignore[union-attr]
+                except RuntimeError:
+                    pass
             self._actions[spec.action_id] = spec
             self._buttons[spec.action_id] = button
 
@@ -166,11 +199,30 @@ class IconActionFlyout(BaseFlyout):
         return super().eventFilter(obj, event)
 
     def update_state(self):
-        self.h_layout.invalidate()
-        self.h_layout.activate()
-        self.container.updateGeometry()
-        self.updateGeometry()
-        self.adjustSize()
+        # Shutdown guard: store.state_changed can still fire after the
+        # C++ layout/widget is deleted (Python wrapper kept alive by the
+        # bound-method connection). Same class as the 4.2.1 stale-button
+        # fix — now for QHBoxLayout (magnifier_color_controls crash).
+        if not sip.isValid(self):  # type: ignore[attr-defined]
+            return
+        h_layout = getattr(self, "h_layout", None)
+        if h_layout is None or not sip.isValid(h_layout):  # type: ignore[attr-defined]
+            return
+        # container can also be gone during parent teardown
+        container = getattr(self, "container", None)
+        if container is not None and not sip.isValid(container):  # type: ignore[attr-defined]
+            return
+        try:
+            h_layout.invalidate()
+            h_layout.activate()
+            if container is not None:
+                container.updateGeometry()
+            self.updateGeometry()
+            self.adjustSize()
+        except RuntimeError:
+            # C++ object deleted between the isValid check and the call
+            # (event-loop deletion) — same self-heal policy as set_action_state.
+            return
 
     def _trigger_action(self, action_id: str) -> None:
         self.actionTriggered.emit(action_id)
