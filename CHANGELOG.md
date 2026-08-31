@@ -50,6 +50,12 @@
   action dicts via `_purge_action` (same pattern as the 4.1.0
   `AutoNavigationSection` stale-row fix).
 
+## 4.2.3 — DragDropOverlay theme and visibility
+
+### Fixed
+- **`DragDropOverlay` dark text in all themes** — `HighlightedText` alias resolves to `surface.background` (white in light, dark gray in dark) so text/border were dark on semi-transparent blue in both themes and did not react to theme toggle. Now text/border are forced to white (`#ffffff`) with luminance check fallback, `ThemeManager.theme_changed` triggers `update()`, so overlay is readable and theme-reactive in light and dark.
+- **`DragDropOverlay` not disappearing after drop until image loads** — `WindowEventHandler.handle_drop` hid the overlay via deferred `singleShot(0)` which raced with the also-deferred `load_images_from_paths`; overlay stayed visible until decode finished. Now hides synchronously via direct `_safe_update_drag_overlays(False)`.
+
 ## Unreleased
 
 ### Added
