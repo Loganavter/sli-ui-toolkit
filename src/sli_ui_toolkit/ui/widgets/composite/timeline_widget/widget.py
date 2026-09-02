@@ -233,37 +233,33 @@ class TimelineWidget(QWidget):
         self._layout_settle.ping()
 
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.Resize:
-            # Scroll viewport or window resized (fullscreen) while widget fixed width unchanged
+        t = event.type()
+        if t in (QEvent.Type.Resize, QEvent.Type.WindowStateChange):
             try:
                 sa = timeline_viewport.get_scroll_area(self)
                 is_viewport = sa is not None and sa.viewport() is not None and obj is sa.viewport()
                 is_window = obj is self.window()
                 if is_viewport or is_window:
-                    self._handle_viewport_resize()
+                    self._onViewportGeometryChanged("eventFilter")
                     return False
             except Exception:
                 pass
-        if event.type() == QEvent.Type.WindowStateChange and obj is self.window():
-            self._handle_viewport_resize()
-            return False
         return super().eventFilter(obj, event)
 
-    def _handle_viewport_resize(self):
+    def _onViewportGeometryChanged(self, source: str = "") -> None:
         if not self.has_snapshots():
             return
         if self._suppress_resize_recalc:
             return
-        old_min = self._last_min_zoom
-        new_min = timeline_viewport.calculate_min_zoom(self)
-        is_fitted = math.isclose(self._zoom_level, old_min, rel_tol=0.05) or self._zoom_level < new_min
-        if is_fitted:
-            self._zoom_level = new_min
-            self.zoomChanged.emit(float(self._zoom_level))
-        self._last_min_zoom = new_min
-        timeline_viewport.update_fixed_width(self)
-        self.resized.emit()
-        self.viewportChanged.emit()
+        _timeline_debug("_onViewportGeometryChanged source=%s width=%s zoom=%s last_min=%s", source, self.width(), self._zoom_level, self._last_min_zoom)
+        self._update_vertical_scrollbar()
+        nxt = self._recomputeFittedState()
+        self._commitState(nxt, source=source)
+        try:
+            timeline_viewport.update_fixed_width(self)
+        except Exception:
+            pass
+        _timeline_debug("_onViewportGeometryChanged done source=%s width=%s zoom=%s last_min=%s", source, self.width(), self._zoom_level, self._last_min_zoom)
 
     def _current_state(self) -> TimelineViewportState:
         """Snapshot current viewport state from widget fields and helpers."""
@@ -295,9 +291,14 @@ class TimelineWidget(QWidget):
     def _recomputeFittedState(self) -> TimelineViewportState:
         """Return current state with zoom clamped to min_zoom if fitted."""
         cur = self._current_state()
-        if cur.is_fitted():
-            if abs(cur.zoom - cur.min_zoom) > 1e-4:
-                return replace(cur, zoom=cur.min_zoom)
+        if cur.is_fitted() and abs(cur.zoom - cur.min_zoom) > 1e-4:
+            old_zoom = self._zoom_level
+            self._zoom_level = cur.min_zoom
+            try:
+                clamped = self._current_state()
+            finally:
+                self._zoom_level = old_zoom
+            return clamped
         return cur
 
     def _commitState(self, nxt: TimelineViewportState, source: str = "") -> bool:
@@ -384,34 +385,16 @@ class TimelineWidget(QWidget):
             return
 
         if self._suppress_resize_recalc:
-            # This resize was caused by our own update_fixed_width()'s
-            # setFixedWidth() call, which already recomputed everything
-            # (calculate_min_zoom, content width, widget.update()).
-            # Redoing that work here would double it on every resize tick.
-            _timeline_debug("resizeEvent suppress emit resized only")
-            self.resized.emit()
-            self.viewportChanged.emit()
+            _timeline_debug("resizeEvent suppress SKIP")
             return
 
         old_size = event.oldSize()
         if old_size.isValid() and old_size.width() == event.size().width():
-            self.update()
-            _timeline_debug("resizeEvent width unchanged emit resized")
-            self.resized.emit()
-            self.viewportChanged.emit()
+            _timeline_debug("resizeEvent width unchanged -> geometry check")
+            self._onViewportGeometryChanged("resizeEvent:widthUnchanged")
             return
 
-        old_min_zoom = self._last_min_zoom
-        new_min_zoom = timeline_viewport.calculate_min_zoom(self)
-        is_fitted = math.isclose(self._zoom_level, old_min_zoom, rel_tol=0.05) or self._zoom_level < new_min_zoom
-        if is_fitted:
-            self._zoom_level = new_min_zoom
-            self.zoomChanged.emit(float(self._zoom_level))
-        self._last_min_zoom = new_min_zoom
-        timeline_viewport.update_fixed_width(self)
-        _timeline_debug("resizeEvent min_zoom %s zoom=%s width=%s fitted=%s", new_min_zoom, self._zoom_level, self.width(), is_fitted)
-        self.resized.emit()
-        self.viewportChanged.emit()
+        self._onViewportGeometryChanged("resizeEvent")
 
     def _update_vertical_scrollbar(self) -> None:
         timeline_viewport.update_vertical_scrollbar(self)
@@ -425,19 +408,15 @@ class TimelineWidget(QWidget):
             return
         if self._host_h_scrollbar is not None:
             try:
-                self._host_h_scrollbar.valueChanged.disconnect(
-                    self._on_host_horizontal_scroll
-                )
-                self._host_h_scrollbar.rangeChanged.disconnect(
-                    self._on_host_horizontal_scroll_range
-                )
+                self._host_h_scrollbar.valueChanged.disconnect(self._on_host_scroll)
+                self._host_h_scrollbar.rangeChanged.disconnect(self._on_host_scroll)
             except TypeError:
                 pass
+            except Exception:
+                pass
         self._host_h_scrollbar = scrollbar
-        self._host_h_scrollbar.valueChanged.connect(self._on_host_horizontal_scroll)
-        self._host_h_scrollbar.rangeChanged.connect(
-            self._on_host_horizontal_scroll_range
-        )
+        self._host_h_scrollbar.valueChanged.connect(self._on_host_scroll)
+        self._host_h_scrollbar.rangeChanged.connect(self._on_host_scroll)
         try:
             vp = scroll_area.viewport()
             if vp is not None:
@@ -445,15 +424,20 @@ class TimelineWidget(QWidget):
         except Exception:
             pass
 
-    def _on_host_horizontal_scroll(self, _value: int) -> None:
-        self._update_vertical_scrollbar()
-        self.update()
-        self.viewportChanged.emit()
-
-    def _on_host_horizontal_scroll_range(self, _min_value: int, _max_value: int) -> None:
-        self._update_vertical_scrollbar()
-        self.update()
-        self.viewportChanged.emit()
+    def _on_host_scroll(self, *_args) -> None:
+        try:
+            sa = timeline_viewport.get_scroll_area(self)
+            cur_x = int(sa.horizontalScrollBar().value()) if sa is not None and sa.horizontalScrollBar() is not None else 0
+        except Exception:
+            cur_x = 0
+        _state = getattr(self, "_state", None)
+        prev_x = _state.scroll_x if _state is not None else None
+        is_range = len(_args) == 2
+        if not is_range and prev_x is not None and cur_x == prev_x:
+            self._update_vertical_scrollbar()
+            self.update()
+            return
+        self._onViewportGeometryChanged("hostScroll")
 
     def _rebuild_row_layout(self):
         timeline_layout.rebuild_row_layout(self)
@@ -657,11 +641,15 @@ class TimelineWidget(QWidget):
             self._needs_fit_view = False
             self.fit_view()
             _timeline_debug("_on_layout_settle after fit_view width=%s zoom=%s", self.width(), self._zoom_level)
-            self.layoutSettled.emit()
+            try:
+                nxt = self._recomputeFittedState()
+                self._commitState(nxt, source="settleFit")
+                timeline_viewport.update_fixed_width(self)
+            except Exception:
+                pass
             return
-        timeline_viewport.update_fixed_width(self)
-        _timeline_debug("_on_layout_settle after update_fixed_width width=%s zoom=%s", self.width(), self._zoom_level)
-        self.layoutSettled.emit()
+        self._onViewportGeometryChanged("settle")
+        _timeline_debug("_on_layout_settle after _onViewportGeometryChanged width=%s zoom=%s", self.width(), self._zoom_level)
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -693,18 +681,36 @@ class TimelineWidget(QWidget):
 
             self.zoomChanged.emit(float(self._zoom_level))
             self.viewportChanged.emit()
+            try:
+                self._state = self._current_state()
+            except Exception:
+                pass
             event.accept()
         else:
             delta = event.angleDelta().y()
             if delta != 0 and self._v_scrollbar.isVisible():
+                old = self._v_scrollbar.value()
                 direction = -1 if delta > 0 else 1
-                self._v_scrollbar.setValue(
-                    self._v_scrollbar.value() + direction * self._v_scrollbar.singleStep()
-                )
+                self._v_scrollbar.setValue(old + direction * self._v_scrollbar.singleStep())
+                if self._v_scrollbar.value() != old:
+                    self._update_vertical_scrollbar()
+                    self.update()
+                    self.viewportChanged.emit()
                 event.accept()
             else:
+                try:
+                    sa = timeline_viewport.get_scroll_area(self)
+                    old_h = int(sa.horizontalScrollBar().value()) if sa is not None and sa.horizontalScrollBar() is not None else None
+                except Exception:
+                    old_h = None
                 super().wheelEvent(event)
-            self.viewportChanged.emit()
+                try:
+                    sa = timeline_viewport.get_scroll_area(self)
+                    new_h = int(sa.horizontalScrollBar().value()) if sa is not None and sa.horizontalScrollBar() is not None else None
+                    if old_h is not None and new_h is not None and new_h != old_h:
+                        self._onViewportGeometryChanged("wheelHorizontal")
+                except Exception:
+                    pass
 
     def keyPressEvent(self, event):
         key = event.key()
