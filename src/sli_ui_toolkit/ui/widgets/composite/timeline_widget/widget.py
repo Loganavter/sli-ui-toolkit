@@ -13,6 +13,15 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers import SettleGate
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+import os as _os
+
+
+def _timeline_debug(msg: str, *args, **kwargs) -> None:
+    if _os.getenv("IMGSLI_VIDEO_EDITOR_DEBUG") == "1" or _os.getenv("SLI_TOOLKIT_DEBUG") == "1" or _os.getenv("IMGSLI_TIMELINE_DEBUG") == "1":
+        logging.getLogger("ImproveImgSLI").warning("[timeline-debug] " + msg, *args, **kwargs)
+        logging.getLogger("sli_ui_toolkit").warning("[timeline-debug] " + msg, *args, **kwargs)
+    else:
+        logging.getLogger("sli_ui_toolkit").debug("[timeline-debug] " + msg, *args, **kwargs)
 from .models import TimelineCallbacks
 from . import interaction as timeline_interaction
 from . import layout as timeline_layout
@@ -35,6 +44,7 @@ class TimelineWidget(QWidget):
     zoomChanged = Signal()
     viewportChanged = Signal()
     resized = Signal()
+    layoutSettled = Signal()
 
     def __init__(
         self,
@@ -209,8 +219,10 @@ class TimelineWidget(QWidget):
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
         self._update_vertical_scrollbar()
+        _timeline_debug("resizeEvent old=%sx%s new=%sx%s suppress=%s has_snap=%s width=%s zoom=%s last_min=%s", event.oldSize().width(), event.oldSize().height(), event.size().width(), event.size().height(), self._suppress_resize_recalc, self.has_snapshots(), self.width(), self._zoom_level, self._last_min_zoom)
 
         if not self.has_snapshots():
+            _timeline_debug("resizeEvent SKIP no snapshots")
             return
 
         if self._suppress_resize_recalc:
@@ -218,12 +230,14 @@ class TimelineWidget(QWidget):
             # setFixedWidth() call, which already recomputed everything
             # (calculate_min_zoom, content width, widget.update()).
             # Redoing that work here would double it on every resize tick.
+            _timeline_debug("resizeEvent suppress emit resized only")
             self.resized.emit()
             return
 
         old_size = event.oldSize()
         if old_size.isValid() and old_size.width() == event.size().width():
             self.update()
+            _timeline_debug("resizeEvent width unchanged emit resized")
             self.resized.emit()
             return
 
@@ -239,6 +253,7 @@ class TimelineWidget(QWidget):
 
         self._last_min_zoom = new_min_zoom
         timeline_viewport.update_fixed_width(self)
+        _timeline_debug("resizeEvent recomputed min_zoom %s->%s fitted=%s zoom=%s width=%s", old_min_zoom, new_min_zoom, is_fitted, self._zoom_level, self.width())
         self.resized.emit()
 
     def _update_vertical_scrollbar(self) -> None:
@@ -495,8 +510,10 @@ class TimelineWidget(QWidget):
         if getattr(self, "_needs_fit_view", False):
             self._needs_fit_view = False
             self.fit_view()
+            self.layoutSettled.emit()
             return
         timeline_viewport.update_fixed_width(self)
+        self.layoutSettled.emit()
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
