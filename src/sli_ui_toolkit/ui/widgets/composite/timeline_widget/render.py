@@ -42,6 +42,10 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
         block_w = draw_w
         if block_x + block_w > content_start_x + logical_width:
             block_w = content_start_x + logical_width - block_x
+        # Viewport edge: when at 100% zoom window lacks space, crop rightmost
+        # visible block as if tape continues beyond viewport (not just logical end)
+        if block_x + block_w > width:
+            block_w = width - block_x
         if block_w <= 0:
             break
         thumb_idx = -1
