@@ -22,7 +22,17 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     try:
         import os, logging
         if os.getenv("IMGSLI_VIDEO_EDITOR_DEBUG") == "1" or os.getenv("IMGSLI_TIMELINE_DEBUG") == "1":
-            logging.getLogger("ImproveImgSLI").warning("[timeline-paint] draw_strip width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s step=%s draw_w=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s", width, start_x, end_x, logical_width, slot_width, base_tile, frame_step, draw_w, first_frame, last_frame, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top)
+            # Check if strip is actually visible in widget
+            logging.getLogger("ImproveImgSLI").warning("[timeline-paint] draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s step=%s draw_w=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frame_step, draw_w, first_frame, last_frame, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
+            # Log per-block pixmap validity
+            for _fi in range(first_frame, min(last_frame, first_frame+3)):
+                import bisect
+                _ti = -1
+                if widget._thumb_indices:
+                    _pos = bisect.bisect_right(widget._thumb_indices, _fi)
+                    _ti = widget._thumb_indices[_pos-1] if _pos>0 else widget._thumb_indices[0]
+                _pix = widget._thumbnails.get(_ti) if _ti!=-1 else None
+                logging.getLogger("ImproveImgSLI").warning("[timeline-paint] block fi=%s thumb_idx=%s pix_null=%s pix_size=%s", _fi, _ti, _pix.isNull() if _pix else True, (_pix.width(), _pix.height()) if _pix and not _pix.isNull() else None)
     except Exception:
         pass
 
