@@ -5,7 +5,7 @@ import logging
 import math
 from typing import Any
 
-from PySide6.QtCore import QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import QScrollBar, QSizePolicy, QWidget
 
@@ -212,8 +212,51 @@ class TimelineWidget(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._bind_host_scrollbar()
+        # Watch viewport and window for fullscreen resize where widget width stays fixed
+        try:
+            win = self.window()
+            if win is not None:
+                win.installEventFilter(self)
+            sa = timeline_viewport.get_scroll_area(self)
+            if sa is not None and sa.viewport() is not None:
+                sa.viewport().installEventFilter(self)
+        except Exception:
+            pass
         self._needs_fit_view = True
         self._layout_settle.ping()
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Resize:
+            # Scroll viewport or window resized (fullscreen) while widget fixed width unchanged
+            try:
+                sa = timeline_viewport.get_scroll_area(self)
+                is_viewport = sa is not None and sa.viewport() is not None and obj is sa.viewport()
+                is_window = obj is self.window()
+                if is_viewport or is_window:
+                    self._handle_viewport_resize()
+                    return False
+            except Exception:
+                pass
+        if event.type() == QEvent.Type.WindowStateChange and obj is self.window():
+            self._handle_viewport_resize()
+            return False
+        return super().eventFilter(obj, event)
+
+    def _handle_viewport_resize(self):
+        if not self.has_snapshots():
+            return
+        if self._suppress_resize_recalc:
+            return
+        old_min = self._last_min_zoom
+        new_min = timeline_viewport.calculate_min_zoom(self)
+        is_fitted = math.isclose(self._zoom_level, old_min, rel_tol=0.05) or self._zoom_level < new_min
+        if is_fitted:
+            self._zoom_level = new_min
+            self.zoomChanged.emit()
+        self._last_min_zoom = new_min
+        timeline_viewport.update_fixed_width(self)
+        self.resized.emit()
+        self.viewportChanged.emit()
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
@@ -279,6 +322,12 @@ class TimelineWidget(QWidget):
         self._host_h_scrollbar.rangeChanged.connect(
             self._on_host_horizontal_scroll_range
         )
+        try:
+            vp = scroll_area.viewport()
+            if vp is not None:
+                vp.installEventFilter(self)
+        except Exception:
+            pass
 
     def _on_host_horizontal_scroll(self, _value: int) -> None:
         self._update_vertical_scrollbar()
