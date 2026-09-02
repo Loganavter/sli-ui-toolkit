@@ -240,19 +240,10 @@ class TimelineWidget(QWidget):
             self.resized.emit()
             return
 
-        old_min_zoom = self._last_min_zoom
         new_min_zoom = timeline_viewport.calculate_min_zoom(self)
-        is_fitted = (
-            math.isclose(self._zoom_level, old_min_zoom, rel_tol=0.05)
-            or self._zoom_level < new_min_zoom
-        )
-
-        if is_fitted:
-            self._zoom_level = new_min_zoom
-
         self._last_min_zoom = new_min_zoom
         timeline_viewport.update_fixed_width(self)
-        _timeline_debug("resizeEvent recomputed min_zoom %s->%s fitted=%s zoom=%s width=%s", old_min_zoom, new_min_zoom, is_fitted, self._zoom_level, self.width())
+        _timeline_debug("resizeEvent min_zoom %s zoom=%s width=%s", new_min_zoom, self._zoom_level, self.width())
         self.resized.emit()
 
     def _update_vertical_scrollbar(self) -> None:
@@ -422,30 +413,14 @@ class TimelineWidget(QWidget):
         self._set_color_override("text_col", color)
 
     def set_thumbnails(self, thumbnails: dict):
-        old_min_zoom = (
-            timeline_viewport.calculate_min_zoom(self)
-            if self.has_snapshots()
-            else self._last_min_zoom
-        )
-        was_fitted = math.isclose(self._zoom_level, old_min_zoom, rel_tol=0.05)
         self._thumbnails.update(thumbnails)
         self._thumb_indices = sorted(self._thumbnails.keys())
         if self.has_snapshots():
-            new_min_zoom = timeline_viewport.calculate_min_zoom(self)
-            if was_fitted or self._zoom_level < new_min_zoom:
-                self._zoom_level = new_min_zoom
-                self._last_min_zoom = new_min_zoom
-                timeline_viewport.update_fixed_width(self)
+            self._last_min_zoom = timeline_viewport.calculate_min_zoom(self)
         self.update()
 
     def add_thumbnail(self, index: int, pixmap: QPixmap):
         _timeline_debug("add_thumbnail idx=%s size=%sx%s total=%s", index, pixmap.width() if pixmap else -1, pixmap.height() if pixmap else -1, len(self._thumbnails)+1)
-        old_min_zoom = (
-            timeline_viewport.calculate_min_zoom(self)
-            if self.has_snapshots()
-            else self._last_min_zoom
-        )
-        was_fitted = math.isclose(self._zoom_level, old_min_zoom, rel_tol=0.05)
         self._thumbnails[index] = pixmap
         if not self._thumb_indices or index > self._thumb_indices[-1]:
             self._thumb_indices.append(index)
@@ -453,11 +428,7 @@ class TimelineWidget(QWidget):
             self._thumb_indices.append(index)
             self._thumb_indices.sort()
         if self.has_snapshots():
-            new_min_zoom = timeline_viewport.calculate_min_zoom(self)
-            if was_fitted or self._zoom_level < new_min_zoom:
-                self._zoom_level = new_min_zoom
-                self._last_min_zoom = new_min_zoom
-                timeline_viewport.update_fixed_width(self)
+            self._last_min_zoom = timeline_viewport.calculate_min_zoom(self)
         self.update()
 
     def clear_thumbnails(self):

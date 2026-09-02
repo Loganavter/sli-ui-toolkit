@@ -40,12 +40,6 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     while frame_idx < last_frame:
         block_x = content_start_x + frame_idx * slot_width
         block_w = draw_w
-        if block_x + block_w > content_start_x + logical_width:
-            block_w = content_start_x + logical_width - block_x
-        # Viewport edge: when at 100% zoom window lacks space, crop rightmost
-        # visible block as if tape continues beyond viewport (not just logical end)
-        if block_x + block_w > width:
-            block_w = width - block_x
         if block_w <= 0:
             break
         thumb_idx = -1
@@ -55,14 +49,7 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
         if thumb_idx != -1:
             pix = widget._thumbnails.get(thumb_idx)
             if pix and pix.height() > 0:
-                # Tail crop on every px: continuous base_tile not quantized draw_w
-                if block_w + 0.5 < draw_w:
-                    src_w = pix.width() * (block_w / base_tile) if base_tile > 0 else pix.width()
-                    src_w = min(float(pix.width()), max(0.0, src_w))
-                    src_rect = QRectF(0, 0, src_w, float(pix.height()))
-                    painter.drawPixmap(QRectF(block_x, strip_top, block_w, float(widget.STRIP_HEIGHT)), pix, src_rect)
-                else:
-                    painter.drawPixmap(QRectF(block_x, strip_top, block_w, float(widget.STRIP_HEIGHT)), pix, QRectF(pix.rect()))
+                painter.drawPixmap(QRectF(block_x, strip_top, block_w, float(widget.STRIP_HEIGHT)), pix, QRectF(pix.rect()))
         frame_idx += frame_step
 
 def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bottom: int, content_start_x: float, start_x: float, end_x: float, duration: float, logical_width: float, is_dark: bool, gutter_bg: QColor, track_bg: QColor, lane_bg: QColor, text_col: QColor, sep_soft: QColor) -> None:
