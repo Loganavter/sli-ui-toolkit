@@ -51,18 +51,20 @@ def setup_logging(
             debug_enabled = True
 
     level = logging.DEBUG if debug_enabled else logging.INFO
+    # Toolkit is per-zone gated: default --debug stays INFO, only SLI_TOOLKIT_DEBUG=1 enables DEBUG
+    toolkit_level = logging.DEBUG if os.getenv("SLI_TOOLKIT_DEBUG", "0") == "1" else logging.INFO
 
     if logger.handlers:
         logger.setLevel(level)
         for handler in logger.handlers:
             handler.setLevel(level)
-        toolkit_logger.setLevel(level)
+        toolkit_logger.setLevel(toolkit_level)
         for handler in toolkit_logger.handlers:
-            handler.setLevel(level)
+            handler.setLevel(toolkit_level)
         return
 
     logger.setLevel(level)
-    toolkit_logger.setLevel(level)
+    toolkit_logger.setLevel(toolkit_level)
     formatter = logging.Formatter(
         "%(asctime)s - [%(levelname)s] - (%(filename)s:%(lineno)d) - %(message)s"
     )
