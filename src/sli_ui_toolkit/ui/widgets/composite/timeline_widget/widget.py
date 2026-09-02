@@ -242,10 +242,15 @@ class TimelineWidget(QWidget):
             self.viewportChanged.emit()
             return
 
+        old_min_zoom = self._last_min_zoom
         new_min_zoom = timeline_viewport.calculate_min_zoom(self)
+        is_fitted = math.isclose(self._zoom_level, old_min_zoom, rel_tol=0.05) or self._zoom_level < new_min_zoom
+        if is_fitted:
+            self._zoom_level = new_min_zoom
+            self.zoomChanged.emit()
         self._last_min_zoom = new_min_zoom
         timeline_viewport.update_fixed_width(self)
-        _timeline_debug("resizeEvent min_zoom %s zoom=%s width=%s", new_min_zoom, self._zoom_level, self.width())
+        _timeline_debug("resizeEvent min_zoom %s zoom=%s width=%s fitted=%s", new_min_zoom, self._zoom_level, self.width(), is_fitted)
         self.resized.emit()
         self.viewportChanged.emit()
 
