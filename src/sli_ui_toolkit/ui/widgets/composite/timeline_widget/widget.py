@@ -19,7 +19,6 @@ import os as _os
 def _timeline_debug(msg: str, *args, **kwargs) -> None:
     if _os.getenv("IMGSLI_VIDEO_EDITOR_DEBUG") == "1" or _os.getenv("SLI_TOOLKIT_DEBUG") == "1" or _os.getenv("IMGSLI_TIMELINE_DEBUG") == "1":
         logging.getLogger("ImproveImgSLI").warning("[timeline-debug] " + msg, *args, **kwargs)
-        logging.getLogger("sli_ui_toolkit").warning("[timeline-debug] " + msg, *args, **kwargs)
     else:
         logging.getLogger("sli_ui_toolkit").debug("[timeline-debug] " + msg, *args, **kwargs)
 from .models import TimelineCallbacks
@@ -440,6 +439,7 @@ class TimelineWidget(QWidget):
         self.update()
 
     def add_thumbnail(self, index: int, pixmap: QPixmap):
+        _timeline_debug("add_thumbnail idx=%s size=%sx%s total=%s", index, pixmap.width() if pixmap else -1, pixmap.height() if pixmap else -1, len(self._thumbnails)+1)
         old_min_zoom = (
             timeline_viewport.calculate_min_zoom(self)
             if self.has_snapshots()
@@ -461,6 +461,7 @@ class TimelineWidget(QWidget):
         self.update()
 
     def clear_thumbnails(self):
+        _timeline_debug("clear_thumbnails count=%s", len(self._thumbnails))
         self._thumbnails.clear()
         self._thumb_indices.clear()
         self.update()
@@ -507,12 +508,15 @@ class TimelineWidget(QWidget):
         self.update()
 
     def _on_layout_settle(self):
+        _timeline_debug("_on_layout_settle needs_fit=%s width=%s zoom=%s last_min=%s", getattr(self, "_needs_fit_view", False), self.width(), self._zoom_level, self._last_min_zoom)
         if getattr(self, "_needs_fit_view", False):
             self._needs_fit_view = False
             self.fit_view()
+            _timeline_debug("_on_layout_settle after fit_view width=%s zoom=%s", self.width(), self._zoom_level)
             self.layoutSettled.emit()
             return
         timeline_viewport.update_fixed_width(self)
+        _timeline_debug("_on_layout_settle after update_fixed_width width=%s zoom=%s", self.width(), self._zoom_level)
         self.layoutSettled.emit()
 
     def wheelEvent(self, event):

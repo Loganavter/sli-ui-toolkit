@@ -19,6 +19,12 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     draw_w = frame_step * slot_width
     first_frame = max(0, int((start_x - content_start_x) / draw_w) * frame_step)
     last_frame = min(widget._total_frames, int((end_x - content_start_x) / draw_w + 1) * frame_step + frame_step)
+    try:
+        import os, logging
+        if os.getenv("IMGSLI_VIDEO_EDITOR_DEBUG") == "1" or os.getenv("IMGSLI_TIMELINE_DEBUG") == "1":
+            logging.getLogger("ImproveImgSLI").warning("[timeline-paint] draw_strip width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s step=%s draw_w=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s", width, start_x, end_x, logical_width, slot_width, base_tile, frame_step, draw_w, first_frame, last_frame, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top)
+    except Exception:
+        pass
 
     frame_idx = first_frame
     while frame_idx < last_frame:
@@ -259,6 +265,18 @@ def draw_sticky_right_gutter_overlay(widget, painter: QPainter, *, gutter_x: flo
     painter.restore()
 
 def paint_timeline(widget, painter: QPainter, event) -> None:
+    try:
+        import os, logging
+        if os.getenv("IMGSLI_VIDEO_EDITOR_DEBUG") == "1" or os.getenv("IMGSLI_TIMELINE_DEBUG") == "1":
+            from sli_ui_toolkit.ui.widgets.composite.timeline_widget import viewport as _vp
+            _sa = _vp.get_scroll_area(widget)
+            _so = _sa.horizontalScrollBar().value() if _sa else -1
+            _vpw = _vp.get_viewport_width(widget)
+            _lw = _vp.get_logical_width(widget)
+            _sw = _vp.get_slot_width(widget)
+            logging.getLogger("ImproveImgSLI").warning("[timeline-paint] paint id=%s rect=%s width=%s logical=%s slot=%s scroll=%s vpw=%s right_inset=%s total=%s thumb_n=%s", id(widget), event.rect(), widget.width(), _lw, _sw, _so, _vpw, _vp.right_inset(widget), widget._total_frames, len(widget._thumbnails))
+    except Exception:
+        pass
     timeline_viewport.update_vertical_scrollbar(widget)
     colors = timeline_theme.build_theme_colors(widget)
     is_dark = colors["is_dark"]
