@@ -3,9 +3,13 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 
 import logging
 import math
+import warnings
+from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QEvent, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QMetaMethod, QEvent, QRectF, Qt, QTimer, Signal
+
+from .state import TimelineViewportState
 from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import QScrollBar, QSizePolicy, QWidget
 
@@ -40,8 +44,10 @@ class TimelineWidget(QWidget):
 
     headMoved = Signal(int)
     deletePressed = Signal()
-    zoomChanged = Signal()
+    zoomChanged = Signal(float)
     viewportChanged = Signal()
+    viewportChangedState = Signal(object)
+    # Deprecated shims — use viewportChanged / viewportChangedState instead
     resized = Signal()
     layoutSettled = Signal()
 
@@ -159,6 +165,7 @@ class TimelineWidget(QWidget):
         self._zoom_level = 1.0
         self._last_min_zoom = 1.0
         self._suppress_resize_recalc = False
+        self._state: TimelineViewportState | None = None
         # Coalesce host-dialog resize ticks: the expensive min-zoom/width
         # recompute (and the setFixedWidth-triggered relayout/repaint it
         # causes) only runs once the resize settles, same idea as the main
@@ -252,11 +259,120 @@ class TimelineWidget(QWidget):
         is_fitted = math.isclose(self._zoom_level, old_min, rel_tol=0.05) or self._zoom_level < new_min
         if is_fitted:
             self._zoom_level = new_min
-            self.zoomChanged.emit()
+            self.zoomChanged.emit(float(self._zoom_level))
         self._last_min_zoom = new_min
         timeline_viewport.update_fixed_width(self)
         self.resized.emit()
         self.viewportChanged.emit()
+
+    def _current_state(self) -> TimelineViewportState:
+        """Snapshot current viewport state from widget fields and helpers."""
+        min_zoom = timeline_viewport.calculate_min_zoom(self)
+        logical = timeline_viewport.get_logical_width(self)
+        try:
+            right = timeline_viewport.right_inset(self)
+        except Exception:
+            right = 0
+        if self._total_frames > 0:
+            content_width = int(math.ceil(float(self.LEFT_GUTTER) + float(logical) + float(right)))
+        else:
+            content_width = 0
+        viewport_width = timeline_viewport.get_viewport_width(self)
+        scroll_area = timeline_viewport.get_scroll_area(self)
+        try:
+            scroll_x = int(scroll_area.horizontalScrollBar().value()) if scroll_area is not None and scroll_area.horizontalScrollBar() is not None else 0
+        except Exception:
+            scroll_x = 0
+        return TimelineViewportState(
+            zoom=float(self._zoom_level),
+            min_zoom=float(min_zoom),
+            left_gutter=int(self.LEFT_GUTTER),
+            content_width=int(content_width),
+            viewport_width=int(viewport_width),
+            scroll_x=int(scroll_x),
+        )
+
+    def _recomputeFittedState(self) -> TimelineViewportState:
+        """Return current state with zoom clamped to min_zoom if fitted."""
+        cur = self._current_state()
+        if cur.is_fitted():
+            if abs(cur.zoom - cur.min_zoom) > 1e-4:
+                return replace(cur, zoom=cur.min_zoom)
+        return cur
+
+    def _commitState(self, nxt: TimelineViewportState, source: str = "") -> bool:
+        """Diff ``nxt`` against ``self._state`` and emit typed signals.
+
+        ``eps 1e-4`` for zoom/min_zoom, ``==`` for px geometry. Calls
+        ``updateGeometry`` + ``update`` and emits ``zoomChanged(float)`` only
+        when zoom changed, ``viewportChanged`` / ``viewportChangedState(object)``
+        when zoom or geometry changed, plus deprecated ``resized`` /
+        ``layoutSettled`` shims with ``warnings.warn`` when receivers exist.
+        Returns ``True`` if any emit happened.
+        """
+        old: TimelineViewportState | None = getattr(self, "_state", None)
+        eps = 1e-4
+        has_zoom = nxt.has_zoom_changed(old, eps=eps)
+        has_geometry = nxt.has_geometry_changed(old)
+        min_zoom_changed = old is not None and abs(nxt.min_zoom - old.min_zoom) > eps
+        if min_zoom_changed:
+            has_geometry = True
+        if old is not None and not has_zoom and not has_geometry:
+            self._state = nxt
+            self._zoom_level = float(nxt.zoom)
+            self._last_min_zoom = float(nxt.min_zoom)
+            return False
+        self._zoom_level = float(nxt.zoom)
+        self._last_min_zoom = float(nxt.min_zoom)
+        if int(self.LEFT_GUTTER) != int(nxt.left_gutter):
+            self.LEFT_GUTTER = int(nxt.left_gutter)
+        self._state = nxt
+        _timeline_debug("_commitState source=%s zoom %s->%s min %s eps %s has_zoom=%s has_geom=%s", source, getattr(old, "zoom", None), nxt.zoom, nxt.min_zoom, eps, has_zoom, has_geometry)
+        try:
+            self.updateGeometry()
+        except Exception:
+            pass
+        self.update()
+        emitted = False
+        if has_zoom:
+            try:
+                self.zoomChanged.emit(float(nxt.zoom))
+            except Exception:
+                pass
+            emitted = True
+        if has_zoom or has_geometry:
+            try:
+                self.viewportChanged.emit()
+            except Exception:
+                pass
+            try:
+                self.viewportChangedState.emit(nxt)
+            except Exception:
+                pass
+            try:
+                if self.receivers("2resized()") > 0 or self.isSignalConnected(QMetaMethod.fromSignal(self.resized)):  # type: ignore[attr-defined]
+                    warnings.warn("TimelineWidget.resized is deprecated, use viewportChanged", DeprecationWarning, stacklevel=2)
+                    self.resized.emit()
+            except Exception:
+                try:
+                    if self.receivers("resized()") > 0:
+                        warnings.warn("TimelineWidget.resized is deprecated, use viewportChanged", DeprecationWarning, stacklevel=2)
+                        self.resized.emit()
+                except Exception:
+                    pass
+            try:
+                if self.receivers("2layoutSettled()") > 0 or self.isSignalConnected(QMetaMethod.fromSignal(self.layoutSettled)):  # type: ignore[attr-defined]
+                    warnings.warn("TimelineWidget.layoutSettled is deprecated, use viewportChanged", DeprecationWarning, stacklevel=2)
+                    self.layoutSettled.emit()
+            except Exception:
+                try:
+                    if self.receivers("layoutSettled()") > 0:
+                        warnings.warn("TimelineWidget.layoutSettled is deprecated, use viewportChanged", DeprecationWarning, stacklevel=2)
+                        self.layoutSettled.emit()
+                except Exception:
+                    pass
+            emitted = True
+        return emitted
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
@@ -290,7 +406,7 @@ class TimelineWidget(QWidget):
         is_fitted = math.isclose(self._zoom_level, old_min_zoom, rel_tol=0.05) or self._zoom_level < new_min_zoom
         if is_fitted:
             self._zoom_level = new_min_zoom
-            self.zoomChanged.emit()
+            self.zoomChanged.emit(float(self._zoom_level))
         self._last_min_zoom = new_min_zoom
         timeline_viewport.update_fixed_width(self)
         _timeline_debug("resizeEvent min_zoom %s zoom=%s width=%s fitted=%s", new_min_zoom, self._zoom_level, self.width(), is_fitted)
@@ -575,7 +691,7 @@ class TimelineWidget(QWidget):
                 target_scroll = max(scrollbar.minimum(), min(target_scroll, scrollbar.maximum()))
                 QTimer.singleShot(0, lambda: scrollbar.setValue(target_scroll))
 
-            self.zoomChanged.emit()
+            self.zoomChanged.emit(float(self._zoom_level))
             self.viewportChanged.emit()
             event.accept()
         else:
