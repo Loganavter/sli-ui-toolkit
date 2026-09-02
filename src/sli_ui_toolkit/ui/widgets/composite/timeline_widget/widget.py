@@ -231,6 +231,7 @@ class TimelineWidget(QWidget):
             # Redoing that work here would double it on every resize tick.
             _timeline_debug("resizeEvent suppress emit resized only")
             self.resized.emit()
+            self.viewportChanged.emit()
             return
 
         old_size = event.oldSize()
@@ -238,6 +239,7 @@ class TimelineWidget(QWidget):
             self.update()
             _timeline_debug("resizeEvent width unchanged emit resized")
             self.resized.emit()
+            self.viewportChanged.emit()
             return
 
         new_min_zoom = timeline_viewport.calculate_min_zoom(self)
@@ -245,6 +247,7 @@ class TimelineWidget(QWidget):
         timeline_viewport.update_fixed_width(self)
         _timeline_debug("resizeEvent min_zoom %s zoom=%s width=%s", new_min_zoom, self._zoom_level, self.width())
         self.resized.emit()
+        self.viewportChanged.emit()
 
     def _update_vertical_scrollbar(self) -> None:
         timeline_viewport.update_vertical_scrollbar(self)
