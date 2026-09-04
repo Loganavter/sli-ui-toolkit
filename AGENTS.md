@@ -63,6 +63,20 @@ Read these files before changing code:
 - `src/sli_ui_toolkit/ui/managers/` — theme, icon, and flyout managers.
 - `docs/` — architecture, API, and design documentation.
 
+## Auto-Backup Daemon
+
+A local daemon (`~/.local/bin/sli-ui-toolkit-autopush.sh` every 15 min via
+`systemd --user *autopush.timer`) sweeps the working tree (`git add -A` +
+commit `auto: periodic backup ...`, staged work included) into
+`backup/autopush` (pushed, force). On `main` it finishes with
+`git reset --hard HEAD~1`: the tree is wiped back and the work survives
+**only** on `backup/autopush` (`git log backup/autopush --oneline`,
+`git checkout backup/autopush -- <path>`). Same cycle runs for Improve-ImgSLI
+(see its `AGENTS.md` “Auto-Backup Daemon”).
+
+- Never work on `main` — `git checkout -b feat/<slug>` or a worktree before parallel `Task` cohorts. On a branch the tree keeps your edits, but the backup commit stays in branch history — drop `auto:` commits before a PR.
+- Pause with `systemctl --user stop *autopush.timer` if needed.
+
 ## Good Defaults
 
 - Prefer public imports through `sli_ui_toolkit.widgets` for host app examples.
