@@ -279,11 +279,9 @@ def make_rounded_paint_event(bg_color: QColor, radius: int):
         painter = QPainter(self)
         try:
             squared = self.isMaximized() or self.isFullScreen()
-            band = 0
-            try:
-                band = int(self.property("_csd_outer_band") or 0)
-            except Exception:
-                band = 0
+            from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+            band = resolve_csd_band(self)
             # The window surface carries the outer resize band — the visible
             # rounded body is inset by it on every side.
             rect = QRectF(self.rect()).adjusted(band, band, -band, -band)

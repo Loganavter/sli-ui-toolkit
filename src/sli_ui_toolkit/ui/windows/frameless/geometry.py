@@ -17,6 +17,28 @@ RESIZE_MARGIN = 4
 QWIDGETSIZE_MAX = 16777215
 
 
+def resolve_csd_band(window) -> int:
+    """Effective CSD outer-band inset for ``window``.
+
+    The frameless surface carries a transparent outer band (resize-grab
+    margin) beyond the visible body. Maximized/fullscreen windows cannot be
+    edge-resized, so the band (and everything inset by it — the painted
+    body, the root-layout content) must collapse to 0 there; otherwise an
+    invisible strip remains around the window that window-capture tools
+    include (painted with the window background once the body fills the
+    surface).
+    """
+    try:
+        if window.isMaximized() or window.isFullScreen():
+            return 0
+    except Exception:
+        pass
+    try:
+        return int(window.property("_csd_outer_band") or 0)
+    except Exception:
+        return 0
+
+
 _LEFT = int(Qt.Edge.LeftEdge.value)
 _RIGHT = int(Qt.Edge.RightEdge.value)
 _TOP = int(Qt.Edge.TopEdge.value)

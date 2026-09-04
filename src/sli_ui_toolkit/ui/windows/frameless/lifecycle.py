@@ -35,15 +35,30 @@ def _patch_outer_band_geometry(window: QWidget, band: int) -> None:
 
     The frameless manual-resize drag bypasses this patch by calling the
     base-class setter directly (see ``_update_manual_resize``).
+    Maximized/fullscreen windows collapse the band to 0 (see
+    ``resolve_csd_band``).
     """
     orig_resize = window.resize
     orig_set_geometry = window.setGeometry
 
     def _resize(width: int, height: int) -> None:
-        orig_resize(width + 2 * band, height + 2 * band)
+        from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+        eff = resolve_csd_band(window)
+        # ``resolve_csd_band`` already collapses to 0 in maximized/fullscreen;
+        # fall back to the captured band when the window is not yet maximized
+        # but property hasn't been set.
+        if eff == 0 and not (window.isMaximized() or window.isFullScreen()):
+            eff = band
+        orig_resize(width + 2 * eff, height + 2 * eff)
 
     def _set_geometry(x: int, y: int, width: int, height: int) -> None:
-        orig_set_geometry(x, y, width + 2 * band, height + 2 * band)
+        from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+        eff = resolve_csd_band(window)
+        if eff == 0 and not (window.isMaximized() or window.isFullScreen()):
+            eff = band
+        orig_set_geometry(x, y, width + 2 * eff, height + 2 * eff)
 
     window.resize = _resize  # type: ignore[method-assign]
     window.setGeometry = _set_geometry  # type: ignore[method-assign]
