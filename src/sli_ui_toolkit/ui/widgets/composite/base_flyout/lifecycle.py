@@ -12,37 +12,10 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
-import logging
-import os
 import traceback
 from typing import Any, Callable
 
-# [flyout-nav] trace lines fire on every flyout show/hide once the host
-# app's --debug is on, drowning out other subsystems' debug output. Gated
-# on its own opt-in flag, off by default even under --debug -- same
-# convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
-# NOTE: Flyout debug is intentionally separate from keyboard navigation
-# debug (UI_NAV_DEBUG). Use SLI_FLYOUT_DEBUG (toolkit) or
-# IMGSLI_FLYOUT_DEBUG (host app) to enable flyout traces, including
-# hide() caller stack and placement geometry.
-def _flyout_debug_enabled() -> bool:
-    for _var in ("SLI_FLYOUT_DEBUG", "IMGSLI_FLYOUT_DEBUG", "FLYOUT_DEBUG"):
-        if os.environ.get(_var, "").strip().lower() not in (
-            "",
-            "0",
-            "false",
-            "no",
-            "off",
-        ):
-            return True
-    return False
-
-
-logger = logging.getLogger(__name__)
-if _flyout_debug_enabled():
-    logger.setLevel(logging.DEBUG)
-else:
-    logger.setLevel(logging.WARNING)
+from .debug import _flyout_debug, _flyout_debug_enabled
 
 
 def _is_alive_and_enabled(widget: QWidget | None) -> bool:
@@ -83,7 +56,7 @@ class _FlyoutLifecycleApi:
         # Systemic: check duplicate first before probing should_fade_out — avoids
         # 9× should_fade_out spam during capture.grab() reentrancy for any CSD.
         if self._fade.hide_fade_in_progress:
-            logging.getLogger("ImproveImgSLI").debug(
+            _flyout_debug(
                 "[flyout-nav] hide() duplicate-suppressed id=%s caller=%s",
                 id(self),
                 _caller.strip(),
@@ -91,15 +64,14 @@ class _FlyoutLifecycleApi:
             return
         should = self._fade.should_fade_out(self)
         if _flyout_debug_enabled():
-            logger.warning(
+            _flyout_debug(
                 "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s\nCaller:\n%s",
                 type(self).__name__, id(self),
                 self._fade.hide_fade_in_progress,
                 should,
                 "".join(traceback.format_stack()[:-2]),
             )
-        # Use ImproveImgSLI logger so it shows with host --debug even without SLI_FLYOUT_DEBUG
-        logging.getLogger("ImproveImgSLI").debug(
+        _flyout_debug(
             "[flyout-nav] hide() called on %s id=%s fade_in_progress=%s should_fade=%s caller=%s",
             type(self).__name__, id(self),
             self._fade.hide_fade_in_progress,
@@ -133,7 +105,7 @@ class _FlyoutLifecycleApi:
         self._finish_hide()
 
     def _finish_hide(self) -> None:
-        logger.debug(
+        _flyout_debug(
             "[flyout-nav] _finish_hide %s id=%s", type(self).__name__, id(self)
         )
         # Remove focus guard before restoring focus — the guard would
@@ -216,13 +188,13 @@ class _FlyoutLifecycleApi:
     # the sibling _FlyoutManagerApi mixin.
 
     def _on_hide_fade_finished(self) -> None:
-        logger.debug(
+        _flyout_debug(
             "[flyout-nav] _on_hide_fade_finished %s id=%s", type(self).__name__, id(self)
         )
         self._fade.on_hide_fade_finished(self, on_finished=self._finish_hide)
 
     def show(self):
-        logger.debug(
+        _flyout_debug(
             "[flyout-nav] show() called on %s id=%s", type(self).__name__, id(self)
         )
         fm = getattr(self, "flyout_manager", None)
@@ -231,7 +203,7 @@ class _FlyoutLifecycleApi:
         # Capture focus BEFORE register/setFocusProxy — they redirect focus
         # to the flyout, losing the original trigger widget.
         self._previous_focus_widget = QApplication.focusWidget()
-        logger.debug(
+        _flyout_debug(
             "[flyout-nav] show() _previous_focus_widget=%s anchor_widget=%s anchor_kbd=%s",
             type(self._previous_focus_widget).__name__ if self._previous_focus_widget else None,
             type(getattr(self, "_anchor_widget", None)).__name__ if getattr(self, "_anchor_widget", None) else None,
@@ -331,7 +303,7 @@ class _FlyoutLifecycleApi:
                 self._weakened_focus_ancestors.append((w, w.focusPolicy()))
                 w.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             w = w.parentWidget()
-        logger.debug(
+        _flyout_debug(
             "[flyout-nav] _grab_focus parent chain: %s", " → ".join(chain)
         )
         # _nearest_focus=True → pick nearest to anchor instead of always first (leftmost)
@@ -345,7 +317,7 @@ class _FlyoutLifecycleApi:
         # to suppress the ring.
         reason = Qt.FocusReason.OtherFocusReason if anchor_kbd else Qt.FocusReason.MouseFocusReason
         if target is not None:
-            logger.debug(
+            _flyout_debug(
                 "[flyout-nav] _grab_focus calling setFocus(%s) on %s parent=%s",
                 reason.name,
                 type(target).__name__,
@@ -371,7 +343,7 @@ class _FlyoutLifecycleApi:
                 app.installEventFilter(self)
                 self._focus_guard_installed = True
 
-        logger.debug(
+        _flyout_debug(
             "[flyout-nav] _grab_focus weakened=%d/%s target=%s reason=%s anchor_kbd=%s",
             len(self._weakened_focus_ancestors),
             ",".join(type(w).__name__ for w, _ in self._weakened_focus_ancestors),
@@ -452,7 +424,7 @@ class _FlyoutLifecycleApi:
         """
         weakened = getattr(self, "_weakened_focus_ancestors", None)
         if weakened is None:
-            logger.debug("[flyout-nav] _restore_focus_policies: no weakened list (preview)")
+            _flyout_debug("[flyout-nav] _restore_focus_policies: no weakened list (preview)")
         else:
             for w, policy in weakened:
                 w.setFocusPolicy(policy)
@@ -469,7 +441,7 @@ class _FlyoutLifecycleApi:
         prev = getattr(self, "_previous_focus_widget", None)
         target = anchor if _is_alive_and_enabled(anchor) else prev
         actual_before = QApplication.focusWidget()
-        logger.debug(
+        _flyout_debug(
             "[flyout-nav] _restore_focus_policies: anchor=%s prev=%s target=%s actual_before=%s",
             type(anchor).__name__ if anchor else None,
             type(prev).__name__ if prev else None,
@@ -501,7 +473,7 @@ class _FlyoutLifecycleApi:
                         _before_owns_same = True
                         break
                 if _before_owns_same:
-                    logger.debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s (same section)", type(actual_before).__name__)
+                    _flyout_debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s (same section)", type(actual_before).__name__)
                     return
                 # Если оба не в одной секции, но actual_before — живой тулбар-кнопка,
                 # всё равно считаем намеренным только если обе в ImageCompareWidget
@@ -516,7 +488,7 @@ class _FlyoutLifecycleApi:
                 # Фолбэк: только если actual_before — Button/InstancesCounterButton/ScrollValueButton
                 # в том же magnifier_group — считаем сиблингом
                 if type(actual_before).__name__ in ("Button", "InstancesCounterButton", "ScrollValueButton"):
-                    logger.debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s", type(actual_before).__name__)
+                    _flyout_debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s", type(actual_before).__name__)
                     return
         if _is_alive_and_enabled(target):
             # OtherFocusReason unconditionally would light up the keyboard
@@ -532,7 +504,7 @@ class _FlyoutLifecycleApi:
             )
             target_reason = getattr(target, "_last_focus_reason", None)
             target_kb = getattr(target, "_keyboard_focus", None)
-            logger.debug(
+            _flyout_debug(
                 "[flyout-nav] _restore_focus_policies: restore_reason=%s "
                 "anchor_reason=%s anchor_kb=%s kbd_input=%s",
                 restore_reason.name,
@@ -542,7 +514,7 @@ class _FlyoutLifecycleApi:
             )
             target.setFocus(restore_reason)
             actual_after = QApplication.focusWidget()
-            logger.debug(
+            _flyout_debug(
                 "[flyout-nav] _restore_focus_policies: setFocus → actual_after=%s",
                 type(actual_after).__name__ if actual_after else None,
             )
@@ -567,7 +539,7 @@ class _FlyoutLifecycleApi:
             window = self.window()
             if window is not None and getattr(self, "_skip_focus_grab", False):
                 window.setFocusProxy(self)
-            logger.debug(
+            _flyout_debug(
                 "[flyout-nav] registered %s", type(self).__name__,
             )
 
@@ -584,7 +556,7 @@ class _FlyoutLifecycleApi:
                 window.setFocusProxy(None)
             NavigationManager.get_instance().unregister(self)
             self._nav_section_registered = False
-            logger.debug(
+            _flyout_debug(
                 "[flyout-nav] unregistered %s", type(self).__name__,
             )
 
@@ -630,7 +602,7 @@ class _FlyoutNavigationSection:
     def owns(self, widget: QWidget) -> bool:
         result = widget is self._flyout or self._flyout.isAncestorOf(widget)
         if result:
-            logger.debug(
+            _flyout_debug(
                 "[flyout-nav] owns(%s) → True (flyout=%s)",
                 type(widget).__name__, type(self._flyout).__name__,
             )
@@ -693,7 +665,7 @@ class _FlyoutNavigationSection:
                 )
                 widget.keyPressEvent(child_event)
                 if child_event.isAccepted():
-                    logger.debug(
+                    _flyout_debug(
                         "[flyout-nav] navigate key=%s → delivered to focused %s (accepted)",
                         hex(key), type(widget).__name__,
                     )
@@ -702,7 +674,7 @@ class _FlyoutNavigationSection:
             QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier,
         )
         self._flyout.keyPressEvent(event)
-        logger.debug(
+        _flyout_debug(
             "[flyout-nav] navigate key=%s → delivered to %s (accepted=%s)",
             hex(key), type(self._flyout).__name__, event.isAccepted(),
         )

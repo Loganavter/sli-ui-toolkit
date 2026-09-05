@@ -26,9 +26,6 @@ from PySide6.QtCore import (
 )
 from PySide6.QtWidgets import QWidget
 
-import logging
-import os
-
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.ui.in_window_surface import (
     attach_in_window_widget,
@@ -38,26 +35,8 @@ from sli_ui_toolkit.ui.in_window_surface import (
 )
 
 from .animation import resolve_flyout_animation
+from .debug import _flyout_debug, _flyout_debug_enabled
 from .geometry import AnimationAxis, aligned_flyout_rect, slide_start_delta
-
-def _flyout_debug_enabled() -> bool:
-    for _var in ("SLI_FLYOUT_DEBUG", "IMGSLI_FLYOUT_DEBUG", "FLYOUT_DEBUG"):
-        if os.environ.get(_var, "").strip().lower() not in (
-            "",
-            "0",
-            "false",
-            "no",
-            "off",
-        ):
-            return True
-    return False
-
-
-logger = logging.getLogger(__name__)
-if _flyout_debug_enabled():
-    logger.setLevel(logging.DEBUG)
-else:
-    logger.setLevel(logging.WARNING)
 
 
 class _FlyoutPlacementApi:
@@ -266,12 +245,12 @@ class _FlyoutPlacementApi:
                 available=_debug_available,
             )
             flyout_center = final_rect.center()
-        if logger.isEnabledFor(logging.DEBUG):
+        if _flyout_debug_enabled():
             try:
                 anchor_label = f"{type(anchor_widget).__name__}({anchor_widget.objectName() or ''})"
             except Exception:
                 anchor_label = str(type(anchor_widget).__name__)
-            logger.debug(
+            _flyout_debug(
                 "[flyout-placement] %s anchor=%s anchor_rect=%s flyout_size=%sx%s available=%s final=%s offset=%s shadow=%s",
                 type(self).__name__,
                 anchor_label,
