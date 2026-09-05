@@ -77,6 +77,7 @@ class _ButtonEvents:
     update: Callable[[], None]
     isEnabled: Callable[[], bool]
     rect: Callable[[], Any]
+    mapFromGlobal: Callable[..., Any]
 
     # -------- hover (with HoverCoordinator contract) --------
 
