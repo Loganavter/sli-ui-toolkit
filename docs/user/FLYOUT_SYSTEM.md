@@ -514,7 +514,9 @@ slot has no image") apart from a bug bypassing the pinned exemptions above
 `configure_toolkit`/`setup_logging`) when a pinned HUD is disappearing
 somewhere it shouldn't; the stack trace pinpoints the actual caller (a
 one-off framework sweep like the `CustomTitleBar` Resize/Move bug fixed
-below, versus your own intentional call site).
+below, versus your own intentional call site). The flyout-side
+`[flyout-nav]` hide()/placement traces cover the same path: `SLI_FLYOUT_DEBUG=1`
+(legacy `IMGSLI_FLYOUT_DEBUG`) enables them without touching logger levels.
 
 Because the manager no longer closes a pinned flyout when its anchor moves,
 **the host is responsible for keeping it positioned**. Call `reposition()`
@@ -554,7 +556,9 @@ click / outside wheel / window deactivate), `close_all()` /
 *who* asked for a close, enable `DEBUG` on the
 `sli_ui_toolkit.ui.widgets.composite.base_flyout` logger (or the
 toolkit-wide `"sli_ui_toolkit"` logger, see `configure_toolkit` /
-`setup_logging`) and reproduce the scenario:
+`setup_logging`) and reproduce the scenario. Equivalently,
+`SLI_FLYOUT_DEBUG=1` (legacy `IMGSLI_FLYOUT_DEBUG`) enables the same
+traces without touching logger levels:
 
 ```
 DEBUG:sli_ui_toolkit...base_flyout:BaseFlyout.hide() called by:

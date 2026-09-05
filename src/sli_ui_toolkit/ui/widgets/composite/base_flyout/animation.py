@@ -14,7 +14,6 @@ itself stores nothing about the fade beyond the controller reference.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Callable
 
 from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation
@@ -23,7 +22,7 @@ from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.config import get_flyout_timings
 
-logger = logging.getLogger(__name__)
+from .debug import _flyout_debug
 
 
 def resolve_flyout_animation(animation: str | None) -> str:
@@ -144,7 +143,7 @@ class FlyoutFadeController:
 
     def should_fade_out(self, flyout: QWidget) -> bool:
         if not flyout.isVisible():
-            logger.debug(
+            _flyout_debug(
                 "[flyout-fade] should_fade_out %s id=%s → False (not visible) fade_out_enabled=%s opacity=%.2f",
                 type(flyout).__name__, id(flyout), self.fade_out_enabled, self.opacity,
             )
@@ -153,7 +152,7 @@ class FlyoutFadeController:
         import traceback
 
         _caller = "".join(traceback.format_stack()[-4:-2])
-        logger.debug(
+        _flyout_debug(
             "[flyout-fade] should_fade_out %s id=%s → %s fade_out_enabled=%s isVisible=%s hide_fade_in_progress=%s opacity=%.2f caller=%s",
             type(flyout).__name__,
             id(flyout),
@@ -177,7 +176,7 @@ class FlyoutFadeController:
         import traceback
 
         _caller = "".join(traceback.format_stack()[-4:-2])
-        logger.debug(
+        _flyout_debug(
             "[flyout-fade] start_hide_fade %s id=%s hide_animation=%s hide_fade_in_progress=%s caller=%s",
             type(flyout).__name__,
             id(flyout),
@@ -191,7 +190,7 @@ class FlyoutFadeController:
         # start_hide_fade with hide_fade_in_progress=False and duplicate
         # on_hide_fade_finished).
         if self.hide_fade_in_progress:
-            logging.getLogger("ImproveImgSLI").debug(
+            _flyout_debug(
                 "[flyout-fade] start_hide_fade suppressed — already in progress id=%s", id(flyout)
             )
             return
@@ -227,7 +226,7 @@ class FlyoutFadeController:
         anim.start()
 
     def cancel(self, flyout: QWidget) -> None:
-        logger.debug(
+        _flyout_debug(
             "[flyout-fade] cancel %s id=%s hide_animation=%s",
             type(flyout).__name__, id(flyout),
             "active" if self.hide_animation is not None else "none",
@@ -251,7 +250,7 @@ class FlyoutFadeController:
         import traceback
 
         _caller = "".join(traceback.format_stack()[-4:-2])
-        logger.debug(
+        _flyout_debug(
             "[flyout-fade] on_hide_fade_finished %s id=%s hide_animation=%s caller=%s",
             type(flyout).__name__,
             id(flyout),
