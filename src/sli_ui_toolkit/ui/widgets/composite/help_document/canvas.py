@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import unicodedata
 from collections.abc import Callable
@@ -12,17 +11,23 @@ from PySide6.QtCore import QPoint, QPointF, Qt, QSize, Signal
 from PySide6.QtGui import QGuiApplication, QKeySequence, QMouseEvent, QPaintEvent, QPainter
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
+
+# [nav-help-text] trace lines fire on help-doc scroll edges. Gated on the
+# opt-in nav flag at call time (off by default even under the host's
+# --debug) — host-app ``docs/dev/LOGGING.md`` unique-prefix convention;
+# same vars as ``ui.managers.navigation_debug`` (``SLI_NAV_DEBUG``,
+# legacy alias ``UI_NAV_DEBUG``).
 logger = logging.getLogger(__name__)
-if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
-    "",
-    "0",
-    "false",
-    "no",
-    "off",
-):
-    logger.setLevel(logging.WARNING)
-else:
-    logger.setLevel(logging.DEBUG)
+
+
+def _help_debug_enabled() -> bool:
+    return any_flag("SLI_NAV_DEBUG", "UI_NAV_DEBUG")
+
+
+def _help_debug(message: str, *args) -> None:
+    if _help_debug_enabled():
+        logger.debug(message, *args)
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
@@ -346,11 +351,11 @@ class HelpDocumentBodyCanvas(QWidget):
                     at_top = before == bar.minimum()
                     at_bottom = before == bar.maximum()
                     # Library-level scroll handling for text sections — debug when nowhere to scroll
-                    if logger.isEnabledFor(logging.DEBUG):
+                    if _help_debug_enabled():
                         if (key == Qt.Key.Key_Up and at_top) or (
                             key == Qt.Key.Key_PageUp and at_top
                         ) or (key == Qt.Key.Key_Home and at_top):
-                            logger.debug(
+                            _help_debug(
                                 "[nav-help-text] %s at top (value=%s min=%s) — nowhere to scroll up",
                                 key,
                                 before,
@@ -359,7 +364,7 @@ class HelpDocumentBodyCanvas(QWidget):
                         if (key == Qt.Key.Key_Down and at_bottom) or (
                             key == Qt.Key.Key_PageDown and at_bottom
                         ) or (key == Qt.Key.Key_End and at_bottom):
-                            logger.debug(
+                            _help_debug(
                                 "[nav-help-text] %s at bottom (value=%s max=%s) — nowhere to scroll down",
                                 key,
                                 before,
@@ -381,13 +386,13 @@ class HelpDocumentBodyCanvas(QWidget):
                     # accept so NavigationManager doesn't try to move focus to
                     # another row — text scroll is the intended action for this
                     # single-row AutoNavigation section.
-                    if logger.isEnabledFor(logging.DEBUG) and bar.value() == before and key in (
+                    if _help_debug_enabled() and bar.value() == before and key in (
                         Qt.Key.Key_Up,
                         Qt.Key.Key_Down,
                         Qt.Key.Key_PageUp,
                         Qt.Key.Key_PageDown,
                     ):
-                        logger.debug(
+                        _help_debug(
                             "[nav-help-text] scroll blocked at edge key=%s value=%s",
                             key,
                             before,
