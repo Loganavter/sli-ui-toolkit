@@ -18,7 +18,7 @@ import logging
 from typing import Protocol, runtime_checkable
 
 import shiboken6
-from PySide6.QtCore import QEvent, Qt, QObject, QTimer
+from PySide6.QtCore import QEvent, QPoint, Qt, QObject, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
 from .navigation_debug import _key_name, logger, widget_label
@@ -693,16 +693,26 @@ class NavigationManager(QObject):
             pos_fn = getattr(event, "globalPosition", None)
             _debug = logger.isEnabledFor(logging.DEBUG)
             if pos_fn is not None:
-                self._realign.last_click_pos = pos_fn().toPoint()
-                self._realign.realign_pending = True
+                try:
+                    _pt = pos_fn().toPoint()
+                except Exception:
+                    _pt = None
+                if isinstance(_pt, QPoint):
+                    self._realign.last_click_pos = _pt
+                    self._realign.realign_pending = True
+                else:
+                    self._realign.last_click_pos = None
+                    self._realign.realign_pending = False
                 if _debug:
-                    clicked_at = QApplication.widgetAt(self._realign.last_click_pos)
-                    logger.debug(
-                        "[nav] MouseButtonPress pos=(%d, %d) widgetAt=%s",
-                        self._realign.last_click_pos.x(),
-                        self._realign.last_click_pos.y(),
-                        widget_label(clicked_at),
-                    )
+                    _dbg_pos = self._realign.last_click_pos
+                    if isinstance(_dbg_pos, QPoint):
+                        clicked_at = QApplication.widgetAt(_dbg_pos)
+                        logger.debug(
+                            "[nav] MouseButtonPress pos=(%d, %d) widgetAt=%s",
+                            _dbg_pos.x(),
+                            _dbg_pos.y(),
+                            widget_label(clicked_at),
+                        )
             focused = QApplication.focusWidget()
             if _debug:
                 logger.debug(
