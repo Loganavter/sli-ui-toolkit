@@ -31,7 +31,7 @@ def _button_focus_debug_enabled() -> bool:
 
 def _button_focus_debug(message: str, *args) -> None:
     if _button_focus_debug_enabled():
-        _button_focus_debug(message, *args)
+        logger.debug(message, *args)
 
 import shiboken6 as sip
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
