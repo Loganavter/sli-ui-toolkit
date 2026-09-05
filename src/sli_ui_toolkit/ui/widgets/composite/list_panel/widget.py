@@ -27,6 +27,9 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic import OverlayScrollArea
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
+    OverlayScrollbarConfig,
+)
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from sli_ui_toolkit.ui.widgets.helpers.multi_move import payload_indices
 from sli_ui_toolkit.ui.widgets.overlays.marquee_band_gesture import MarqueeBandGesture
@@ -76,7 +79,18 @@ class ListPanel(QWidget):
         on_update_drop_indicator: Callable[[QPointF], None],
         on_clear_drop_indicator: Callable[[], None],
         parent=None,
+        *,
+        scrollbar_config: OverlayScrollbarConfig | None = None,
     ):
+        """Host scrollbar policy (app-agnostic, no app defaults baked in).
+
+        ``scrollbar_config`` is an ``OverlayScrollbarConfig`` preset:
+        reserve flag + gutter width + gap + auto-hide timeout. ``None``
+        keeps toolkit defaults (reserved gutter on overflow only, 1.2s
+        fade). When content fits there is no bar and no gutter regardless.
+        Per-field runtime tweaks stay available via
+        ``panel.scroll_area.set_*``.
+        """
         super().__init__(parent)
         self.list_num = list_num
         self.item_height = item_height
@@ -103,7 +117,9 @@ class ListPanel(QWidget):
         self.layout_outer.setContentsMargins(1, 1, 1, 1)
         self.layout_outer.setSpacing(0)
 
-        self.scroll_area = OverlayScrollArea(self)
+        self.scroll_area = OverlayScrollArea(
+            self, config=scrollbar_config or OverlayScrollbarConfig()
+        )
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.set_corner_radius(8)
 
@@ -161,6 +177,16 @@ class ListPanel(QWidget):
 
     def row_factory(self) -> RowFactory | None:
         return self._row_factory
+
+    # -------- scrollbar policy --------
+
+    def set_scrollbar_config(self, config: OverlayScrollbarConfig) -> None:
+        """Apply a whole scrollbar policy live (reserve/gap/hide)."""
+        self.scroll_area.set_scrollbar_config(config)
+
+    def scrollbar_config(self) -> OverlayScrollbarConfig:
+        """Current scrollbar policy as a config object."""
+        return self.scroll_area.scrollbar_config()
 
     # -------- scaling / padding --------
 
@@ -543,6 +569,13 @@ class ListPanel(QWidget):
 
 ListPanel.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     family="ListPanel",
+    config=(
+        # w is a ListPanel at runtime; SpecField lambdas are untyped by design
+        SpecField("scrollbar_reserve", lambda w: w.scrollbar_config().reserve_space),  # type: ignore[attr-defined]
+        SpecField("scrollbar_width", lambda w: w.scrollbar_config().reserve_width),  # type: ignore[attr-defined]
+        SpecField("scrollbar_gap", lambda w: w.scrollbar_config().gap),  # type: ignore[attr-defined]
+        SpecField("scrollbar_auto_hide", lambda w: w.scrollbar_config().auto_hide_seconds),  # type: ignore[attr-defined]
+    ),
     state=(
         SpecField("list_num", "list_num"),
         SpecField("item_height", "item_height"),
