@@ -15,6 +15,7 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
     MinimalistScrollBar,
     OverlayScrollArea,
+    OverlayScrollbarConfig,
     SurfaceScrollArea,
     overlay_scrollbar_max_inset,
 )
@@ -64,6 +65,7 @@ __all__ = [
     "InstancesCounterButton",
     "MinimalistScrollBar",
     "OverlayScrollArea",
+    "OverlayScrollbarConfig",
     "SurfaceScrollArea",
     "MINIMAL_SCROLLBAR_WIDTH",
     "overlay_scrollbar_max_inset",

@@ -58,7 +58,12 @@
 
 ## Unreleased
 
+### Fixed
+- **`OverlayScrollArea` no longer holds a dead gutter when content fits** — `reserve_scrollbar_space=True` now adds the viewport right margin only while the native scrollbar range is non-empty (`maximum > minimum`). Lists with fewer rows than the visible limit (e.g. `ListPanel` capsules below `MAX_VISIBLE_ITEMS`) get the full viewport width; the gutter appears only once content actually overflows. Safe against oscillation: the vertical range depends on height only, so a width change cannot flip it back.
+
 ### Added
+- **`OverlayScrollbarConfig` scrollbar policy API** — declarative preset (`reserve_space`, `reserve_width`, `gap`, `auto_hide_seconds`) mirroring `ButtonConfig`: `OverlayScrollArea(config=...)` plus per-field ctor kwargs (`reserve_scrollbar_space`, `scrollbar_width`, `scrollbar_gap`, `scrollbar_auto_hide`, `corner_radius` — kwargs win, `scrollbar_auto_hide` uses a sentinel so explicit `None` still means "persistent bar"). New live setters/getters: `set_scrollbar_width` / `scrollbar_width`, `set_scrollbar_gap` / `scrollbar_gap`, `reserve_scrollbar_space()`, `scrollbar_auto_hide_seconds()`, `set_scrollbar_config` / `scrollbar_config`. Exported from `sli_ui_toolkit.widgets`; documented in `docs/user/INPUTS_API.md`.
+- **`ListPanel` scrollbar policy passthrough** — `ListPanel(..., scrollbar_config=...)` forwards an `OverlayScrollbarConfig` without baking in any host's policy (defaults = toolkit defaults), plus `panel.set_scrollbar_config` / `panel.scrollbar_config()` delegators and `config=` spec fields so the policy shows in the UI inspector. Hosts wanting a persistent bar (e.g. Improve-ImgSLI unified picker) pass `OverlayScrollbarConfig(auto_hide_seconds=None)`.
 - **`OverlayScrollArea` smooth wheel scrolling** — wheel deltas now
   accumulate into a target scroll position and the viewport eases toward it
   Chrome/Firefox-style (timer-driven ease-out at ~60fps, zero idle cost).
