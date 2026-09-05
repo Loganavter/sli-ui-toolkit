@@ -142,6 +142,10 @@ class ListPanel(QWidget):
             row_height=self._row_pitch(),
             widget_height=self.item_height,
             x_margin=scaled_px(self._content_margin_px),
+            # Symmetric with the horizontal margin: rows must not hug the
+            # content's top edge (the pool positions rows absolutely, so the
+            # content_layout's own margins never reach them vertically).
+            y_margin=scaled_px(self._content_margin_px),
             overscan=2,
         )
 
@@ -175,6 +179,7 @@ class ListPanel(QWidget):
         # gaps in step with the interface scale.
         self._reapply_scale_padding()
         self._controller.set_row_height(self._row_pitch())
+        self._controller.set_y_margin(scaled_px(self._content_margin_px))
         self.recalculate_and_set_height()
         self.updateGeometry()
         self.update()

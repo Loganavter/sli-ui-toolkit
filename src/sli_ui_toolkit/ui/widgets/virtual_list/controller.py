@@ -22,6 +22,7 @@ Usage::
 
 from __future__ import annotations
 
+import math
 from typing import Callable
 
 from PySide6.QtCore import QEvent, QObject, QTimer
@@ -50,6 +51,7 @@ class VirtualListController(QObject):
         overscan: int = 2,
         widget_height: int | None = None,
         x_margin: int = 0,
+        y_margin: int = 0,
     ) -> None:
         if row_height is None and height_provider is None:
             raise ValueError("pass row_height or height_provider")
@@ -63,6 +65,11 @@ class VirtualListController(QObject):
         self._overscan = max(0, int(overscan))
         self._widget_height = int(widget_height) if widget_height is not None else None
         self._x_margin = max(0, int(x_margin))
+        # Fixed top inset for the first row (the vertical counterpart of
+        # ``x_margin``). Defaults to 0 — existing hosts are unaffected.
+        # Hosts with symmetric content padding (e.g. ListPanel) pass their
+        # top margin so rows don't hug the content's top edge.
+        self._y_margin = max(0, int(y_margin))
         self._count = 0
         self._scroll_offset = 0
         self._syncing = False
@@ -94,6 +101,14 @@ class VirtualListController(QObject):
 
     def set_overscan(self, rows: int) -> None:
         self._overscan = max(0, int(rows))
+        self.rebind()
+
+    def set_y_margin(self, margin: int) -> None:
+        """Update the fixed top inset (e.g. on UI-scale change) + rebind."""
+        margin = max(0, int(margin))
+        if margin == self._y_margin:
+            return
+        self._y_margin = margin
         self.rebind()
 
     @property
@@ -141,7 +156,7 @@ class VirtualListController(QObject):
             return -1
         offset_y = local.y() + self._scroll_offset
         if self._row_height is not None:
-            index = offset_y // self._row_height
+            index = (offset_y - self._y_margin) // self._row_height
         elif self._heights is not None:
             index = self._heights.index_at_offset(offset_y)
         else:
@@ -158,7 +173,7 @@ class VirtualListController(QObject):
 
     def _content_height(self) -> int:
         if self._row_height is not None:
-            return self._count * self._row_height
+            return self._y_margin + self._count * self._row_height
         return self._heights.total() if self._heights is not None else 0
 
     def _viewport_height(self) -> int:
@@ -166,27 +181,40 @@ class VirtualListController(QObject):
 
     def _max_scroll(self) -> int:
         if self._row_height is not None:
-            return max_scroll_px(self._count, self._viewport_height(), self._row_height)
+            return max(
+                0,
+                self._y_margin
+                + self._count * self._row_height
+                - self._viewport_height(),
+            )
         return self._heights.max_scroll(self._viewport_height()) if self._heights is not None else 0
 
     def _index_at(self, offset_px: int) -> int:
         if self._row_height is not None:
             if self._row_height <= 0:
                 return 0
-            return int(offset_px // self._row_height)
+            return int((offset_px - self._y_margin) // self._row_height)
         return self._heights.index_at_offset(offset_px) if self._heights is not None else 0
 
     def _offset_of_index(self, index: int) -> int:
         if self._row_height is not None:
-            return index * self._row_height
+            return self._y_margin + index * self._row_height
         return self._heights.offset_of_index(index) if self._heights is not None else 0
 
     def _window(self) -> tuple[int, int]:
         if self._row_height is not None:
-            return visible_window(
-                self._count, self._viewport_height(), self._row_height,
-                self._scroll_offset, self._overscan,
-            )
+            pitch = self._row_height
+            viewport = self._viewport_height()
+            if self._count <= 0 or pitch <= 0 or viewport <= 0:
+                return (0, 0)
+            # Content row i occupies [margin + i*pitch, margin + (i+1)*pitch):
+            # shift the scroll origin by the margin and materialize one
+            # extra row to cover the inset.
+            first = max(0, (self._scroll_offset - self._y_margin) // pitch)
+            visible = math.ceil(viewport / pitch) + 1
+            start = max(0, first - self._overscan)
+            end = min(self._count, first + visible + self._overscan)
+            return (start, end)
         return self._heights.visible_window(self._viewport_height(), self._scroll_offset, self._overscan)
 
     # -------- events --------
@@ -274,6 +302,7 @@ class VirtualListController(QObject):
                 scroll_offset=self._scroll_offset,
                 widget_height=self._widget_height,
                 x_margin=self._x_margin,
+                y_offset=self._y_margin,
                 reuse=reuse,
             )
         self._index_to_widget = self._pool.indexed_widgets()

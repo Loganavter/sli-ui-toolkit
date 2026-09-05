@@ -61,6 +61,7 @@ class RowPool:
         scroll_offset: int = 0,
         widget_height: int | None = None,
         x_margin: int = 0,
+        y_offset: int = 0,
         height_fn: HeightFn | None = None,
         offset_fn: Callable[[int], int] | None = None,
         reuse: bool = False,
@@ -68,11 +69,14 @@ class RowPool:
         """Bind item indices ``[start_index, end_index)`` to pool slots.
 
         Each visible slot is positioned at ``(x_margin,
-        index*row_height - scroll_offset)`` and shown; surplus slots are
-        hidden. ``bind(index, widget)`` runs for every shown slot so the host
-        repopulates the row's content/state. ``row_height`` is the row
-        *pitch* (index math); ``widget_height`` defaults to it and may be
-        smaller when the host wants visual gaps between rows.
+        y_offset + index*row_height - scroll_offset)`` and shown; surplus
+        slots are hidden. ``bind(index, widget)`` runs for every shown slot
+        so the host repopulates the row's content/state. ``row_height`` is
+        the row *pitch* (index math); ``widget_height`` defaults to it and
+        may be smaller when the host wants visual gaps between rows.
+        ``y_offset`` is a fixed top inset (e.g. the host's top content
+        margin) — ``x_margin``'s vertical counterpart; defaults to 0 so
+        existing hosts are unaffected.
 
         With ``reuse=True`` slots already bound to an index still inside the
         window keep that index — they are only repositioned, and ``bind``
@@ -110,7 +114,7 @@ class RowPool:
             y = (
                 offset_fn(idx)
                 if offset_fn is not None
-                else idx * row_height - scroll_offset
+                else y_offset + idx * row_height - scroll_offset
             )
             height = (
                 height_fn(idx)
