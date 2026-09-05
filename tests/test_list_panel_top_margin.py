@@ -14,13 +14,13 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLabel, QWidget
 
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.composite.list_panel import ListPanel
 
 
-class Row(QWidget):
+class Row(QLabel):
     itemSelected = Signal(int)
     itemSelectionToggled = Signal(int)
     itemRightClicked = Signal(int)

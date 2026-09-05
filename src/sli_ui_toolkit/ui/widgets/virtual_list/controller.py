@@ -111,6 +111,14 @@ class VirtualListController(QObject):
         self._y_margin = margin
         self.rebind()
 
+    def set_x_margin(self, margin: int) -> None:
+        """Update the horizontal inset (e.g. on UI-scale change) + rebind."""
+        margin = max(0, int(margin))
+        if margin == self._x_margin:
+            return
+        self._x_margin = margin
+        self.rebind()
+
     @property
     def count(self) -> int:
         return self._count
@@ -203,6 +211,11 @@ class VirtualListController(QObject):
 
     def _window(self) -> tuple[int, int]:
         if self._row_height is not None:
+            if self._y_margin <= 0:
+                return visible_window(
+                    self._count, self._viewport_height(), self._row_height,
+                    self._scroll_offset, self._overscan,
+                )
             pitch = self._row_height
             viewport = self._viewport_height()
             if self._count <= 0 or pitch <= 0 or viewport <= 0:

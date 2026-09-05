@@ -179,6 +179,7 @@ class ListPanel(QWidget):
         # gaps in step with the interface scale.
         self._reapply_scale_padding()
         self._controller.set_row_height(self._row_pitch())
+        self._controller.set_x_margin(scaled_px(self._content_margin_px))
         self._controller.set_y_margin(scaled_px(self._content_margin_px))
         self.recalculate_and_set_height()
         self.updateGeometry()
