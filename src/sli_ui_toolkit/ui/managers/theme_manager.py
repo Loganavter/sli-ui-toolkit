@@ -35,11 +35,15 @@ ALIAS: dict[str, str] = {
     "switch.knob.on": "surface.background",
     "tooltip.background": "surface.background",
     "color_dialog.input.background": "surface.background",
-    # #f0f0f0 cluster → surface.list
+    # #f0f0f0 cluster → surface.list (backgrounds only — never text tokens:
+    # list_item.text.normal was wrongly clustered here by hex proximity
+    # (dark text #f0f0f0 == light surface #f0f0f0 in different themes),
+    # which made row text resolve to a background color, i.e. always
+    # near-white and unreadable; the token is defined directly in every
+    # shipped palette and app themes.json, so no alias is needed).
     "help.nav.background": "surface.list",
     "button.toggle.background.normal": "surface.list",
     "color_dialog.background": "surface.list",
-    "list_item.text.normal": "surface.list",
     # #e1e1e1 cluster → surface.button
     "AlternateBase": "surface.button",
     "Button": "surface.button",
