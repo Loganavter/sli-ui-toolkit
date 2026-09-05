@@ -156,7 +156,14 @@ class VirtualListController(QObject):
         if index < 0 or index >= self._count:
             return
         top = self._offset_of_index(index)
-        bottom = top + (self._row_height or 1)
+        if self._row_height is not None:
+            bottom = top + self._widget_height_or_pitch()
+            if index == self._count - 1:
+                bottom += self._y_margin
+        elif self._heights is not None:
+            bottom = top + self._heights.height(index)
+        else:
+            bottom = top + 1
         viewport = self._viewport_height()
         if top < self._scroll_offset:
             self.scroll_to(top)
@@ -178,11 +185,13 @@ class VirtualListController(QObject):
         local = self._host.mapFromGlobal(point)
         if not self._host.rect().contains(local):
             return -1
-        offset_y = local.y() + self._scroll_offset
+        # Content-local coordinates are already absolute (rows are
+        # positioned absolutely; Qt moves the content widget itself) —
+        # no scroll compensation here.
         if self._row_height is not None:
-            index = (offset_y - self._y_margin) // self._row_height
+            index = (local.y() - self._y_margin) // self._row_height
         elif self._heights is not None:
-            index = self._heights.index_at_offset(offset_y)
+            index = self._heights.index_at_offset(local.y())
         else:
             return -1
         return index if 0 <= index < self._count else -1
@@ -324,23 +333,28 @@ class VirtualListController(QObject):
         start, end = self._window()
         self._last_window = (start, end)
         row_h = self._row_height
+        # Rows are positioned at ABSOLUTE content coordinates — the scroll
+        # offset is NOT subtracted here. The host content widget lives
+        # inside an OverlayScrollArea whose native scrollbar already moves
+        # it by -value; subtracting the offset again scrolled every list at
+        # 2x and parked ~2 pitches of dead space under the last row at max
+        # scroll. (RowPool keeps its scroll_offset param for non-Qt-scrolled
+        # hosts like the ComboBox overlay, which position relatively.)
         if row_h is None:
             self._pool.rebind(
                 start, end, self._bind,
                 row_height=1,
-                scroll_offset=self._scroll_offset,
                 x_margin=self._x_margin,
                 height_fn=lambda idx: (
                     self._heights.height(idx) if self._heights is not None else 1
                 ),
-                offset_fn=lambda idx: self._offset_of_index(idx) - self._scroll_offset,
+                offset_fn=lambda idx: self._offset_of_index(idx),
                 reuse=reuse,
             )
         else:
             self._pool.rebind(
                 start, end, self._bind,
                 row_height=row_h,
-                scroll_offset=self._scroll_offset,
                 widget_height=self._widget_height,
                 x_margin=self._x_margin,
                 y_offset=self._y_margin,
