@@ -1,9 +1,28 @@
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 
+import logging
+
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.widgets.overlays.in_window_overlay import TopLevelInWindowOverlay
+
+_dnd_logger = logging.getLogger("sli_ui_toolkit.dnd")
+
+
+def _dnd_debug_enabled() -> bool:
+    return any_flag(
+        "SLI_DND_DEBUG",
+        "IMGSLI_DND_DEBUG",
+        "IMGSLI_IMAGE_COMPARE_DEBUG",
+        "IMGSLI_IC_DEBUG",
+    )
+
+
+def _dnd_debug(message: str, *args) -> None:
+    if _dnd_debug_enabled():
+        _dnd_logger.debug("[dnd-overlay] " + message, *args)
 
 
 class DragDropOverlay(TopLevelInWindowOverlay):
@@ -36,15 +55,11 @@ class DragDropOverlay(TopLevelInWindowOverlay):
         text1: str = "",
         text2: str = "",
     ):
-        import logging
-        import os
-        _log = logging.getLogger("ImproveImgSLI")
-        _dnd_on = os.environ.get("IMGSLI_DND_DEBUG") or os.environ.get("IMGSLI_IMAGE_COMPARE_DEBUG") or os.environ.get("IMGSLI_IC_DEBUG")
         _was_visible = self.isVisible()
         # Only log when visibility actually changes to avoid 60Hz spam
-        _should_log = _dnd_on and (_was_visible != bool(visible) or self._texts != (text1, text2))
+        _should_log = _dnd_debug_enabled() and (_was_visible != bool(visible) or self._texts != (text1, text2))
         if _should_log:
-            _log.warning("[dnd-overlay] set_overlay_state visible=%s->%s texts=%r", _was_visible, visible, (text1, text2))
+            _dnd_debug("set_overlay_state visible=%s->%s texts=%r", _was_visible, visible, (text1, text2))
         if target_rect is None:
             self.hide()
             return

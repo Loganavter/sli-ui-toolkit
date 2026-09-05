@@ -12,7 +12,6 @@ their own mixins (``code/factory.py`` and ``tree.py``).
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +19,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.buttons import (
     Button,
@@ -39,16 +39,15 @@ from .fields import _Swatch, _field_text
 # off by default even under --debug -- same convention as UI_NAV_DEBUG /
 # SLI_UI_NAVLIST_DEBUG.
 logger = logging.getLogger(__name__)
-if os.environ.get("SLI_UI_COLORS_DEBUG", "").strip().lower() in (
-    "",
-    "0",
-    "false",
-    "no",
-    "off",
-):
-    logger.setLevel(logging.WARNING)
-else:
-    logger.setLevel(logging.DEBUG)
+
+
+def _colors_debug_enabled() -> bool:
+    return any_flag("SLI_UI_COLORS_DEBUG")
+
+
+def _colors_debug(msg: str, *args) -> None:
+    if _colors_debug_enabled():
+        logger.debug("[colors-source-debug] " + msg, *args)
 
 
 class _PathButton(Button):
@@ -262,8 +261,8 @@ class _PaneRenderingMixin:
         lay.addWidget(Label("source", pixel_size=13, bold=True, selectable=True))
         button = self._path_button(f"{source}:{line}", "Open in the system text editor")
         button.clicked.connect(
-            lambda _checked=False, path=source: logger.debug(
-                "[colors-source-debug] object-source chip clicked: target=%s "
+            lambda _checked=False, path=source: _colors_debug(
+                "object-source chip clicked: target=%s "
                 "opened=%s",
                 path,
                 QDesktopServices.openUrl(QUrl.fromLocalFile(path)),
@@ -378,8 +377,8 @@ class _PaneRenderingMixin:
             theme = self._theme_manager.get_current_theme() if hasattr(
                 self._theme_manager, "get_current_theme"
             ) else "?"
-            logger.debug(
-                "[colors-source-debug] row created: label=%r color=%s name=%r "
+            _colors_debug(
+                "row created: label=%r color=%s name=%r "
                 "path=%s:%s variant=%s size=%s theme=%s",
                 label,
                 QColor(color).name() if color is not None and color.isValid() else "<invalid>",
@@ -391,8 +390,8 @@ class _PaneRenderingMixin:
                 theme,
             )
             button.regionClicked.connect(
-                lambda _region, target=path: logger.debug(
-                    "[colors-source-debug] chip clicked: target=%s opened=%s",
+                lambda _region, target=path: _colors_debug(
+                    "chip clicked: target=%s opened=%s",
                     target,
                     QDesktopServices.openUrl(QUrl.fromLocalFile(target)),
                 )
@@ -515,8 +514,8 @@ class _PaneRenderingMixin:
                 tokens_for_color(tm, trace_color),
                 key=lambda t: (0 if self._token_sources.get(t) else 1, t),
             )
-            logger.debug(
-                "[colors-source-debug] trace color=%s tokens=%d "
+            _colors_debug(
+                "trace color=%s tokens=%d "
                 "token_sources=%d qss_rows=%d",
                 trace_color.name(),
                 len(tokens),

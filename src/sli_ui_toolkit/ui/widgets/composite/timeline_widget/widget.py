@@ -17,14 +17,8 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers import SettleGate
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
-import os as _os
 
-
-def _timeline_debug(msg: str, *args, **kwargs) -> None:
-    if _os.getenv("IMGSLI_VIDEO_EDITOR_DEBUG") == "1" or _os.getenv("SLI_TOOLKIT_DEBUG") == "1" or _os.getenv("IMGSLI_TIMELINE_DEBUG") == "1":
-        logging.getLogger("ImproveImgSLI").warning("[timeline-debug] " + msg, *args, **kwargs)
-    else:
-        logging.getLogger("sli_ui_toolkit").debug("[timeline-debug] " + msg, *args, **kwargs)
+from .debug import _timeline_debug
 from .models import TimelineCallbacks
 from . import interaction as timeline_interaction
 from . import layout as timeline_layout

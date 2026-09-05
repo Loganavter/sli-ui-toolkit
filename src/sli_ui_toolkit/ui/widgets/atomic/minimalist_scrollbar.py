@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,11 +8,15 @@ from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QRegion, QWheelEvent
 from PySide6.QtWidgets import QApplication, QScrollArea, QScrollBar, QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
-_SCROLLBAR_DEBUG = os.getenv("IMGSLI_SCROLLBAR_DEBUG", "0") == "1"
 _sdbg_logger = logging.getLogger("sli_ui_toolkit.scrollbar")
+
+
+def _scrollbar_debug_enabled() -> bool:
+    return any_flag("SLI_SCROLLBAR_DEBUG", "IMGSLI_SCROLLBAR_DEBUG")
 
 
 def _ensure_sdbg_handler() -> None:
@@ -24,11 +27,10 @@ def _ensure_sdbg_handler() -> None:
 
 
 def sdbg(message: str) -> None:
-    if not _SCROLLBAR_DEBUG:
+    if not _scrollbar_debug_enabled():
         return
-    _sdbg_logger.setLevel(logging.DEBUG)
     _ensure_sdbg_handler()
-    _sdbg_logger.debug(message)
+    _sdbg_logger.debug("[scrollbar] " + message)
 
 # The bar's fixed widget width — the one public geometry number composites
 # need (positioning/reserving). Everything else (gap, margin, thumb
