@@ -1,4 +1,5 @@
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import logging
 import math
@@ -6,10 +7,14 @@ from typing import Any
 
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QScrollBar, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.widgets import MinimalistScrollBar
+from sli_ui_toolkit.ui.managers import SettleGate
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+
+from .debug import _timeline_debug
 from .models import TimelineCallbacks
 from . import interaction as timeline_interaction
 from . import layout as timeline_layout
@@ -32,6 +37,7 @@ class TimelineWidget(QWidget):
     zoomChanged = Signal()
     viewportChanged = Signal()
     resized = Signal()
+    layoutSettled = Signal()
 
     def __init__(
         self,
@@ -39,9 +45,25 @@ class TimelineWidget(QWidget):
         parent=None,
         store=None,
         callbacks: TimelineCallbacks | None = None,
+        *,
+        accent_color: QColor | str | None = None,
+        canvas_bg: QColor | str | None = None,
+        track_bg: QColor | str | None = None,
+        grid_color: QColor | str | None = None,
+        text_color: QColor | str | None = None,
     ):
         super().__init__(parent)
         self._callbacks = callbacks or TimelineCallbacks()
+        self._color_overrides: dict[str, QColor] = {}
+        for key, value in (
+            ("accent", accent_color),
+            ("canvas_bg", canvas_bg),
+            ("track_bg", track_bg),
+            ("grid_col", grid_color),
+            ("text_col", text_color),
+        ):
+            if value is not None:
+                self._color_overrides[key] = QColor(value)
 
         if self._callbacks.localize_token is not None:
             timeline_i18n.set_localize_token(self._callbacks.localize_token)
@@ -49,7 +71,7 @@ class TimelineWidget(QWidget):
             timeline_i18n.set_localize_value(self._callbacks.localize_value)
 
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-        self.setMinimumHeight(120)
+        self.setMinimumHeight(scaled_px(120))
         self.setSizePolicy(
             QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred
         )
@@ -60,8 +82,8 @@ class TimelineWidget(QWidget):
         self._visual_index = 0.0
         self._scrub_visual_index: float | None = None
         self._timeline_model = None
-        self._row_layout = []
-        self._hover_points = []
+        self._row_layout: list[tuple] = []
+        self._hover_points: list[tuple[QRectF, str]] = []
         self._hover_tooltip_text = None
         self._hover_tooltip_pos = None
         self._collapsed_group_ids: set[str] = set()
@@ -100,16 +122,54 @@ class TimelineWidget(QWidget):
         self.HANDLE_HEIGHT = 10
         # Hit slop for selection edge handles (help: «ручки выделения»).
         self.SELECTION_EDGE_HIT_PX = 8
+        # All metrics above are design px. Everything the timeline draws or
+        # lays out derives from them (rows, strips, gutters, handles), so a
+        # single scale application keeps the widget in step with the scaled
+        # dialog chrome and fonts around it.
+        self._metric_base = {
+            name: getattr(self, name)
+            for name in (
+                "RULER_HEIGHT",
+                "STRIP_HEIGHT",
+                "LEFT_GUTTER",
+                "MIN_LEFT_GUTTER",
+                "MAX_LEFT_GUTTER",
+                "GUTTER_RESIZE_MARGIN",
+                "GROUP_HEADER_HEIGHT",
+                "TRACK_ROW_HEIGHT",
+                "CHANNEL_ROW_HEIGHT",
+                "BOTTOM_PADDING",
+                "SCROLLBAR_STRIP_HEIGHT",
+                "HANDLE_SIZE",
+                "HEAD_LINE_WIDTH",
+                "HANDLE_WIDTH",
+                "HANDLE_HEIGHT",
+                "SELECTION_EDGE_HIT_PX",
+            )
+        }
+        self._apply_metric_scale()
+        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
 
         self._zoom_level = 1.0
         self._last_min_zoom = 1.0
+        self._suppress_resize_recalc = False
+        # Coalesce host-dialog resize ticks: the expensive min-zoom/width
+        # recompute (and the setFixedWidth-triggered relayout/repaint it
+        # causes) only runs once the resize settles, same idea as the main
+        # window's resize_in_progress gating around its tile rebuild.
+        self._layout_settle = SettleGate(
+            on_settle=self._on_layout_settle,
+            interval_ms=SettleGate.DEFAULT_INTERVAL_MS,
+            parent=self,
+        )
+        self._needs_fit_view = False
 
         self._snapshots = snapshots if snapshots else []
         self._duration = (
             float(self._snapshots[-1].timestamp) if self._snapshots else 0.0
         )
-        self._thumbnails = {}
-        self._thumb_indices = []
+        self._thumbnails: dict[int, QPixmap] = {}
+        self._thumb_indices: list[int] = []
 
         self._total_frames = timeline_viewport.compute_total_frames(self)
         self._current_index = 0
@@ -134,7 +194,7 @@ class TimelineWidget(QWidget):
         self._sb_dragging = False
         self._sb_drag_start_x = 0.0
         self._sb_drag_start_value = 0
-        self._host_h_scrollbar = None
+        self._host_h_scrollbar: QScrollBar | None = None
 
         self.theme_manager = ThemeManager.get_instance()
 
@@ -146,18 +206,31 @@ class TimelineWidget(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._bind_host_scrollbar()
-        QTimer.singleShot(50, self.fit_view)
+        self._needs_fit_view = True
+        self._layout_settle.ping()
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
         self._update_vertical_scrollbar()
+        _timeline_debug("resizeEvent old=%sx%s new=%sx%s suppress=%s has_snap=%s width=%s zoom=%s last_min=%s", event.oldSize().width(), event.oldSize().height(), event.size().width(), event.size().height(), self._suppress_resize_recalc, self.has_snapshots(), self.width(), self._zoom_level, self._last_min_zoom)
 
         if not self.has_snapshots():
+            _timeline_debug("resizeEvent SKIP no snapshots")
+            return
+
+        if self._suppress_resize_recalc:
+            # This resize was caused by our own update_fixed_width()'s
+            # setFixedWidth() call, which already recomputed everything
+            # (calculate_min_zoom, content width, widget.update()).
+            # Redoing that work here would double it on every resize tick.
+            _timeline_debug("resizeEvent suppress emit resized only")
+            self.resized.emit()
             return
 
         old_size = event.oldSize()
         if old_size.isValid() and old_size.width() == event.size().width():
             self.update()
+            _timeline_debug("resizeEvent width unchanged emit resized")
             self.resized.emit()
             return
 
@@ -173,6 +246,7 @@ class TimelineWidget(QWidget):
 
         self._last_min_zoom = new_min_zoom
         timeline_viewport.update_fixed_width(self)
+        _timeline_debug("resizeEvent recomputed min_zoom %s->%s fitted=%s zoom=%s width=%s", old_min_zoom, new_min_zoom, is_fitted, self._zoom_level, self.width())
         self.resized.emit()
 
     def _update_vertical_scrollbar(self) -> None:
@@ -183,7 +257,7 @@ class TimelineWidget(QWidget):
         if scroll_area is None:
             return
         scrollbar = scroll_area.horizontalScrollBar()
-        if scrollbar is self._host_h_scrollbar:
+        if scrollbar is None or scrollbar is self._host_h_scrollbar:
             return
         if self._host_h_scrollbar is not None:
             try:
@@ -244,7 +318,7 @@ class TimelineWidget(QWidget):
                     track_accent_color=getattr(track, "accent_color", None),
                     channel_accent_color=getattr(visible_chs[0], "accent_color", None),
                 )
-        return QColor(self.theme_manager.get_color("accent"))
+        return timeline_theme.resolve_accent_color(self)
 
     def _group_header_rect(self, left: float, top: float) -> QRectF:
         return QRectF(left, top, self.LEFT_GUTTER, self.GROUP_HEADER_HEIGHT)
@@ -314,6 +388,33 @@ class TimelineWidget(QWidget):
 
         QTimer.singleShot(0, self.fit_view)
 
+    def _set_color_override(self, key: str, color: QColor | str | None) -> None:
+        if color is None:
+            self._color_overrides.pop(key, None)
+        else:
+            self._color_overrides[key] = QColor(color)
+        self.update()
+
+    def set_accent_color(self, color: QColor | str | None) -> None:
+        """Override the accent color. ``None`` reverts to the theme token."""
+        self._set_color_override("accent", color)
+
+    def set_canvas_background_color(self, color: QColor | str | None) -> None:
+        """Override the canvas fill. ``None`` reverts to the theme token."""
+        self._set_color_override("canvas_bg", color)
+
+    def set_track_background_color(self, color: QColor | str | None) -> None:
+        """Override the track row fill. ``None`` reverts to the theme token."""
+        self._set_color_override("track_bg", color)
+
+    def set_grid_color(self, color: QColor | str | None) -> None:
+        """Override the ruler/grid line color. ``None`` reverts to the theme token."""
+        self._set_color_override("grid_col", color)
+
+    def set_text_color(self, color: QColor | str | None) -> None:
+        """Override label/text color. ``None`` reverts to the theme token."""
+        self._set_color_override("text_col", color)
+
     def set_thumbnails(self, thumbnails: dict):
         old_min_zoom = (
             timeline_viewport.calculate_min_zoom(self)
@@ -332,6 +433,7 @@ class TimelineWidget(QWidget):
         self.update()
 
     def add_thumbnail(self, index: int, pixmap: QPixmap):
+        _timeline_debug("add_thumbnail idx=%s size=%sx%s total=%s", index, pixmap.width() if pixmap else -1, pixmap.height() if pixmap else -1, len(self._thumbnails)+1)
         old_min_zoom = (
             timeline_viewport.calculate_min_zoom(self)
             if self.has_snapshots()
@@ -353,6 +455,7 @@ class TimelineWidget(QWidget):
         self.update()
 
     def clear_thumbnails(self):
+        _timeline_debug("clear_thumbnails count=%s", len(self._thumbnails))
         self._thumbnails.clear()
         self._thumb_indices.clear()
         self.update()
@@ -381,7 +484,34 @@ class TimelineWidget(QWidget):
         timeline_viewport.fit_view(self)
 
     def update_layout_width(self):
+        # Called on every host-dialog resizeEvent tick (dozens/sec while the
+        # user drags a window edge). Defer the actual recompute to settle
+        # instead of redoing it synchronously on each tick.
+        self._layout_settle.ping()
+
+    def _apply_metric_scale(self) -> None:
+        for name, base in self._metric_base.items():
+            setattr(self, name, scaled_px(base))
+
+    def _on_scale_changed(self, _factor: float) -> None:
+        self._apply_metric_scale()
+        self._rebuild_row_layout()
+        self._ensure_preferred_height()
         timeline_viewport.update_fixed_width(self)
+        timeline_viewport.update_vertical_scrollbar(self)
+        self.update()
+
+    def _on_layout_settle(self):
+        _timeline_debug("_on_layout_settle needs_fit=%s width=%s zoom=%s last_min=%s", getattr(self, "_needs_fit_view", False), self.width(), self._zoom_level, self._last_min_zoom)
+        if getattr(self, "_needs_fit_view", False):
+            self._needs_fit_view = False
+            self.fit_view()
+            _timeline_debug("_on_layout_settle after fit_view width=%s zoom=%s", self.width(), self._zoom_level)
+            self.layoutSettled.emit()
+            return
+        timeline_viewport.update_fixed_width(self)
+        _timeline_debug("_on_layout_settle after update_fixed_width width=%s zoom=%s", self.width(), self._zoom_level)
+        self.layoutSettled.emit()
 
     def wheelEvent(self, event):
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -510,3 +640,35 @@ class TimelineWidget(QWidget):
         else:
             self._visual_index += diff * self._lerp_factor
         self.update()
+
+TimelineWidget.inspect_spec = InspectSpec(
+    family="TimelineWidget",
+    state=(
+        SpecField("fps", "_fps", private=True),
+        SpecField("duration", "_duration", private=True),
+        SpecField("zoom_level", "_zoom_level", private=True),
+        SpecField("visual_index", "_visual_index", private=True),
+        SpecField("collapsed_groups", "_collapsed_group_ids", private=True),
+        SpecField("total_duration", "get_total_duration"),
+        SpecField("pixels_per_second", "get_pixels_per_second"),
+        SpecField("has_selection", "has_selection"),
+    ),
+    token_family=("accent", "Window", "AlternateBase", "separator.color", "dialog.border", "WindowText"),
+    docs='docs/user/API_CATALOG.md',
+)
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+TimelineWidget.widget_descriptor = WidgetDescriptor(
+    family=TimelineWidget.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(TimelineWidget.inspect_spec, 'config', ()),
+        state=TimelineWidget.inspect_spec.state,
+        token_family=getattr(TimelineWidget.inspect_spec, 'token_family', ()),
+        regions=getattr(TimelineWidget.inspect_spec, 'regions', False),
+        layers=getattr(TimelineWidget.inspect_spec, 'layers', False),
+        docs=getattr(TimelineWidget.inspect_spec, 'docs', ''),
+        preview_seed=getattr(TimelineWidget.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(TimelineWidget.inspect_spec, 'apply_config_refresh', None),
+    ),
+)
