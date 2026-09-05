@@ -179,9 +179,26 @@ class VirtualListController(QObject):
         for i in range(self._count):
             self._heights.set_height(i, self._height_provider(i))
 
+    def _widget_height_or_pitch(self) -> int:
+        if self._widget_height is not None:
+            return self._widget_height
+        return self._row_height or 0
+
     def _content_height(self) -> int:
         if self._row_height is not None:
-            return self._y_margin + self._count * self._row_height
+            if self._count <= 0:
+                return self._y_margin
+            # Symmetric vertical insets: the top margin (y_offset of row 0)
+            # is mirrored below the last widget, so the last row never hugs
+            # the content's bottom edge. Only the inter-row pitch separates
+            # rows — the last row contributes its widget height, not a full
+            # pitch (its trailing spacing belongs between rows, not after
+            # the list).
+            return (
+                2 * self._y_margin
+                + (self._count - 1) * self._row_height
+                + self._widget_height_or_pitch()
+            )
         return self._heights.total() if self._heights is not None else 0
 
     def _viewport_height(self) -> int:
@@ -189,12 +206,7 @@ class VirtualListController(QObject):
 
     def _max_scroll(self) -> int:
         if self._row_height is not None:
-            return max(
-                0,
-                self._y_margin
-                + self._count * self._row_height
-                - self._viewport_height(),
-            )
+            return max(0, self._content_height() - self._viewport_height())
         return self._heights.max_scroll(self._viewport_height()) if self._heights is not None else 0
 
     def _index_at(self, offset_px: int) -> int:
