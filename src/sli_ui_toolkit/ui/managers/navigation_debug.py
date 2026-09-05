@@ -1,31 +1,39 @@
 """Debug-log helpers for :mod:`navigation_manager` -- split out because they
-are pure functions with no coupling to ``NavigationManager`` state, gated on
-their own opt-in ``UI_NAV_DEBUG`` flag (same convention as
-``sidebar_nav_list/debug.py``'s ``SLI_UI_NAVLIST_DEBUG``).
+are pure functions with no coupling to ``NavigationManager`` state.
+
+Gating follows the host app's ``docs/dev/LOGGING.md`` unique-prefix
+convention (same as ``sidebar_nav_list/debug.py``): call-time
+:func:`nav_debug_enabled` check on ``SLI_NAV_DEBUG`` (legacy alias
+``UI_NAV_DEBUG``, shared with the host's ``events/router.py``), ``[nav-*]``
+prefix on every line, off by default even under the host's ``--debug``.
+Never mutates logger levels at import time.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 
 from PySide6.QtCore import QObject, Qt
 
-# [nav] trace lines fire on every focus/key event once the host app's
-# --debug is on, drowning out other subsystems' debug output. Gated on its
-# own opt-in flag, off by default even under --debug -- same convention as
-# sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
+from sli_ui_toolkit.core.debug_flags import any_flag
+
 logger = logging.getLogger("sli_ui_toolkit.ui.managers.navigation_manager")
-if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
-    "",
-    "0",
-    "false",
-    "no",
-    "off",
-):
-    logger.setLevel(logging.WARNING)
-else:
-    logger.setLevel(logging.DEBUG)
+
+# Canonical toolkit name first; ``UI_NAV_DEBUG`` is the legacy alias also
+# read by the host app (Improve-ImgSLI ``src/events/router.py``), kept so
+# one env var enables both sides of the same trace.
+NAV_DEBUG_VARS = ("SLI_NAV_DEBUG", "UI_NAV_DEBUG")
+
+
+def nav_debug_enabled() -> bool:
+    """True when navigation tracing was opted in via env."""
+    return any_flag(*NAV_DEBUG_VARS)
+
+
+def nav_debug(message: str, *args) -> None:
+    """Env-gated navigation trace line (already carries its ``[nav-*]`` prefix)."""
+    if nav_debug_enabled():
+        logger.debug(message, *args)
 
 _KEY_NAMES = {v: k.split(".")[-1] for k, v in Qt.Key.__members__.items()}
 

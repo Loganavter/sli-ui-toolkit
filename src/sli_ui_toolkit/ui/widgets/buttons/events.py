@@ -13,24 +13,25 @@ attach_capability) получают wheel-события без хардкода
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, Callable
 
-# [button-focus] trace lines fire on every button focus change once the
-# host app's --debug is on, drowning out other subsystems' debug output.
-# Gated on its own opt-in flag, off by default even under --debug -- same
-# convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
+from sli_ui_toolkit.core.debug_flags import any_flag
+
+# [button-focus] trace lines fire on every button focus change. Gated on
+# the opt-in nav flag at call time (off by default even under the host's
+# --debug) — host-app ``docs/dev/LOGGING.md`` unique-prefix convention;
+# same vars as ``ui.managers.navigation_debug`` (``SLI_NAV_DEBUG``,
+# legacy alias ``UI_NAV_DEBUG``).
 logger = logging.getLogger(__name__)
-if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
-    "",
-    "0",
-    "false",
-    "no",
-    "off",
-):
-    logger.setLevel(logging.WARNING)
-else:
-    logger.setLevel(logging.DEBUG)
+
+
+def _button_focus_debug_enabled() -> bool:
+    return any_flag("SLI_NAV_DEBUG", "UI_NAV_DEBUG")
+
+
+def _button_focus_debug(message: str, *args) -> None:
+    if _button_focus_debug_enabled():
+        _button_focus_debug(message, *args)
 
 import shiboken6 as sip
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
@@ -311,7 +312,7 @@ class _ButtonEvents:
 
                 is_keyboard_by_reason = NavigationManager.get_instance().last_input_was_keyboard()
                 if is_keyboard_by_reason:
-                    logger.debug(
+                    _button_focus_debug(
                         "[button-focus] ActiveWindow->Other for %s (manager keyboard)",
                         type(self).__name__,
                     )
@@ -337,7 +338,7 @@ class _ButtonEvents:
                     # This Mouse reason is not from a real click — last_input still
                     # reports keyboard — so treat as keyboard to preserve ring.
                     is_keyboard_by_reason = True
-                    logger.debug(
+                    _button_focus_debug(
                         "[button-focus] ring-preserve Mouse->Other for %s (manager keyboard)",
                         type(self).__name__,
                     )
@@ -349,7 +350,7 @@ class _ButtonEvents:
         # Keep original reason for anchor_kbd logic; ring-preserve is only
         # for FocusLayer, not for flyout anchor detection.
         self._last_focus_reason = reason
-        logger.debug(
+        _button_focus_debug(
             "[button-focus] %s focusIn reason=%s keyboard_focus=%s",
             type(self).__name__, reason, self._keyboard_focus,
         )
@@ -358,7 +359,7 @@ class _ButtonEvents:
         QWidget.focusInEvent(self, event)
 
     def focusOutEvent(self, event):
-        logger.debug(
+        _button_focus_debug(
             "[button-focus] %s focusOut keyboard_focus=False",
             type(self).__name__,
         )
