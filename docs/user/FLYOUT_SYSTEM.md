@@ -507,16 +507,10 @@ and it participates in overlay z-stacking (`ensure_overlay_stacking`).
 Since a pinned flyout *should* rarely close, `FlyoutManager.request_hide`
 logs a `DEBUG`-level message with a stack trace (`stack_info=True`) every
 time one is hidden, on the `sli_ui_toolkit.ui.managers.flyout_manager`
-logger. The manager can't tell an intentional app-level hide (e.g. "this
-slot has no image") apart from a bug bypassing the pinned exemptions above
-— both are just a `.hide()` call — so it logs instead of guessing. Enable
-`DEBUG` on that logger (or the toolkit-wide `"sli_ui_toolkit"` logger, see
-`configure_toolkit`/`setup_logging`) when a pinned HUD is disappearing
-somewhere it shouldn't; the stack trace pinpoints the actual caller (a
-one-off framework sweep like the `CustomTitleBar` Resize/Move bug fixed
-below, versus your own intentional call site). The flyout-side
-`[flyout-nav]` hide()/placement traces cover the same path: `SLI_FLYOUT_DEBUG=1`
-(legacy `IMGSLI_FLYOUT_DEBUG`) enables them without touching logger levels.
+logger. For the `[flyout-nav]` hide()/placement traces, set
+`SLI_FLYOUT_DEBUG=1` (legacy `IMGSLI_FLYOUT_DEBUG`) — no logger-level
+touching needed. See [../dev/LOGGING.md](../dev/LOGGING.md) for the full
+convention (level model, all `SLI_*` streams).
 
 Because the manager no longer closes a pinned flyout when its anchor moves,
 **the host is responsible for keeping it positioned**. Call `reposition()`
@@ -549,16 +543,13 @@ opens and expects to dismiss by clicking away, which should stay unpinned.
 
 ### Diagnosing who closed a flyout
 
-Every flyout close funnels through `BaseFlyout.hide()` — an explicit
-`start_closing_animation()`, `FlyoutManager`'s passive dismiss (outside
-click / outside wheel / window deactivate), `close_all()` /
-`close_if_outside()`, or a direct `.hide()` from host code. To find out
-*who* asked for a close, enable `DEBUG` on the
-`sli_ui_toolkit.ui.widgets.composite.base_flyout` logger (or the
-toolkit-wide `"sli_ui_toolkit"` logger, see `configure_toolkit` /
-`setup_logging`) and reproduce the scenario. Equivalently,
-`SLI_FLYOUT_DEBUG=1` (legacy `IMGSLI_FLYOUT_DEBUG`) enables the same
-traces without touching logger levels:
+Every flyout close funnels through `BaseFlyout.hide()`. To find out *who*
+asked for a close, set `SLI_FLYOUT_DEBUG=1` (legacy
+`IMGSLI_FLYOUT_DEBUG`) and reproduce the scenario — the `[flyout-nav]`
+traces log each `hide()` with its caller stack. (Equivalent: enable
+`DEBUG` on the `sli_ui_toolkit.ui.widgets.composite.base_flyout` logger,
+or the toolkit-wide `"sli_ui_toolkit"` logger via `setup_logging`.) See
+[../dev/LOGGING.md](../dev/LOGGING.md) for the full convention.
 
 ```
 DEBUG:sli_ui_toolkit...base_flyout:BaseFlyout.hide() called by:
