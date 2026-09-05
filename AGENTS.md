@@ -74,7 +74,7 @@ commit `auto: periodic backup ...`, staged work included) into
 `git checkout backup/autopush -- <path>`). Same cycle runs for Improve-ImgSLI
 (see its `AGENTS.md` “Auto-Backup Daemon”).
 
-- Never work on `main` — `git checkout -b feat/<slug>` or a worktree before parallel `Task` cohorts. On a branch the tree keeps your edits, but the backup commit stays in branch history — drop `auto:` commits before a PR.
+- Never work on `main` — `git checkout -b feat/<slug>` or a worktree (`git worktree add /tmp/opencode/<repo>-<slug>`, never `../` — reboot wipes it, commits survive in the main `.git`) before parallel `Task` cohorts. On a branch the tree keeps your edits, but the backup commit stays in branch history — drop `auto:` commits before a PR.
 - Pause with `systemctl --user stop *autopush.timer` if needed.
 
 ## Good Defaults
