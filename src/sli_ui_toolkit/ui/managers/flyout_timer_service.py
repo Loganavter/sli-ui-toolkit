@@ -154,27 +154,42 @@ class AnchoredFlyoutAutoHide(QObject):
         except Exception:
             focus_name = "?"
 
-        # Keyboard navigation inside flyout — keep open even if cursor not over
+        # Keyboard navigation inside flyout — keep open even if cursor not over.
+        # Gated on keyboard modality: a mouse-clicked focus (slider, button)
+        # lingers on the widget long after the cursor left, and an unconditional
+        # focus retry would pin the panel open forever once a backstop timer
+        # is armed. Mouse users are governed by hover; only keyboard input
+        # retains via focus.
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                NavigationManager,
+            )
+
+            _kbd = bool(NavigationManager.get_instance().last_input_was_keyboard())
+        except Exception:
+            _kbd = False
         try:
             focused = QApplication.focusWidget()
             if focused is not None and (
                 self._flyout.isAncestorOf(focused) or focused is self._flyout
             ):
-                self._note(
-                    "timeout:retry",
-                    f"focus inside ({type(focused).__name__}) cursor={cursor_pos.x()},{cursor_pos.y()}",
-                )
-                self.schedule(self._retry_ms, "focus-inside")
-                return
+                if _kbd:
+                    self._note(
+                        "timeout:retry",
+                        f"kbd focus inside ({type(focused).__name__}) cursor={cursor_pos.x()},{cursor_pos.y()}",
+                    )
+                    self.schedule(self._retry_ms, "focus-inside")
+                    return
             anchor = self._anchor_getter()
             if anchor is not None and focused is not None:
                 if anchor.isAncestorOf(focused) or focused is anchor:
-                    self._note(
-                        "timeout:retry",
-                        f"focus on anchor ({type(focused).__name__}) cursor={cursor_pos.x()},{cursor_pos.y()}",
-                    )
-                    self.schedule(self._retry_ms, "focus-anchor")
-                    return
+                    if _kbd:
+                        self._note(
+                            "timeout:retry",
+                            f"kbd focus on anchor ({type(focused).__name__}) cursor={cursor_pos.x()},{cursor_pos.y()}",
+                        )
+                        self.schedule(self._retry_ms, "focus-anchor")
+                        return
             # PanelVisibilityFlyout opened via Enter — keep open while keyboard
             # navigation is active, even if focus is on toolbar outside flyout
             if getattr(self._flyout, "_keyboard_navigation_active", False):
