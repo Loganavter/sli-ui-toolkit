@@ -76,6 +76,9 @@ class AnchoredFlyoutAutoHide(QObject):
         from PySide6.QtGui import QCursor
         from PySide6.QtWidgets import QApplication
 
+        import logging
+
+        _log = logging.getLogger("ImproveImgSLI")
         cursor_pos = QCursor.pos()
 
         # Keyboard navigation inside flyout — keep open even if cursor not over
@@ -84,16 +87,30 @@ class AnchoredFlyoutAutoHide(QObject):
             if focused is not None and (
                 self._flyout.isAncestorOf(focused) or focused is self._flyout
             ):
+                _log.debug(
+                    "[auto-hide] retry %s: focus inside (%s)",
+                    type(self._flyout).__name__,
+                    type(focused).__name__,
+                )
                 self.schedule(self._retry_ms)
                 return
             anchor = self._anchor_getter()
             if anchor is not None and focused is not None:
                 if anchor.isAncestorOf(focused) or focused is anchor:
+                    _log.debug(
+                        "[auto-hide] retry %s: focus on anchor (%s)",
+                        type(self._flyout).__name__,
+                        type(focused).__name__,
+                    )
                     self.schedule(self._retry_ms)
                     return
             # PanelVisibilityFlyout opened via Enter — keep open while keyboard
             # navigation is active, even if focus is on toolbar outside flyout
             if getattr(self._flyout, "_keyboard_navigation_active", False):
+                _log.debug(
+                    "[auto-hide] retry %s: _keyboard_navigation_active",
+                    type(self._flyout).__name__,
+                )
                 self.schedule(self._retry_ms)
                 return
         except Exception:
@@ -101,6 +118,10 @@ class AnchoredFlyoutAutoHide(QObject):
 
         try:
             if self._flyout.contains_global(cursor_pos):
+                _log.debug(
+                    "[auto-hide] retry %s: cursor inside panel",
+                    type(self._flyout).__name__,
+                )
                 self.schedule(self._retry_ms)
                 return
         except Exception:
@@ -113,16 +134,29 @@ class AnchoredFlyoutAutoHide(QObject):
                 button_rect = anchor.rect()
                 button_global_rect = button_rect.translated(button_global_pos)
                 if button_global_rect.contains(cursor_pos):
+                    _log.debug(
+                        "[auto-hide] retry %s: cursor on anchor",
+                        type(self._flyout).__name__,
+                    )
                     self.schedule(self._retry_ms)
                     return
             except Exception:
                 pass
 
         if self._cursor_in_linked_child(cursor_pos):
+            _log.debug(
+                "[auto-hide] retry %s: cursor in linked child",
+                type(self._flyout).__name__,
+            )
             self.schedule(self._retry_ms)
             return
 
         try:
+            _log.debug(
+                "[auto-hide] hide %s: cursor=%s",
+                type(self._flyout).__name__,
+                cursor_pos,
+            )
             self._flyout.hide()
         except Exception:
             pass
