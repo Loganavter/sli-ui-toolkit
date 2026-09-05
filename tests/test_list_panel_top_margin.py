@@ -111,3 +111,20 @@ def test_last_row_keeps_bottom_margin(qtbot):
     assert last.geometry().bottom() + 1 + margin == content_h
     # And the laid-out content needs no stretch: min height == content.
     assert panel.content_widget.minimumHeight() == content_h
+
+
+def test_rebuild_at_new_height_updates_widget_height(qtbot):
+    """Repopulating at a different row height must resize pooled rows.
+
+    Regression: only the pitch was synced, so rows kept the construction
+    height — the content overflowed by the delta and a scrollbar appeared
+    over a single-row list that actually fits.
+    """
+    _host, panel = _build_panel(qtbot, count=3, item_height=36)
+    panel.clear_and_rebuild([_make_item(0)], 31, None)
+    qtbot.wait(50)
+    rows = panel._item_widgets()
+    assert len(rows) == 1
+    assert rows[0].geometry().height() == 31
+    assert panel.scroll_area.verticalScrollBar().maximum() == 0
+    assert not panel.scroll_area.custom_v_scrollbar.isVisible()

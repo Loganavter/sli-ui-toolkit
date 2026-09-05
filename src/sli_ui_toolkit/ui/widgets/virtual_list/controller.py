@@ -99,6 +99,22 @@ class VirtualListController(QObject):
         self._row_height = max(1, int(height))
         self.rebind()
 
+    def set_widget_height(self, height: int | None) -> None:
+        """Update the row widget height (may be smaller than the pitch so
+        rows keep visual gaps) + rebind. ``None`` falls back to the pitch.
+
+        Hosts that rebuild rows at a new height (e.g. ListPanel repopulated
+        from a different anchor) must call this alongside
+        ``set_row_height`` — otherwise pooled rows keep the construction
+        height, the content overflows by the delta, and a scrollbar appears
+        over a list that actually fits.
+        """
+        height = None if height is None else max(1, int(height))
+        if height == self._widget_height:
+            return
+        self._widget_height = height
+        self.rebind()
+
     def set_overscan(self, rows: int) -> None:
         self._overscan = max(0, int(rows))
         self.rebind()

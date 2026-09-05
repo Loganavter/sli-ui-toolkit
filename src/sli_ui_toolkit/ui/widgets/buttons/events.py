@@ -34,7 +34,7 @@ else:
 
 import shiboken6 as sip
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtGui import QCursor, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QWidget
 
 from .capabilities import LongPressCapability
@@ -129,6 +129,29 @@ class _ButtonEvents:
             self._hovered_region = None
             self._pressed_region = None
             self.update()
+            return
+        # Active without a cursor position: HoverCoordinator already
+        # hit-tested (or enterEvent arrived position-less), so derive the
+        # position from the live cursor and light the exact region,
+        # mirroring enterEvent. _update_hover_region is idempotent while
+        # the region is unchanged, so per-mousemove True calls never start
+        # a repaint storm. Without this branch coordinator-driven hover
+        # (rows repositioned under a stationary cursor, flyouts opening
+        # under it, drags) silently never lit.
+        try:
+            pos = QPointF(self.mapFromGlobal(QCursor.pos()))
+        except (AttributeError, RuntimeError):
+            pos = None
+        if pos is None:
+            if self._hovered_region is not None:
+                return
+            region_id = self._regions[0].id if self._regions else None
+            if region_id is None:
+                return
+            self._hovered_region = region_id
+            self._set_region_state(region_id, ButtonState.HOVERED, True)
+            return
+        self._update_hover_region(pos)
 
     def mouseMoveEvent(self, event: QMouseEvent):
         self._update_hover_region(event.position())

@@ -200,13 +200,22 @@ class ListPanel(QWidget):
         )
         self.content_layout.setSpacing(scaled_px(self._content_spacing_px))
 
+    def _sync_row_metrics(self) -> None:
+        # Row pitch AND widget height travel together: the widget height is
+        # what the pool stamps onto row geometries and what the content
+        # height is measured with. Updating only the pitch leaves pooled
+        # rows at the construction height — the content then overflows by
+        # the delta and a scrollbar appears over a list that fits.
+        self._controller.set_row_height(self._row_pitch())
+        self._controller.set_widget_height(self.item_height)
+        self._controller.set_x_margin(scaled_px(self._content_margin_px))
+        self._controller.set_y_margin(scaled_px(self._content_margin_px))
+
     def _on_scale_changed(self, _factor: float) -> None:
         # Panel persists across opens (rows rebuild per open); keep the row
         # gaps in step with the interface scale.
         self._reapply_scale_padding()
-        self._controller.set_row_height(self._row_pitch())
-        self._controller.set_x_margin(scaled_px(self._content_margin_px))
-        self._controller.set_y_margin(scaled_px(self._content_margin_px))
+        self._sync_row_metrics()
         self.recalculate_and_set_height()
         self.updateGeometry()
         self.update()
@@ -258,7 +267,7 @@ class ListPanel(QWidget):
         # Virtualized: rebinding the visible window is cheap, so a "rebuild"
         # is just a count change + rebind — no per-row widget churn.
         preserve_scroll = self.isVisible()
-        self._controller.set_row_height(self._row_pitch())
+        self._sync_row_metrics()
         self._controller.set_count(len(self._items))
         self._controller.rebind(force=True)
         self.recalculate_and_set_height()
@@ -292,7 +301,7 @@ class ListPanel(QWidget):
             self._current_app_index = current_index
 
         preserve_scroll = self.isVisible()
-        self._controller.set_row_height(self._row_pitch())
+        self._sync_row_metrics()
         self._controller.set_count(len(self._items))
         self._controller.rebind(force=True)
         self.recalculate_and_set_height()
