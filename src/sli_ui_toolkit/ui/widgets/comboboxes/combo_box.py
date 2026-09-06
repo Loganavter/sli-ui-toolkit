@@ -1,0 +1,674 @@
+from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
+
+from typing import Any
+
+from PySide6.QtCore import (
+    QEvent,
+    QRect,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QFontMetrics, QMouseEvent
+from PySide6.QtWidgets import QApplication, QWidget
+
+from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer, RippleLayer
+from sli_ui_toolkit.ui.widgets.comboboxes._layers import (
+    _ComboFieldBgLayer,
+    _ComboFieldContentLayer,
+)
+from sli_ui_toolkit.ui.widgets.comboboxes._models import _ComboItem
+from sli_ui_toolkit.ui.widgets.comboboxes._overlay import _DropdownOverlay
+from sli_ui_toolkit.ui.widgets.comboboxes._search import (
+    match_score,
+    normalize_for_search,
+    visible_indices_normalized,
+)
+from sli_ui_toolkit.ui.widgets.comboboxes.capabilities import GearDragCapability
+
+
+class ComboBox(Button):
+    currentIndexChanged = Signal(int)
+    currentTextChanged = Signal(str)
+
+    BASE_HEIGHT = 33
+    RADIUS = 6
+    ITEM_VERTICAL_PADDING = 12
+    TEXT_HORIZONTAL_PADDING = 12
+
+    # "Gear-shifter" drag-select: hold the field for GEAR_HOLD_MS, or drag it
+    # sideways/vertically past GEAR_DRAG_THRESHOLD_PX right after pressing, to
+    # open the dropdown and scrub through rows by dragging — like sliding a
+    # gearbox knob into its slot. Releasing commits whichever row is under the
+    # field at that moment; a plain click/release still just toggles the list.
+    GEAR_HOLD_MS = 450
+    GEAR_DRAG_THRESHOLD_PX = 8
+    # On release, the popup window snaps the rest of the way to the exact
+    # item-boundary offset (see GearDragCapability._finish_drag) so the
+    # focused row ends up perfectly centered under the field before the
+    # dropdown closes, instead of closing mid-drag with the row a few pixels
+    # off.
+    GEAR_SNAP_DURATION_MS = 40
+    # Brief hold once the snap has landed, so the fully-settled state is
+    # actually visible for a beat before the dropdown closes, instead of
+    # collapsing the instant the animation finishes.
+    GEAR_SNAP_HOLD_MS = 250
+
+    def __init__(
+        self,
+        parent=None,
+        *,
+        wheel_requires_focus: bool = False,
+    ):
+        super().__init__(
+            text="",
+            size=(0, self.BASE_HEIGHT),
+            corner_radius=self.RADIUS,
+            wheel_requires_focus=wheel_requires_focus,
+            long_press=True,
+            long_press_ms=self.GEAR_HOLD_MS,
+            layers=[
+                _ComboFieldBgLayer(),
+                RippleLayer(),
+                _ComboFieldContentLayer(),
+                FocusLayer(),
+            ],
+            parent=parent,
+        )
+        self._theme = ThemeManager.get_instance()
+        self._items: list[_ComboItem] = []
+        self._current_index = -1
+        # While expanded, optional scroll/center target that does not change
+        # ``currentIndex`` (Find Action "show me this option" without applying).
+        self._dropdown_focus_index: int | None = None
+        self._expanded = False
+        self._max_visible_items = 12
+        self._minimum_contents_length = 0
+        self._scroll_offset = 0
+        self._overlay: _DropdownOverlay | None = None
+        self._overlay_parent: QWidget | None = None
+        self._search_enabled = True
+        self._search_text = ""
+        self._visible_indices_cache: list[int] = []
+        self._visible_positions_cache: dict[int, int] = {}
+        self._visible_cache_dirty = True
+
+        # Gear-shifter drag-select (see GEAR_HOLD_MS above) — behavior lives
+        # in GearDragCapability, mirroring Button's own capability system
+        # (LongPressCapability). Cached directly here (in addition to being
+        # reachable via get_capability) since hideDropdown() and the proxy
+        # properties below need cheap, frequent access.
+        self._gear = GearDragCapability(
+            hold_ms=self.GEAR_HOLD_MS,
+            drag_threshold_px=scaled_px(self.GEAR_DRAG_THRESHOLD_PX),
+            snap_duration_ms=self.GEAR_SNAP_DURATION_MS,
+            snap_hold_ms=self.GEAR_SNAP_HOLD_MS,
+        )
+        self.attach_capability(self._gear)
+
+        self.clicked.connect(self._on_field_clicked)
+        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+
+    def on_scale_changed(self, _factor: float) -> None:
+        super().on_scale_changed(_factor)
+        self._gear.drag_threshold_px = scaled_px(self.GEAR_DRAG_THRESHOLD_PX)
+        self.updateGeometry()
+        self.update()
+
+    def _item_height(self) -> int:
+        return max(
+            scaled_px(28),
+            QFontMetrics(paint_font(self)).height()
+            + scaled_px(self.ITEM_VERTICAL_PADDING),
+        )
+
+    @property
+    def _gear_active(self) -> bool:
+        """Proxy to GearDragCapability.active — _overlay.py reads this as a
+        plain ComboBox attribute and has no reason to know capabilities
+        exist."""
+        return self._gear.active
+
+    @property
+    def _gear_focus_index(self) -> int:
+        """Proxy to GearDragCapability.focus_index — see _gear_active."""
+        return self._gear.focus_index
+
+    def _invalidate_visible_cache(self) -> None:
+        self._visible_cache_dirty = True
+        self._visible_indices_cache = []
+        self._visible_positions_cache = {}
+
+    def _visible_items(self) -> int:
+        return min(len(self._visible_indices()), self._max_visible_items)
+
+    def _visible_position_for_index(self, index: int) -> int:
+        self._visible_indices()
+        return self._visible_positions_cache.get(index, 0)
+
+    def _focus_or_current_index(self) -> int:
+        if self._dropdown_focus_index is not None and 0 <= self._dropdown_focus_index < len(
+            self._items
+        ):
+            return self._dropdown_focus_index
+        return self._current_index
+
+    def _ensure_index_visible(self, index: int) -> None:
+        visible = self._visible_indices()
+        visible_count = len(visible)
+        if visible_count <= self._max_visible_items or index < 0:
+            self._scroll_offset = 0
+            return
+        try:
+            visible_position = visible.index(index)
+        except ValueError:
+            self._scroll_offset = 0
+            return
+        if visible_position < self._scroll_offset:
+            self._scroll_offset = visible_position
+        elif visible_position >= self._scroll_offset + self._max_visible_items:
+            self._scroll_offset = visible_position - self._max_visible_items + 1
+
+    def _ensure_current_visible(self):
+        self._ensure_index_visible(self._focus_or_current_index())
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def addItem(self, text: str, userData: Any = None):
+        self._items.append(_ComboItem(str(text), userData))
+        if self._current_index == -1:
+            self._current_index = 0
+        self._invalidate_visible_cache()
+        self.update()
+
+    def addItems(self, texts: list[str] | tuple[str, ...]):
+        for text in texts:
+            self.addItem(text)
+
+    def insertItem(self, index: int, text: str, userData: Any = None):
+        index = max(0, min(int(index), len(self._items)))
+        self._items.insert(index, _ComboItem(str(text), userData))
+        if self._current_index == -1:
+            self._current_index = 0
+        elif index <= self._current_index:
+            self._current_index += 1
+        self._invalidate_visible_cache()
+        self.update()
+
+    def removeItem(self, index: int):
+        if not (0 <= index < len(self._items)):
+            return
+        del self._items[index]
+        if not self._items:
+            self._current_index = -1
+        elif self._current_index >= len(self._items):
+            self._current_index = len(self._items) - 1
+        elif index < self._current_index:
+            self._current_index -= 1
+        self._invalidate_visible_cache()
+        self._scroll_offset = max(0, min(self._scroll_offset, max(0, self.count() - self._max_visible_items)))
+        self.update()
+
+    def clear(self):
+        self.hideDropdown()
+        self._items.clear()
+        self._current_index = -1
+        self._scroll_offset = 0
+        self._search_text = ""
+        self._invalidate_visible_cache()
+        self.update()
+
+    def currentIndex(self) -> int:
+        return self._current_index
+
+    def currentText(self) -> str:
+        if 0 <= self._current_index < len(self._items):
+            return self._items[self._current_index].text
+        return ""
+
+    def currentData(self) -> Any:
+        if 0 <= self._current_index < len(self._items):
+            return self._items[self._current_index].data
+        return None
+
+    def items(self) -> list[tuple[str, Any]]:
+        return [(item.text, item.data) for item in self._items]
+
+    def itemText(self, index: int) -> str:
+        if 0 <= index < len(self._items):
+            return self._items[index].text
+        return ""
+
+    def itemData(self, index: int) -> Any:
+        if 0 <= index < len(self._items):
+            return self._items[index].data
+        return None
+
+    def findText(self, text: str) -> int:
+        for idx, item in enumerate(self._items):
+            if item.text == text:
+                return idx
+        return -1
+
+    @staticmethod
+    def _normalize_for_search(text: str) -> str:
+        return normalize_for_search(text)
+
+    @classmethod
+    def _match_score(cls, query: str, text: str) -> int | None:
+        return match_score(query, text)
+
+    def _visible_indices(self) -> list[int]:
+        if self._visible_cache_dirty:
+            normalized_items = [item.normalized_text for item in self._items]
+            self._visible_indices_cache = visible_indices_normalized(
+                normalized_items,
+                search_enabled=self._search_enabled,
+                search_text=self._search_text,
+            )
+            self._visible_positions_cache = {
+                item_index: visible_pos for visible_pos, item_index in enumerate(self._visible_indices_cache)
+            }
+            self._visible_cache_dirty = False
+        return self._visible_indices_cache
+
+    def setSearchEnabled(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if self._search_enabled == enabled:
+            return
+        self._search_enabled = enabled
+        if not enabled:
+            self.clearSearch()
+        self._invalidate_visible_cache()
+        self.update()
+
+    def isSearchEnabled(self) -> bool:
+        return self._search_enabled
+
+    def searchText(self) -> str:
+        return self._search_text
+
+    def clearSearch(self) -> None:
+        if not self._search_text:
+            return
+        self._search_text = ""
+        self._invalidate_visible_cache()
+        self._scroll_offset = 0
+        if self._expanded and self._overlay is not None:
+            self._ensure_current_visible()
+            self._overlay._sync_scrollbar()
+            self._overlay.update()
+        self.update()
+
+    def _set_search_text(self, text: str) -> None:
+        if not self._search_enabled:
+            return
+        new_text = str(text)
+        if new_text == self._search_text:
+            return
+        self._search_text = new_text
+        self._invalidate_visible_cache()
+        visible = self._visible_indices()
+        self._scroll_offset = 0
+        if visible:
+            self.setCurrentIndex(visible[0])
+        if self._expanded and self._overlay is not None:
+            self._ensure_current_visible()
+            self._overlay._sync_scrollbar()
+            self._overlay.update()
+        self.update()
+
+    def _move_visible_selection(self, step: int) -> bool:
+        visible = self._visible_indices()
+        if not visible:
+            return False
+        try:
+            current_pos = visible.index(self._current_index)
+        except ValueError:
+            current_pos = 0
+        new_pos = max(0, min(len(visible) - 1, current_pos + step))
+        self.setCurrentIndex(visible[new_pos])
+        return True
+
+    def findData(self, data: Any) -> int:
+        for idx, item in enumerate(self._items):
+            if item.data == data:
+                return idx
+        return -1
+
+    def setItemText(self, index: int, text: str):
+        if not (0 <= index < len(self._items)):
+            return
+        self._items[index].text = str(text)
+        self._items[index].normalized_text = normalize_for_search(text)
+        self._invalidate_visible_cache()
+        self.update()
+
+    def setItemData(self, index: int, data: Any):
+        if not (0 <= index < len(self._items)):
+            return
+        self._items[index].data = data
+
+    def setCurrentData(self, data: Any):
+        idx = self.findData(data)
+        if idx >= 0:
+            self.setCurrentIndex(idx)
+
+    def setCurrentText(self, text: str):
+        idx = self.findText(text)
+        if idx >= 0:
+            self.setCurrentIndex(idx)
+
+    def setCurrentIndex(self, index: int):
+        if not (0 <= index < len(self._items)) or index == self._current_index:
+            return
+        self._current_index = index
+        self._ensure_current_visible()
+        self.update()
+        if self._expanded and self._overlay is not None:
+            self._overlay._sync_scrollbar()
+            self._overlay.update()
+        if not self.signalsBlocked():
+            self.currentIndexChanged.emit(index)
+            self.currentTextChanged.emit(self.currentText())
+
+    def setMaxVisibleItems(self, count: int):
+        self._max_visible_items = max(1, int(count))
+        if self._expanded and self._overlay is not None:
+            self._overlay.show_for_owner()
+
+    def maxVisibleItems(self) -> int:
+        return self._max_visible_items
+
+    def setMinimumContentsLength(self, count: int):
+        self._minimum_contents_length = max(0, int(count))
+        self.updateGeometry()
+
+    def setSizeAdjustPolicy(self, _policy):
+        pass
+
+    def _content_width_hint(self) -> int:
+        # Measure with the paint font (design size × UiScale) — the field
+        # layer draws through ``paint_font``, so a raw-font hint under-
+        # measures at scale > 1.0 and long labels elide inside the field.
+        fm = QFontMetrics(paint_font(self))
+        text_width = 0
+        for item in self._items:
+            text_width = max(text_width, fm.horizontalAdvance(item.text))
+        if self._minimum_contents_length > 0:
+            text_width = max(text_width, fm.horizontalAdvance("M" * self._minimum_contents_length))
+        return max(scaled_px(100), text_width + scaled_px(24))
+
+    def sizeHint(self) -> QSize:
+        return QSize(self._content_width_hint(), scaled_px(self.BASE_HEIGHT))
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(max(scaled_px(80), self._content_width_hint()), scaled_px(self.BASE_HEIGHT))
+
+    def _field_rect(self) -> QRect:
+        return QRect(0, 0, self.width(), scaled_px(self.BASE_HEIGHT))
+
+    def _ensure_overlay(self):
+        window = self.window()
+        if window is None:
+            return
+        if self._overlay is None or self._overlay_parent is not window:
+            if self._overlay is not None:
+                self._overlay.deleteLater()
+            self._overlay_parent = window
+            self._overlay = _DropdownOverlay(self, window)
+
+    def showDropdown(self, focus_index: int | None = None):
+        """Open the dropdown.
+
+        ``focus_index`` scrolls that row into view without changing
+        ``currentIndex`` (button label stays put until the user picks a row).
+        """
+        if self.count() == 0:
+            return
+        self._ensure_overlay()
+        if self._overlay is None:
+            return
+        if focus_index is not None and 0 <= int(focus_index) < self.count():
+            self._dropdown_focus_index = int(focus_index)
+        else:
+            self._dropdown_focus_index = None
+        self._expanded = True
+        self._pressed = False
+        self._ensure_current_visible()
+        self._overlay.show_for_owner()
+        self.update()
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+        window = self.window()
+        if window is not None:
+            window.installEventFilter(self)
+
+    def dropdown_row_widget(self, index: int):
+        """Visible dropdown row for ``index`` after ``showDropdown``, or ``None``."""
+        if self._overlay is None:
+            return None
+        return self._overlay.slot_for_index(index)
+
+    def hideDropdown(self):
+        if self._gear.snap_in_progress:
+            # Let the in-flight snap animation land on its own — see
+            # GearDragCapability.snap_in_progress. It calls back into
+            # hideDropdown() itself once settled.
+            return
+        self._gear.cancel()
+        if self._overlay is not None:
+            self._overlay.clear_hover()
+            self._overlay.hide()
+        self._expanded = False
+        self._pressed = False
+        self._dropdown_focus_index = None
+        self.clearSearch()
+        self.update()
+        app = QApplication.instance()
+        if app is not None:
+            app.removeEventFilter(self)
+        window = self.window()
+        if window is not None:
+            window.removeEventFilter(self)
+
+    def _on_field_clicked(self):
+        if self._expanded:
+            self.hideDropdown()
+        else:
+            self.showDropdown()
+
+    # -------- gear-shifter drag-select (see GearDragCapability) --------
+
+    def mousePressEvent(self, event: QMouseEvent):
+        self._gear.handle_press(event)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if self._gear.handle_move(event):
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent):
+        outcome = self._gear.handle_release(event)
+        if outcome is not None:
+            self._suppress_next_click = outcome.suppress_click
+            super().mouseReleaseEvent(event)
+            self._suppress_next_click = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if self._search_enabled and event.key() == Qt.Key.Key_Backspace:
+            if self._search_text:
+                self._set_search_text(self._search_text[:-1])
+                event.accept()
+                return
+
+        event_text = event.text()
+        is_plain_text_input = (
+            self._search_enabled
+            and bool(event_text)
+            and event_text.isprintable()
+            and not (
+                event.modifiers()
+                & (
+                    Qt.KeyboardModifier.ControlModifier
+                    | Qt.KeyboardModifier.AltModifier
+                    | Qt.KeyboardModifier.MetaModifier
+                )
+            )
+            and not (event.key() == Qt.Key.Key_Space and not self._search_text and not self._expanded)
+        )
+        if is_plain_text_input:
+            if not self._expanded:
+                self.showDropdown()
+            self._set_search_text(self._search_text + event_text)
+            event.accept()
+            return
+
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            if self._expanded:
+                self.hideDropdown()
+            else:
+                self.showDropdown()
+            event.accept()
+            return
+
+        if event.key() == Qt.Key.Key_Escape and self._expanded:
+            self.hideDropdown()
+            event.accept()
+            return
+
+        # Only steer the selection while the dropdown is actually open
+        # (entered via Enter/Space above) -- collapsed, Up/Down must not
+        # silently spin the value. This also matters for row-to-row
+        # navigation: NavigationManager's ToolbarRowsSection trial-dispatches
+        # arrow keys to the focused widget first (see its _widget_handles),
+        # and a collapsed combo accepting them here would swallow the key
+        # instead of letting the section move focus to the next/previous row.
+        if event.key() == Qt.Key.Key_Down and self._expanded and self.count() > 0:
+            self._move_visible_selection(1)
+            event.accept()
+            return
+
+        if event.key() == Qt.Key.Key_Up and self._expanded and self.count() > 0:
+            self._move_visible_selection(-1)
+            event.accept()
+            return
+
+        super().keyPressEvent(event)
+
+    def wheelEvent(self, event):
+        if not self.shouldHandleWheelEvent(event):
+            return
+        if not self.isEnabled() or self.count() <= 1:
+            event.ignore()
+            return
+        delta = event.angleDelta().y()
+        if delta > 0:
+            new_index = (self._current_index - 1 + self.count()) % self.count()
+        elif delta < 0:
+            new_index = (self._current_index + 1) % self.count()
+        else:
+            return
+        self.setCurrentIndex(new_index)
+        event.accept()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        if not self._expanded:
+            return
+        QTimer.singleShot(0, self._hide_dropdown_if_focus_left)
+
+    def _is_dropdown_widget(self, widget) -> bool:
+        current = widget
+        while current is not None:
+            if current is self or current is self._overlay:
+                return True
+            current = current.parentWidget() if hasattr(current, "parentWidget") else None
+        return False
+
+    def _hide_dropdown_if_focus_left(self):
+        if not self._expanded:
+            return
+        app = QApplication.instance()
+        next_widget = app.focusWidget() if app is not None else None
+        window = self.window()
+        if next_widget is not None and self._is_dropdown_widget(next_widget):
+            return
+        if window is not None and window.isActiveWindow():
+            return
+        self.hideDropdown()
+
+    def eventFilter(self, watched, event):
+        expanded = getattr(self, "_expanded", False)
+        overlay = getattr(self, "_overlay", None)
+        if not expanded or overlay is None:
+            return super().eventFilter(watched, event)
+
+        if watched is self.window() and event.type() in (QEvent.Type.Move, QEvent.Type.Resize):
+            self._overlay.show_for_owner()
+            return False
+
+        # Outside-click and window/app deactivate dismiss are now handled by
+        # FlyoutManager._dismiss_passive — _DropdownOverlay is a registered
+        # BaseFlyout (see docs/legacy/plan_combobox_baseflyout_unification.md
+        # Phase 2). Hide/Close still needs handling here: FlyoutManager
+        # doesn't listen for QEvent.Type.Close at all, and only this combo's
+        # own host leaving should collapse it — an app-wide filter would
+        # otherwise collapse the list when Find Action's pulse overlay hides
+        # after its blink timer.
+        if event.type() in (QEvent.Type.Hide, QEvent.Type.Close) and watched in (
+            self,
+            self._overlay,
+            self.window(),
+        ):
+            self.hideDropdown()
+            return False
+
+        return super().eventFilter(watched, event)
+
+ComboBox.inspect_spec = InspectSpec(
+    family="ComboBox",
+    state=(
+        SpecField("current_index", "currentIndex"),
+        SpecField("current_text", "currentText"),
+        SpecField("count", "count"),
+        SpecField("items", lambda w: [t for t, _d in w.items()]),
+        SpecField("max_visible_items", "maxVisibleItems"),
+    ),
+    token_family=(
+        "surface.background",
+        "input.border.thin",
+        "list_item.background.hover",
+        "surface.background",
+    ),
+    docs='docs/user/INPUTS_API.md',
+)
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+ComboBox.widget_descriptor = WidgetDescriptor(
+    family=ComboBox.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(ComboBox.inspect_spec, 'config', ()),
+        state=ComboBox.inspect_spec.state,
+        token_family=getattr(ComboBox.inspect_spec, 'token_family', ()),
+        regions=getattr(ComboBox.inspect_spec, 'regions', False),
+        layers=getattr(ComboBox.inspect_spec, 'layers', False),
+        docs=getattr(ComboBox.inspect_spec, 'docs', ''),
+        preview_seed=getattr(ComboBox.inspect_spec, 'preview_seed', None),
+        apply_config_refresh=getattr(ComboBox.inspect_spec, 'apply_config_refresh', None),
+    ),
+)
