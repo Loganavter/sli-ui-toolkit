@@ -44,6 +44,7 @@ from sli_ui_toolkit.ui.widgets.helpers.rounded_clip import RoundedClipEffect
 from .animation import FlyoutFadeController
 from .builder import _FlyoutBuilderApi
 from .contract import _FlyoutManagerApi
+from .debug import _flyout_debug
 from .lifecycle import _FlyoutLifecycleApi
 from .placement import _FlyoutPlacementApi
 from .style import _FlyoutStyleApi
@@ -406,7 +407,7 @@ class BaseFlyout(
                 import traceback
 
                 _caller = "".join(traceback.format_stack()[-5:-3])
-                logger.debug(
+                _flyout_debug(
                     "[flyout-nav] focus guard: redirecting FocusIn(%s id=%s objName=%s) back to %s id=%s (flyout id=%s hide_fade=%s) caller=%s",
                     type(obj).__name__,
                     id(obj),
