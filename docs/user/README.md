@@ -17,5 +17,6 @@ Documentation for application authors using `sli-ui-toolkit`.
 - [Data visualization API](CHARTS_API.md)
 - [Overlays API](OVERLAYS_API.md)
 - [List items API](LIST_ITEMS_API.md)
+- [Why not QML](WHY_NOT_QML.md) — why the toolkit stays on custom-painted widgets and probably never migrates.
 
 Start with the repository [README](../../README.md) for install, demo, and test commands.
