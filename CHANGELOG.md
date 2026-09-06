@@ -1286,6 +1286,19 @@
   `_apply_styles`; the gaps around the output/input rows no longer read
   darker than the dialog surface. The `QTextEdit` QSS styling is unchanged.
 
+### Fixed
+- **Theme alias table removed** — `ThemeManager` no longer remaps token
+  names (`ALIAS`, `theme_aliases.json`, `register_aliases` are gone):
+  every `get_color`/`try_get_color` resolves the requested key directly
+  from the registered palette. Previously text/foreground tokens
+  (`list_item.text.normal`, `HighlightedText`, `help.nav.selected.text`)
+  and chrome tokens (`slider.thumb.outer`, `switch.knob.on`, `Window`,
+  `label.image.background`, …) were silently redirected to `surface.*`
+  backgrounds, so explicit palette values were ignored
+  (dark-on-dark list names, dark knobs/thumbs, dark selected text).
+  Hosts must use canonical token names; `tests/test_no_theme_aliases.py`
+  fails the suite on any reintroduced remapping.
+
 ## 3.1.12
 
 ### Added
