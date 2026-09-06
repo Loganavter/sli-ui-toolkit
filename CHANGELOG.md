@@ -931,6 +931,7 @@
 
 ### Fixed
 
+- **`SimpleOptionsFlyout.hide` no longer kicks an already-active window** — focus restore now skips `activateWindow()` when `win.isActiveWindow()` (keeps `setFocus()`), so closing a flyout over the active host no longer costs a Wayland busy-cursor frame. Satisfies the host `test_no_unconditional_activation` contract.
 - **`NavigationManager` focus-ring on new tab** — `ToolbarRowsSection`/`IconListNavSection` `focus_first` and bootstrap now respect mouse vs keyboard modality via `current_focus_reason()` (`MouseFocusReason` vs `OtherFocusReason`). Opening a tab with a mouse click (session picker) no longer lights up the ring; keyboard opens still do. Previously `OtherFocusReason` was unconditional.
 - **`AdaptiveTabStrip`/`_AdaptiveTabBar` tab switching requires Enter** — `Left`/`Right`/`Home`/`End` now move a separate keyboard-focused index (`_focused_index`) with modality preserved, `Enter`/`Space` activates (`setCurrentIndex`). `Delete`/`Backspace` closes the focused tab. Focus ring follows `_focusedTab()` when `hasFocus() && _keyboard_focus`. Mouse clicks still switch immediately.
 
