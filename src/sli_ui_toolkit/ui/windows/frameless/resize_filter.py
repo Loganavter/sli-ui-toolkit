@@ -12,13 +12,13 @@ did when this was one module.
 from __future__ import annotations
 
 import logging
-import os
 
 import shiboken6
 from PySide6.QtCore import QChildEvent, QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtGui import QCursor, QHoverEvent, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from .geometry import (
     QWIDGETSIZE_MAX,
     _BOTTOM,
@@ -30,6 +30,13 @@ from .geometry import (
 )
 
 
+_resize_logger = logging.getLogger("sli_ui_toolkit.resize")
+
+
+def _resize_debug_enabled() -> bool:
+    return any_flag("SLI_RESIZE_DEBUG")
+
+
 def _resize_debug(message: str, *args) -> None:
     """Env-gated trace for the frameless resize hit-testing/drag pipeline.
 
@@ -38,20 +45,10 @@ def _resize_debug(message: str, *args) -> None:
     is tagged ``[resize-debug]`` so it can be grepped independently of other
     debug output.
     """
-    flag = os.environ.get("SLI_RESIZE_DEBUG", "").strip().lower()
-    if flag in ("", "0", "false", "no", "off"):
+    if not _resize_debug_enabled():
         return
     try:
-        # Explicit opt-in trace: the host's logger levels must not gate it
-        # (the toolkit logger sits at INFO/WARNING unless the app enables
-        # debug mode). Bump only the sli_ui_toolkit tree, never the app's.
-        parent = logging.getLogger("sli_ui_toolkit")
-        if parent.level > logging.INFO:
-            parent.setLevel(logging.INFO)
-        log = logging.getLogger("sli_ui_toolkit.resize")
-        if log.level > logging.INFO:
-            log.setLevel(logging.INFO)
-        log.info("[resize-debug] " + (message % args if args else message))
+        _resize_logger.debug("[resize-debug] " + message, *args)
     except Exception:
         pass
 
