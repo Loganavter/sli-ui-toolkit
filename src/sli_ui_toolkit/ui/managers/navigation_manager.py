@@ -14,14 +14,13 @@ Sections are registered explicitly via ``register(owner, spec)`` where
 
 from __future__ import annotations
 
-import logging
 from typing import Protocol, runtime_checkable
 
 import shiboken6
-from PySide6.QtCore import QEvent, Qt, QObject, QTimer
+from PySide6.QtCore import QEvent, QPoint, Qt, QObject, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
-from .navigation_debug import _key_name, logger, widget_label
+from .navigation_debug import _key_name, nav_debug, nav_debug_enabled, widget_label
 from .realign import ClickRealignCoordinator
 
 _ARROWS = frozenset({Qt.Key.Key_Down, Qt.Key.Key_Up, Qt.Key.Key_Left, Qt.Key.Key_Right})
@@ -161,6 +160,38 @@ class NavigationManager(QObject):
         """
         return Qt.FocusReason.OtherFocusReason if self._last_input_keyboard else Qt.FocusReason.MouseFocusReason
 
+    @staticmethod
+    def resolve(reason: Qt.FocusReason, last_input_keyboard: bool) -> bool:
+        """Resolve whether a focus grant should draw the keyboard ring.
+
+        SINGLE interpretation site for focus-ring modality (4.2.4): the
+        source of truth is the input device (``_last_input_keyboard`` —
+        ``MouseButtonPress`` → ``False``, ``KeyPress`` → ``True``);
+        ``reason`` is only a documented hint and is intentionally ignored.
+        Real mouse clicks reset the flag to ``False`` via the app filter
+        *before* ``FocusIn``, so ``Mouse`` → ``False`` automatically, while
+        a programmatic ``Mouse``-steal during keyboard navigation → ``True``
+        (preserves the existing ring-preserve safeguard).  Qt-generated
+        ``Tab``/``ActiveWindow``/``Other`` (focus proxy steals, fade
+        re-shows, window activation) on a mouse history → ``False`` —
+        that is the fix.
+        """
+        _ = reason
+        return bool(last_input_keyboard)
+
+    def is_keyboard_focus(
+        self, reason: Qt.FocusReason, *, _last_input: bool | None = None
+    ) -> bool:
+        """Return ``True`` if *reason*'s focus grant should draw the ring.
+
+        ``_last_input`` is a test seam: when given it is used instead of
+        the live ``_last_input_keyboard`` flag, so the full reason matrix
+        is unit-testable without a ``QApplication``.
+        """
+        if _last_input is not None:
+            return NavigationManager.resolve(reason, _last_input)
+        return NavigationManager.resolve(reason, self._last_input_keyboard)
+
     def last_keyboard_focus(self) -> QWidget | None:
         """Return the last widget that received focus via keyboard
         (arrow/Tab/OtherFocusReason), or ``None``.
@@ -239,7 +270,7 @@ class NavigationManager(QObject):
             # that gap regardless of what the caller does.
             if isinstance(owner, QWidget):
                 owner.destroyed.connect(lambda _obj=None, o=owner: self.unregister(o))
-            logger.debug(
+            nav_debug(
                 "[nav] registered section %s (owner=%s) total=%d",
                 type(spec).__name__, type(owner).__name__, len(self._sections),
             )
@@ -271,14 +302,14 @@ class NavigationManager(QObject):
             # MouseFocusReason _grab_focus carefully chose for a
             # mouse-opened flyout and lighting up the focus ring.
             owns = current is not None and spec.owns(current)
-            logger.debug(
+            nav_debug(
                 "[nav] bootstrap skip: owner=%s current=%s owns=%s",
                 type(owner).__name__,
                 widget_label(current),
                 owns,
             )
             return
-        logger.debug(
+        nav_debug(
             "[nav] bootstrap focus_first: owner=%s reason=%s",
             type(owner).__name__,
             self.current_focus_reason().name,
@@ -295,7 +326,7 @@ class NavigationManager(QObject):
         prev_count = len(self._sections)
         self._sections = [(o, s) for o, s in self._sections if o is not owner]
         if len(self._sections) != prev_count:
-            logger.debug(
+            nav_debug(
                 "[nav] unregistered section %s total=%d",
                 type(owner).__name__, len(self._sections),
             )
@@ -582,9 +613,9 @@ class NavigationManager(QObject):
             # so flyouts can query it at open time.
             reason = event.reason()
             widget = obj if isinstance(obj, QWidget) else None
-            _debug = logger.isEnabledFor(logging.DEBUG)
+            _debug = nav_debug_enabled()
             if _debug and widget is not None:
-                logger.debug(
+                nav_debug(
                     "[nav] FocusIn reason=%s widget=%s kb_focus=%s widget_reason=%s",
                     reason.name,
                     widget_label(widget),
@@ -610,7 +641,7 @@ class NavigationManager(QObject):
                     # Button doesn't evaporate ring (Button.focusInEvent also
                     # has a preserve, this is the manager-side counterpart).
                     if _debug:
-                        logger.debug(
+                        nav_debug(
                             "[nav] FocusIn Mouse but last_input keyboard — preserve last_keyboard_focus=%s",
                             widget_label(self._last_keyboard_focus),
                         )
@@ -658,7 +689,7 @@ class NavigationManager(QObject):
                             except Exception:
                                 pass
                             if _debug:
-                                logger.debug(
+                                nav_debug(
                                     "[nav] global ring-preserve forced _keyboard_focus True on %s",
                                     widget_label(widget),
                                 )
@@ -691,21 +722,31 @@ class NavigationManager(QObject):
             # in Button.focusInEvent never runs on its own.
             self._last_input_keyboard = False
             pos_fn = getattr(event, "globalPosition", None)
-            _debug = logger.isEnabledFor(logging.DEBUG)
+            _debug = nav_debug_enabled()
             if pos_fn is not None:
-                self._realign.last_click_pos = pos_fn().toPoint()
-                self._realign.realign_pending = True
+                try:
+                    _pt = pos_fn().toPoint()
+                except Exception:
+                    _pt = None
+                if isinstance(_pt, QPoint):
+                    self._realign.last_click_pos = _pt
+                    self._realign.realign_pending = True
+                else:
+                    self._realign.last_click_pos = None
+                    self._realign.realign_pending = False
                 if _debug:
-                    clicked_at = QApplication.widgetAt(self._realign.last_click_pos)
-                    logger.debug(
-                        "[nav] MouseButtonPress pos=(%d, %d) widgetAt=%s",
-                        self._realign.last_click_pos.x(),
-                        self._realign.last_click_pos.y(),
-                        widget_label(clicked_at),
-                    )
+                    _dbg_pos = self._realign.last_click_pos
+                    if isinstance(_dbg_pos, QPoint):
+                        clicked_at = QApplication.widgetAt(_dbg_pos)
+                        nav_debug(
+                            "[nav] MouseButtonPress pos=(%d, %d) widgetAt=%s",
+                            _dbg_pos.x(),
+                            _dbg_pos.y(),
+                            widget_label(clicked_at),
+                        )
             focused = QApplication.focusWidget()
             if _debug:
-                logger.debug(
+                nav_debug(
                     "[nav] MouseButtonPress focused=%s keyboard_focus=%s",
                     widget_label(focused),
                     getattr(focused, "_keyboard_focus", None) if focused else None,
@@ -731,7 +772,7 @@ class NavigationManager(QObject):
                 if changed:
                     focused.update()
                     if _debug:
-                        logger.debug(
+                        nav_debug(
                             "[nav] MouseButtonPress cleared ring on %s (was kb=%s reason=%s→Mouse)",
                             widget_label(focused),
                             getattr(focused, "_keyboard_focus", None),
@@ -748,7 +789,7 @@ class NavigationManager(QObject):
 
         self._last_input_keyboard = True
         key = event.key()
-        _debug = logger.isEnabledFor(logging.DEBUG)
+        _debug = nav_debug_enabled()
 
         # Whether this press already realigned focus onto the last click
         # point. The two `return False` sites below normally yield a key
@@ -766,11 +807,11 @@ class NavigationManager(QObject):
             self._realign.realign_pending = False
             realigned = self._realign.realign_to_last_click(self)
             if _debug and realigned:
-                logger.debug("[nav] %s realigned to click", _key_name(key))
+                nav_debug("[nav] %s realigned to click", _key_name(key))
 
         if _debug and key in _ARROWS:
             focused = QApplication.focusWidget()
-            logger.debug(
+            nav_debug(
                 "[nav] eventFilter key=%s focused=%s sections=%d %s",
                 _key_name(key),
                 widget_label(focused),
@@ -796,7 +837,7 @@ class NavigationManager(QObject):
                 if spec.owns(focused) or focused is owner
             )
             if _debug and not wants_key:
-                logger.debug(
+                nav_debug(
                     "[nav] extra_keys: key=%s focused=%s wants_key=False sections=%d",
                     _key_name(key),
                     widget_label(focused),
@@ -819,7 +860,7 @@ class NavigationManager(QObject):
             # yet. Consume this press as reveal-only; a second press then
             # steps normally from the now-visible ring.
             if _debug:
-                logger.debug(
+                nav_debug(
                     "[nav] %s: reveal-only after click realign, ring at %s",
                     _key_name(key), widget_label(focused),
                 )
@@ -839,7 +880,7 @@ class NavigationManager(QObject):
                 if focused is owner and key in _ARROWS and spec.focus_first(reason=self.current_focus_reason()):
                     if _debug:
                         new_focus = QApplication.focusWidget()
-                        logger.debug(
+                        nav_debug(
                             "[nav] %s bootstrap -> %s via %s",
                             _key_name(key),
                             widget_label(new_focus),
@@ -849,7 +890,7 @@ class NavigationManager(QObject):
                 continue
 
             if _debug:
-                logger.debug(
+                nav_debug(
                     "[nav] key=%s focused=%s section=%s",
                     _key_name(key),
                     widget_label(focused),
@@ -859,12 +900,12 @@ class NavigationManager(QObject):
                 if _debug:
                     new_focus = QApplication.focusWidget()
                     if new_focus is not focused:
-                        logger.debug(
+                        nav_debug(
                             "[nav] -> %s",
                             widget_label(new_focus),
                         )
                     else:
-                        logger.debug("[nav] consumed (no movement)")
+                        nav_debug("[nav] consumed (no movement)")
                 return True
 
             # Section declined — try adjacent section on boundary keys.
@@ -874,7 +915,7 @@ class NavigationManager(QObject):
                 if neighbor is not None and neighbor[1].focus_first(ref_x, reason=self.current_focus_reason()):
                     if _debug:
                         new_focus = QApplication.focusWidget()
-                        logger.debug(
+                        nav_debug(
                             "[nav] -> %s via %s",
                             widget_label(new_focus),
                             type(neighbor[0]).__name__,
@@ -882,7 +923,7 @@ class NavigationManager(QObject):
                     return True
                 if _debug:
                     idx = self._section_index(owner)
-                    logger.debug(
+                    nav_debug(
                         "[nav] no neighbor DOWN for %s idx=%s sections=%s",
                         type(owner).__name__, idx,
                         [(type(o).__name__, id(o)) for o, _ in self._sections],
@@ -892,7 +933,7 @@ class NavigationManager(QObject):
                 if neighbor is not None and neighbor[1].focus_last(ref_x, reason=self.current_focus_reason()):
                     if _debug:
                         new_focus = QApplication.focusWidget()
-                        logger.debug(
+                        nav_debug(
                             "[nav] -> %s via %s",
                             widget_label(new_focus),
                             type(neighbor[0]).__name__,
@@ -900,7 +941,7 @@ class NavigationManager(QObject):
                     return True
                 if _debug:
                     idx = self._section_index(owner)
-                    logger.debug(
+                    nav_debug(
                         "[nav] no neighbor UP for %s idx=%s sections=%s",
                         type(owner).__name__, idx,
                         [(type(o).__name__, id(o)) for o, _ in self._sections],
@@ -910,7 +951,7 @@ class NavigationManager(QObject):
             # Up/Down to prevent infinite re-delivery by Qt.
             if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
                 if _debug:
-                    logger.debug("[nav] consumed (no neighbor)")
+                    nav_debug("[nav] consumed (no neighbor)")
                 return True
 
         # No section claimed the focused widget.  Do NOT fall back to
@@ -1045,5 +1086,32 @@ def auto_navigation(owner: QWidget, *, tag: str = "auto") -> None:
         NavigationManager.get_instance().register(owner, section)
     except Exception:
         pass
+
+
+def resolve_keyboard_focus(
+    reason: Qt.FocusReason, *, _last_input: bool | None = None
+) -> bool:
+    """Widget-facing focus-ring entry point (4.2.4 unification).
+
+    Tries :meth:`NavigationManager.is_keyboard_focus`; when the manager is
+    unavailable (no ``QApplication`` — unit tests — or any import/runtime
+    failure) falls back to the degraded static rule ``reason not in
+    (Mouse, MenuBar, Popup)``.  This fallback is the ONLY surviving
+    reason-formula besides :meth:`NavigationManager.resolve` — every
+    ``focusInEvent`` and anchor reader must call this helper instead of
+    inlining its own tuple.  ``_last_input`` bypasses the manager so the
+    matrix is testable without GUI.
+    """
+    if _last_input is not None:
+        return NavigationManager.resolve(reason, _last_input)
+    try:
+        return NavigationManager.get_instance().is_keyboard_focus(reason)
+    except Exception:
+        # degraded, no manager
+        return reason not in (
+            Qt.FocusReason.MouseFocusReason,
+            Qt.FocusReason.MenuBarFocusReason,
+            Qt.FocusReason.PopupFocusReason,
+        )
 
 

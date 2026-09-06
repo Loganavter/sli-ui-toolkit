@@ -2,6 +2,8 @@ import logging
 import os
 import sys
 
+from sli_ui_toolkit.core.debug_flags import env_flag
+
 def get_log_directory(app_name: str) -> str:
     logger = logging.getLogger(app_name)
 
@@ -41,18 +43,17 @@ def setup_logging(
     toolkit_logger = logging.getLogger("sli_ui_toolkit")
 
     if debug_env_var:
-        suppress_debug = (
-            os.getenv(f"{debug_env_var.replace('_DEBUG', '_SUPPRESS_DEBUG')}", "0")
-            == "1"
+        suppress_debug = env_flag(
+            f"{debug_env_var.replace('_DEBUG', '_SUPPRESS_DEBUG')}"
         )
         if suppress_debug:
             debug_enabled = False
-        elif os.getenv(debug_env_var, "0") == "1":
+        elif env_flag(debug_env_var):
             debug_enabled = True
 
     level = logging.DEBUG if debug_enabled else logging.INFO
     # Toolkit is per-zone gated: default --debug stays INFO, only SLI_TOOLKIT_DEBUG=1 enables DEBUG
-    toolkit_level = logging.DEBUG if os.getenv("SLI_TOOLKIT_DEBUG", "0") == "1" else logging.INFO
+    toolkit_level = logging.DEBUG if env_flag("SLI_TOOLKIT_DEBUG") else logging.INFO
 
     if logger.handlers:
         logger.setLevel(level)

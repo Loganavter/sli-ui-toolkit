@@ -54,6 +54,7 @@ from sli_ui_toolkit.ui.windows import (
     apply_frameless,
     decorate_dialog,
     remove_frameless,
+    resolve_csd_band,
     set_frameless_runtime,
     set_window_bg_color,
 )
@@ -106,6 +107,7 @@ __all__ = [
     "WindowControlsConfig",
     "apply_frameless",
     "remove_frameless",
+    "resolve_csd_band",
     "set_frameless_runtime",
     "decorate_dialog",
     "popup_context_menu_for_anchor",

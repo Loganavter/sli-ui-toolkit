@@ -299,14 +299,22 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         e.accept()
 
     def focusInEvent(self, event):
-        # Mirrors Button's own focusInEvent (events.py): only a genuine
-        # keyboard focus grant (Tab/arrow navigation) should flash the
-        # ring, not a mouse click/drag on the thumb.
+        # Ring modality resolved centrally via NavigationManager (4.2.4):
+        # input device is the source of truth, reason is only a hint.
         reason = getattr(event, "reason", lambda: None)()
-        self._keyboard_focus = reason not in (
-            Qt.FocusReason.MouseFocusReason,
-            Qt.FocusReason.MenuBarFocusReason,
-        )
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
+            )
+
+            self._keyboard_focus = resolve_keyboard_focus(reason)
+        except Exception:
+            # degraded, no manager
+            self._keyboard_focus = reason not in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+                Qt.FocusReason.PopupFocusReason,
+            )
         self.update()
         super().focusInEvent(event)
 

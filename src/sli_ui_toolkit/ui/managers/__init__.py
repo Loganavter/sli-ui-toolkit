@@ -10,6 +10,7 @@ from sli_ui_toolkit.ui.managers.flyout_policy import (
 )
 from sli_ui_toolkit.ui.managers.flyout_timer_service import (
     AnchoredFlyoutAutoHide,
+    DecisionJournal,
     DelayedActionTimer,
 )
 from sli_ui_toolkit.ui.managers.layer_stack import LayerStack
@@ -57,6 +58,7 @@ from sli_ui_toolkit.ui.managers.ui_font import (
 
 __all__ = [
     "AnchoredFlyoutAutoHide",
+    "DecisionJournal",
     "CallableShowPolicy",
     "ChainShowPolicy",
     "DEFAULT_FLYOUT_GROUP",

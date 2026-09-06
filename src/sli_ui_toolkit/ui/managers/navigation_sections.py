@@ -7,8 +7,6 @@ this toolkit.
 
 from __future__ import annotations
 
-import logging
-import os
 from typing import TYPE_CHECKING, Callable
 
 import shiboken6
@@ -17,6 +15,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget
 
+from sli_ui_toolkit.ui.managers.navigation_debug import nav_debug, nav_debug_enabled
 from sli_ui_toolkit.ui.managers.navigation_manager import widget_label
 
 if TYPE_CHECKING:
@@ -50,10 +49,10 @@ def _focus_reason() -> Qt.FocusReason:
         pass
     return Qt.FocusReason.OtherFocusReason
 
-# [nav-*] trace lines fire on every arrow-key navigate() call once the host
-# app's --debug is on, drowning out other subsystems' debug output. Gated
-# on its own opt-in flag, off by default even under --debug -- same
-# convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
+# [nav-*] trace lines fire on every arrow-key navigate() call. Gated on the
+# opt-in nav flag at call time (off by default even under the host's
+# --debug) — host-app ``docs/dev/LOGGING.md`` unique-prefix convention, see
+# ``navigation_debug`` (``SLI_NAV_DEBUG``, legacy alias ``UI_NAV_DEBUG``).
 def _ensure_visible(widget: QWidget) -> None:
     """Make *widget* visible inside its parent QScrollArea, if any.
 
@@ -73,19 +72,6 @@ def _ensure_visible(widget: QWidget) -> None:
             area.ensureWidgetVisible(widget, 0, 40)
     except Exception:
         pass
-
-
-logger = logging.getLogger(__name__)
-if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
-    "",
-    "0",
-    "false",
-    "no",
-    "off",
-):
-    logger.setLevel(logging.WARNING)
-else:
-    logger.setLevel(logging.DEBUG)
 
 
 class ToolbarRowsSection:
@@ -188,10 +174,10 @@ class ToolbarRowsSection:
         if row is None or row not in rows:
             return False
         idx = rows.index(row)
-        if logger.isEnabledFor(logging.DEBUG):
+        if nav_debug_enabled():
             items = self._focusable(row)
             col = items.index(widget) if widget in items else -1
-            logger.debug(
+            nav_debug(
                 "[nav-%s] navigate key=%s widget=%s row_idx=%d/%d col_idx=%d/%d",
                 self._tag, key, widget_label(widget), idx, len(rows), col, len(items),
             )
@@ -220,8 +206,8 @@ class ToolbarRowsSection:
                         return True
             if idx < len(rows) - 1:
                 return self._focus_near_in(rows[idx + 1], widget, reason)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug('[nav-%s] at bottom idx=%d/%d key=Down — nowhere to scroll down', self._tag, idx, len(rows))
+            if nav_debug_enabled():
+                nav_debug('[nav-%s] at bottom idx=%d/%d key=Down — nowhere to scroll down', self._tag, idx, len(rows))
             # Last row — yield (e.g. canvas/no further row below).
             return False
         if key == Qt.Key.Key_Up:
@@ -236,8 +222,8 @@ class ToolbarRowsSection:
                     return True
             if idx > 0:
                 return self._focus_near_in(rows[idx - 1], widget, reason)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug('[nav-%s] at top idx=%d/%d key=Up — nowhere to scroll up', self._tag, idx, len(rows))
+            if nav_debug_enabled():
+                nav_debug('[nav-%s] at top idx=%d/%d key=Up — nowhere to scroll up', self._tag, idx, len(rows))
             # First row — yield so NavigationManager can hand off upward
             # (title bar / tab strip).
             return False
@@ -373,7 +359,7 @@ class IconListNavSection:
 
     def navigate(self, key: int, widget: QWidget) -> bool:
         idx = self._list.index_of_button(widget)
-        logger.debug(
+        nav_debug(
             "[nav-iconlist] navigate key=%s widget=%s idx=%s count=%d",
             key, widget_label(widget), idx, self._list.count(),
         )
@@ -384,8 +370,8 @@ class IconListNavSection:
                 return self.focus_first(reason=_reason)
             if idx < self._list.count() - 1:
                 return self._focus_visible(idx + 1, _reason)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug('[nav-iconlist] at bottom idx=%s count=%s key=Down — nowhere to scroll down (consumed)', idx, self._list.count())
+            if nav_debug_enabled():
+                nav_debug('[nav-iconlist] at bottom idx=%s count=%s key=Down — nowhere to scroll down (consumed)', idx, self._list.count())
             return True
         if key == Qt.Key.Key_Up:
             if idx is None:
@@ -394,8 +380,8 @@ class IconListNavSection:
                 from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
                 _reason = _nav_focus_reason()
                 return self._focus_visible(idx - 1, _reason)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug('[nav-iconlist] at top idx=%s count=%s key=Up — nowhere to scroll up', idx, self._list.count())
+            if nav_debug_enabled():
+                nav_debug('[nav-iconlist] at top idx=%s count=%s key=Up — nowhere to scroll up', idx, self._list.count())
             return False
         if key == Qt.Key.Key_Right:
             # Поддержка side="right" флайаутов (Up→above, Down→below уже в ToolbarRowsSection)
@@ -619,8 +605,8 @@ class AutoNavigationSection(ToolbarRowsSection):
                 target.setFocus(reason)
                 _ensure_visible(target)
                 return True
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug('[nav-auto] at bottom row_idx=%s/%s key=Down — nowhere to scroll down (consumed)', row_idx, len(rows))
+            if nav_debug_enabled():
+                nav_debug('[nav-auto] at bottom row_idx=%s/%s key=Down — nowhere to scroll down (consumed)', row_idx, len(rows))
             return True
         if key == Qt.Key.Key_Up:
             from sli_ui_toolkit.managers import NavigationManager as _NMUp
@@ -657,14 +643,14 @@ class AutoNavigationSection(ToolbarRowsSection):
             # For help-sidebar (search+list column), Up at top should go to HelpBackBar
             # For help-content (side-by-side), Up at top should stay (Left/Right switches columns)
             _tag_val = getattr(self, '_tag', '')
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug('[nav-auto] Up at top tag=%s row_idx=%s/%s', _tag_val, row_idx, len(rows))
+            if nav_debug_enabled():
+                nav_debug('[nav-auto] Up at top tag=%s row_idx=%s/%s', _tag_val, row_idx, len(rows))
             if _tag_val == 'help-sidebar':
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug('[nav-auto] at top row_idx=%s/%s key=Up — yield to previous section (help-sidebar)', row_idx, len(rows))
+                if nav_debug_enabled():
+                    nav_debug('[nav-auto] at top row_idx=%s/%s key=Up — yield to previous section (help-sidebar)', row_idx, len(rows))
                 return False
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug('[nav-auto] at top row_idx=%s/%s key=Up — nowhere to scroll up (consumed)', row_idx, len(rows))
+            if nav_debug_enabled():
+                nav_debug('[nav-auto] at top row_idx=%s/%s key=Up — nowhere to scroll up (consumed)', row_idx, len(rows))
             return True
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             from sli_ui_toolkit.managers import NavigationManager as _NMLR

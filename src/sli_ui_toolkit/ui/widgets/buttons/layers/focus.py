@@ -9,32 +9,32 @@ click does not flash the ring while Tab/arrow navigation does.
 from __future__ import annotations
 
 import logging
-import os
 
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
 from ..context import DrawContext
 from ._base import Layer
 
-# [focus-ring] trace lines fire on every paint of a focused widget once the
-# host app's --debug is on, drowning out other subsystems' debug output.
-# Gated on its own opt-in flag, off by default even under --debug -- same
-# convention as sidebar_nav_list/debug.py's SLI_UI_NAVLIST_DEBUG.
+# [focus-ring] trace lines fire on every paint of a focused widget.
+# Gated on the opt-in nav flag at call time (off by default even under
+# --debug) — host-app ``docs/dev/LOGGING.md`` unique-prefix convention;
+# same vars as ``ui.managers.navigation_debug`` (``SLI_NAV_DEBUG``,
+# legacy alias ``UI_NAV_DEBUG``).
 logger = logging.getLogger(__name__)
-if os.environ.get("UI_NAV_DEBUG", "").strip().lower() in (
-    "",
-    "0",
-    "false",
-    "no",
-    "off",
-):
-    logger.setLevel(logging.WARNING)
-else:
-    logger.setLevel(logging.DEBUG)
+
+
+def _focus_debug_enabled() -> bool:
+    return any_flag("SLI_NAV_DEBUG", "UI_NAV_DEBUG")
+
+
+def _focus_debug(message: str, *args) -> None:
+    if _focus_debug_enabled():
+        logger.debug(message, *args)
 
 
 class FocusLayer(Layer):
@@ -65,7 +65,7 @@ class FocusLayer(Layer):
         except Exception:
             rect_str = str(getattr(ctx, "rect", "n/a"))
             global_str = "n/a"
-        logger.debug(
+        _focus_debug(
             "[focus-ring] draw widget=%s(%s) rect=%s global=%s keyboard_focus=%s hasFocus=%s focused=%s",
             type(widget).__name__,
             getattr(widget, "objectName", lambda: "")() or "",
@@ -79,7 +79,7 @@ class FocusLayer(Layer):
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
         # Log where ring is actually drawn (applies() and draw() can diverge
         # due to focus guard redirects between the two calls).
-        if logger.isEnabledFor(10):  # DEBUG
+        if _focus_debug_enabled():
             self._debug_draw(ctx)
         factor = UiScale.get_instance().factor()
         radius = max(0, ctx.corner_radius)

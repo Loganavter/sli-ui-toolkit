@@ -62,4 +62,11 @@ toasts.update_toast(toast_id, "90%", success=False, progress=90)
 `actions` also accepts plain `dict`/`tuple` specs or a raw `QWidget`, not
 only `ToastAction` instances.
 
+Progress-only updates pass `content=None` (and omit `actions`): the toast
+skips the text/geometry pass and only moves the progress bar
+(`update_toast(toast_id, None, success=False, progress=75)`). Omitting
+`progress=` keeps the current bar; `progress=None` hides it. Updates never
+resurrect a closed toast, and closing destroys the widget (`destroyed`
+pops the manager registry).
+
 See also [API_CATALOG.md](API_CATALOG.md) for the full widget index.

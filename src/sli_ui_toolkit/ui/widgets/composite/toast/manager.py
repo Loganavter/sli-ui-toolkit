@@ -8,6 +8,7 @@ registry, anchoring, stacking).
 
 from __future__ import annotations
 
+import shiboken6
 from typing import Any, Iterable
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QTimer
@@ -20,10 +21,8 @@ class ToastManager(QObject):
     def __init__(self, parent_window, image_label=None):
         host_parent = parent_window
         if host_parent is None and image_label is not None:
-            try:
+            if shiboken6.isValid(image_label):  # type: ignore[attr-defined]
                 host_parent = image_label.window()
-            except RuntimeError:
-                host_parent = None
         if host_parent is None:
             raise ValueError("ToastManager requires an in-window parent widget")
         super().__init__(host_parent)
@@ -49,12 +48,10 @@ class ToastManager(QObject):
         if image_label is self.image_label:
             return
         if self.image_label is not None:
-            try:
+            if shiboken6.isValid(self.image_label):  # type: ignore[attr-defined]
                 self.image_label.removeEventFilter(self)
-            except RuntimeError:
-                pass
         self.image_label = image_label
-        if self.image_label is not None:
+        if self.image_label is not None and shiboken6.isValid(self.image_label):  # type: ignore[attr-defined]
             self.image_label.installEventFilter(self)
         self._position_toasts()
 
@@ -100,6 +97,11 @@ class ToastManager(QObject):
         toast = self._toasts.get(toast_id)
         if toast is None:
             return
+        if not shiboken6.isValid(toast):  # type: ignore[attr-defined]
+            self._toasts.pop(toast_id, None)
+            return
+        if toast._closing:
+            return
         toast.setProperty("toastSuccess", bool(success))
         toast.update_message(
             content,
@@ -109,49 +111,53 @@ class ToastManager(QObject):
             actions=actions,
             progress=progress,
         )
-        self._position_toasts()
-        toast.show()
-        toast.raise_()
+        if not toast.isVisible():
+            toast.show()
+            toast.raise_()
         self._schedule_reposition()
 
     def close_toast(self, toast_id: int) -> None:
-        toast = self._toasts.pop(toast_id, None)
+        toast = self._toasts.get(toast_id)
         if toast is None:
             return
+        if not shiboken6.isValid(toast):  # type: ignore[attr-defined]
+            self._toasts.pop(toast_id, None)
+            return
+        # No pop here: destroyed→pop is the single registry exit.
         toast.hide_and_close()
 
     def _toast_max_width(self) -> int:
-        if self.image_label is not None:
-            try:
-                return max(260, int(self.image_label.width() * 0.42))
-            except Exception:
-                pass
-        if self.parent_window is not None:
-            try:
-                return max(260, int(self.parent_window.width() * 0.35))
-            except Exception:
-                pass
+        if self.image_label is not None and shiboken6.isValid(self.image_label):  # type: ignore[attr-defined]
+            anchor_width = self.image_label.width()
+            if anchor_width > 0:
+                return max(260, int(anchor_width * 0.42))
+        if self.parent_window is not None and shiboken6.isValid(self.parent_window):  # type: ignore[attr-defined]
+            parent_width = self.parent_window.width()
+            if parent_width > 0:
+                return max(260, int(parent_width * 0.35))
         return 360
 
     def _position_toasts(self) -> None:
         if self.parent_window is None:
             return
-        try:
-            anchor_point = QPoint(0, 0)
-            if self.image_label is not None:
-                anchor_point = self.image_label.mapTo(self.parent_window, QPoint(0, 0))
+        if not shiboken6.isValid(self.parent_window):  # type: ignore[attr-defined]
+            return
+        anchor_point = QPoint(0, 0)
+        if self.image_label is not None and shiboken6.isValid(self.image_label):  # type: ignore[attr-defined]
+            anchor_point = self.image_label.mapTo(self.parent_window, QPoint(0, 0))
 
-            at_x = anchor_point.x() + self.spacing
-            at_y = anchor_point.y() + self.spacing
+        at_x = anchor_point.x() + self.spacing
+        at_y = anchor_point.y() + self.spacing
 
-            for toast in list(self._toasts.values()):
-                if not toast.isVisible():
-                    continue
-                toast.setGeometry(QRect(at_x, at_y, toast.width(), toast.height()))
-                toast.raise_()
-                at_y += toast.height() + self.spacing
-        except Exception:
-            pass
+        for toast_id, toast in list(self._toasts.items()):
+            if not shiboken6.isValid(toast):  # type: ignore[attr-defined]
+                self._toasts.pop(toast_id, None)
+                continue
+            if not toast.isVisible():
+                continue
+            toast.setGeometry(QRect(at_x, at_y, toast.width(), toast.height()))
+            toast.raise_()
+            at_y += toast.height() + self.spacing
 
     def _schedule_reposition(self) -> None:
         if self._reposition_pending:
@@ -167,7 +173,17 @@ class ToastManager(QObject):
         self._position_toasts()
 
     def eventFilter(self, watched, event):
-        if watched in (self.parent_window, self.image_label) and event.type() in (
+        if event is None:
+            return False
+        if self.parent_window is not None and not shiboken6.isValid(self.parent_window):  # type: ignore[attr-defined]
+            return False
+        is_parent = watched is self.parent_window
+        is_anchor = self.image_label is not None and watched is self.image_label
+        if not (is_parent or is_anchor):
+            return False
+        if isinstance(watched, QObject) and not shiboken6.isValid(watched):  # type: ignore[attr-defined]
+            return False
+        if event.type() in (
             QEvent.Type.Resize,
             QEvent.Type.Move,
             QEvent.Type.Show,

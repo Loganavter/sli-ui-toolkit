@@ -278,14 +278,28 @@ class SimpleOptionsFlyout(BaseFlyout):
         # of False even when Enter/Space opened this dropdown, so the first
         # row grabs focus silently and no ring appears until an arrow key
         # explicitly moves focus (which does set OtherFocusReason itself).
-        raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
-        if raw_reason is not None:
-            self._anchor_keyboard_focus = raw_reason not in (
-                Qt.FocusReason.MouseFocusReason,
-                Qt.FocusReason.MenuBarFocusReason,
+        # Modality resolved centrally via NavigationManager (4.2.4).
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
             )
-        else:
-            self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+
+            raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+            if raw_reason is not None:
+                self._anchor_keyboard_focus = resolve_keyboard_focus(raw_reason)
+            else:
+                self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+        except Exception:
+            # degraded, no manager
+            raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+            if raw_reason is not None:
+                self._anchor_keyboard_focus = raw_reason not in (
+                    Qt.FocusReason.MouseFocusReason,
+                    Qt.FocusReason.MenuBarFocusReason,
+                    Qt.FocusReason.PopupFocusReason,
+                )
+            else:
+                self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
         self.flyout_manager.request_show(self)
 

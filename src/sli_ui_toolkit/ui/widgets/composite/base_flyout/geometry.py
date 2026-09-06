@@ -8,14 +8,13 @@ live flyout (see ``tests/test_flyout_slide_start.py``).
 
 from __future__ import annotations
 
-import logging
 from typing import Literal
 
 from PySide6.QtCore import QPoint, QRect, QSize
 
 from sli_ui_toolkit.ui.in_window_surface import clamp_surface_rect
 
-logger = logging.getLogger(__name__)
+from .debug import _flyout_debug
 
 AnimationAxis = Literal["auto", "vertical", "horizontal", "diagonal"]
 
@@ -214,8 +213,8 @@ def _compute_aligned_top_left(
     ffx, ffy = _parse_point(flyout_point)
     clearance = max(int(offset), max(0, int(shadow_radius)))
     if clearance != int(offset):
-        logger.debug(
-            "show_aligned: offset=%s floored to shadow_radius=%s "
+        _flyout_debug(
+            "[flyout-nav] show_aligned: offset=%s floored to shadow_radius=%s "
             "(anchor_point=%r, flyout_point=%r) -- pass offset>=shadow_radius "
             "for the exact gap requested",
             offset,

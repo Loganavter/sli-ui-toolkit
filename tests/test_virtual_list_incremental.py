@@ -71,7 +71,9 @@ def test_kept_rows_are_repositioned(qtbot):
     for idx in range(3, 14):
         widget = ctrl.widget_for_index(idx)
         assert widget is not None
-        assert widget.geometry().y() == idx * 30 - 150
+        # Absolute content coordinates (Qt moves the content widget
+        # itself) — no scroll compensation in row geometry.
+        assert widget.geometry().y() == idx * 30
         assert widget.text() == f"item-{idx}"
 
 

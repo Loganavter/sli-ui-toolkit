@@ -296,12 +296,62 @@ def test_controller_index_at_global_pos(qtbot):
     ctrl.set_count(1000)
     ctrl.rebind()
 
-    # Row 0 occupies content y 0..30; scroll 300px puts row 10 at the top.
+    # Rows sit at absolute content coordinates (Qt moves the content
+    # widget itself): row 10 occupies content y 300..330 regardless of
+    # scroll; scrolling 300px puts it at the viewport top.
     ctrl.scroll_to(300)
     qtbot.wait(10)
-    global_pos = content.mapToGlobal(content.rect().topLeft())
-    assert ctrl.index_at(global_pos) == 10
-    # A point 15px into the viewport lands on row 10 as well.
-    assert ctrl.index_at(global_pos + QPoint(5, 15)) == 10
+    assert ctrl.index_at(content.mapToGlobal(QPoint(5, 300))) == 10
+    assert ctrl.index_at(content.mapToGlobal(QPoint(5, 315))) == 10
+    # Content origin is always row 0, scrolled or not.
+    assert ctrl.index_at(content.mapToGlobal(content.rect().topLeft())) == 0
     # Below the content -> out of range.
-    assert ctrl.index_at(global_pos + QPoint(5, 1000 * 30)) == -1
+    assert ctrl.index_at(content.mapToGlobal(QPoint(5, 1000 * 30))) == -1
+
+
+def test_scrolled_rows_keep_absolute_positions(qtbot):
+    """No double scroll offset: Qt moves the content widget itself, so the
+    pool must position rows at absolute content coordinates.
+
+    Regression: subtracting the offset again scrolled lists at 2x and left
+    ~2 pitches of dead space under the last row at max scroll.
+    """
+    from sli_ui_toolkit.widgets import OverlayScrollArea, VirtualListController
+
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(300, 300)
+    scroll = OverlayScrollArea(host)
+    scroll.setGeometry(0, 0, 300, 300)
+    content = QWidget()
+    scroll.setWidget(content)
+    ym, pitch, widget_h, count = 4, 30, 28, 20
+    ctrl = VirtualListController(
+        scroll, content, factory=lambda: QLabel("row"),
+        bind=lambda i, w: w.setText(f"row-{i}"),
+        row_height=pitch, widget_height=widget_h,
+        x_margin=4, y_margin=ym,
+    )
+    host.show()
+    qtbot.waitExposed(host)
+    ctrl.set_count(count)
+    ctrl.rebind()
+    qtbot.wait(30)
+
+    expected_last_y = ym + (count - 1) * pitch
+    assert ctrl.widget_for_index(0).y() == ym
+
+    native = scroll.verticalScrollBar()
+    viewport = scroll.viewport().height()
+    assert native.maximum() == ctrl._content_height() - viewport
+
+    # Scroll to the very end: row geometry is absolute (no offset
+    # subtracted), so the last row sits at ym + (count-1)*pitch; its
+    # bottom + margin lands exactly on the content end (which Qt parks at
+    # the viewport bottom) — no dead band.
+    native.setValue(native.maximum())
+    qtbot.wait(30)
+    assert ctrl.widget_for_index(count - 1).y() == expected_last_y
+    last_bottom = expected_last_y + widget_h
+    assert last_bottom + ym == ctrl._content_height()
+    assert last_bottom - native.value() == viewport - ym

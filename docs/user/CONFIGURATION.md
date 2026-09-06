@@ -243,10 +243,11 @@ from sli_ui_toolkit import setup_logging
 setup_logging(app_name, debug_enabled=False, debug_env_var=None)
 ```
 
-Attaches stderr + rotating-file handlers to **both** the logger named
+Attaches stderr + file handlers to **both** the logger named
 `app_name` and the toolkit's own `"sli_ui_toolkit"` logger tree, so toolkit
 internals (`logging.getLogger(__name__)` in every widget module) show up in
-your app's existing log output instead of being silently dropped. If
+your app's existing log output instead of being silently dropped. The file
+handler overwrites on every start (`mode="w"` — no rotation). If
 `debug_env_var` is set, that environment variable (checked at call time)
 overrides `debug_enabled`.
 
@@ -258,6 +259,9 @@ module but have no handler attached anywhere in your app — they're dropped
 unless you wire up handlers yourself. `setup_simple_logging(app_name, level)`
 is a lighter one-call alternative for simple scripts (root logger + stderr
 only, no file handler).
+
+Full convention (logger trees, level model, env-gated debug streams):
+[../dev/LOGGING.md](../dev/LOGGING.md).
 
 ---
 

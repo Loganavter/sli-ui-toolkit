@@ -160,15 +160,20 @@ class _AutoPreviewController(QObject):
         elif t == QEvent.Type.FocusIn:
             try:
                 reason = event.reason() if hasattr(event, "reason") else Qt.FocusReason.OtherFocusReason
-                is_kbd = reason not in (Qt.FocusReason.MouseFocusReason, Qt.FocusReason.MenuBarFocusReason)
-                # Also check NavigationManager last_input style
+                # Ring modality resolved centrally via NavigationManager (4.2.4).
                 try:
-                    from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+                    from sli_ui_toolkit.ui.managers.navigation_manager import (
+                        resolve_keyboard_focus,
+                    )
 
-                    if not is_kbd and NavigationManager.get_instance().last_input_was_keyboard():
-                        is_kbd = True
+                    is_kbd = resolve_keyboard_focus(reason)
                 except Exception:
-                    pass
+                    # degraded, no manager
+                    is_kbd = reason not in (
+                        Qt.FocusReason.MouseFocusReason,
+                        Qt.FocusReason.MenuBarFocusReason,
+                        Qt.FocusReason.PopupFocusReason,
+                    )
                 kbd_flag = getattr(self._anchor, "_keyboard_focus", False)
                 if is_kbd and kbd_flag:
                     self._show_preview()

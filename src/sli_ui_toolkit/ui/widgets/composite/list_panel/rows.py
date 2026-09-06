@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable
+import os
 
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QWidget
@@ -59,15 +60,27 @@ def make_item_position(index: int, total: int) -> str:
     return "middle"
 
 
+def _resolve_row_text(img_item: Any) -> str:
+    """Generic display-name fallback: display_name → basename(path) → str(item)."""
+    raw = getattr(img_item, "display_name", "")
+    if raw:
+        return raw if isinstance(raw, str) else str(raw)
+    path = getattr(img_item, "path", "")
+    if path:
+        stem = os.path.splitext(os.path.basename(str(path)))[0]
+        if stem:
+            return stem
+    text = str(img_item)
+    return text if text else ""
+
+
 def apply_item_data(widget, index, img_item, current_index, total) -> None:
     """Push one item's data onto an existing row widget in place."""
     widget.index = index
     widget.full_path = img_item.path if hasattr(img_item, "path") else ""
     widget.is_current = index == current_index
     widget.position = make_item_position(index, total)
-    widget.name_label.setText(
-        img_item.display_name if hasattr(img_item, "display_name") else str(img_item)
-    )
+    widget.name_label.setText(_resolve_row_text(img_item))
     if hasattr(widget, "rating_label"):
         rating = img_item.rating if hasattr(img_item, "rating") else 0
         widget.rating_label.setText(str(rating))

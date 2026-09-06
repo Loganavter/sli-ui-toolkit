@@ -443,10 +443,21 @@ class _AdaptiveTabBar(QWidget):
         super().leaveEvent(event)
 
     def focusInEvent(self, event):  # noqa: N802
-        self._keyboard_focus = event.reason() not in (
-            Qt.FocusReason.MouseFocusReason,
-            Qt.FocusReason.PopupFocusReason,
-        )
+        # Ring modality resolved centrally via NavigationManager (4.2.4):
+        # input device is the source of truth, reason is only a hint.
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
+            )
+
+            self._keyboard_focus = resolve_keyboard_focus(event.reason())
+        except Exception:
+            # degraded, no manager
+            self._keyboard_focus = event.reason() not in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+                Qt.FocusReason.PopupFocusReason,
+            )
         if self._focused_index < 0 or not (0 <= self._focused_index < len(self._tabs)):
             self._focused_index = self._current_index
         super().focusInEvent(event)

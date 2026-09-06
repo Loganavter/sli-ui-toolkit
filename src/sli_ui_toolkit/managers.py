@@ -1,5 +1,6 @@
 from sli_ui_toolkit.ui.managers import (
     AnchoredFlyoutAutoHide,
+    DecisionJournal,
     AutoNavigationSection,
     CallableShowPolicy,
     ChainShowPolicy,
@@ -44,6 +45,7 @@ from sli_ui_toolkit.ui.managers import (
 
 __all__ = [
     "AnchoredFlyoutAutoHide",
+    "DecisionJournal",
     "CallableShowPolicy",
     "ChainShowPolicy",
     "DEFAULT_FLYOUT_GROUP",
