@@ -1,66 +1,5 @@
 # Changelog
 
-## 4.2.4 — Focus-ring resolver unification
-
-### Fixed
-- **Focus-ring `reason` разнобой unified** — `NavigationManager.resolve()` / `is_keyboard_focus()` / `resolve_keyboard_focus()` теперь единственный резолвер модальности кольца: источником правды является устройство ввода (`MouseButtonPress` → `False`, `KeyPress` → `True`), `Qt.FocusReason` — только документированный хинт. Все `focusInEvent` (`Button`, `Slider`, `_AdaptiveTabBar`, `BaseFlyout`, `HelpDocumentView`), `AutoPreview` `FocusIn` и anchor-ридеры (`BaseFlyout.show_aligned`, `SimpleOptionsFlyout.show_below`) мигрированы на хелпер; поглощены `ActiveWindow` спец-кейс и `ring-preserve` safeguard в `Button` (покрыты семантикой флага). Qt-сгенерированный `Tab`/`ActiveWindow`/`Other` при mouse-истории больше не зажигает кольцо; programmatic `Mouse`-steal при keyboard-навигации кольцо сохраняет. Degraded fallback без менеджера — `reason not in (Mouse, MenuBar, Popup)` в единственном месте кроме хелпера. Новый контракт-тест `tests/test_focus_ring_resolver.py`: матрица reason×input + AST-guard против разнобоя навсегда.
-
-## 4.0.0 — Navigation graph explicit + Enter-to-activate (breaking)
-
-### Breaking
-- **`NavigationSection.focus_first/last` now require `reason: Qt.FocusReason`** — `focus_first(self, ref_x=None, *, reason: Qt.FocusReason)` / `focus_last(..., *, reason)`. All sections (`ToolbarRowsSection`, `IconListNavSection`, `SessionPickerSection`, `TabStripSection`) and every `NavigationManager` call site (`register` bootstrap, `focus_section_for_owner`, `_neighbor` handoff, `eventFilter` bootstrap) now pass `NavigationManager.current_focus_reason()` / `nav_graph.focus_reason()`. Old `spec.focus_first()` without `reason` raises `TypeError`.
-- **`NavigationManager.declare_graph(specs)` added** — explicit top→bottom graph declaration replaces implicit ordering by `register()` call order. `register()` remains for dynamic tab/flyout sections but is deprecated for static shell.
-
-### Fixed
-- **`NavigationManager` focus-ring on new tab** — `ToolbarRowsSection`/`IconListNavSection` `focus_first` and bootstrap now respect mouse vs keyboard modality via `current_focus_reason()` (`MouseFocusReason` vs `OtherFocusReason`). Opening a tab with a mouse click (session picker) no longer lights up the ring; keyboard opens still do. Previously `OtherFocusReason` was unconditional.
-- **`AdaptiveTabStrip`/`_AdaptiveTabBar` tab switching requires Enter** — `Left`/`Right`/`Home`/`End` now move a separate keyboard-focused index (`_focused_index`) with modality preserved, `Enter`/`Space` activates (`setCurrentIndex`). `Delete`/`Backspace` closes the focused tab. Focus ring follows `_focusedTab()` when `hasFocus() && _keyboard_focus`. Mouse clicks still switch immediately.
-
-## 4.1.0 — Navigation declarative helpers
-
-### Added
-- **`declare_toolbar_navigation(owner, rows, tag="toolbar")`** — declarative one-liner for toolbar/panel navigation (`ToolbarRowsSection` via `NavigationManager.register`). Alias to `declare_navigation_rows` with toolbar-specific naming (Phase 3 `plan_navigation_simplification.md`). Migrated `tabs/image_compare` and `tabs/multi_compare` from 15-line `_toolbar_rows` + `_register_nav_section` to one call.
-- **`HelpDialog` focus restore simplified** — `_restore_focus_after_window_change` (116 → ~30 lines) now delegates to `NavigationManager.focus_section_for_owner` / `AutoNavigationSection.focus_first` instead of manual `findChildren(StrongFocus)` + `global Y` sort duplicate. Behavior: keep focus if still inside dialog, else restore to same column via declarative sections. Matches `Settings` dialog pattern.
-
-### Changed
-- **`ColorSettingsButton` uses `bind_auto_preview`** — `bind_flyout(..., side="above")` → `bind_auto_preview(..., side="above")` (with fallback). Hover/focus preview + Enter interactive + Esc/focusOut wiring now via `_AutoPreviewController` event filter, not per-anchor `enterEvent/leaveEvent/focusIn/keyPress/focusOut` duplication. Business signals (`elementHovered`, underline colors) kept.
-
-### Fixed
-- **`HelpDialog` focus consistency** — `IconListWidget` `OverlayScrollArea` was `StrongFocus` and was picked as navigable candidate by `AutoNavigationSection`, causing `Right` from left list to land on the scroll area instead of content hub cards; now `NoFocus` (incl. viewport). `HelpDialog._restore_focus_after_window_change` now preserves exact left sub-target (`search` vs `current_row_button`) via `NavigationManager.focus_section_for_owner` + direct `current_row_button` fallback, instead of always jumping to `QLineEdit`. `HelpDialog` Left from content now lands on selected row, not search.
-- **`HelpDocumentView` TOC keyboard navigation** — `_LinkLabel` (TOC entries) were `NoFocus` (`Label` default) so `help-content` `AutoNavigationSection` had zero `StrongFocus` candidates on document pages, `Right` from sidebar was consumed but moved nowhere (later seen as `OverlayScrollArea` focus). Now `StrongFocus` + `focusIn/Out` ring + `Enter/Space` activation + `paintEvent` focus rectangle, so document TOC is navigable via `Up/Down`/`Left`/`Right`.
-- **`HelpDialog` focus loss on close** — `hideEvent`/`closeEvent` left `QApplication.focusWidget() → None` after `HelpDialogWindow` lost focus (`23:42:16:980`), because external focus (`CsdMenuRow`/`MainWindow`) was cleared by `SimpleOptionsFlyout` hide before Help opened and never saved. Now `showEvent` saves `_external_prev_focus`/`_external_prev_window` (incl. `NavigationManager.last_keyboard_focus` fallback) and `hideEvent` restores it with `OtherFocusReason` + `activateWindow`, so closing Help never leaves `None`.
-- **`AutoNavigationSection` crash on stale Help sidebar** — `HelpDialog._sync_sidebar` `clear()` deletes old `Button`s but `Auto._cached_rows_widgets` kept deleted `C++` pointers; `Key_Down` from `HelpSearchField` on next row did `min(target_row, key=lambda w: w.mapToGlobal(...))` on deleted `Button` → `RuntimeError: Internal C++ object (Button) already deleted` (`navigation_sections.py:589`, лог `23:49:46:925`). Now `_auto_rows` filters `shiboken6.isValid`/`isVisible`/`isEnabled`, `navigate`/`focus_first`/`focus_last` re-scan and filter target rows, `mapToGlobal` wrapped in `try/except`, so stale cache self-heals without crash.
-
-## 4.2.2 — IconActionFlyout layout teardown guard
-
-### Fixed
-- **`IconActionFlyout` crash on deleted layout** — `update_state()` called
-  `h_layout.invalidate()` on a freed `QHBoxLayout` when a host
-  `store.state_changed` observer (e.g.
-  `magnifier_color_controls.py:251` `_on_store_state_changed`) was still
-  connected at app shutdown (Python wrapper kept alive by the bound-method
-  signal connection). Now `update_state` guards `self`, `h_layout` and
-  `container` with `sip.isValid` + `try/except RuntimeError` before any
-  layout touch; `set_actions` and `_on_scale_changed` also guard layout
-  validity (same class as the 4.1.0 `AutoNavigationSection` / 4.2.1
-  stale-button fixes, but for the layout object).
-- **`IconActionFlyout` crash on stale action buttons** — a host signal
-  connection (e.g. a store `state_changed` observer) can keep the flyout's
-  Python wrapper alive past its buttons' C++ deletion (parent teardown or
-  `set_actions` `deleteLater` processed by the event loop). `set_action_state`
-  then hit `button.setVisible(...)` on a freed `Button` →
-  `RuntimeError: Internal C++ object (Button) already deleted`
-  (`magnifier_color_controls.py` `_on_store_state_changed` → `update_state`).
-  Now `set_action_state`, `_on_scale_changed` and the `set_actions` cleanup
-  loop guard every cached button with `sip.isValid` and self-heal the
-  action dicts via `_purge_action` (same pattern as the 4.1.0
-  `AutoNavigationSection` stale-row fix).
-
-## 4.2.3 — DragDropOverlay theme and visibility
-
-### Fixed
-- **`DragDropOverlay` dark text in all themes** — `HighlightedText` alias resolves to `surface.background` (white in light, dark gray in dark) so text/border were dark on semi-transparent blue in both themes and did not react to theme toggle. Now text/border are forced to white (`#ffffff`) with luminance check fallback, `ThemeManager.theme_changed` triggers `update()`, so overlay is readable and theme-reactive in light and dark.
-- **`DragDropOverlay` not disappearing after drop until image loads** — `WindowEventHandler.handle_drop` hid the overlay via deferred `singleShot(0)` which raced with the also-deferred `load_images_from_paths`; overlay stayed visible until decode finished. Now hides synchronously via direct `_safe_update_drag_overlays(False)`.
-
 ## Unreleased
 
 ### Added
@@ -107,7 +46,10 @@
   radios sharing one parent widget with no `QButtonGroup` at all). Host apps
   using `QButtonGroup` with `RadioButton` must switch to
   `RadioButtonGroup()` — plain Python object, `addButton()` only, no `QObject`
-  parent needed.
+   parent needed.
+
+### Fixed
+- **Focus-ring modality unified on input device, not `FocusReason`** — `NavigationManager.resolve()` / `is_keyboard_focus()` / `resolve_keyboard_focus()` is now the single resolver: the source of truth is the input device (`MouseButtonPress` → `False`, `KeyPress` → `True`), `Qt.FocusReason` is only a documented hint. All `focusInEvent` (`Button`, `Slider`, `_AdaptiveTabBar`, `BaseFlyout`, `HelpDocumentView`), `AutoPreview` `FocusIn` and anchor readers migrated; the `ActiveWindow` special case and `ring-preserve` safeguard in `Button` are subsumed by the flag semantics. Qt-generated `Tab`/`ActiveWindow`/`Other` (focus-proxy steals, fade re-shows, window activation) on a mouse history no longer lights the ring; programmatic `Mouse`-steal during keyboard navigation still preserves it. Covered by `tests/test_focus_ring_resolver.py` (reason×input matrix + AST guard against reason-tuple drift).
 
 ### Added
 - **`CustomTitleBar` keyboard navigation** — `StrongFocus` policy, Left/Right
@@ -1290,6 +1232,62 @@
   `paintEvent` (same pattern as `_SurfaceWidget`), re-read in
   `_apply_styles`; the gaps around the output/input rows no longer read
   darker than the dialog surface. The `QTextEdit` QSS styling is unchanged.
+
+### 4.0.0 — Navigation graph explicit + Enter-to-activate (breaking)
+
+#### Breaking
+- **`NavigationSection.focus_first/last` now require `reason: Qt.FocusReason`** — `focus_first(self, ref_x=None, *, reason: Qt.FocusReason)` / `focus_last(..., *, reason)`. All sections (`ToolbarRowsSection`, `IconListNavSection`, `SessionPickerSection`, `TabStripSection`) and every `NavigationManager` call site (`register` bootstrap, `focus_section_for_owner`, `_neighbor` handoff, `eventFilter` bootstrap) now pass `NavigationManager.current_focus_reason()` / `nav_graph.focus_reason()`. Old `spec.focus_first()` without `reason` raises `TypeError`.
+- **`NavigationManager.declare_graph(specs)` added** — explicit top→bottom graph declaration replaces implicit ordering by `register()` call order. `register()` remains for dynamic tab/flyout sections but is deprecated for static shell.
+
+#### Fixed
+- **`NavigationManager` focus-ring on new tab** — `ToolbarRowsSection`/`IconListNavSection` `focus_first` and bootstrap now respect mouse vs keyboard modality via `current_focus_reason()` (`MouseFocusReason` vs `OtherFocusReason`). Opening a tab with a mouse click (session picker) no longer lights up the ring; keyboard opens still do. Previously `OtherFocusReason` was unconditional.
+- **`AdaptiveTabStrip`/`_AdaptiveTabBar` tab switching requires Enter** — `Left`/`Right`/`Home`/`End` now move a separate keyboard-focused index (`_focused_index`) with modality preserved, `Enter`/`Space` activates (`setCurrentIndex`). `Delete`/`Backspace` closes the focused tab. Focus ring follows `_focusedTab()` when `hasFocus() && _keyboard_focus`. Mouse clicks still switch immediately.
+
+### 4.1.0 — Navigation declarative helpers
+
+#### Added
+- **`declare_toolbar_navigation(owner, rows, tag="toolbar")`** — declarative one-liner for toolbar/panel navigation (`ToolbarRowsSection` via `NavigationManager.register`). Alias to `declare_navigation_rows` with toolbar-specific naming (Phase 3 `plan_navigation_simplification.md`). Migrated `tabs/image_compare` and `tabs/multi_compare` from 15-line `_toolbar_rows` + `_register_nav_section` to one call.
+- **`HelpDialog` focus restore simplified** — `_restore_focus_after_window_change` (116 → ~30 lines) now delegates to `NavigationManager.focus_section_for_owner` / `AutoNavigationSection.focus_first` instead of manual `findChildren(StrongFocus)` + `global Y` sort duplicate. Behavior: keep focus if still inside dialog, else restore to same column via declarative sections. Matches `Settings` dialog pattern.
+
+#### Changed
+- **`ColorSettingsButton` uses `bind_auto_preview`** — `bind_flyout(..., side="above")` → `bind_auto_preview(..., side="above")` (with fallback). Hover/focus preview + Enter interactive + Esc/focusOut wiring now via `_AutoPreviewController` event filter, not per-anchor `enterEvent/leaveEvent/focusIn/keyPress/focusOut` duplication. Business signals (`elementHovered`, underline colors) kept.
+
+#### Fixed
+- **`HelpDialog` focus consistency** — `IconListWidget` `OverlayScrollArea` was `StrongFocus` and was picked as navigable candidate by `AutoNavigationSection`, causing `Right` from left list to land on the scroll area instead of content hub cards; now `NoFocus` (incl. viewport). `HelpDialog._restore_focus_after_window_change` now preserves exact left sub-target (`search` vs `current_row_button`) via `NavigationManager.focus_section_for_owner` + direct `current_row_button` fallback, instead of always jumping to `QLineEdit`. `HelpDialog` Left from content now lands on selected row, not search.
+- **`HelpDocumentView` TOC keyboard navigation** — `_LinkLabel` (TOC entries) were `NoFocus` (`Label` default) so `help-content` `AutoNavigationSection` had zero `StrongFocus` candidates on document pages, `Right` from sidebar was consumed but moved nowhere (later seen as `OverlayScrollArea` focus). Now `StrongFocus` + `focusIn/Out` ring + `Enter/Space` activation + `paintEvent` focus rectangle, so document TOC is navigable via `Up/Down`/`Left`/`Right`.
+- **`HelpDialog` focus loss on close** — `hideEvent`/`closeEvent` left `QApplication.focusWidget() → None` after `HelpDialogWindow` lost focus (`23:42:16:980`), because external focus (`CsdMenuRow`/`MainWindow`) was cleared by `SimpleOptionsFlyout` hide before Help opened and never saved. Now `showEvent` saves `_external_prev_focus`/`_external_prev_window` (incl. `NavigationManager.last_keyboard_focus` fallback) and `hideEvent` restores it with `OtherFocusReason` + `activateWindow`, so closing Help never leaves `None`.
+- **`AutoNavigationSection` crash on stale Help sidebar** — `HelpDialog._sync_sidebar` `clear()` deletes old `Button`s but `Auto._cached_rows_widgets` kept deleted `C++` pointers; `Key_Down` from `HelpSearchField` on next row did `min(target_row, key=lambda w: w.mapToGlobal(...))` on deleted `Button` → `RuntimeError: Internal C++ object (Button) already deleted` (`navigation_sections.py:589`, лог `23:49:46:925`). Now `_auto_rows` filters `shiboken6.isValid`/`isVisible`/`isEnabled`, `navigate`/`focus_first`/`focus_last` re-scan and filter target rows, `mapToGlobal` wrapped in `try/except`, so stale cache self-heals without crash.
+
+### 4.2.2 — IconActionFlyout layout teardown guard
+
+#### Fixed
+- **`IconActionFlyout` crash on deleted layout** — `update_state()` called
+  `h_layout.invalidate()` on a freed `QHBoxLayout` when a host
+  `store.state_changed` observer (e.g.
+  `magnifier_color_controls.py:251` `_on_store_state_changed`) was still
+  connected at app shutdown (Python wrapper kept alive by the bound-method
+  signal connection). Now `update_state` guards `self`, `h_layout` and
+  `container` with `sip.isValid` + `try/except RuntimeError` before any
+  layout touch; `set_actions` and `_on_scale_changed` also guard layout
+  validity (same class as the 4.1.0 `AutoNavigationSection` / 4.2.1
+  stale-button fixes, but for the layout object).
+- **`IconActionFlyout` crash on stale action buttons** — a host signal
+  connection (e.g. a store `state_changed` observer) can keep the flyout's
+  Python wrapper alive past its buttons' C++ deletion (parent teardown or
+  `set_actions` `deleteLater` processed by the event loop). `set_action_state`
+  then hit `button.setVisible(...)` on a freed `Button` →
+  `RuntimeError: Internal C++ object (Button) already deleted`
+  (`magnifier_color_controls.py` `_on_store_state_changed` → `update_state`).
+  Now `set_action_state`, `_on_scale_changed` and the `set_actions` cleanup
+  loop guard every cached button with `sip.isValid` and self-heal the
+  action dicts via `_purge_action` (same pattern as the 4.1.0
+  `AutoNavigationSection` stale-row fix).
+
+### 4.2.3 — DragDropOverlay theme and visibility
+
+#### Fixed
+- **`DragDropOverlay` dark text in all themes** — `HighlightedText` alias resolves to `surface.background` (white in light, dark gray in dark) so text/border were dark on semi-transparent blue in both themes and did not react to theme toggle. Now text/border are forced to white (`#ffffff`) with luminance check fallback, `ThemeManager.theme_changed` triggers `update()`, so overlay is readable and theme-reactive in light and dark.
+- **`DragDropOverlay` not disappearing after drop until image loads** — `WindowEventHandler.handle_drop` hid the overlay via deferred `singleShot(0)` which raced with the also-deferred `load_images_from_paths`; overlay stayed visible until decode finished. Now hides synchronously via direct `_safe_update_drag_overlays(False)`.
 
 ## 3.1.12
 
