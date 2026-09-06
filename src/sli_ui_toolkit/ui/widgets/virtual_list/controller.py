@@ -22,6 +22,7 @@ Usage::
 
 from __future__ import annotations
 
+import math
 from typing import Callable
 
 from PySide6.QtCore import QEvent, QObject, QTimer
@@ -50,6 +51,7 @@ class VirtualListController(QObject):
         overscan: int = 2,
         widget_height: int | None = None,
         x_margin: int = 0,
+        y_margin: int = 0,
     ) -> None:
         if row_height is None and height_provider is None:
             raise ValueError("pass row_height or height_provider")
@@ -63,6 +65,11 @@ class VirtualListController(QObject):
         self._overscan = max(0, int(overscan))
         self._widget_height = int(widget_height) if widget_height is not None else None
         self._x_margin = max(0, int(x_margin))
+        # Fixed top inset for the first row (the vertical counterpart of
+        # ``x_margin``). Defaults to 0 — existing hosts are unaffected.
+        # Hosts with symmetric content padding (e.g. ListPanel) pass their
+        # top margin so rows don't hug the content's top edge.
+        self._y_margin = max(0, int(y_margin))
         self._count = 0
         self._scroll_offset = 0
         self._syncing = False
@@ -92,8 +99,40 @@ class VirtualListController(QObject):
         self._row_height = max(1, int(height))
         self.rebind()
 
+    def set_widget_height(self, height: int | None) -> None:
+        """Update the row widget height (may be smaller than the pitch so
+        rows keep visual gaps) + rebind. ``None`` falls back to the pitch.
+
+        Hosts that rebuild rows at a new height (e.g. ListPanel repopulated
+        from a different anchor) must call this alongside
+        ``set_row_height`` — otherwise pooled rows keep the construction
+        height, the content overflows by the delta, and a scrollbar appears
+        over a list that actually fits.
+        """
+        height = None if height is None else max(1, int(height))
+        if height == self._widget_height:
+            return
+        self._widget_height = height
+        self.rebind()
+
     def set_overscan(self, rows: int) -> None:
         self._overscan = max(0, int(rows))
+        self.rebind()
+
+    def set_y_margin(self, margin: int) -> None:
+        """Update the fixed top inset (e.g. on UI-scale change) + rebind."""
+        margin = max(0, int(margin))
+        if margin == self._y_margin:
+            return
+        self._y_margin = margin
+        self.rebind()
+
+    def set_x_margin(self, margin: int) -> None:
+        """Update the horizontal inset (e.g. on UI-scale change) + rebind."""
+        margin = max(0, int(margin))
+        if margin == self._x_margin:
+            return
+        self._x_margin = margin
         self.rebind()
 
     @property
@@ -117,7 +156,14 @@ class VirtualListController(QObject):
         if index < 0 or index >= self._count:
             return
         top = self._offset_of_index(index)
-        bottom = top + (self._row_height or 1)
+        if self._row_height is not None:
+            bottom = top + self._widget_height_or_pitch()
+            if index == self._count - 1:
+                bottom += self._y_margin
+        elif self._heights is not None:
+            bottom = top + self._heights.height(index)
+        else:
+            bottom = top + 1
         viewport = self._viewport_height()
         if top < self._scroll_offset:
             self.scroll_to(top)
@@ -139,11 +185,13 @@ class VirtualListController(QObject):
         local = self._host.mapFromGlobal(point)
         if not self._host.rect().contains(local):
             return -1
-        offset_y = local.y() + self._scroll_offset
+        # Content-local coordinates are already absolute (rows are
+        # positioned absolutely; Qt moves the content widget itself) —
+        # no scroll compensation here.
         if self._row_height is not None:
-            index = offset_y // self._row_height
+            index = (local.y() - self._y_margin) // self._row_height
         elif self._heights is not None:
-            index = self._heights.index_at_offset(offset_y)
+            index = self._heights.index_at_offset(local.y())
         else:
             return -1
         return index if 0 <= index < self._count else -1
@@ -156,9 +204,26 @@ class VirtualListController(QObject):
         for i in range(self._count):
             self._heights.set_height(i, self._height_provider(i))
 
+    def _widget_height_or_pitch(self) -> int:
+        if self._widget_height is not None:
+            return self._widget_height
+        return self._row_height or 0
+
     def _content_height(self) -> int:
         if self._row_height is not None:
-            return self._count * self._row_height
+            if self._count <= 0:
+                return self._y_margin
+            # Symmetric vertical insets: the top margin (y_offset of row 0)
+            # is mirrored below the last widget, so the last row never hugs
+            # the content's bottom edge. Only the inter-row pitch separates
+            # rows — the last row contributes its widget height, not a full
+            # pitch (its trailing spacing belongs between rows, not after
+            # the list).
+            return (
+                2 * self._y_margin
+                + (self._count - 1) * self._row_height
+                + self._widget_height_or_pitch()
+            )
         return self._heights.total() if self._heights is not None else 0
 
     def _viewport_height(self) -> int:
@@ -166,27 +231,40 @@ class VirtualListController(QObject):
 
     def _max_scroll(self) -> int:
         if self._row_height is not None:
-            return max_scroll_px(self._count, self._viewport_height(), self._row_height)
+            return max(0, self._content_height() - self._viewport_height())
         return self._heights.max_scroll(self._viewport_height()) if self._heights is not None else 0
 
     def _index_at(self, offset_px: int) -> int:
         if self._row_height is not None:
             if self._row_height <= 0:
                 return 0
-            return int(offset_px // self._row_height)
+            return int((offset_px - self._y_margin) // self._row_height)
         return self._heights.index_at_offset(offset_px) if self._heights is not None else 0
 
     def _offset_of_index(self, index: int) -> int:
         if self._row_height is not None:
-            return index * self._row_height
+            return self._y_margin + index * self._row_height
         return self._heights.offset_of_index(index) if self._heights is not None else 0
 
     def _window(self) -> tuple[int, int]:
         if self._row_height is not None:
-            return visible_window(
-                self._count, self._viewport_height(), self._row_height,
-                self._scroll_offset, self._overscan,
-            )
+            if self._y_margin <= 0:
+                return visible_window(
+                    self._count, self._viewport_height(), self._row_height,
+                    self._scroll_offset, self._overscan,
+                )
+            pitch = self._row_height
+            viewport = self._viewport_height()
+            if self._count <= 0 or pitch <= 0 or viewport <= 0:
+                return (0, 0)
+            # Content row i occupies [margin + i*pitch, margin + (i+1)*pitch):
+            # shift the scroll origin by the margin and materialize one
+            # extra row to cover the inset.
+            first = max(0, (self._scroll_offset - self._y_margin) // pitch)
+            visible = math.ceil(viewport / pitch) + 1
+            start = max(0, first - self._overscan)
+            end = min(self._count, first + visible + self._overscan)
+            return (start, end)
         return self._heights.visible_window(self._viewport_height(), self._scroll_offset, self._overscan)
 
     # -------- events --------
@@ -255,25 +333,31 @@ class VirtualListController(QObject):
         start, end = self._window()
         self._last_window = (start, end)
         row_h = self._row_height
+        # Rows are positioned at ABSOLUTE content coordinates — the scroll
+        # offset is NOT subtracted here. The host content widget lives
+        # inside an OverlayScrollArea whose native scrollbar already moves
+        # it by -value; subtracting the offset again scrolled every list at
+        # 2x and parked ~2 pitches of dead space under the last row at max
+        # scroll. (RowPool keeps its scroll_offset param for non-Qt-scrolled
+        # hosts like the ComboBox overlay, which position relatively.)
         if row_h is None:
             self._pool.rebind(
                 start, end, self._bind,
                 row_height=1,
-                scroll_offset=self._scroll_offset,
                 x_margin=self._x_margin,
                 height_fn=lambda idx: (
                     self._heights.height(idx) if self._heights is not None else 1
                 ),
-                offset_fn=lambda idx: self._offset_of_index(idx) - self._scroll_offset,
+                offset_fn=lambda idx: self._offset_of_index(idx),
                 reuse=reuse,
             )
         else:
             self._pool.rebind(
                 start, end, self._bind,
                 row_height=row_h,
-                scroll_offset=self._scroll_offset,
                 widget_height=self._widget_height,
                 x_margin=self._x_margin,
+                y_offset=self._y_margin,
                 reuse=reuse,
             )
         self._index_to_widget = self._pool.indexed_widgets()

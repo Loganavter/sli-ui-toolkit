@@ -174,6 +174,9 @@ class WindowChrome:
 
         def _resync_csd_scale(_factor) -> None:
             try:
+                from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+                eff_band = resolve_csd_band(window)
                 layout = window.layout()
                 if layout is None:
                     return
@@ -181,15 +184,15 @@ class WindowChrome:
                 if base is not None:
                     l, t, r, b = base
                     layout.setContentsMargins(
-                        l + band,
-                        t + scaled_px(CustomTitleBar.HEIGHT) + band,
-                        r + band,
-                        b + band,
+                        l + eff_band,
+                        t + scaled_px(CustomTitleBar.HEIGHT) + eff_band,
+                        r + eff_band,
+                        b + eff_band,
                     )
                 title_bar.setGeometry(
-                    band,
-                    band,
-                    max(1, window.width() - 2 * band),
+                    eff_band,
+                    eff_band,
+                    max(1, window.width() - 2 * eff_band),
                     scaled_px(CustomTitleBar.HEIGHT),
                 )
                 title_bar.raise_()

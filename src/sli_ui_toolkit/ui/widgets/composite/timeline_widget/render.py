@@ -40,8 +40,6 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     while frame_idx < last_frame:
         block_x = content_start_x + frame_idx * slot_width
         block_w = draw_w
-        if block_x + block_w > content_start_x + logical_width:
-            block_w = content_start_x + logical_width - block_x
         if block_w <= 0:
             break
         thumb_idx = -1

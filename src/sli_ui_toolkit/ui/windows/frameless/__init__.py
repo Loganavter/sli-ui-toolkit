@@ -19,7 +19,13 @@ reads the live value back off this same namespace at filter-install time.
 
 from __future__ import annotations
 
-from .geometry import QWIDGETSIZE_MAX, RESIZE_MARGIN, _cursor_for_edges, _edges_for_pos
+from .geometry import (
+    QWIDGETSIZE_MAX,
+    RESIZE_MARGIN,
+    _cursor_for_edges,
+    _edges_for_pos,
+    resolve_csd_band,
+)
 from .lifecycle import (
     _patch_outer_band_geometry,
     _set_resize_filter,
@@ -35,5 +41,6 @@ __all__ = [
     "RESIZE_MARGIN",
     "apply_frameless",
     "remove_frameless",
+    "resolve_csd_band",
     "set_frameless_runtime",
 ]

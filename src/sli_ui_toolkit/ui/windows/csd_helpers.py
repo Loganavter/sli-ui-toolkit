@@ -36,11 +36,9 @@ class CsdRoundedBackground(QWidget):
         dialog = self.parentWidget()
         if dialog is None:
             return
-        band = 0
-        try:
-            band = int(dialog.property("_csd_outer_band") or 0)
-        except Exception:
-            band = 0
+        from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+        band = resolve_csd_band(dialog)
         self.setGeometry(
             band,
             band,
@@ -116,6 +114,40 @@ def _mask_edge_hosts(dialog: QWidget, radius: float, squared: bool) -> None:
             apply_bottom_rounded_mask(child, radius=radius, squared=squared)
 
 
+def _sync_csd_layout_margins(dialog: QWidget) -> None:
+    """Collapse the outer-band layout inset in maximized/fullscreen.
+
+    Mirrors ``MainWindow._sync_csd_content_band``: the root layout insets
+    content by the outer resize band (so the visible body sits inside the
+    transparent grab margin). In maximized/fullscreen the band is gone and
+    keeping the inset leaves a strip of window background around the content.
+    """
+    chrome = getattr(dialog, "_window_chrome", None)
+    base = getattr(chrome, "_base_layout_margins", None) if chrome is not None else None
+    if base is None:
+        return
+    layout = dialog.layout()
+    if layout is None:
+        return
+    from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+    from sli_ui_toolkit.ui.windows.custom_title_bar import CustomTitleBar
+    from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+    band = resolve_csd_band(dialog)
+    try:
+        l, t, r, b = base  # type: ignore[misc]
+        layout.setContentsMargins(
+            l + band,
+            t + scaled_px(CustomTitleBar.HEIGHT) + band,
+            r + band,
+            b + band,
+        )
+        layout.invalidate()
+        layout.activate()
+    except Exception:
+        pass
+
+
 def sync_csd_chrome(dialog: QWidget) -> None:
     """Re-fit CSD background and title bar to the current size.
 
@@ -137,6 +169,7 @@ def sync_csd_chrome(dialog: QWidget) -> None:
         dialog, "_csd_title_bar", None
     ) is None:
         return
+    _sync_csd_layout_margins(dialog)
     bg_layer = getattr(dialog, "_csd_bg_layer", None)
     if bg_layer is not None:
         bg_layer.sync_geometry()
@@ -145,12 +178,9 @@ def sync_csd_chrome(dialog: QWidget) -> None:
     title_bar = getattr(dialog, "_csd_title_bar", None)
     if title_bar is not None:
         from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+        from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
 
-        band = 0
-        try:
-            band = int(dialog.property("_csd_outer_band") or 0)
-        except Exception:
-            band = 0
+        band = resolve_csd_band(dialog)
         title_bar.setGeometry(
             band,
             band,

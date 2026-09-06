@@ -27,6 +27,9 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic import OverlayScrollArea
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
+    OverlayScrollbarConfig,
+)
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from sli_ui_toolkit.ui.widgets.helpers.multi_move import payload_indices
 from sli_ui_toolkit.ui.widgets.overlays.marquee_band_gesture import MarqueeBandGesture
@@ -76,7 +79,18 @@ class ListPanel(QWidget):
         on_update_drop_indicator: Callable[[QPointF], None],
         on_clear_drop_indicator: Callable[[], None],
         parent=None,
+        *,
+        scrollbar_config: OverlayScrollbarConfig | None = None,
     ):
+        """Host scrollbar policy (app-agnostic, no app defaults baked in).
+
+        ``scrollbar_config`` is an ``OverlayScrollbarConfig`` preset:
+        reserve flag + gutter width + gap + auto-hide timeout. ``None``
+        keeps toolkit defaults (reserved gutter on overflow only, 1.2s
+        fade). When content fits there is no bar and no gutter regardless.
+        Per-field runtime tweaks stay available via
+        ``panel.scroll_area.set_*``.
+        """
         super().__init__(parent)
         self.list_num = list_num
         self.item_height = item_height
@@ -103,7 +117,9 @@ class ListPanel(QWidget):
         self.layout_outer.setContentsMargins(1, 1, 1, 1)
         self.layout_outer.setSpacing(0)
 
-        self.scroll_area = OverlayScrollArea(self)
+        self.scroll_area = OverlayScrollArea(
+            self, config=scrollbar_config or OverlayScrollbarConfig()
+        )
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.set_corner_radius(8)
 
@@ -142,6 +158,10 @@ class ListPanel(QWidget):
             row_height=self._row_pitch(),
             widget_height=self.item_height,
             x_margin=scaled_px(self._content_margin_px),
+            # Symmetric with the horizontal margin: rows must not hug the
+            # content's top edge (the pool positions rows absolutely, so the
+            # content_layout's own margins never reach them vertically).
+            y_margin=scaled_px(self._content_margin_px),
             overscan=2,
         )
 
@@ -162,6 +182,16 @@ class ListPanel(QWidget):
     def row_factory(self) -> RowFactory | None:
         return self._row_factory
 
+    # -------- scrollbar policy --------
+
+    def set_scrollbar_config(self, config: OverlayScrollbarConfig) -> None:
+        """Apply a whole scrollbar policy live (reserve/gap/hide)."""
+        self.scroll_area.set_scrollbar_config(config)
+
+    def scrollbar_config(self) -> OverlayScrollbarConfig:
+        """Current scrollbar policy as a config object."""
+        return self.scroll_area.scrollbar_config()
+
     # -------- scaling / padding --------
 
     def _reapply_scale_padding(self) -> None:
@@ -170,11 +200,22 @@ class ListPanel(QWidget):
         )
         self.content_layout.setSpacing(scaled_px(self._content_spacing_px))
 
+    def _sync_row_metrics(self) -> None:
+        # Row pitch AND widget height travel together: the widget height is
+        # what the pool stamps onto row geometries and what the content
+        # height is measured with. Updating only the pitch leaves pooled
+        # rows at the construction height — the content then overflows by
+        # the delta and a scrollbar appears over a list that fits.
+        self._controller.set_row_height(self._row_pitch())
+        self._controller.set_widget_height(self.item_height)
+        self._controller.set_x_margin(scaled_px(self._content_margin_px))
+        self._controller.set_y_margin(scaled_px(self._content_margin_px))
+
     def _on_scale_changed(self, _factor: float) -> None:
         # Panel persists across opens (rows rebuild per open); keep the row
         # gaps in step with the interface scale.
         self._reapply_scale_padding()
-        self._controller.set_row_height(self._row_pitch())
+        self._sync_row_metrics()
         self.recalculate_and_set_height()
         self.updateGeometry()
         self.update()
@@ -226,7 +267,7 @@ class ListPanel(QWidget):
         # Virtualized: rebinding the visible window is cheap, so a "rebuild"
         # is just a count change + rebind — no per-row widget churn.
         preserve_scroll = self.isVisible()
-        self._controller.set_row_height(self._row_pitch())
+        self._sync_row_metrics()
         self._controller.set_count(len(self._items))
         self._controller.rebind(force=True)
         self.recalculate_and_set_height()
@@ -260,7 +301,7 @@ class ListPanel(QWidget):
             self._current_app_index = current_index
 
         preserve_scroll = self.isVisible()
-        self._controller.set_row_height(self._row_pitch())
+        self._sync_row_metrics()
         self._controller.set_count(len(self._items))
         self._controller.rebind(force=True)
         self.recalculate_and_set_height()
@@ -543,6 +584,12 @@ class ListPanel(QWidget):
 
 ListPanel.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     family="ListPanel",
+    config=(
+        SpecField("scrollbar_reserve", lambda w: w.scrollbar_config().reserve_space),
+        SpecField("scrollbar_width", lambda w: w.scrollbar_config().reserve_width),
+        SpecField("scrollbar_gap", lambda w: w.scrollbar_config().gap),
+        SpecField("scrollbar_auto_hide", lambda w: w.scrollbar_config().auto_hide_seconds),
+    ),
     state=(
         SpecField("list_num", "list_num"),
         SpecField("item_height", "item_height"),
