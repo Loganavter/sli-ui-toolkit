@@ -26,9 +26,13 @@ Read these files before changing code:
 ## Hard Rules
 
 - Do not push without explicit user approval.
-- Do not push library changes without changing the package version.
-- Do not change the package version without updating [CHANGELOG.md](CHANGELOG.md) in the same change.
-- Version changes must update every version source consistently:
+- Do not bump the package version unless the user explicitly asked for a
+  release. Unreleased changes accumulate under `## Unreleased` without a
+  version bump.
+- [CHANGELOG.md](CHANGELOG.md) is mandatory for every change, with or
+  without a version bump — same change, same commit.
+- When the user does ask for a version bump, update every version source
+  consistently in the same change:
   - [pyproject.toml](pyproject.toml)
   - [src/sli_ui_toolkit/_version.py](src/sli_ui_toolkit/_version.py)
   - [CHANGELOG.md](CHANGELOG.md)
