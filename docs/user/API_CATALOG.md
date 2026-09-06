@@ -505,7 +505,7 @@ reference:
 | `configure_icon_resolver(resolver=..., named_icons=...)` | `sli_ui_toolkit.icons` | Icon resolution strategy. |
 | `configure_i18n(i18n_root=...)` | `sli_ui_toolkit.i18n` | Path to JSON translation directory. |
 | `ThemeManager.get_instance().register_palettes(light_palette=..., dark_palette=...)` / `.set_theme(name, app)` | `sli_ui_toolkit.theme` | Register color tokens and pick the active light/dark theme. |
-| `setup_logging(app_name, debug_enabled=False, debug_env_var=None)` | `sli_ui_toolkit` | Route toolkit log records into the host app's logger/handlers. |
+| `setup_logging(app_name, debug_enabled=False, debug_env_var=None)` | `sli_ui_toolkit` | Route toolkit log records into the host app's logger/handlers. Convention: [../dev/LOGGING.md](../dev/LOGGING.md). |
 | `install_application_tooltips(app)` | `sli_ui_toolkit` | Install the toolkit's themed hover-tooltip event filter app-wide. |
 
 `overlay_resolver` is used by in-window surfaces such as button dropdown menus

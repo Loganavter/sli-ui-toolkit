@@ -9,24 +9,18 @@ The functions take the widget explicitly (they read ``_rows``/``_scroll``/
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 from PySide6.QtCore import QPoint, QTimer
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
 _navlist_logger = logging.getLogger("sli_ui_toolkit.sidebar_nav_list")
 
 
 def _navlist_debug_enabled() -> bool:
-    return os.environ.get("SLI_UI_NAVLIST_DEBUG", "").strip().lower() not in (
-        "",
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    return any_flag("SLI_UI_NAVLIST_DEBUG")
 
 
 def _navlist_debug(message: str, *args) -> None:

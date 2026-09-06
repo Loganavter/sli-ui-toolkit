@@ -80,7 +80,14 @@ class CustomTitleBar(
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAutoFillBackground(False)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # Never steal keyboard focus on mouse drag — the bar is a window-
+        # chrome handle, not a navigation target.  The buttons inside remain
+        # StrongFocus and are reached via NavigationManager (Up from tab strip
+        # -> focus_first_button).  Clicking the empty drag surface must keep
+        # the previously focused widget (canvas, toolbar, etc.) so that
+        # Ctrl+drag to move the window does not leave the focus ring on the
+        # title bar's first button.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self._maximize_icon = maximize_icon
         self._restore_icon = restore_icon

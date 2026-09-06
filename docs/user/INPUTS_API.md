@@ -128,21 +128,46 @@ switch.set_show_state_text(False)
 | `OverlayScrollArea` | Scroll area with overlay-style thin scrollbars. |
 | `SurfaceScrollArea` | `OverlayScrollArea` that paints its surface from a theme token (default `dialog.background`), or pins viewport + content transparent. |
 
-Neither widget takes constructor kwargs beyond the standard
-`orientation`/`parent` (`MinimalistScrollBar`, a plain `QScrollBar`
-subclass — idle/hover/drag thickness are fixed internally) and `parent`
-(`OverlayScrollArea`). `OverlayScrollArea` behavior is configured through
-runtime setters:
+`MinimalistScrollBar` is a plain `QScrollBar` subclass — `orientation`/
+`parent` only (idle/hover/drag thickness are fixed internally).
+`OverlayScrollArea` takes a declarative policy object plus individual
+kwargs (kwargs win over the config), and every field stays tunable at
+runtime through setters:
 
 ```python
-from sli_ui_toolkit.widgets import OverlayScrollArea
+from sli_ui_toolkit.widgets import OverlayScrollArea, OverlayScrollbarConfig
 
 area = OverlayScrollArea()
 area.setWidget(content)
 area.set_corner_radius(12)               # default: 8px, clips the viewport
 area.set_reserve_scrollbar_space(False)  # bar floats over content instead of reserving a margin
+area.set_scrollbar_width(14)             # reserved gutter width, default: MINIMAL_SCROLLBAR_WIDTH (10)
+area.set_scrollbar_gap(2)                # gap between bar and right edge, default: 0
 area.set_scrollbar_auto_hide(None)       # keep the bar visible once shown (default: 1.2s idle fade)
 inset = area.overlay_scrollbar_inset()   # px content should leave clear when space isn't reserved
+
+# ...or as one preset object (ctor wins over per-field kwargs only when set):
+policy = OverlayScrollbarConfig(reserve_space=True, reserve_width=10, gap=0, auto_hide_seconds=None)
+area = OverlayScrollArea(config=policy)
+area.set_scrollbar_config(policy)        # same policy, applied live
+policy = area.scrollbar_config()         # read the live policy back
+
+# Getters for every field:
+area.reserve_scrollbar_space()           # -> bool
+area.scrollbar_width()                   # -> int
+area.scrollbar_gap()                     # -> int
+area.scrollbar_auto_hide_seconds()       # -> float | None
+```
+
+`ListPanel` forwards the same policy without baking in app defaults
+(`None` = toolkit defaults); per-field runtime tweaks stay on
+`panel.scroll_area.set_*`:
+
+```python
+from sli_ui_toolkit.widgets import OverlayScrollbarConfig
+
+panel = ListPanel(..., scrollbar_config=OverlayScrollbarConfig(auto_hide_seconds=None))
+panel.set_scrollbar_config(OverlayScrollbarConfig(reserve_space=False))
 ```
 
 Wheel scrolling is Chrome/Firefox-style: wheel deltas accumulate into a

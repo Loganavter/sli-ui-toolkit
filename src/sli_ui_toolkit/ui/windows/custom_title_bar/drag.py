@@ -83,6 +83,23 @@ class _TitleBarDragApi:
             and self._is_draggable_at(event.position().toPoint())
         ):
             self._drag_start_global = event.globalPosition().toPoint()
+            # Title-bar drag must not become a navigation click-anchor:
+            # NavigationManager's MouseButtonPress filter already stamped
+            # last_click_pos / realign_pending on the QApplication level
+            # before this widget handler runs.  Clear it so the next arrow
+            # does NOT realign to the drag surface (which would land on the
+            # bar's first button and show the ring after a pure window move,
+            # especially noticeable after Ctrl+drag).
+            try:
+                from sli_ui_toolkit.ui.managers.navigation_manager import (
+                    NavigationManager,
+                )
+
+                mgr = NavigationManager.get_instance()
+                mgr._realign.realign_pending = False
+                mgr._realign.last_click_pos = None
+            except Exception:
+                pass
         else:
             self._drag_start_global = None
         QWidget.mousePressEvent(self, event)  # type: ignore[arg-type]

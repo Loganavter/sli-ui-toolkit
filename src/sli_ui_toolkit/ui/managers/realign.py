@@ -66,6 +66,8 @@ class ClickRealignCoordinator:
         pos = self.last_click_pos
         if pos is None:
             return False
+        if not isinstance(pos, QPoint):
+            return False
         clicked = QApplication.widgetAt(pos)
         if clicked is None:
             return False

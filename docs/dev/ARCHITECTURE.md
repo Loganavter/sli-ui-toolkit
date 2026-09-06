@@ -7,6 +7,7 @@ If you need something else:
 - integration overview: [../../README.md](../../README.md)
 - public reference: [../user/API_CATALOG.md](../user/API_CATALOG.md)
 - visual conventions: [DESIGN_LANGUAGE.md](DESIGN_LANGUAGE.md)
+- logging convention: [LOGGING.md](LOGGING.md)
 
 ## What This Package Is
 

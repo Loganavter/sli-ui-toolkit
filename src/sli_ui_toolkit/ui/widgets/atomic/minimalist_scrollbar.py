@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import logging
-import os
+from dataclasses import dataclass
+from typing import Any
 
 from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QRegion, QWheelEvent
 from PySide6.QtWidgets import QApplication, QScrollArea, QScrollBar, QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
-_SCROLLBAR_DEBUG = os.getenv("IMGSLI_SCROLLBAR_DEBUG", "0") == "1"
 _sdbg_logger = logging.getLogger("sli_ui_toolkit.scrollbar")
+
+
+def _scrollbar_debug_enabled() -> bool:
+    return any_flag("SLI_SCROLLBAR_DEBUG", "IMGSLI_SCROLLBAR_DEBUG")
 
 
 def _ensure_sdbg_handler() -> None:
@@ -22,11 +27,10 @@ def _ensure_sdbg_handler() -> None:
 
 
 def sdbg(message: str) -> None:
-    if not _SCROLLBAR_DEBUG:
+    if not _scrollbar_debug_enabled():
         return
-    _sdbg_logger.setLevel(logging.DEBUG)
     _ensure_sdbg_handler()
-    _sdbg_logger.debug(message)
+    _sdbg_logger.debug("[scrollbar] " + message)
 
 # The bar's fixed widget width — the one public geometry number composites
 # need (positioning/reserving). Everything else (gap, margin, thumb
@@ -36,6 +40,35 @@ def sdbg(message: str) -> None:
 MINIMAL_SCROLLBAR_WIDTH = 10
 _MINIMAL_SCROLLBAR_GAP = 0
 _OVERLAY_INSET_MARGIN = 4
+
+# Sentinel distinguishing "kwarg not passed" from an explicit ``None``
+# (``None`` is a meaningful policy value: a persistent, never-hiding bar).
+_UNSET: Any = object()
+
+
+@dataclass
+class OverlayScrollbarConfig:
+    """Declarative scrollbar policy — alternative to individual kwargs.
+
+    Mirrors ``ButtonConfig``: pass as ``OverlayScrollArea(config=...)`` /
+    ``ListPanel(scrollbar_config=...)`` for presets, or tweak one-offs
+    through the matching ``set_*`` setters. All fields apply live via
+    ``set_scrollbar_config``.
+    """
+
+    reserve_space: bool = True
+    reserve_width: int = MINIMAL_SCROLLBAR_WIDTH
+    gap: int = _MINIMAL_SCROLLBAR_GAP
+    auto_hide_seconds: float | None = 1.2
+
+    def to_kwargs(self) -> dict[str, Any]:
+        """Field values keyed by the ``OverlayScrollArea.__init__`` kwarg."""
+        return {
+            "reserve_scrollbar_space": self.reserve_space,
+            "scrollbar_width": self.reserve_width,
+            "scrollbar_gap": self.gap,
+            "scrollbar_auto_hide": self.auto_hide_seconds,
+        }
 _MINIMAL_SCROLLBAR_THICKNESS_IDLE = 4
 _MINIMAL_SCROLLBAR_THICKNESS_HOVER = 6
 _MINIMAL_SCROLLBAR_THICKNESS_DRAG = MINIMAL_SCROLLBAR_WIDTH
@@ -381,17 +414,41 @@ def overlay_scrollbar_max_inset(
 
 
 class OverlayScrollArea(QScrollArea):
-    def __init__(self, parent=None):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        config: OverlayScrollbarConfig | None = None,
+        reserve_scrollbar_space: bool | None = None,
+        scrollbar_width: int | None = None,
+        scrollbar_gap: int | None = None,
+        scrollbar_auto_hide: Any = _UNSET,
+        corner_radius: int | None = None,
+    ):
+        """Scroll area with an overlay-style thin scrollbar.
+
+        ``config`` carries the scrollbar policy preset; individual kwargs
+        override its fields (``None`` falls back to the config value —
+        except ``scrollbar_auto_hide``, where ``None`` is meaningful and
+        means "persistent bar", so omit it to fall back).
+        """
         super().__init__(parent)
-        self._corner_radius = 8
-        self._reserve_scrollbar_space = True
+        cfg = config or OverlayScrollbarConfig()
+        self._corner_radius = 8 if corner_radius is None else max(0, int(corner_radius))
+        self._reserve_scrollbar_space = (
+            cfg.reserve_space if reserve_scrollbar_space is None else bool(reserve_scrollbar_space)
+        )
         self.setFrameShape(QScrollArea.Shape.NoFrame)
         self.setWidgetResizable(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.custom_v_scrollbar = MinimalistScrollBar(Qt.Orientation.Vertical, self)
-        self._scrollbar_width = MINIMAL_SCROLLBAR_WIDTH
-        self._scrollbar_gap = _MINIMAL_SCROLLBAR_GAP
+        self._scrollbar_width = max(
+            0, int(cfg.reserve_width if scrollbar_width is None else scrollbar_width)
+        )
+        self._scrollbar_gap = max(
+            0, int(cfg.gap if scrollbar_gap is None else scrollbar_gap)
+        )
         self._stored_items_count = 0
         self._update_timer = QTimer(self)
         self._update_timer.setSingleShot(True)
@@ -406,7 +463,9 @@ class OverlayScrollArea(QScrollArea):
         self.verticalScrollBar().valueChanged.connect(self._on_native_scroll_changed)
         self.verticalScrollBar().rangeChanged.connect(self.custom_v_scrollbar.setRange)
         self.verticalScrollBar().rangeChanged.connect(lambda *_: self._sync_steps_from_native())
-        self.custom_v_scrollbar.set_auto_hide(1.2)
+        self.custom_v_scrollbar.set_auto_hide(
+            cfg.auto_hide_seconds if scrollbar_auto_hide is _UNSET else scrollbar_auto_hide
+        )
         self.custom_v_scrollbar.setVisible(False)
         self._sync_steps_from_native()
         self._apply_viewport_mask()
@@ -430,14 +489,62 @@ class OverlayScrollArea(QScrollArea):
             self._queue_scrollbar_sync()
         return super().eventFilter(watched, event)
 
-    def set_reserve_scrollbar_space(self, reserve: bool):
+    def set_reserve_scrollbar_space(self, reserve: bool) -> None:
         self._reserve_scrollbar_space = bool(reserve)
         self._update_scrollbar_visibility()
+
+    def reserve_scrollbar_space(self) -> bool:
+        return self._reserve_scrollbar_space
+
+    def set_scrollbar_width(self, width: int) -> None:
+        """Reserved gutter width (px) for the overlay bar.
+
+        Takes effect on the next visibility sync; when content overflows
+        the viewport keeps this many px clear on the right.
+        """
+        width = max(0, int(width))
+        if self._scrollbar_width == width:
+            return
+        self._scrollbar_width = width
+        self._update_scrollbar_visibility()
+
+    def scrollbar_width(self) -> int:
+        return self._scrollbar_width
+
+    def set_scrollbar_gap(self, gap: int) -> None:
+        """Gap (px) between the bar and the scroll area's right edge."""
+        gap = max(0, int(gap))
+        if self._scrollbar_gap == gap:
+            return
+        self._scrollbar_gap = gap
+        self._update_scrollbar_visibility()
+
+    def scrollbar_gap(self) -> int:
+        return self._scrollbar_gap
 
     def set_scrollbar_auto_hide(self, seconds: float | None) -> None:
         """Idle auto-hide for the overlay bar (default 1.2s; ``None`` keeps
         it always visible once shown)."""
         self.custom_v_scrollbar.set_auto_hide(seconds)
+
+    def scrollbar_auto_hide_seconds(self) -> float | None:
+        return self.custom_v_scrollbar._auto_hide_seconds
+
+    def set_scrollbar_config(self, config: OverlayScrollbarConfig) -> None:
+        """Apply a whole scrollbar policy at once (live)."""
+        self.set_reserve_scrollbar_space(config.reserve_space)
+        self.set_scrollbar_width(config.reserve_width)
+        self.set_scrollbar_gap(config.gap)
+        self.set_scrollbar_auto_hide(config.auto_hide_seconds)
+
+    def scrollbar_config(self) -> OverlayScrollbarConfig:
+        """Current scrollbar policy as a config object."""
+        return OverlayScrollbarConfig(
+            reserve_space=self._reserve_scrollbar_space,
+            reserve_width=self._scrollbar_width,
+            gap=self._scrollbar_gap,
+            auto_hide_seconds=self.custom_v_scrollbar._auto_hide_seconds,
+        )
 
     def overlay_scrollbar_inset(self) -> int:
         """Content-side clearance (px) content must leave for the bar.
@@ -579,12 +686,14 @@ class OverlayScrollArea(QScrollArea):
             f"should_show={should_show} reserve={self._reserve_scrollbar_space}"
         )
         self.custom_v_scrollbar.set_animated_visible(should_show)
-        # Reserve the bar's gap CONSTANTLY when reserve_scrollbar_space is on,
-        # never toggle with visibility: flipping viewport margins on every
-        # show/hide (which can oscillate at the content-fits boundary during
-        # a scroll) changes the viewport width and re-flows the content
-        # widget every step — visible jank on relayout-heavy content.
-        if self._reserve_scrollbar_space:
+        # Reserve the bar's gap only while content actually overflows.
+        # When everything fits (e.g. ListPanel with fewer capsules than
+        # MAX_VISIBLE_ITEMS) there is no bar to make room for, so the
+        # viewport takes the full width instead of holding a dead 10px
+        # gutter. Toggling the right margin on vertical overflow is safe:
+        # the vertical range depends on height only, so a width change
+        # cannot flip the range back (no oscillate at the fits boundary).
+        if self._reserve_scrollbar_space and should_show:
             self.setViewportMargins(0, 0, self._scrollbar_width, 0)
         else:
             self.setViewportMargins(0, 0, 0, 0)
