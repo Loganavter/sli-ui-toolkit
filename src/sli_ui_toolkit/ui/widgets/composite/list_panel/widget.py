@@ -585,10 +585,11 @@ class ListPanel(QWidget):
 ListPanel.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     family="ListPanel",
     config=(
-        SpecField("scrollbar_reserve", lambda w: w.scrollbar_config().reserve_space),
-        SpecField("scrollbar_width", lambda w: w.scrollbar_config().reserve_width),
-        SpecField("scrollbar_gap", lambda w: w.scrollbar_config().gap),
-        SpecField("scrollbar_auto_hide", lambda w: w.scrollbar_config().auto_hide_seconds),
+        # w is a ListPanel at runtime; SpecField lambdas are untyped by design
+        SpecField("scrollbar_reserve", lambda w: w.scrollbar_config().reserve_space),  # type: ignore[attr-defined]
+        SpecField("scrollbar_width", lambda w: w.scrollbar_config().reserve_width),  # type: ignore[attr-defined]
+        SpecField("scrollbar_gap", lambda w: w.scrollbar_config().gap),  # type: ignore[attr-defined]
+        SpecField("scrollbar_auto_hide", lambda w: w.scrollbar_config().auto_hide_seconds),  # type: ignore[attr-defined]
     ),
     state=(
         SpecField("list_num", "list_num"),
