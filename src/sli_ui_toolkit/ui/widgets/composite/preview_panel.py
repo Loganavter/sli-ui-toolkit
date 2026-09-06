@@ -98,7 +98,7 @@ class PreviewPanel(QWidget):
 
     def _apply_styles(self) -> None:
         text = self.theme_manager.get_color("dialog.text").name()
-        bg = self.theme_manager.get_color("surface.background").name(QColor.NameFormat.HexArgb)
+        bg = self.theme_manager.get_color("dialog.input.background").name(QColor.NameFormat.HexArgb)
         border = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
         self.text_view.setStyleSheet(f"""
             QTextEdit#previewTextEdit {{

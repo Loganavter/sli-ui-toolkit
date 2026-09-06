@@ -25,7 +25,7 @@ _THEME_KEYS = {
     "accent": "accent",
     "hover": "dialog.button.hover",
     "text": "dialog.text",
-    "bg": "surface.background",
+    "bg": "dialog.background",
 }
 
 

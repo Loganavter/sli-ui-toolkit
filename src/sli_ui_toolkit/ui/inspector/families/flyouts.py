@@ -10,7 +10,7 @@ from ..contract import WidgetInspection
 from ..extract import from_getters, from_init_kwargs, from_qt_props
 from ..registry import register_family
 
-_TOKEN_FAMILY = ("surface.background", "flyout.border", "shadow.color", "separator.color")
+_TOKEN_FAMILY = ("flyout.background", "flyout.border", "shadow.color", "separator.color")
 
 
 def _make(family: str, match, state_pairs):

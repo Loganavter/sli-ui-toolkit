@@ -40,7 +40,7 @@ def _token_family(widget) -> tuple[str, ...]:
         prefix = getattr(widget, "_variant", "default")
     if prefix == "button.toggle":
         return (
-            "surface.list",
+            "button.toggle.background.normal",
             "button.toggle.background.hover",
             "button.toggle.background.pressed",
             "button.toggle.background.checked",

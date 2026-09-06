@@ -235,7 +235,7 @@ ScrollableComboBox.inspect_spec = InspectSpec(
         SpecField("count", "count"),
         SpecField("items", lambda w: [t for t, _d in w.items()]),
     ),
-    token_family=("surface.background", "input.border.thin", "dialog.text"),
+    token_family=("dialog.input.background", "input.border.thin", "dialog.text"),
     docs='docs/user/INPUTS_API.md',
 )
 

@@ -290,7 +290,7 @@ class TopTabBar(QWidget):
                 continue
             tm = ThemeManager.get_instance()
             if index == self.currentIndex():
-                color = tm.try_get_color("surface.background")
+                color = tm.try_get_color("dialog.input.background")
                 if color is None:
                     color = tm.try_get_color("Window")
             elif index == self._hover_index:

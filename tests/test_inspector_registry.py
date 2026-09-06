@@ -162,7 +162,7 @@ def test_slider_config_kinds(qapp):
 def test_default_variant_toggle_token_family(qapp):
     button = Button(text="x")  # default variant → button.toggle prefix
     tokens = inspect_widget(button).token_family
-    assert "surface.list" in tokens
+    assert "button.toggle.background.normal" in tokens
     assert "button.toggle.background.checked" in tokens
 
 

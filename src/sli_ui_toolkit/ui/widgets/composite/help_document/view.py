@@ -175,7 +175,7 @@ class HelpDocumentView(QWidget):
         """
         try:
             self._surface_color = QColor(
-                self._theme.get_color("surface.background")
+                self._theme.get_color("dialog.background")
             )
         except Exception:
             self._surface_color = QColor(self.palette().window().color())
@@ -295,22 +295,15 @@ class _LinkLabel(Label):
         self._focus_ring_width = 2
 
     def focusInEvent(self, event) -> None:  # noqa: N802
-        # Ring modality resolved centrally via NavigationManager (4.2.4):
-        # input device is the source of truth, reason is only a hint.
         reason = event.reason() if hasattr(event, "reason") else Qt.FocusReason.OtherFocusReason
+        is_kbd = reason not in (Qt.FocusReason.MouseFocusReason, Qt.FocusReason.MenuBarFocusReason)
         try:
-            from sli_ui_toolkit.ui.managers.navigation_manager import (
-                resolve_keyboard_focus,
-            )
+            from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
 
-            is_kbd = resolve_keyboard_focus(reason)
+            if not is_kbd and NavigationManager.get_instance().last_input_was_keyboard():
+                is_kbd = True
         except Exception:
-            # degraded, no manager
-            is_kbd = reason not in (
-                Qt.FocusReason.MouseFocusReason,
-                Qt.FocusReason.MenuBarFocusReason,
-                Qt.FocusReason.PopupFocusReason,
-            )
+            pass
         self._keyboard_focus = bool(is_kbd)
         super().focusInEvent(event)
         self.update()

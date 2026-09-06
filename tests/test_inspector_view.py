@@ -74,7 +74,7 @@ def test_theme_page_shows_static_tokens(qapp):
         _build_button_inspection(), theme_manager=tm
     )
     texts = _page_labels(win, "Theme")
-    assert any("surface.list" in t for t in texts)
+    assert any("button.toggle.background.normal" in t for t in texts)
 
 
 def test_layout_nodes_render_clickable_rows(qapp):

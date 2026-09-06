@@ -216,7 +216,7 @@ class CustomGroupWidget(QWidget):
             text_x_start = self._title_left_padding
             text_padding = 4
             clear_rect = QRect(text_x_start, 0, title_w + (text_padding * 2), title_h)
-            bg_color = self.theme_manager.get_color("surface.background")
+            bg_color = self.theme_manager.get_color("dialog.background")
             painter.fillRect(clear_rect, bg_color)
 
             font = paint_font(self, bold=True)
@@ -381,7 +381,7 @@ CustomGroupWidget.inspect_spec = InspectSpec(
         SpecField("title", "get_title"),
         SpecField("children", "children"),
     ),
-    token_family=("dialog.border", "surface.background", "dialog.text"),
+    token_family=("dialog.border", "dialog.background", "dialog.text"),
     docs='docs/user/INPUTS_API.md',
 )
 

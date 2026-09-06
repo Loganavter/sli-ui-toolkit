@@ -69,7 +69,7 @@ _make(
         ("title", lambda w: w.get_title()),
         ("children", lambda w: len(w.findChildren(QWidget))),
     ),
-    ("dialog.border", "surface.background", "dialog.text"),
+    ("dialog.border", "dialog.background", "dialog.text"),
 )
 _make(
     "ToastNotification",
@@ -79,7 +79,7 @@ _make(
         ("visible", lambda w: w.isVisible()),
     ),
     (
-        "surface.background",
+        "toast.background",
         "toast.border",
         "toast.text",
         "toast.progress.background",
@@ -90,11 +90,11 @@ _make(
     "CalendarWidget",
     lambda w: hasattr(w, "update_view") and hasattr(w, "set_color"),
     (("day_buttons", (lambda w: len(getattr(w, "_day_buttons", []) or [])), True),),
-    ("accent", "surface.background", "dialog.text"),
+    ("accent", "dialog.background", "dialog.text"),
 )
 _make(
     "SunburstChartWidget",
     lambda w: hasattr(w, "set_segments"),
     (("segments", lambda w: len(getattr(w, "_segments", []) or [])),),
-    ("accent", "surface.background", "dialog.text"),
+    ("accent", "dialog.background", "dialog.text"),
 )

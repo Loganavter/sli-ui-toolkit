@@ -822,7 +822,7 @@ Button.inspect_spec = InspectSpec(
         SpecField("corner_radius_px", "cornerRadiusPx"),
     ),
     token_family=(
-        "surface.list",
+        "button.toggle.background.normal",
         "button.toggle.background.hover",
         "button.toggle.background.pressed",
         "button.toggle.background.checked",

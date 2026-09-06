@@ -16,7 +16,7 @@ def _top_tab_resolve(states, tm: ThemeManager) -> QColor:
     if ButtonState.DISABLED in states:
         return _TRANSPARENT
     if ButtonState.CHECKED in states:
-        color = tm.try_get_color("surface.background")
+        color = tm.try_get_color("dialog.input.background")
         if color is not None:
             return QColor(color)
         return QColor(tm.try_get_color("Window") or _TRANSPARENT)

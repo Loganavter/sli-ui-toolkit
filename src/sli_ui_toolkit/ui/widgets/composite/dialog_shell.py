@@ -72,7 +72,7 @@ class ScrollableDialogPage(QWidget):
         on ``theme_changed``.
         """
         try:
-            color = QColor(ThemeManager.get_instance().get_color("surface.background"))
+            color = QColor(ThemeManager.get_instance().get_color("dialog.background"))
         except Exception:
             return
         self.scroll_area.setStyleSheet(f"background-color: {color.name()};")
@@ -113,7 +113,7 @@ class _SurfaceWidget(QWidget):
     def _apply_dialog_surface(self) -> None:
         try:
             self._surface_color = QColor(
-                ThemeManager.get_instance().get_color("surface.background")
+                ThemeManager.get_instance().get_color("dialog.background")
             )
         except Exception:
             self._surface_color = QColor(self.palette().window().color())

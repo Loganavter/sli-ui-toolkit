@@ -649,10 +649,10 @@ ComboBox.inspect_spec = InspectSpec(
         SpecField("max_visible_items", "maxVisibleItems"),
     ),
     token_family=(
-        "surface.background",
+        "dialog.input.background",
         "input.border.thin",
         "list_item.background.hover",
-        "surface.background",
+        "flyout.background",
     ),
     docs='docs/user/INPUTS_API.md',
 )

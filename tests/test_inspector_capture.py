@@ -16,12 +16,12 @@ def _theme(app):
         {
             "accent": "#0078d4",
             "dialog.text": "#111111",
-            "surface.list": "#f0f0f0",
+            "button.toggle.background.normal": "#f0f0f0",
         },
         {
             "accent": "#0096ff",
             "dialog.text": "#dddddd",
-            "surface.list": "#2a2a2a",
+            "button.toggle.background.normal": "#2a2a2a",
         },
     )
     tm.set_theme("light", app)
@@ -32,11 +32,11 @@ def test_capture_records_resolved_keys(qapp):
     button = Button(text="x")
     tokens = capture_tokens(button, _theme(qapp))
     keys = {f.name for f in tokens}
-    assert "surface.list" in keys
+    assert "button.toggle.background.normal" in keys
     assert "dialog.text" in keys
     by_name = {f.name: f for f in tokens}
-    assert by_name["surface.list"].kind is FieldKind.COLOR
-    assert by_name["surface.list"].value == "#f0f0f0"
+    assert by_name["button.toggle.background.normal"].kind is FieldKind.COLOR
+    assert by_name["button.toggle.background.normal"].value == "#f0f0f0"
 
 
 def test_capture_marks_missing_keys(qapp):

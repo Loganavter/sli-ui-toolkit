@@ -359,7 +359,7 @@ AdaptiveTabStrip.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
         SpecField("current_index", "currentIndex"),
     ),
     token_family=(
-        "surface.list",
+        "button.toggle.background.normal",
         "Window",
         "separator.color",
         "button.toggle.background.hover",

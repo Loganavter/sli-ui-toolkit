@@ -157,7 +157,7 @@ IndexedToggleFlyout.inspect_spec = InspectSpec(
         SpecField("visible", "isVisible"),
         SpecField("slot_count", "slot_count"),
     ),
-    token_family=("surface.background", "flyout.border", "shadow.color", "separator.color"),
+    token_family=("flyout.background", "flyout.border", "shadow.color", "separator.color"),
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
 

@@ -202,22 +202,15 @@ class BaseFlyout(
         self.update()
 
     def focusInEvent(self, event) -> None:  # noqa: N802
-        # Ring modality resolved centrally via NavigationManager (4.2.4):
-        # input device is the source of truth, reason is only a hint.
         reason = event.reason() if hasattr(event, "reason") else Qt.FocusReason.OtherFocusReason
+        is_kbd = reason not in (Qt.FocusReason.MouseFocusReason, Qt.FocusReason.MenuBarFocusReason)
         try:
-            from sli_ui_toolkit.ui.managers.navigation_manager import (
-                resolve_keyboard_focus,
-            )
+            from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
 
-            is_kbd = resolve_keyboard_focus(reason)
+            if not is_kbd and NavigationManager.get_instance().last_input_was_keyboard():
+                is_kbd = True
         except Exception:
-            # degraded, no manager
-            is_kbd = reason not in (
-                Qt.FocusReason.MouseFocusReason,
-                Qt.FocusReason.MenuBarFocusReason,
-                Qt.FocusReason.PopupFocusReason,
-            )
+            pass
         self._keyboard_focus = bool(is_kbd)
         self._last_focus_reason = reason
         super().focusInEvent(event)
@@ -446,7 +439,7 @@ BaseFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
         SpecField("fade_opacity", "_fade_opacity_proxy", private=True),
         SpecField("visible", "isVisible"),
     ),
-    token_family=("surface.background", "flyout.border", "shadow.color", "separator.color"),
+    token_family=("flyout.background", "flyout.border", "shadow.color", "separator.color"),
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
 

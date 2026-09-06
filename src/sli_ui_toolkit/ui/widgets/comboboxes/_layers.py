@@ -25,11 +25,11 @@ class _ComboFieldBgLayer(Layer):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rectf = QRectF(ctx.rect).adjusted(0.5, 0.5, -0.5, -0.5)
         if ButtonState.PRESSED in states or widget._expanded:
-            bg_color = QColor(tm.get_color("surface.background"))
+            bg_color = QColor(tm.get_color("flyout.background"))
         elif ButtonState.HOVERED in states:
             bg_color = QColor(tm.get_color("list_item.background.hover"))
         else:
-            bg_color = QColor(tm.get_color("surface.background"))
+            bg_color = QColor(tm.get_color("dialog.input.background"))
         radius = scaled_px(widget.RADIUS)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(bg_color))

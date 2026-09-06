@@ -54,7 +54,7 @@ _make(
     "ListPanel",
     lambda w: hasattr(w, "clear_and_rebuild") and hasattr(w, "list_num"),
     _LISTPANEL_STATE,
-    ("surface.background", "flyout.border", "accent"),
+    ("flyout.background", "flyout.border", "accent"),
 )
 
 _TAB_STRIP_STATE = (
@@ -62,7 +62,7 @@ _TAB_STRIP_STATE = (
     ("current_index", lambda w: w.currentIndex()),
 )
 _TAB_STRIP_TOKENS = (
-    "surface.list",
+    "button.toggle.background.normal",
     "Window",
     "separator.color",
     "button.toggle.background.hover",

@@ -49,7 +49,7 @@ def selected_tab_cover_rect(
 
 
 def _surface_color(tm: ThemeManager) -> QColor:
-    for key in ("surface.background", "Window", "window"):
+    for key in ("dialog.background", "Window", "window"):
         color = tm.try_get_color(key)
         if color is not None and color.isValid():
             return QColor(color)
@@ -57,7 +57,7 @@ def _surface_color(tm: ThemeManager) -> QColor:
 
 
 def _pane_fill_color(tm: ThemeManager) -> QColor | None:
-    color = tm.try_get_color("surface.background")
+    color = tm.try_get_color("dialog.input.background")
     if color is not None and color.isValid():
         return QColor(color)
     window = tm.try_get_color("Window")
