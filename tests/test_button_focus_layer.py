@@ -95,15 +95,41 @@ def test_focus_layer_draws_accent_ring(qapp):
 
 
 def test_focus_in_event_records_keyboard_reason(qapp):
+    # Ring modality follows the input device (NavigationManager 4.2.4),
+    # reason is only a hint: drive the manager's input flag explicitly.
+    from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+
+    mgr = NavigationManager.get_instance()
     button = Button(text="")
     button.show()
-    event = QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.MouseFocusReason)
-    button.focusInEvent(event)
-    assert button._keyboard_focus is False
+    try:
+        mgr._last_input_keyboard = False
+        event = QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.MouseFocusReason)
+        button.focusInEvent(event)
+        assert button._keyboard_focus is False
 
-    event = QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.TabFocusReason)
-    button.focusInEvent(event)
-    assert button._keyboard_focus is True
+        # Qt-generated Tab on a mouse history draws no ring (the fix).
+        event = QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.TabFocusReason)
+        button.focusInEvent(event)
+        assert button._keyboard_focus is False
+
+        mgr._last_input_keyboard = True
+        event = QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.TabFocusReason)
+        button.focusInEvent(event)
+        assert button._keyboard_focus is True
+
+        # Programmatic Mouse-steal during keyboard navigation preserves ring.
+        event = QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.MouseFocusReason)
+        button.focusInEvent(event)
+        assert button._keyboard_focus is True
+
+        # ActiveWindow on a mouse history draws no ring.
+        mgr._last_input_keyboard = False
+        event = QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.ActiveWindowFocusReason)
+        button.focusInEvent(event)
+        assert button._keyboard_focus is False
+    finally:
+        mgr._last_input_keyboard = False
 
     out = QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.ActiveWindowFocusReason)
     button.focusOutEvent(out)

@@ -161,6 +161,38 @@ class NavigationManager(QObject):
         """
         return Qt.FocusReason.OtherFocusReason if self._last_input_keyboard else Qt.FocusReason.MouseFocusReason
 
+    @staticmethod
+    def resolve(reason: Qt.FocusReason, last_input_keyboard: bool) -> bool:
+        """Resolve whether a focus grant should draw the keyboard ring.
+
+        SINGLE interpretation site for focus-ring modality (4.2.4): the
+        source of truth is the input device (``_last_input_keyboard`` —
+        ``MouseButtonPress`` → ``False``, ``KeyPress`` → ``True``);
+        ``reason`` is only a documented hint and is intentionally ignored.
+        Real mouse clicks reset the flag to ``False`` via the app filter
+        *before* ``FocusIn``, so ``Mouse`` → ``False`` automatically, while
+        a programmatic ``Mouse``-steal during keyboard navigation → ``True``
+        (preserves the existing ring-preserve safeguard).  Qt-generated
+        ``Tab``/``ActiveWindow``/``Other`` (focus proxy steals, fade
+        re-shows, window activation) on a mouse history → ``False`` —
+        that is the fix.
+        """
+        _ = reason
+        return bool(last_input_keyboard)
+
+    def is_keyboard_focus(
+        self, reason: Qt.FocusReason, *, _last_input: bool | None = None
+    ) -> bool:
+        """Return ``True`` if *reason*'s focus grant should draw the ring.
+
+        ``_last_input`` is a test seam: when given it is used instead of
+        the live ``_last_input_keyboard`` flag, so the full reason matrix
+        is unit-testable without a ``QApplication``.
+        """
+        if _last_input is not None:
+            return NavigationManager.resolve(reason, _last_input)
+        return NavigationManager.resolve(reason, self._last_input_keyboard)
+
     def last_keyboard_focus(self) -> QWidget | None:
         """Return the last widget that received focus via keyboard
         (arrow/Tab/OtherFocusReason), or ``None``.
@@ -1045,5 +1077,32 @@ def auto_navigation(owner: QWidget, *, tag: str = "auto") -> None:
         NavigationManager.get_instance().register(owner, section)
     except Exception:
         pass
+
+
+def resolve_keyboard_focus(
+    reason: Qt.FocusReason, *, _last_input: bool | None = None
+) -> bool:
+    """Widget-facing focus-ring entry point (4.2.4 unification).
+
+    Tries :meth:`NavigationManager.is_keyboard_focus`; when the manager is
+    unavailable (no ``QApplication`` — unit tests — or any import/runtime
+    failure) falls back to the degraded static rule ``reason not in
+    (Mouse, MenuBar, Popup)``.  This fallback is the ONLY surviving
+    reason-formula besides :meth:`NavigationManager.resolve` — every
+    ``focusInEvent`` and anchor reader must call this helper instead of
+    inlining its own tuple.  ``_last_input`` bypasses the manager so the
+    matrix is testable without GUI.
+    """
+    if _last_input is not None:
+        return NavigationManager.resolve(reason, _last_input)
+    try:
+        return NavigationManager.get_instance().is_keyboard_focus(reason)
+    except Exception:
+        # degraded, no manager
+        return reason not in (
+            Qt.FocusReason.MouseFocusReason,
+            Qt.FocusReason.MenuBarFocusReason,
+            Qt.FocusReason.PopupFocusReason,
+        )
 
 

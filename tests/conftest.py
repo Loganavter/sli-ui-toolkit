@@ -68,6 +68,10 @@ def _reset_navigation_manager_state(qapp):
             getattr(mgr, attr).clear()
         except Exception:
             pass
+    try:
+        mgr._last_input_keyboard = False
+    except Exception:
+        pass
     yield
     for owner, _ in list(getattr(mgr, "_sections", [])):
         try:
@@ -79,6 +83,10 @@ def _reset_navigation_manager_state(qapp):
             getattr(mgr, attr).clear()
         except Exception:
             pass
+    try:
+        mgr._last_input_keyboard = False
+    except Exception:
+        pass
     try:
         qapp.processEvents()
     except Exception:

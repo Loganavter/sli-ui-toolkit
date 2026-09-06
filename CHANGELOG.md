@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.2.4 — Focus-ring resolver unification
+
+### Fixed
+- **Focus-ring `reason` разнобой unified** — `NavigationManager.resolve()` / `is_keyboard_focus()` / `resolve_keyboard_focus()` теперь единственный резолвер модальности кольца: источником правды является устройство ввода (`MouseButtonPress` → `False`, `KeyPress` → `True`), `Qt.FocusReason` — только документированный хинт. Все `focusInEvent` (`Button`, `Slider`, `_AdaptiveTabBar`, `BaseFlyout`, `HelpDocumentView`), `AutoPreview` `FocusIn` и anchor-ридеры (`BaseFlyout.show_aligned`, `SimpleOptionsFlyout.show_below`) мигрированы на хелпер; поглощены `ActiveWindow` спец-кейс и `ring-preserve` safeguard в `Button` (покрыты семантикой флага). Qt-сгенерированный `Tab`/`ActiveWindow`/`Other` при mouse-истории больше не зажигает кольцо; programmatic `Mouse`-steal при keyboard-навигации кольцо сохраняет. Degraded fallback без менеджера — `reason not in (Mouse, MenuBar, Popup)` в единственном месте кроме хелпера. Новый контракт-тест `tests/test_focus_ring_resolver.py`: матрица reason×input + AST-guard против разнобоя навсегда.
+
 ## 4.0.0 — Navigation graph explicit + Enter-to-activate (breaking)
 
 ### Breaking
