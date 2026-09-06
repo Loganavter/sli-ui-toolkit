@@ -67,6 +67,21 @@ Read these files before changing code:
 - `src/sli_ui_toolkit/ui/managers/` — theme, icon, and flyout managers.
 - `docs/` — architecture, API, and design documentation.
 
+## Auto-Backup Daemon
+
+Same scheme as the sibling repos (`Improve-ImgSLI`, `improve-imgsli-internal-docs`): `~/.local/bin/sli-ui-toolkit-autopush.sh` runs every 15 min via `systemd --user sli-ui-toolkit-autopush.timer`:
+
+```bash
+git add -A; git commit -m "auto: periodic backup ... [from $CUR_BRANCH]"
+git branch -f backup/autopush HEAD; git push private backup/autopush --force
+if [ "$CUR_BRANCH" = "main" ]; then git reset --hard HEAD~1; fi
+```
+
+- Never `push` to `main` manually — `main` changes go via reviewed commits/PRs. The daemon's `backup/autopush` push is automatic, not a manual push.
+- Edits on `main` are swept into `backup/autopush` (including staged index) and `reset --hard HEAD~1` wipes the working tree — recover via `git log backup/autopush --oneline -5` / `git checkout backup/autopush -- <path>`.
+- **Never delegate work on `main`.** Before any parallel `Task`, `git checkout -b feat/<slug>` or `git worktree add /tmp/opencode/toolkit-<slug> feat/<slug>`. On a branch the working tree keeps edits, but `auto:` commits stay in branch history — drop them before PR (`git rebase -i main` / `git reset --soft main`).
+- Worktrees live in `/tmp/opencode/` (fallback `~/.cache/opencode/`), never in `../`. Pause with `systemctl --user stop *autopush.timer` / `start`. Run tests with `PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider`.
+
 ## Good Defaults
 
 - Prefer public imports through `sli_ui_toolkit.widgets` for host app examples.

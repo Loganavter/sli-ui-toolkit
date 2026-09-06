@@ -148,11 +148,11 @@ class ScrollableComboBox(Button):
             self.currentIndexChanged.emit(index)
 
     def updateState(
-        self, count: int, current_index: int, text: str = "", items: list | None = None
+        self, count: int, current_index: int, text: str | None = None, items: list | None = None
     ):
         self._count = count
         self._current_index = current_index
-        if text:
+        if text is not None:
             self._text = text
         if items is not None:
             self._items = items[:]

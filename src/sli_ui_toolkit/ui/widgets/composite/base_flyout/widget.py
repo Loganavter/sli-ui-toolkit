@@ -44,6 +44,7 @@ from sli_ui_toolkit.ui.widgets.helpers.rounded_clip import RoundedClipEffect
 from .animation import FlyoutFadeController
 from .builder import _FlyoutBuilderApi
 from .contract import _FlyoutManagerApi
+from .debug import _flyout_debug
 from .lifecycle import _FlyoutLifecycleApi
 from .placement import _FlyoutPlacementApi
 from .style import _FlyoutStyleApi
@@ -202,15 +203,22 @@ class BaseFlyout(
         self.update()
 
     def focusInEvent(self, event) -> None:  # noqa: N802
+        # Ring modality resolved centrally via NavigationManager (4.2.4):
+        # input device is the source of truth, reason is only a hint.
         reason = event.reason() if hasattr(event, "reason") else Qt.FocusReason.OtherFocusReason
-        is_kbd = reason not in (Qt.FocusReason.MouseFocusReason, Qt.FocusReason.MenuBarFocusReason)
         try:
-            from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
+            )
 
-            if not is_kbd and NavigationManager.get_instance().last_input_was_keyboard():
-                is_kbd = True
+            is_kbd = resolve_keyboard_focus(reason)
         except Exception:
-            pass
+            # degraded, no manager
+            is_kbd = reason not in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+                Qt.FocusReason.PopupFocusReason,
+            )
         self._keyboard_focus = bool(is_kbd)
         self._last_focus_reason = reason
         super().focusInEvent(event)
@@ -406,7 +414,7 @@ class BaseFlyout(
                 import traceback
 
                 _caller = "".join(traceback.format_stack()[-5:-3])
-                logger.debug(
+                _flyout_debug(
                     "[flyout-nav] focus guard: redirecting FocusIn(%s id=%s objName=%s) back to %s id=%s (flyout id=%s hide_fade=%s) caller=%s",
                     type(obj).__name__,
                     id(obj),

@@ -2,63 +2,38 @@
 
 ## Unreleased
 
-### 4.0.0 — Navigation graph explicit + Enter-to-activate (breaking)
-
 ### Breaking
+
 - **`NavigationSection.focus_first/last` now require `reason: Qt.FocusReason`** — `focus_first(self, ref_x=None, *, reason: Qt.FocusReason)` / `focus_last(..., *, reason)`. All sections (`ToolbarRowsSection`, `IconListNavSection`, `SessionPickerSection`, `TabStripSection`) and every `NavigationManager` call site (`register` bootstrap, `focus_section_for_owner`, `_neighbor` handoff, `eventFilter` bootstrap) now pass `NavigationManager.current_focus_reason()` / `nav_graph.focus_reason()`. Old `spec.focus_first()` without `reason` raises `TypeError`.
 - **`NavigationManager.declare_graph(specs)` added** — explicit top→bottom graph declaration replaces implicit ordering by `register()` call order. `register()` remains for dynamic tab/flyout sections but is deprecated for static shell.
 
-### Fixed
-- **`NavigationManager` focus-ring on new tab** — `ToolbarRowsSection`/`IconListNavSection` `focus_first` and bootstrap now respect mouse vs keyboard modality via `current_focus_reason()` (`MouseFocusReason` vs `OtherFocusReason`). Opening a tab with a mouse click (session picker) no longer lights up the ring; keyboard opens still do. Previously `OtherFocusReason` was unconditional.
-- **`AdaptiveTabStrip`/`_AdaptiveTabBar` tab switching requires Enter** — `Left`/`Right`/`Home`/`End` now move a separate keyboard-focused index (`_focused_index`) with modality preserved, `Enter`/`Space` activates (`setCurrentIndex`). `Delete`/`Backspace` closes the focused tab. Focus ring follows `_focusedTab()` when `hasFocus() && _keyboard_focus`. Mouse clicks still switch immediately.
-
-### 4.1.0 — Navigation declarative helpers
+- The unified flyout (dual-list picker) and the rating row moved out of the
+  toolkit into the host application (Improve-ImgSLI `src/ui/widgets/`).
+  Removed from the toolkit: `UnifiedFlyout` / `UnifiedFlyoutItem` /
+  `SimpleUnifiedFlyoutStore` / `SimpleUnifiedFlyoutController` /
+  `RatingListItem` and the whole `unified_flyout` package. The generic,
+  reusable part stays as a new public widget: **`ListPanel`** +
+  **`ListRowSpec`** (scrollable multi-select list panel with marquee
+  selection, drag&drop drop indicators and a host-supplied row factory;
+  exported from `sli_ui_toolkit.widgets`). Pure multi-move list helpers
+  moved to `sli_ui_toolkit.ui.widgets.helpers.multi_move`. The demo app's
+  `flyouts_page.py` now shows a `ListPanel`-based assembly example.
+- Title-bar menus moved out of the toolkit. `TitleBarMenu` / `TitleBarMenuStrip`
+  and `CustomTitleBar.set_menu_strip` are **removed**; `TitleBarPresets.app_shell`
+  now takes `leading: QWidget | None` instead of `menus=`. `CustomTitleBar` is a
+  generic shell — hosts inject their own leading-zone widget (e.g. File/Help
+  trigger buttons) via `set_leading`/`app_shell(leading=…)` and open their own
+  dropdowns (toolkit `ContextMenu` with an explicit `surface=`) as the app
+  decides (popup vs in-window). The toolkit no longer knows about
+  `context_menu_surface` for the title bar.
 
 ### Added
+
 - **`declare_toolbar_navigation(owner, rows, tag="toolbar")`** — declarative one-liner for toolbar/panel navigation (`ToolbarRowsSection` via `NavigationManager.register`). Alias to `declare_navigation_rows` with toolbar-specific naming (Phase 3 `plan_navigation_simplification.md`). Migrated `tabs/image_compare` and `tabs/multi_compare` from 15-line `_toolbar_rows` + `_register_nav_section` to one call.
 - **`HelpDialog` focus restore simplified** — `_restore_focus_after_window_change` (116 → ~30 lines) now delegates to `NavigationManager.focus_section_for_owner` / `AutoNavigationSection.focus_first` instead of manual `findChildren(StrongFocus)` + `global Y` sort duplicate. Behavior: keep focus if still inside dialog, else restore to same column via declarative sections. Matches `Settings` dialog pattern.
 
-### Changed
-- **`ColorSettingsButton` uses `bind_auto_preview`** — `bind_flyout(..., side="above")` → `bind_auto_preview(..., side="above")` (with fallback). Hover/focus preview + Enter interactive + Esc/focusOut wiring now via `_AutoPreviewController` event filter, not per-anchor `enterEvent/leaveEvent/focusIn/keyPress/focusOut` duplication. Business signals (`elementHovered`, underline colors) kept.
-
-### Fixed
-- **`HelpDialog` focus consistency** — `IconListWidget` `OverlayScrollArea` was `StrongFocus` and was picked as navigable candidate by `AutoNavigationSection`, causing `Right` from left list to land on the scroll area instead of content hub cards; now `NoFocus` (incl. viewport). `HelpDialog._restore_focus_after_window_change` now preserves exact left sub-target (`search` vs `current_row_button`) via `NavigationManager.focus_section_for_owner` + direct `current_row_button` fallback, instead of always jumping to `QLineEdit`. `HelpDialog` Left from content now lands on selected row, not search.
-- **`HelpDocumentView` TOC keyboard navigation** — `_LinkLabel` (TOC entries) were `NoFocus` (`Label` default) so `help-content` `AutoNavigationSection` had zero `StrongFocus` candidates on document pages, `Right` from sidebar was consumed but moved nowhere (later seen as `OverlayScrollArea` focus). Now `StrongFocus` + `focusIn/Out` ring + `Enter/Space` activation + `paintEvent` focus rectangle, so document TOC is navigable via `Up/Down`/`Left`/`Right`.
-- **`HelpDialog` focus loss on close** — `hideEvent`/`closeEvent` left `QApplication.focusWidget() → None` after `HelpDialogWindow` lost focus (`23:42:16:980`), because external focus (`CsdMenuRow`/`MainWindow`) was cleared by `SimpleOptionsFlyout` hide before Help opened and never saved. Now `showEvent` saves `_external_prev_focus`/`_external_prev_window` (incl. `NavigationManager.last_keyboard_focus` fallback) and `hideEvent` restores it with `OtherFocusReason` + `activateWindow`, so closing Help never leaves `None`.
-- **`AutoNavigationSection` crash on stale Help sidebar** — `HelpDialog._sync_sidebar` `clear()` deletes old `Button`s but `Auto._cached_rows_widgets` kept deleted `C++` pointers; `Key_Down` from `HelpSearchField` on next row did `min(target_row, key=lambda w: w.mapToGlobal(...))` on deleted `Button` → `RuntimeError: Internal C++ object (Button) already deleted` (`navigation_sections.py:589`, лог `23:49:46:925`). Now `_auto_rows` filters `shiboken6.isValid`/`isVisible`/`isEnabled`, `navigate`/`focus_first`/`focus_last` re-scan and filter target rows, `mapToGlobal` wrapped in `try/except`, so stale cache self-heals without crash.
-
-### 4.2.2 — IconActionFlyout layout teardown guard
-
-### Fixed
-- **`IconActionFlyout` crash on deleted layout** — `update_state()` called
-  `h_layout.invalidate()` on a freed `QHBoxLayout` when a host
-  `store.state_changed` observer (e.g.
-  `magnifier_color_controls.py:251` `_on_store_state_changed`) was still
-  connected at app shutdown (Python wrapper kept alive by the bound-method
-  signal connection). Now `update_state` guards `self`, `h_layout` and
-  `container` with `sip.isValid` + `try/except RuntimeError` before any
-  layout touch; `set_actions` and `_on_scale_changed` also guard layout
-  validity (same class as the 4.1.0 `AutoNavigationSection` / 4.2.1
-  stale-button fixes, but for the layout object).
-- **`IconActionFlyout` crash on stale action buttons** — a host signal
-  connection (e.g. a store `state_changed` observer) can keep the flyout's
-  Python wrapper alive past its buttons' C++ deletion (parent teardown or
-  `set_actions` `deleteLater` processed by the event loop). `set_action_state`
-  then hit `button.setVisible(...)` on a freed `Button` →
-  `RuntimeError: Internal C++ object (Button) already deleted`
-  (`magnifier_color_controls.py` `_on_store_state_changed` → `update_state`).
-  Now `set_action_state`, `_on_scale_changed` and the `set_actions` cleanup
-  loop guard every cached button with `sip.isValid` and self-heal the
-  action dicts via `_purge_action` (same pattern as the 4.1.0
-  `AutoNavigationSection` stale-row fix).
-
-### 4.2.3 — DragDropOverlay theme and visibility
-
-### Fixed
-- **`DragDropOverlay` dark text in all themes** — `HighlightedText` alias resolves to `surface.background` (white in light, dark gray in dark) so text/border were dark on semi-transparent blue in both themes and did not react to theme toggle. Now text/border are forced to white (`#ffffff`) with luminance check fallback, `ThemeManager.theme_changed` triggers `update()`, so overlay is readable and theme-reactive in light and dark.
-- **`DragDropOverlay` not disappearing after drop until image loads** — `WindowEventHandler.handle_drop` hid the overlay via deferred `singleShot(0)` which raced with the also-deferred `load_images_from_paths`; overlay stayed visible until decode finished. Now hides synchronously via direct `_safe_update_drag_overlays(False)`.
-
-### Added
+- **`OverlayScrollbarConfig` scrollbar policy API** — declarative preset (`reserve_space`, `reserve_width`, `gap`, `auto_hide_seconds`) mirroring `ButtonConfig`: `OverlayScrollArea(config=...)` plus per-field ctor kwargs (`reserve_scrollbar_space`, `scrollbar_width`, `scrollbar_gap`, `scrollbar_auto_hide`, `corner_radius` — kwargs win, `scrollbar_auto_hide` uses a sentinel so explicit `None` still means "persistent bar"). New live setters/getters: `set_scrollbar_width` / `scrollbar_width`, `set_scrollbar_gap` / `scrollbar_gap`, `reserve_scrollbar_space()`, `scrollbar_auto_hide_seconds()`, `set_scrollbar_config` / `scrollbar_config`. Exported from `sli_ui_toolkit.widgets`; documented in `docs/user/INPUTS_API.md`.
+- **`ListPanel` scrollbar policy passthrough** — `ListPanel(..., scrollbar_config=...)` forwards an `OverlayScrollbarConfig` without baking in any host's policy (defaults = toolkit defaults), plus `panel.set_scrollbar_config` / `panel.scrollbar_config()` delegators and `config=` spec fields so the policy shows in the UI inspector. Hosts wanting a persistent bar (e.g. Improve-ImgSLI unified picker) pass `OverlayScrollbarConfig(auto_hide_seconds=None)`.
 - **`OverlayScrollArea` smooth wheel scrolling** — wheel deltas now
   accumulate into a target scroll position and the viewport eases toward it
   Chrome/Firefox-style (timer-driven ease-out at ~60fps, zero idle cost).
@@ -87,24 +62,6 @@
   interrupted by the idle timer. `OverlayScrollArea.set_scrollbar_auto_hide(
   seconds | None)` toggles it per area.
 
-### Changed
-- **`RadioButton` / `CheckBox` rebased onto `Button`** — were standalone
-  `QRadioButton` / `QCheckBox` subclasses with hand-rolled hover animation
-  and no keyboard-focus ring; now `Button` subclasses painting the same
-  indicator/checkmark geometry through a custom `Layer`, so they pick up
-  `FocusLayer`'s ring like every other toolkit control. Two-state only
-  (`CheckBox` drops the unused `Qt.CheckState.PartiallyChecked`
-  indeterminate state — nothing used it). `isChecked()` / `setChecked()` /
-  `toggled` stay API-compatible.
-- **`RadioButtonGroup` added** (`sli_ui_toolkit.widgets`) — `Button` has no
-  native exclusive-group concept (unlike `QAbstractButton` + `QButtonGroup`,
-  which `QRadioButton` got for free, including *implicit* exclusivity for
-  radios sharing one parent widget with no `QButtonGroup` at all). Host apps
-  using `QButtonGroup` with `RadioButton` must switch to
-  `RadioButtonGroup()` — plain Python object, `addButton()` only, no `QObject`
-  parent needed.
-
-### Added
 - **`CustomTitleBar` keyboard navigation** — `StrongFocus` policy, Left/Right
   arrow-key navigation between focusable title bar buttons via QApplication
   event filter. `_focusable_buttons()` collects visible, enabled, StrongFocus
@@ -175,7 +132,354 @@
   stability), `keyPressEvent` never fires. The `_visible_menus` registry
   provides a clean app-integration point instead of per-widget event filters.
 
+- Minimal scrollbar public API trimmed to two names exported from
+  `sli_ui_toolkit.widgets`: `MINIMAL_SCROLLBAR_WIDTH` (the bar's fixed
+  width, for positioning) and `overlay_scrollbar_max_inset()` (the single
+  always-on footprint value = width + gap + margin). Gap, overlay margin,
+  thumb thicknesses and track padding are internal to the bar. The combobox
+  dropdown overlay, flyout list views and the timeline widget now read the
+  public API instead of hardcoding widths; the app-side recent-shelf grid
+  reserve (`ITEMS_MARGIN_RIGHT`) is derived from it too. The timeline's own
+  drawn footer scrollbar keeps its metrics as local named constants.
+- `OverlayScrollArea.overlay_scrollbar_inset()` now returns a single fixed
+  value — the bar's maximum width plus a small margin (was the bare bar
+  width) — so overlay-mode content never sits flush against the thumb in
+  any state (idle/hover/drag) and hosts don't chase the live thickness.
+- `measure_text_width(fm, text)` — the toolkit's text-width normalizer, now
+  public from `sli_ui_toolkit.ui.managers.ui_font` /
+  `sli_ui_toolkit.widgets` (was `_measure_text_width` in
+  `context_menu.models`, kept as a back-compat alias there):
+  `max(horizontalAdvance, boundingRect) + 8px` so panels sized from it never
+  clip painted glyphs.
+- `ButtonRow(size=None)` — render the row with the current default UI font
+  (`ui_font()`) instead of an explicit pixel size, matching the host's normal
+  text (SimpleOptionsFlyout default rows / HUD labels). Explicit pixel sizes
+  unchanged.
+- `SimpleOptionsFlyout.set_rows(rows)` — generic list fill: the composite owns
+  flyout display, long-list scrolling and sizing; hosts supply arbitrary row
+  widgets (any `QWidget`; `clicked`-bearing rows are wired to `item_selected`
+  with the row index). `populate(labels, current_index)` remains the
+  convenience path for plain single-line rows. New `rows()` accessor;
+  `row_widget(index)` now indexes installed rows. Panel sizing follows each
+  row's `sizeHint()` (variable heights supported).
+- `SimpleOptionsFlyout.set_list_padding(padding)` — host-controlled inset
+  between the panel border and the row list (`int` or `(l, t, r, b)`).
+
+- `BaseFlyout.show_aligned(..., animation_axis="diagonal")` — new slide
+  mode alongside `"auto"`/`"vertical"`/`"horizontal"`: both X and Y travel
+  the full `distance`/`animation_distance` independently (each clamped
+  against the anchor edge the same way `"vertical"`/`"horizontal"` already
+  do on their own axis), instead of `"auto"`'s single fixed distance split
+  across the real anchor→flyout unit vector. For a corner-aligned flyout
+  (e.g. `anchor_point="top-left"` / `flyout_point="bottom-right"`) where
+  the anchor and flyout sizes differ a lot on one axis — a narrow icon
+  button anchoring a much wider panel — `"auto"`'s vector ends up dominated
+  by whichever axis has the bigger center-to-center offset, shrinking the
+  other axis's slide to a few barely-visible pixels; `"diagonal"` keeps
+  both axes clearly visible regardless. Found via ImgSLI's
+  `FontSettingsFlyout.show_top_left_of`, which wanted a visible slide in
+  both directions and got a slide that looked purely vertical under
+  `"auto"`.
+- `BaseFlyout.set_background_brush(brush)` / `.set_border_color(color)` /
+  `.set_shadow_color(color)` (+ matching getters) — per-instance overrides
+  for the flyout panel's fill, stroke, and drop-shadow tint, `None` falls
+  back to the theme token. Same shape as `Button`'s style API
+  (`set_background_color`/`setBorderColor` in `style_api.py`). Accepts a
+  flat `QColor`, any `QGradient`, or an existing `QBrush` (e.g. built from
+  a `QPixmap` for a repeating texture) for `set_background_brush`. Texture/
+  gradient brushes are anchored to the panel's own corner via
+  `painter.setBrushOrigin`, not `(0, 0)` of the (shadow-inset) flyout
+  widget. `draw_rounded_shadow`/`paint_shadowed_surface` gained an optional
+  `color`/`shadow_color` keyword (default `None` = the historical opaque
+  black) to support the shadow tint; both are backward compatible for
+  every other existing caller (tooltips, combobox overlay, unified
+  flyout), which don't pass it. See "Custom surface style" in
+  `docs/user/FLYOUT_SYSTEM.md` — deliberately does not attempt live
+  backdrop blur/frosted-glass (expensive, awkward over a QRhi canvas);
+  approximate that with a semi-transparent gradient instead.
+- `FlyoutManager.request_hide` now logs a `DEBUG`-level message with a
+  stack trace whenever a `pinned=True` flyout is hidden. The manager can't
+  distinguish an intentional app-level hide from a bug bypassing the
+  pinned exemptions (both are just a `.hide()` call), so this is a
+  diagnostic aid, not an enforced invariant — see "Diagnosing unexpected
+  pinned-flyout closes" in `docs/user/FLYOUT_SYSTEM.md`.
+- `sli_ui_toolkit.managers.LayerStack` — named z-order layers for
+  `FlyoutManager.ensure_overlay_stacking`. Replaces the previous hardcoded
+  "`context_menu` group always raised above everything else" special case
+  with a host-configurable ordered layer list (`FlyoutManager.set_layer_stack`
+  / `.layer_stack()`). The default stack is unchanged from prior behavior
+  (`base` < `context_menu`) — hosts that never call `set_layer_stack` see no
+  difference. First phase of the flyout layer/rule system plan, see
+  `docs/dev/FLYOUT_LAYER_SYSTEM_PLAN.md`.
+- `GroupShowPolicy.define_group(group, parent=...)` / `configure_group(...,
+  parent=...)` — groups can now inherit another group's `dismisses` /
+  `claim_active` rules recursively instead of repeating them, overriding
+  only the fields they need. `GroupShowPolicy.coexists_with(a, b)` is
+  symmetric sugar for "opening either group never dismisses the other",
+  independent of each group's own dismiss set. Second phase of the flyout
+  layer/rule system plan, see `docs/dev/FLYOUT_LAYER_SYSTEM_PLAN.md`.
+- `FlyoutManager.link(parent, child)` / `.unlink(...)` / `.linked_children(...)`
+  — declare a flyout as part of another one's family (submenu, color-picker
+  opened from inside a settings flyout, etc). Hiding the parent (through
+  any dismiss path) cascades to hide every linked child recursively;
+  re-showing the parent (e.g. a pinned HUD's `reposition()`) calls
+  `child.reposition()` for visible children automatically. Third phase of
+  the flyout layer/rule system plan, see
+  `docs/dev/FLYOUT_LAYER_SYSTEM_PLAN.md`.
+- `ChainShowPolicy` — `FlyoutManager.set_show_policy` now also accepts a
+  `list`/`tuple` of policies, combined as: `should_dismiss` AND-combined
+  (any policy can protect a pair from dismissal), `should_claim_active`
+  priority-order (first policy wins). Fourth phase of the flyout
+  layer/rule system plan, see `docs/dev/FLYOUT_LAYER_SYSTEM_PLAN.md`.
+- `ButtonGroup(..., border_radius=8, corner_radii=None)` — per-corner border
+  radii, same `(top-left, top-right, bottom-right, bottom-left)` convention
+  and `CornerRadii`/`normalize_corner_radii` helper as `Button`'s
+  `ShapeSpec`. `border_radius` stays the uniform shorthand;
+  `corner_radii` overrides individual corners. Also runtime-adjustable via
+  the new `set_corner_radii(corner_radii=None, *, border_radius=None)` /
+  `corner_radii()` methods — e.g. squaring off a group's bottom corners
+  while a flyout is docked flush underneath it, then restoring them when
+  the flyout closes.
+- `ButtonGroup.label() -> str` — public getter for the group's caption
+  (`set_label`/`set_label_text` already existed; reading it back required
+  poking the private `_label` attribute). Lets a companion widget (e.g. a
+  flyout docked under the group) mirror the same caption instead of
+  duplicating the string.
+- `BaseFlyout.trigger_widgets()` / `.trigger_contains_global(global_pos)` —
+  split out from `anchor_widgets()`/`anchor_contains_global()`. Defaults to
+  `anchor_widgets()`, so every existing flyout (dropdown, context menu,
+  ...) keeps its current behavior unchanged. `FlyoutManager.eventFilter`'s
+  `MouseButtonPress` handling now uses `trigger_contains_global` (not
+  `anchor_contains_global`) to decide "clicked the trigger while open,
+  dismiss" — override `trigger_widgets()` to return `()` (or a narrower
+  subset) for a flyout whose anchor is used purely for positioning against
+  a widget that isn't itself a click-to-toggle trigger, e.g. a hover-driven
+  flyout anchored to a whole button group for width/placement rather than
+  a single button. Without the split, clicking *any other* button in that
+  group while the flyout was open read as "clicked the trigger, dismiss"
+  and closed it — found via ImgSLI's magnifier-settings hover flyout, whose
+  anchor is the whole magnifier button group; toggling the magnifier
+  button itself (a sibling in that group) was closing the flyout.
+  `anchor_contains_global`/`anchor_widgets()` are unchanged and still drive
+  positioning, anchor-move auto-dismiss, and the generic outside-click
+  "am I inside any open flyout" check.
+
+- `IconListWidget(button_factory=...)`: lets a caller replace the default
+  nav-row `Button` per item, for custom row layouts (badges, a different
+  `variant`, `regions=`, multi-line text) without subclassing
+  `IconListWidget` or reaching into its internals. Rows built through a
+  custom factory still get layout stretch, `FocusPolicy.NoFocus`, click→
+  selection wiring, and CHECKED-state syncing
+  (`setRegionChecked("_main", ...)`) from `IconListWidget`, but the widget
+  leaves their icon/foreground styling alone — that's the custom factory's
+  responsibility, same as any other `Button` variant.
+- `ComboBox` "gear-shifter" drag-select: press-and-hold the field for
+  `GEAR_HOLD_MS` (450ms), or drag it sideways/vertically past
+  `GEAR_DRAG_THRESHOLD_PX` (8px) right after pressing, to open the dropdown
+  and scrub through rows by dragging — like sliding a gearbox knob into its
+  slot. A stationary outline frame (`_GearFrame`, drawn at the field's own
+  screen rect) marks the fixed reference point; whichever row is behind it
+  gets the hover highlight and is what gets committed on release. A plain
+  click/release still just toggles the list as before, and dropdowns with
+  more rows than fit on screen fall back to plain scroll-to-select (the
+  window can't be dragged to track an unbound row count). Implementation:
+  - New `GearDragCapability` (`ui/widgets/comboboxes/capabilities/`),
+    attached via `ComboBox.attach_capability()` the same way `Button` attaches
+    `LongPressCapability` — `ComboBox` now opts into `long_press=True` on its
+    own `Button.__init__` call to get the hold gesture.
+  - Below the overflow threshold, the whole popup window (card + shadow +
+    rows, one widget) physically translates with the drag instead of the
+    list scrolling internally, so it reads as sliding the actual rows past a
+    fixed field rather than a normal scrolling list.
+  - On release, the popup snaps the rest of the way to the exact
+    item-boundary offset (`QPropertyAnimation` over `GEAR_SNAP_DURATION_MS`,
+    40ms) so the focused row lands perfectly centered under the field, then
+    holds there for `GEAR_SNAP_HOLD_MS` (250ms) before the dropdown closes,
+    instead of collapsing the instant the row lines up.
+  - The real cursor is hidden (`Qt.BlankCursor`) for the gesture's duration
+    since the popup moves under a stationary pointer; app-wide hover
+    (`HoverCoordinator`) is explicitly suppressed on dropdown rows during the
+    drag so it can't light up whatever row the moving popup happens to pass
+    under, layering a second highlight on top of the gear frame's own.
+  - Only arms on genuine OS-delivered input (`event.spontaneous()`) — mouse
+    events synthesized in-process can't trigger the gesture.
+- `Button(underline_fade=...)` / `setUnderlineFade(bool | None)`: turns the
+  tip fade on/off per button. `None` (default) follows the process-wide
+  default (`get_default_underline_fade()`, itself `True` unless changed).
+- `set_default_underline_fade(bool)` / `get_default_underline_fade()` and
+  `configure_toolkit(default_underline_fade=...)`: process-wide default for
+  the tip fade, same pattern as `set_default_defer_click`. A host that finds
+  the fade doesn't suit its visual style can turn it off globally in one call
+  instead of passing `underline_fade=False` at every `show_underline=True`
+  call site.
+- `Button(underline_tongue_reach=...)` / `setUnderlineTongueReach(float | None)`:
+  controls how high (px) the underline's end caps ("tongues") are allowed to
+  climb the sides, independent of `underline_thickness`. `0` gives hard square
+  ends (no corner rounding followed at all); `None` (default) matches the
+  button's own corner radius, i.e. the old look; larger values climb further
+  up the sides. If `thickness` needs more room than the corner radius alone
+  provides, the excess fills *upward* toward `tongue_reach` rather than
+  overflowing sideways past the rounding.
+- `Button(underline_ring=...)` / `setUnderlineRing(bool)`: draws the underline
+  as a closed frame around the whole button instead of just a bottom band —
+  still split into `underline_color`'s zones the same way.
+- `DrawContext.underline_tongue_reach` / `DrawContext.underline_ring`,
+  `UnderlineConfig.tongue_reach` / `UnderlineConfig.ring` (low-level painter
+  API, `sli_ui_toolkit.ui.widgets.helpers.underline_painter`).
+- `OverlayScrollArea.overlay_scrollbar_inset() -> int`: how many px of content
+  clearance the overlay bar currently needs — `0` when
+  `reserve_scrollbar_space` is on (the bar already gets its own viewport
+  margin) or when the bar isn't visible (nothing overflows), else the bar's
+  width + gap. Lets callers that manually lay out content inside the scroll
+  area (rather than via `setWidget` + a Qt layout) reserve exactly the live
+  clearance instead of hardcoding a guess at the bar's width that wastes
+  space whenever there's nothing to scroll.
+
+- `TextView.set_line_number_start(n)` — VS Code-style line-number gutter:
+  right-aligned muted numbers (starting at `n`, e.g. the class's line in
+  its source file so the gutter matches the actual file) plus a thin
+  separator; text, selection, caret and hit-testing shift by the gutter
+  width. `None` (default) disables it. Code mode only — document mode never
+  shows the gutter. Exposed on both `TextView` and its painted `TextCanvas`.
+- UI inspector Code section — ONE unified editable `TextView` (styled like
+  the app's recent-projects shelf: a rounded panel well behind the text,
+  `variant="default"` toggle button) containing the generated
+  **Configuration (live values)** snippet (a synthetic constructor call
+  built from `WidgetInspection.config` — enums render as `Type.MEMBER`,
+  colors as hex, `REF` child widgets as `Type(...)` placeholders, nested
+  field blocks as dicts) followed by the widget class source. Any other
+  code in the source file is collapsed into a plain gap row (`·····`);
+  clicking the row expands that region inline, clicking again collapses
+  it. VS Code-style folding display: the gap row's gutter shows the last
+  line number before the hidden block and the next row its real number
+  right after (e.g. `12` then immediately `17`), a disclosure arrow (`▸`)
+  sits in the gutter left of the gap row's number, and the synthetic
+  config snippet is marked with a dot (`·`) instead of a line number so
+  the file counter never restarts below it. The gutter width (numbers + a
+  constant arrow slot) is identical across compact/expanded/full so the
+  content's left offset never moves. The **Full/Compact** button
+  (top-left) expands/collapses everything at once and flips its own
+  label. **Preview** compiles the edited class and constructs a live
+  instance (the current config values become the constructor kwargs;
+  non-reconstructable values like `REF` placeholders are skipped, and
+  REQUIRED args the widget does not store as attributes — e.g.
+  AdaptiveTabStrip's `add_icon`/`close_icon` — are filled with `None` so
+  the preview still builds; the required-arg resolution walks the MRO, so
+  forwarding subclasses (`__init__(self, *args, **kwargs)`) cannot hide
+  the real parameters) in a panel below the editor; while open, it
+  re-builds on every edit (debounced 300ms), so the effect of a change is
+  visible before saving — compile/construct errors are shown in the panel
+  (with the exact attempted constructor call) instead of crashing.
+  **Apply** hot-patches the LIVE widget class in place (the edited class
+  region's methods/attributes are copied onto the real class — the actual
+  widget changes where it sits, same instance, host wiring intact, all
+  instances of that class affected — and repaints); **Revert** restores
+  the snapshot of the original class taken when the inspection opened.
+  Every Apply/Preview result is reported in the preview panel (auto-opened
+  on failure so nothing is silent) with a debug line: the compiled class,
+  the resolved constructor signature, the kwargs used and the skipped
+  values. Config-snippet kwarg extraction now resolves module-level names
+  through the widget's module namespace (e.g.
+  `CloseButtonPolicy.ALL_WHEN_FIT_ELSE_CURRENT`), so enum-valued config
+  no longer silently drops out of the preview construction.
+- Fixed: `FlyoutFadeController.start_hide_fade` now clears the flyout's
+  `_show_animation` reference after stopping the show animation — a
+  lingering reference pointed at the `deleteLater`-ed C++ animation and
+  crashed the next hide (RuntimeError: Internal C++ object already
+  deleted) in rapid show/hide/reposition cycles (slider-hint style). The
+  gutter numbers the actual file lines (starting at the class statement;
+  the snippet is 1-based). `Save` reconstructs the whole file with the
+  edited class region — the snippet and gap rows are never written to
+  disk.
+- `TextView.set_line_number_map(mapping)` — explicit per-display-line
+  gutter text (for collapsed-gap views; lines missing from the map fall
+  back to `start + index`), `TextCanvas.set_fold_lines(lines)` (gutter
+  disclosure arrows for collapsed rows, left of the line number; an empty
+  set keeps a constant arrow slot reserved, `None` disables it — the
+  content never shifts between states), `TextCanvas.line_at(y)` (display
+  line for a widget-space y — click targeting) and `TextView.canvas()`
+  (the painted surface, for event filters). `TextView.set_panel_fill(color)` paints a
+  rounded panel well behind the text (viewport fill clipped to the frame
+  radius — the recent-projects shelf look); `None` restores the page
+  background.
+
+- `Button(text_fit=True)` — grow-to-content sizing for text/rows buttons:
+  `sizeHint` tracks the parent row's available width (margins + preceding
+  siblings) capped at the full text width, `minimumSizeHint` stays tiny so
+  a scroll content can always shrink the button. Pair with a trailing
+  `addStretch(1)` in the row (a stretch/Expanding item right-anchors its
+  widget in Qt) and a row `marquee=True` for overflowing text.
+- `Button` size hints are now rows-aware: a `rows=[ButtonRow(...)]` button
+  reports the widest row's text width (measured with each row's own paint
+  font) instead of the fixed (36, 36) — `text=` and `rows=` size alike.
+- Markdown document mode (help/`TextView`): headings now render on a
+  strictly decreasing font scale (`#` 26px → `######` 13px, design px) —
+  previously `#`/`##` shared one size and `###`…`######` another. Fenced
+  code blocks now render as a shaded rounded box (the long-unused
+  `help.code.background` token) with the text inset and the fence language
+  label in the box header, instead of bare monospace paragraphs.
+- Markdown document mode: fenced code blocks lost their line breaks —
+  `QTextLayout` treats `\n` as a soft break, so without forced wrapping the
+  whole block collapsed into one line. Segment layout now splits on `\n`
+  (one fragment per line; blank lines reserve the font's line height), and
+  inline `` `code` `` spans get the monospace font **and** the
+  `help.code.background` tint instead of a bare font-family change.
+- Markdown document mode: code text could disappear or render with
+  mismatched backgrounds — two stacked PySide6 `QTextLayout` traps:
+  `FormatRange.format` holds a *reference* to the `QTextCharFormat`'s C++
+  object (the layout draws dangling formats once the Python wrapper is
+  collected — formats are now kept alive for the layout's lifetime), and a
+  second `setFormats` on an already-laid-out layout silently breaks its
+  drawing. Fence blocks no longer set a per-character tint at all (the box
+  is their background) instead of stripping it after layout.
+
+- **`SurfaceScrollArea`** (`sli_ui_toolkit.widgets`) — scroll area that
+  paints its surface from a theme token (default `dialog.background`),
+  extending `OverlayScrollArea` (overlay scrollbar kept). The token is
+  resolved to a widget-level `background-color` stylesheet on the scroll
+  area — it cascades to the viewport and the content widget, survives
+  `QStyle::polish` at `show()` (a per-widget palette does not), and is
+  re-tinted on `theme_changed`. `set_surface_token(token)` switches at
+  runtime; `set_surface_token(None)` pins the viewport and the content
+  widget transparent instead, so a host ancestor that paints the surface
+  shows through (the `SimpleOptionsFlyout` pattern). Closes the stock
+  scroll-container black-substrate mechanism for toolkit widgets: stock
+  `QScrollArea` viewports and `setWidget`-flipped content widgets auto-fill
+  the `Window` role, darker than the dialog surface token (dark `Window`
+  `#1e1e1e` vs `dialog.background` `#2b2b2b`).
+
+
+- `Button(overlay_painter=...)` — high-level parameter accepting a custom overlay painter callback `(painter, rect)` or `(painter, ctx, tm)` without requiring `Layer` subclassing or pipeline manipulation.
+- `Button(extra_layers=...)` — parameter to append custom `Layer` instances to the default painter pipeline.
+- Exported `Layer`, `DrawContext`, `default_layers`, `OverlayPainterLayer`, `OverlayPainterCallback`, `BackgroundLayer`, `RippleLayer`, `ContentLayer`, and other layer primitives in `sli_ui_toolkit.widgets` and `sli_ui_toolkit.ui.widgets.buttons`.
+- `emerald_button_demo.py` — demo of a multi-region `Button` where each octagonal
+  gem facet is an independent `ButtonRegion` with its own `path_fn`, `override_bg_color`,
+  and per-facet hover/ripple via the toolkit pipeline.
+
 ### Changed
+
+- **`ColorSettingsButton` uses `bind_auto_preview`** — `bind_flyout(..., side="above")` → `bind_auto_preview(..., side="above")` (with fallback). Hover/focus preview + Enter interactive + Esc/focusOut wiring now via `_AutoPreviewController` event filter, not per-anchor `enterEvent/leaveEvent/focusIn/keyPress/focusOut` duplication. Business signals (`elementHovered`, underline colors) kept.
+
+- **Debug streams unified on env-gated helpers** (host `LOGGING.md` unique-prefix convention) — every subsystem stream is now a call-time `_xxx_debug_enabled()` / `_xxx_debug()` pair over `core.debug_flags` (permissive: any non-empty except `0/false/no/off`), off by default even under host `--debug`, existing `[prefix]` tags unchanged. New canonical `SLI_*` vars with legacy aliases: `SLI_NAV_DEBUG` (`UI_NAV_DEBUG`, shared with host router), `SLI_FLYOUT_DEBUG` (`IMGSLI_FLYOUT_DEBUG`, `FLYOUT_DEBUG`), `SLI_TIMELINE_DEBUG` (`IMGSLI_TIMELINE_DEBUG`, `IMGSLI_VIDEO_EDITOR_DEBUG`), `SLI_SCROLLBAR_DEBUG` (`IMGSLI_SCROLLBAR_DEBUG`), `SLI_DND_DEBUG` (`IMGSLI_DND_DEBUG`, `IMGSLI_IMAGE_COMPARE_DEBUG`, `IMGSLI_IC_DEBUG`); unchanged singles `SLI_UI_NAVLIST_DEBUG`, `SLI_UI_COLORS_DEBUG`, `SLI_RESIZE_DEBUG`. New shared helpers: `core/debug_flags.py`, `base_flyout/debug.py`, `timeline_widget/debug.py`.
+- **No more host-app leaks in the toolkit** — `logging.getLogger("ImproveImgSLI...")` and import/call-time `logger.setLevel` mutations removed from all unified streams (timeline, flyout, DnD overlay, scrollbar, resize); `SLI_TOOLKIT_DEBUG` / `debug_env_var` handling in `core/logging.py` is now permissive like the rest (was strict `=="1"`).
+- **Progress-only toast updates are cheap** — `update_toast(..., content=None)` with `actions=None` skips the text/layout/repolish pass and only moves the progress bar (`+update()`); `_set_progress` skips the surface repolish when progress visibility is unchanged; the update path no longer forces `show()`/`raise_()` when already visible and keeps only the scheduled reposition (no synchronous `_position_toasts` per tick).
+
+- **`RadioButton` / `CheckBox` rebased onto `Button`** — were standalone
+  `QRadioButton` / `QCheckBox` subclasses with hand-rolled hover animation
+  and no keyboard-focus ring; now `Button` subclasses painting the same
+  indicator/checkmark geometry through a custom `Layer`, so they pick up
+  `FocusLayer`'s ring like every other toolkit control. Two-state only
+  (`CheckBox` drops the unused `Qt.CheckState.PartiallyChecked`
+  indeterminate state — nothing used it). `isChecked()` / `setChecked()` /
+  `toggled` stay API-compatible.
+- **`RadioButtonGroup` added** (`sli_ui_toolkit.widgets`) — `Button` has no
+  native exclusive-group concept (unlike `QAbstractButton` + `QButtonGroup`,
+  which `QRadioButton` got for free, including *implicit* exclusivity for
+  radios sharing one parent widget with no `QButtonGroup` at all). Host apps
+  using `QButtonGroup` with `RadioButton` must switch to
+  `RadioButtonGroup()` — plain Python object, `addButton()` only, no `QObject`
+   parent needed.
+
 - **`NavigationManager._WidgetNavigationSection.owns()`** — removed parent-chain
   fallback that incorrectly claimed overlay widgets (flyouts, popups) parented
   inside a section's widget tree. Flyouts now register their own sections.
@@ -339,7 +643,6 @@
   any UI scale and looked like it never scaled. The polygon is derived from
   `scaled_px()` and stays visually comparable to the row text.
 
-### Changed
 - The help-document layout engine moved into `text_view/` as the single
   home: `blocks.py` → `text_view/markdown.py`, plus `text_index.py`,
   `structure.py` and `layout/` (builder, text_layout, paint, hit_test,
@@ -357,62 +660,6 @@
 - `HelpImageLightbox.eventFilter` is defensive against teardown events (a
   partially-constructed lightbox no longer raises inside the event loop).
 
-### Changed (breaking)
-- The unified flyout (dual-list picker) and the rating row moved out of the
-  toolkit into the host application (Improve-ImgSLI `src/ui/widgets/`).
-  Removed from the toolkit: `UnifiedFlyout` / `UnifiedFlyoutItem` /
-  `SimpleUnifiedFlyoutStore` / `SimpleUnifiedFlyoutController` /
-  `RatingListItem` and the whole `unified_flyout` package. The generic,
-  reusable part stays as a new public widget: **`ListPanel`** +
-  **`ListRowSpec`** (scrollable multi-select list panel with marquee
-  selection, drag&drop drop indicators and a host-supplied row factory;
-  exported from `sli_ui_toolkit.widgets`). Pure multi-move list helpers
-  moved to `sli_ui_toolkit.ui.widgets.helpers.multi_move`. The demo app's
-  `flyouts_page.py` now shows a `ListPanel`-based assembly example.
-- Title-bar menus moved out of the toolkit. `TitleBarMenu` / `TitleBarMenuStrip`
-  and `CustomTitleBar.set_menu_strip` are **removed**; `TitleBarPresets.app_shell`
-  now takes `leading: QWidget | None` instead of `menus=`. `CustomTitleBar` is a
-  generic shell — hosts inject their own leading-zone widget (e.g. File/Help
-  trigger buttons) via `set_leading`/`app_shell(leading=…)` and open their own
-  dropdowns (toolkit `ContextMenu` with an explicit `surface=`) as the app
-  decides (popup vs in-window). The toolkit no longer knows about
-  `context_menu_surface` for the title bar.
-
-### Added
-- Minimal scrollbar public API trimmed to two names exported from
-  `sli_ui_toolkit.widgets`: `MINIMAL_SCROLLBAR_WIDTH` (the bar's fixed
-  width, for positioning) and `overlay_scrollbar_max_inset()` (the single
-  always-on footprint value = width + gap + margin). Gap, overlay margin,
-  thumb thicknesses and track padding are internal to the bar. The combobox
-  dropdown overlay, flyout list views and the timeline widget now read the
-  public API instead of hardcoding widths; the app-side recent-shelf grid
-  reserve (`ITEMS_MARGIN_RIGHT`) is derived from it too. The timeline's own
-  drawn footer scrollbar keeps its metrics as local named constants.
-- `OverlayScrollArea.overlay_scrollbar_inset()` now returns a single fixed
-  value — the bar's maximum width plus a small margin (was the bare bar
-  width) — so overlay-mode content never sits flush against the thumb in
-  any state (idle/hover/drag) and hosts don't chase the live thickness.
-- `measure_text_width(fm, text)` — the toolkit's text-width normalizer, now
-  public from `sli_ui_toolkit.ui.managers.ui_font` /
-  `sli_ui_toolkit.widgets` (was `_measure_text_width` in
-  `context_menu.models`, kept as a back-compat alias there):
-  `max(horizontalAdvance, boundingRect) + 8px` so panels sized from it never
-  clip painted glyphs.
-- `ButtonRow(size=None)` — render the row with the current default UI font
-  (`ui_font()`) instead of an explicit pixel size, matching the host's normal
-  text (SimpleOptionsFlyout default rows / HUD labels). Explicit pixel sizes
-  unchanged.
-- `SimpleOptionsFlyout.set_rows(rows)` — generic list fill: the composite owns
-  flyout display, long-list scrolling and sizing; hosts supply arbitrary row
-  widgets (any `QWidget`; `clicked`-bearing rows are wired to `item_selected`
-  with the row index). `populate(labels, current_index)` remains the
-  convenience path for plain single-line rows. New `rows()` accessor;
-  `row_widget(index)` now indexes installed rows. Panel sizing follows each
-  row's `sizeHint()` (variable heights supported).
-- `SimpleOptionsFlyout.set_list_padding(padding)` — host-controlled inset
-  between the panel border and the row list (`int` or `(l, t, r, b)`).
-
-### Changed
 - Grouped button fills: a `group=` whose members are all plain rects now paints
   ONE united fill (first member paints the group rect, siblings paint nothing)
   instead of per-region abutting fills with a hairline overlap. The old
@@ -556,7 +803,179 @@
   still open before hiding + firing. Found via ImgSLI's Help menu "Find
   Action…" row, which opens a modal command-palette dialog.
 
+- `show_aligned(..., offset=N)`: any `N < SHADOW_RADIUS` (default 8) was
+  already silently floored to `SHADOW_RADIUS` (needed so the drop-shadow
+  halo never visually overlaps the anchor) -- but with zero signal that it
+  happened, so e.g. `offset=2` and `offset=4` render pixel-identical (both
+  floored to 8) and tuning within that range looks like the parameter does
+  nothing. `_compute_aligned_top_left` now logs at DEBUG
+  (`sli_ui_toolkit.ui.widgets.composite.base_flyout`) whenever the floor
+  actually changes the requested value, naming the flooring
+  `shadow_radius` and the `anchor_point`/`flyout_point` involved. No
+  behavior change -- pass `offset >= SHADOW_RADIUS` for the exact pixel gap
+  requested, same as before, just diagnosable now instead of a silent
+  no-op. Found via ImgSLI's `ModePicker`/color-options flyouts, where
+  offset went 2 -> 4 -> 10 with no visible difference between the first two.
+
+- `FlyoutManager._close_flyouts_with_moved_anchors` now calls
+  `flyout.reposition()` itself for `pinned=True` flyouts whose anchor moved
+  or resized, instead of only skipping the auto-close (leaving repositioning
+  entirely up to the host's own resize/move handler, per `reposition()`'s
+  docstring). Hosts that already call `reposition()` themselves
+  (`InfoHUD`/`ZoomIndicator`) just get a harmless extra no-op call. Found
+  via ImgSLI's `MagnifierSettingsFlyout` (app-side code, not this library)
+  — freshly switched to `pinned=True` to opt out of `_dismiss_passive()`
+  closing it on any outside click, but with no resize-handler wiring of its
+  own, so without this it would sit at a stale position instead of tracking
+  its anchor during a window resize while open. Gated on the same
+  snapshot-rect comparison the existing non-pinned auto-close branch already
+  uses (and refreshes the snapshot after repositioning) -- the triggering
+  event filter is installed app-wide, so an ungated call would re-run a
+  pinned flyout's full positioning logic on *every* Move/Resize/etc.
+  anywhere in the app, not just when its own anchor actually moved. Hosts
+  with positioning beyond a plain `show_aligned()` call (e.g. an extra
+  `move()` afterwards) should override `reposition()` to redo that too --
+  see `MagnifierSettingsFlyout.reposition()` for the pattern.
+
+- `IconListWidget` rows are now built entirely on the public `Button` API
+  (`variant="sidebar_nav"`) instead of the bespoke `_NavRowButton`/
+  `_NavRowContent` painter pair. Icon/text layout, ripple, and checked-state
+  painting come from `Button`'s own content/variant pipeline instead of
+  being hand-drawn; no behavior change for existing `set_items`/`add_item`
+  callers. This also unlocked `button_factory` (see "Added") since rows are
+  now ordinary `Button` instances the widget composes rather than a private
+  subclass it paints itself.
+- `IconListWidget` checked-row background now reads
+  `list_item.background.selected` from the theme palette first, falling
+  back to `accent` and then `list_item.background.hover` (the previous
+  behavior, unchanged for palettes that don't define the new key). Lets a
+  host palette give the checked row a background other than a solid accent
+  fill — e.g. so an accent-tinted icon (see below) stays legible against it —
+  without any widget-level change.
+- `IconListWidget` checked-row icon color now reads `list_item.icon.selected`
+  from the theme palette first, falling back to `HighlightedText` (white) as
+  before. The checked icon's pixmap is now actually tinted to that resolved
+  color via `QPainter` (`CompositionMode_SourceIn`) rather than being
+  RGB-inverted — the previous default `selected_icon_mode="invert"` flipped
+  each icon's own channel values, which is only coincidentally close to
+  "white" for near-black monochrome glyphs and produces arbitrary,
+  unthemed hues for anything else. The per-pixel Python loop this replaced
+  is also gone; tinting is now one composited fill.
+- `Button` underline (`show_underline`/`setUnderlineColor`/`setUnderlineThickness`):
+  rewrote the paint geometry to build the band from rounded-rect `QPainterPath`
+  boolean ops (`intersected`/`subtracted`) instead of stroking a fixed-size arc
+  with a `QPainterPathStroker`. The old approach centered a `thickness`-wide pen
+  on a tiny, fixed-radius arc at each corner, so once `thickness` exceeded that
+  radius the stroke visibly overflowed past the button's own rounded corners as
+  square blobs. The new geometry is bounded by the widget's own rounded rect by
+  construction, so it cannot overflow at any thickness.
+- `setUnderlineThickness`/`Button(underline_thickness=...)`: removed the
+  previous hard cap of 3.0px (and the `RuntimeWarning` it raised past that).
+  Uncapped now that the geometry rewrite makes arbitrarily large values safe.
+- Underline tip alpha-fade: back to only the strip's true left/right ends
+  (a small fixed-px patch, skipped once `thickness >= tongue_reach`). An
+  intermediate experiment fading every zone across its own full length
+  (interior color seams included) read worse in practice — messy rather than
+  like a taper — and was reverted.
+
+- Large widget families were decomposed into folders, one concern per
+  module (the `buttons/` folder is the model; all old module paths stay as
+  thin re-export shims, the public API is unchanged):
+  - `base_flyout.py` → `ui/widgets/composite/base_flyout/`: `widget.py`
+    (thin facade), pure placement math in `geometry.py`, fade machinery in
+    `animation.py`, style/builder/placement/lifecycle/manager-contract
+    modules.
+  - `ui/windows/custom_title_bar.py` → `ui/windows/custom_title_bar/`:
+    zones/balance in `zones.py`, `window_controls.py`, `drag.py`,
+    `appearance.py`, thin `widget.py`.
+  - `ui/inspector/view.py` → section rendering in `rendering.py`, the Code
+    section in `code.py`, Layout/Constructor trees in `tree.py`, value
+    formatting in `fields.py`, plus a thin `view.py` (`InspectorWindow` +
+    `_InspectionPane`).
+  - `ui/widgets/composite/adaptive_tab_strip/widget.py` → `widget.py`
+    (thin host), `tab_bar.py` (the painted bar), `close_button.py` (close
+    slot + policy + tab-background layer).
+  - `ui/widgets/composite/list_panel.py` → `ui/widgets/composite/list_panel/`:
+    `widget.py` (facade), `rows.py`, `drag_drop.py`, `selection.py`.
+  - `ui/widgets/composite/sidebar_nav_list.py` →
+    `ui/widgets/composite/sidebar_nav_list/`: `widget.py` (facade),
+    `rows.py`, `icons.py`, `debug.py`.
+  - `ui/widgets/composite/toast.py` → `ui/widgets/composite/toast/`:
+    `progress_bar.py`, `notification.py`, `manager.py`.
+  - `ui/widgets/composite/text_view/canvas.py` → the document-mode
+    interaction moved to `document_mode.py`.
+- The mixin splits were further decoupled into state-owning objects and
+  pure functions with explicit inputs (no shared instance namespace):
+  - `list_panel`: `MarqueeSelectionModel` owns the selection set and
+    band-preview semantics; `drop_target_index()` / `should_hide_indicator()`
+    are pure geometry/decision functions; item/position transforms are pure
+    in `rows.py`. All testable without a widget.
+  - `sidebar_nav_list`: icon resolution (pixmap pairs, invert/replace
+    tinting, selected color) is pure in `icons.py`; the layout debug dump is
+    module functions taking the widget explicitly.
+  - `text_view`: `DocumentSelection` owns the document-mode selection/press/
+    drag state (widget-free); the canvas only delegates and repaints.
+  - `base_flyout`: `FlyoutFadeController` owns ALL fade state (snapshot
+    cache, opacity, hide-fade animation, flags); the widget only references
+    it and passes itself explicitly where the controller must touch it
+    (grab/update/hide children). Subclasses' show paths
+    (ContextMenu/SimpleOptionsFlyout) use the same controller API.
+  - `custom_title_bar`: the min/max/close buttons are now a real
+    self-contained child widget `WindowControlsCluster` — it owns its
+    buttons, deterministic-slot geometry, scaling and window-state icon
+    refresh; the bar wires signals and keeps the corner mask + flyout sweep.
+  - `inspector`: the Code section is a self-contained `CodeSectionEditor`
+    widget (source view, config view, Edit/Revert/Save, dirty tracking);
+    the pane keeps thin compatibility properties for the old private
+    attribute names.
+
 ### Fixed
+
+- **`NavigationManager` focus-ring on new tab** — `ToolbarRowsSection`/`IconListNavSection` `focus_first` and bootstrap now respect mouse vs keyboard modality via `current_focus_reason()` (`MouseFocusReason` vs `OtherFocusReason`). Opening a tab with a mouse click (session picker) no longer lights up the ring; keyboard opens still do. Previously `OtherFocusReason` was unconditional.
+- **`AdaptiveTabStrip`/`_AdaptiveTabBar` tab switching requires Enter** — `Left`/`Right`/`Home`/`End` now move a separate keyboard-focused index (`_focused_index`) with modality preserved, `Enter`/`Space` activates (`setCurrentIndex`). `Delete`/`Backspace` closes the focused tab. Focus ring follows `_focusedTab()` when `hasFocus() && _keyboard_focus`. Mouse clicks still switch immediately.
+
+
+- **`HelpDialog` focus consistency** — `IconListWidget` `OverlayScrollArea` was `StrongFocus` and was picked as navigable candidate by `AutoNavigationSection`, causing `Right` from left list to land on the scroll area instead of content hub cards; now `NoFocus` (incl. viewport). `HelpDialog._restore_focus_after_window_change` now preserves exact left sub-target (`search` vs `current_row_button`) via `NavigationManager.focus_section_for_owner` + direct `current_row_button` fallback, instead of always jumping to `QLineEdit`. `HelpDialog` Left from content now lands on selected row, not search.
+- **`HelpDocumentView` TOC keyboard navigation** — `_LinkLabel` (TOC entries) were `NoFocus` (`Label` default) so `help-content` `AutoNavigationSection` had zero `StrongFocus` candidates on document pages, `Right` from sidebar was consumed but moved nowhere (later seen as `OverlayScrollArea` focus). Now `StrongFocus` + `focusIn/Out` ring + `Enter/Space` activation + `paintEvent` focus rectangle, so document TOC is navigable via `Up/Down`/`Left`/`Right`.
+- **`HelpDialog` focus loss on close** — `hideEvent`/`closeEvent` left `QApplication.focusWidget() → None` after `HelpDialogWindow` lost focus (`23:42:16:980`), because external focus (`CsdMenuRow`/`MainWindow`) was cleared by `SimpleOptionsFlyout` hide before Help opened and never saved. Now `showEvent` saves `_external_prev_focus`/`_external_prev_window` (incl. `NavigationManager.last_keyboard_focus` fallback) and `hideEvent` restores it with `OtherFocusReason` + `activateWindow`, so closing Help never leaves `None`.
+- **`AutoNavigationSection` crash on stale Help sidebar** — `HelpDialog._sync_sidebar` `clear()` deletes old `Button`s but `Auto._cached_rows_widgets` kept deleted `C++` pointers; `Key_Down` from `HelpSearchField` on next row did `min(target_row, key=lambda w: w.mapToGlobal(...))` on deleted `Button` → `RuntimeError: Internal C++ object (Button) already deleted` (`navigation_sections.py:589`, лог `23:49:46:925`). Now `_auto_rows` filters `shiboken6.isValid`/`isVisible`/`isEnabled`, `navigate`/`focus_first`/`focus_last` re-scan and filter target rows, `mapToGlobal` wrapped in `try/except`, so stale cache self-heals without crash.
+
+
+- **`IconActionFlyout` crash on deleted layout** — `update_state()` called
+  `h_layout.invalidate()` on a freed `QHBoxLayout` when a host
+  `store.state_changed` observer (e.g.
+  `magnifier_color_controls.py:251` `_on_store_state_changed`) was still
+  connected at app shutdown (Python wrapper kept alive by the bound-method
+  signal connection). Now `update_state` guards `self`, `h_layout` and
+  `container` with `sip.isValid` + `try/except RuntimeError` before any
+  layout touch; `set_actions` and `_on_scale_changed` also guard layout
+  validity (same class as the 4.1.0 `AutoNavigationSection` / 4.2.1
+  stale-button fixes, but for the layout object).
+- **`IconActionFlyout` crash on stale action buttons** — a host signal
+  connection (e.g. a store `state_changed` observer) can keep the flyout's
+  Python wrapper alive past its buttons' C++ deletion (parent teardown or
+  `set_actions` `deleteLater` processed by the event loop). `set_action_state`
+  then hit `button.setVisible(...)` on a freed `Button` →
+  `RuntimeError: Internal C++ object (Button) already deleted`
+  (`magnifier_color_controls.py` `_on_store_state_changed` → `update_state`).
+  Now `set_action_state`, `_on_scale_changed` and the `set_actions` cleanup
+  loop guard every cached button with `sip.isValid` and self-heal the
+  action dicts via `_purge_action` (same pattern as the 4.1.0
+  `AutoNavigationSection` stale-row fix).
+
+
+- **`DragDropOverlay` dark text in all themes** — `HighlightedText` alias resolves to `surface.background` (white in light, dark gray in dark) so text/border were dark on semi-transparent blue in both themes and did not react to theme toggle. Now text/border are forced to white (`#ffffff`) with luminance check fallback, `ThemeManager.theme_changed` triggers `update()`, so overlay is readable and theme-reactive in light and dark.
+- **`DragDropOverlay` not disappearing after drop until image loads** — `WindowEventHandler.handle_drop` hid the overlay via deferred `singleShot(0)` which raced with the also-deferred `load_images_from_paths`; overlay stayed visible until decode finished. Now hides synchronously via direct `_safe_update_drag_overlays(False)`.
+
+- **`OverlayScrollArea` no longer holds a dead gutter when content fits** — `reserve_scrollbar_space=True` now adds the viewport right margin only while the native scrollbar range is non-empty (`maximum > minimum`). Lists with fewer rows than the visible limit (e.g. `ListPanel` capsules below `MAX_VISIBLE_ITEMS`) get the full viewport width; the gutter appears only once content actually overflows. Safe against oscillation: the vertical range depends on height only, so a width change cannot flip it back.
+- **`VirtualListController` symmetric content height** — `_content_height` / `_max_scroll` now mirror the top `y_margin` below the last widget (which contributes its widget height, not a full pitch), so the last row no longer hugs the content's bottom edge. Identical numbers for the default (`y_margin=0`, no separate widget height). `ListPanel` sizing matches: panel heights are content + own chrome, the scroll area gets the chrome subtracted, so the viewport lands exactly on the content with no stretch band.
+- **`ListPanel` rowsyncs widget height on rebuild** — new `VirtualListController.set_widget_height` (plus `ListPanel._sync_row_metrics` calling it alongside pitch/margins on rebuild, sync, and scale change). Previously only the pitch was updated, so rows repopulated at a new anchor height kept the construction height: the content overflowed by the delta and a scrollbar appeared over a one-row list.
+- **`VirtualListController` no longer double-applies the scroll offset** — rows are positioned at absolute content coordinates; Qt already moves the content widget by the native scrollbar value, so subtracting the offset again scrolled every list at 2x and parked ~2 pitches of dead space under the last row at max scroll (9-row dump: last visible bottom 167 of 237). `index_at` hit-testing adjusted to the same absolute coordinates; `ensure_visible` now measures the true widget bottom (+ bottom inset on the last row). `RowPool.scroll_offset` stays for non-Qt-scrolled hosts (ComboBox overlay).
+- **`Button.setHoverActive(True)` actually activates hover** — the method only implemented the `False` branch, so `HoverCoordinator`-driven activation (widget slid under a stationary cursor, flyout opened under it, drags) silently never lit: e.g. `+`/`-` buttons in virtualized lists showed no hover overlay. The `True` branch derives the position from the live cursor and lights the exact region (idempotent, no repaint storm); direct `Enter` behavior unchanged.
+- **`ToastNotification.hide_and_close` now destroys** — previously `hide()` + `close()` on a parented widget only hid it, so the manager's `destroyed→pop` registry exit never fired and closed toasts (plus their `theme_changed` connections) leaked. The toast now sets `WA_DeleteOnClose` and `hide_and_close` does `hide()` + `deleteLater()` (idempotent via `_closing`); `close_toast` no longer pops directly so `destroyed→pop` is the single registry exit, and `update_toast` after close is a no-op instead of resurrecting the toast via `show()`.
+- **Toast anchor guards narrowed** — `set_anchor`, `_toast_max_width`, `_position_toasts`, `eventFilter` and the `ToastManager` constructor now use null/`shiboken6.isValid` guards instead of broad `except pass`, so a dead anchor can no longer silently misposition the stack.
+- **Focus-ring modality unified on input device, not `FocusReason`** — `NavigationManager.resolve()` / `is_keyboard_focus()` / `resolve_keyboard_focus()` is now the single resolver: the source of truth is the input device (`MouseButtonPress` → `False`, `KeyPress` → `True`), `Qt.FocusReason` is only a documented hint. All `focusInEvent` (`Button`, `Slider`, `_AdaptiveTabBar`, `BaseFlyout`, `HelpDocumentView`), `AutoPreview` `FocusIn` and anchor readers migrated; the `ActiveWindow` special case and `ring-preserve` safeguard in `Button` are subsumed by the flag semantics. Qt-generated `Tab`/`ActiveWindow`/`Other` (focus-proxy steals, fade re-shows, window activation) on a mouse history no longer lights the ring; programmatic `Mouse`-steal during keyboard navigation still preserves it. Covered by `tests/test_focus_ring_resolver.py` (reason×input matrix + AST guard against reason-tuple drift).
+
 - `API_CATALOG.md`: removed the `OutputPathSection` row — the class was
   deliberately removed (see the "Removed" entry below in this same file)
   but the catalog row and Reuse Guidance mention were never cleaned up,
@@ -634,143 +1053,6 @@
   `__init__.py`; the public imports `CodeSectionEditor` /
   `build_code_section` are unchanged).
 
-### Changed
-- `show_aligned(..., offset=N)`: any `N < SHADOW_RADIUS` (default 8) was
-  already silently floored to `SHADOW_RADIUS` (needed so the drop-shadow
-  halo never visually overlaps the anchor) -- but with zero signal that it
-  happened, so e.g. `offset=2` and `offset=4` render pixel-identical (both
-  floored to 8) and tuning within that range looks like the parameter does
-  nothing. `_compute_aligned_top_left` now logs at DEBUG
-  (`sli_ui_toolkit.ui.widgets.composite.base_flyout`) whenever the floor
-  actually changes the requested value, naming the flooring
-  `shadow_radius` and the `anchor_point`/`flyout_point` involved. No
-  behavior change -- pass `offset >= SHADOW_RADIUS` for the exact pixel gap
-  requested, same as before, just diagnosable now instead of a silent
-  no-op. Found via ImgSLI's `ModePicker`/color-options flyouts, where
-  offset went 2 -> 4 -> 10 with no visible difference between the first two.
-
-### Changed
-- `FlyoutManager._close_flyouts_with_moved_anchors` now calls
-  `flyout.reposition()` itself for `pinned=True` flyouts whose anchor moved
-  or resized, instead of only skipping the auto-close (leaving repositioning
-  entirely up to the host's own resize/move handler, per `reposition()`'s
-  docstring). Hosts that already call `reposition()` themselves
-  (`InfoHUD`/`ZoomIndicator`) just get a harmless extra no-op call. Found
-  via ImgSLI's `MagnifierSettingsFlyout` (app-side code, not this library)
-  — freshly switched to `pinned=True` to opt out of `_dismiss_passive()`
-  closing it on any outside click, but with no resize-handler wiring of its
-  own, so without this it would sit at a stale position instead of tracking
-  its anchor during a window resize while open. Gated on the same
-  snapshot-rect comparison the existing non-pinned auto-close branch already
-  uses (and refreshes the snapshot after repositioning) -- the triggering
-  event filter is installed app-wide, so an ungated call would re-run a
-  pinned flyout's full positioning logic on *every* Move/Resize/etc.
-  anywhere in the app, not just when its own anchor actually moved. Hosts
-  with positioning beyond a plain `show_aligned()` call (e.g. an extra
-  `move()` afterwards) should override `reposition()` to redo that too --
-  see `MagnifierSettingsFlyout.reposition()` for the pattern.
-
-### Added
-- `BaseFlyout.show_aligned(..., animation_axis="diagonal")` — new slide
-  mode alongside `"auto"`/`"vertical"`/`"horizontal"`: both X and Y travel
-  the full `distance`/`animation_distance` independently (each clamped
-  against the anchor edge the same way `"vertical"`/`"horizontal"` already
-  do on their own axis), instead of `"auto"`'s single fixed distance split
-  across the real anchor→flyout unit vector. For a corner-aligned flyout
-  (e.g. `anchor_point="top-left"` / `flyout_point="bottom-right"`) where
-  the anchor and flyout sizes differ a lot on one axis — a narrow icon
-  button anchoring a much wider panel — `"auto"`'s vector ends up dominated
-  by whichever axis has the bigger center-to-center offset, shrinking the
-  other axis's slide to a few barely-visible pixels; `"diagonal"` keeps
-  both axes clearly visible regardless. Found via ImgSLI's
-  `FontSettingsFlyout.show_top_left_of`, which wanted a visible slide in
-  both directions and got a slide that looked purely vertical under
-  `"auto"`.
-- `BaseFlyout.set_background_brush(brush)` / `.set_border_color(color)` /
-  `.set_shadow_color(color)` (+ matching getters) — per-instance overrides
-  for the flyout panel's fill, stroke, and drop-shadow tint, `None` falls
-  back to the theme token. Same shape as `Button`'s style API
-  (`set_background_color`/`setBorderColor` in `style_api.py`). Accepts a
-  flat `QColor`, any `QGradient`, or an existing `QBrush` (e.g. built from
-  a `QPixmap` for a repeating texture) for `set_background_brush`. Texture/
-  gradient brushes are anchored to the panel's own corner via
-  `painter.setBrushOrigin`, not `(0, 0)` of the (shadow-inset) flyout
-  widget. `draw_rounded_shadow`/`paint_shadowed_surface` gained an optional
-  `color`/`shadow_color` keyword (default `None` = the historical opaque
-  black) to support the shadow tint; both are backward compatible for
-  every other existing caller (tooltips, combobox overlay, unified
-  flyout), which don't pass it. See "Custom surface style" in
-  `docs/user/FLYOUT_SYSTEM.md` — deliberately does not attempt live
-  backdrop blur/frosted-glass (expensive, awkward over a QRhi canvas);
-  approximate that with a semi-transparent gradient instead.
-- `FlyoutManager.request_hide` now logs a `DEBUG`-level message with a
-  stack trace whenever a `pinned=True` flyout is hidden. The manager can't
-  distinguish an intentional app-level hide from a bug bypassing the
-  pinned exemptions (both are just a `.hide()` call), so this is a
-  diagnostic aid, not an enforced invariant — see "Diagnosing unexpected
-  pinned-flyout closes" in `docs/user/FLYOUT_SYSTEM.md`.
-- `sli_ui_toolkit.managers.LayerStack` — named z-order layers for
-  `FlyoutManager.ensure_overlay_stacking`. Replaces the previous hardcoded
-  "`context_menu` group always raised above everything else" special case
-  with a host-configurable ordered layer list (`FlyoutManager.set_layer_stack`
-  / `.layer_stack()`). The default stack is unchanged from prior behavior
-  (`base` < `context_menu`) — hosts that never call `set_layer_stack` see no
-  difference. First phase of the flyout layer/rule system plan, see
-  `docs/dev/FLYOUT_LAYER_SYSTEM_PLAN.md`.
-- `GroupShowPolicy.define_group(group, parent=...)` / `configure_group(...,
-  parent=...)` — groups can now inherit another group's `dismisses` /
-  `claim_active` rules recursively instead of repeating them, overriding
-  only the fields they need. `GroupShowPolicy.coexists_with(a, b)` is
-  symmetric sugar for "opening either group never dismisses the other",
-  independent of each group's own dismiss set. Second phase of the flyout
-  layer/rule system plan, see `docs/dev/FLYOUT_LAYER_SYSTEM_PLAN.md`.
-- `FlyoutManager.link(parent, child)` / `.unlink(...)` / `.linked_children(...)`
-  — declare a flyout as part of another one's family (submenu, color-picker
-  opened from inside a settings flyout, etc). Hiding the parent (through
-  any dismiss path) cascades to hide every linked child recursively;
-  re-showing the parent (e.g. a pinned HUD's `reposition()`) calls
-  `child.reposition()` for visible children automatically. Third phase of
-  the flyout layer/rule system plan, see
-  `docs/dev/FLYOUT_LAYER_SYSTEM_PLAN.md`.
-- `ChainShowPolicy` — `FlyoutManager.set_show_policy` now also accepts a
-  `list`/`tuple` of policies, combined as: `should_dismiss` AND-combined
-  (any policy can protect a pair from dismissal), `should_claim_active`
-  priority-order (first policy wins). Fourth phase of the flyout
-  layer/rule system plan, see `docs/dev/FLYOUT_LAYER_SYSTEM_PLAN.md`.
-- `ButtonGroup(..., border_radius=8, corner_radii=None)` — per-corner border
-  radii, same `(top-left, top-right, bottom-right, bottom-left)` convention
-  and `CornerRadii`/`normalize_corner_radii` helper as `Button`'s
-  `ShapeSpec`. `border_radius` stays the uniform shorthand;
-  `corner_radii` overrides individual corners. Also runtime-adjustable via
-  the new `set_corner_radii(corner_radii=None, *, border_radius=None)` /
-  `corner_radii()` methods — e.g. squaring off a group's bottom corners
-  while a flyout is docked flush underneath it, then restoring them when
-  the flyout closes.
-- `ButtonGroup.label() -> str` — public getter for the group's caption
-  (`set_label`/`set_label_text` already existed; reading it back required
-  poking the private `_label` attribute). Lets a companion widget (e.g. a
-  flyout docked under the group) mirror the same caption instead of
-  duplicating the string.
-- `BaseFlyout.trigger_widgets()` / `.trigger_contains_global(global_pos)` —
-  split out from `anchor_widgets()`/`anchor_contains_global()`. Defaults to
-  `anchor_widgets()`, so every existing flyout (dropdown, context menu,
-  ...) keeps its current behavior unchanged. `FlyoutManager.eventFilter`'s
-  `MouseButtonPress` handling now uses `trigger_contains_global` (not
-  `anchor_contains_global`) to decide "clicked the trigger while open,
-  dismiss" — override `trigger_widgets()` to return `()` (or a narrower
-  subset) for a flyout whose anchor is used purely for positioning against
-  a widget that isn't itself a click-to-toggle trigger, e.g. a hover-driven
-  flyout anchored to a whole button group for width/placement rather than
-  a single button. Without the split, clicking *any other* button in that
-  group while the flyout was open read as "clicked the trigger, dismiss"
-  and closed it — found via ImgSLI's magnifier-settings hover flyout, whose
-  anchor is the whole magnifier button group; toggling the magnifier
-  button itself (a sibling in that group) was closing the flyout.
-  `anchor_contains_global`/`anchor_widgets()` are unchanged and still drive
-  positioning, anchor-move auto-dismiss, and the generic outside-click
-  "am I inside any open flyout" check.
-
-### Fixed
 - `_compute_aligned_top_left` (`BaseFlyout.show_aligned`'s placement math)
   used an `if`/`elif` chain across the vertical and horizontal clearance
   push, so a true corner-to-corner anchor (`anchor_point` and
@@ -896,242 +1178,6 @@
   transparent-to-opaque gradient over just the tip), which never touches the
   destination's existing alpha.
 
-### Changed
-- `IconListWidget` rows are now built entirely on the public `Button` API
-  (`variant="sidebar_nav"`) instead of the bespoke `_NavRowButton`/
-  `_NavRowContent` painter pair. Icon/text layout, ripple, and checked-state
-  painting come from `Button`'s own content/variant pipeline instead of
-  being hand-drawn; no behavior change for existing `set_items`/`add_item`
-  callers. This also unlocked `button_factory` (see "Added") since rows are
-  now ordinary `Button` instances the widget composes rather than a private
-  subclass it paints itself.
-- `IconListWidget` checked-row background now reads
-  `list_item.background.selected` from the theme palette first, falling
-  back to `accent` and then `list_item.background.hover` (the previous
-  behavior, unchanged for palettes that don't define the new key). Lets a
-  host palette give the checked row a background other than a solid accent
-  fill — e.g. so an accent-tinted icon (see below) stays legible against it —
-  without any widget-level change.
-- `IconListWidget` checked-row icon color now reads `list_item.icon.selected`
-  from the theme palette first, falling back to `HighlightedText` (white) as
-  before. The checked icon's pixmap is now actually tinted to that resolved
-  color via `QPainter` (`CompositionMode_SourceIn`) rather than being
-  RGB-inverted — the previous default `selected_icon_mode="invert"` flipped
-  each icon's own channel values, which is only coincidentally close to
-  "white" for near-black monochrome glyphs and produces arbitrary,
-  unthemed hues for anything else. The per-pixel Python loop this replaced
-  is also gone; tinting is now one composited fill.
-- `Button` underline (`show_underline`/`setUnderlineColor`/`setUnderlineThickness`):
-  rewrote the paint geometry to build the band from rounded-rect `QPainterPath`
-  boolean ops (`intersected`/`subtracted`) instead of stroking a fixed-size arc
-  with a `QPainterPathStroker`. The old approach centered a `thickness`-wide pen
-  on a tiny, fixed-radius arc at each corner, so once `thickness` exceeded that
-  radius the stroke visibly overflowed past the button's own rounded corners as
-  square blobs. The new geometry is bounded by the widget's own rounded rect by
-  construction, so it cannot overflow at any thickness.
-- `setUnderlineThickness`/`Button(underline_thickness=...)`: removed the
-  previous hard cap of 3.0px (and the `RuntimeWarning` it raised past that).
-  Uncapped now that the geometry rewrite makes arbitrarily large values safe.
-- Underline tip alpha-fade: back to only the strip's true left/right ends
-  (a small fixed-px patch, skipped once `thickness >= tongue_reach`). An
-  intermediate experiment fading every zone across its own full length
-  (interior color seams included) read worse in practice — messy rather than
-  like a taper — and was reverted.
-
-### Added
-- `IconListWidget(button_factory=...)`: lets a caller replace the default
-  nav-row `Button` per item, for custom row layouts (badges, a different
-  `variant`, `regions=`, multi-line text) without subclassing
-  `IconListWidget` or reaching into its internals. Rows built through a
-  custom factory still get layout stretch, `FocusPolicy.NoFocus`, click→
-  selection wiring, and CHECKED-state syncing
-  (`setRegionChecked("_main", ...)`) from `IconListWidget`, but the widget
-  leaves their icon/foreground styling alone — that's the custom factory's
-  responsibility, same as any other `Button` variant.
-- `ComboBox` "gear-shifter" drag-select: press-and-hold the field for
-  `GEAR_HOLD_MS` (450ms), or drag it sideways/vertically past
-  `GEAR_DRAG_THRESHOLD_PX` (8px) right after pressing, to open the dropdown
-  and scrub through rows by dragging — like sliding a gearbox knob into its
-  slot. A stationary outline frame (`_GearFrame`, drawn at the field's own
-  screen rect) marks the fixed reference point; whichever row is behind it
-  gets the hover highlight and is what gets committed on release. A plain
-  click/release still just toggles the list as before, and dropdowns with
-  more rows than fit on screen fall back to plain scroll-to-select (the
-  window can't be dragged to track an unbound row count). Implementation:
-  - New `GearDragCapability` (`ui/widgets/comboboxes/capabilities/`),
-    attached via `ComboBox.attach_capability()` the same way `Button` attaches
-    `LongPressCapability` — `ComboBox` now opts into `long_press=True` on its
-    own `Button.__init__` call to get the hold gesture.
-  - Below the overflow threshold, the whole popup window (card + shadow +
-    rows, one widget) physically translates with the drag instead of the
-    list scrolling internally, so it reads as sliding the actual rows past a
-    fixed field rather than a normal scrolling list.
-  - On release, the popup snaps the rest of the way to the exact
-    item-boundary offset (`QPropertyAnimation` over `GEAR_SNAP_DURATION_MS`,
-    40ms) so the focused row lands perfectly centered under the field, then
-    holds there for `GEAR_SNAP_HOLD_MS` (250ms) before the dropdown closes,
-    instead of collapsing the instant the row lines up.
-  - The real cursor is hidden (`Qt.BlankCursor`) for the gesture's duration
-    since the popup moves under a stationary pointer; app-wide hover
-    (`HoverCoordinator`) is explicitly suppressed on dropdown rows during the
-    drag so it can't light up whatever row the moving popup happens to pass
-    under, layering a second highlight on top of the gear frame's own.
-  - Only arms on genuine OS-delivered input (`event.spontaneous()`) — mouse
-    events synthesized in-process can't trigger the gesture.
-- `Button(underline_fade=...)` / `setUnderlineFade(bool | None)`: turns the
-  tip fade on/off per button. `None` (default) follows the process-wide
-  default (`get_default_underline_fade()`, itself `True` unless changed).
-- `set_default_underline_fade(bool)` / `get_default_underline_fade()` and
-  `configure_toolkit(default_underline_fade=...)`: process-wide default for
-  the tip fade, same pattern as `set_default_defer_click`. A host that finds
-  the fade doesn't suit its visual style can turn it off globally in one call
-  instead of passing `underline_fade=False` at every `show_underline=True`
-  call site.
-- `Button(underline_tongue_reach=...)` / `setUnderlineTongueReach(float | None)`:
-  controls how high (px) the underline's end caps ("tongues") are allowed to
-  climb the sides, independent of `underline_thickness`. `0` gives hard square
-  ends (no corner rounding followed at all); `None` (default) matches the
-  button's own corner radius, i.e. the old look; larger values climb further
-  up the sides. If `thickness` needs more room than the corner radius alone
-  provides, the excess fills *upward* toward `tongue_reach` rather than
-  overflowing sideways past the rounding.
-- `Button(underline_ring=...)` / `setUnderlineRing(bool)`: draws the underline
-  as a closed frame around the whole button instead of just a bottom band —
-  still split into `underline_color`'s zones the same way.
-- `DrawContext.underline_tongue_reach` / `DrawContext.underline_ring`,
-  `UnderlineConfig.tongue_reach` / `UnderlineConfig.ring` (low-level painter
-  API, `sli_ui_toolkit.ui.widgets.helpers.underline_painter`).
-- `OverlayScrollArea.overlay_scrollbar_inset() -> int`: how many px of content
-  clearance the overlay bar currently needs — `0` when
-  `reserve_scrollbar_space` is on (the bar already gets its own viewport
-  margin) or when the bar isn't visible (nothing overflows), else the bar's
-  width + gap. Lets callers that manually lay out content inside the scroll
-  area (rather than via `setWidget` + a Qt layout) reserve exactly the live
-  clearance instead of hardcoding a guess at the bar's width that wastes
-  space whenever there's nothing to scroll.
-
-### Added
-- `TextView.set_line_number_start(n)` — VS Code-style line-number gutter:
-  right-aligned muted numbers (starting at `n`, e.g. the class's line in
-  its source file so the gutter matches the actual file) plus a thin
-  separator; text, selection, caret and hit-testing shift by the gutter
-  width. `None` (default) disables it. Code mode only — document mode never
-  shows the gutter. Exposed on both `TextView` and its painted `TextCanvas`.
-- UI inspector Code section — ONE unified editable `TextView` (styled like
-  the app's recent-projects shelf: a rounded panel well behind the text,
-  `variant="default"` toggle button) containing the generated
-  **Configuration (live values)** snippet (a synthetic constructor call
-  built from `WidgetInspection.config` — enums render as `Type.MEMBER`,
-  colors as hex, `REF` child widgets as `Type(...)` placeholders, nested
-  field blocks as dicts) followed by the widget class source. Any other
-  code in the source file is collapsed into a plain gap row (`·····`);
-  clicking the row expands that region inline, clicking again collapses
-  it. VS Code-style folding display: the gap row's gutter shows the last
-  line number before the hidden block and the next row its real number
-  right after (e.g. `12` then immediately `17`), a disclosure arrow (`▸`)
-  sits in the gutter left of the gap row's number, and the synthetic
-  config snippet is marked with a dot (`·`) instead of a line number so
-  the file counter never restarts below it. The gutter width (numbers + a
-  constant arrow slot) is identical across compact/expanded/full so the
-  content's left offset never moves. The **Full/Compact** button
-  (top-left) expands/collapses everything at once and flips its own
-  label. **Preview** compiles the edited class and constructs a live
-  instance (the current config values become the constructor kwargs;
-  non-reconstructable values like `REF` placeholders are skipped, and
-  REQUIRED args the widget does not store as attributes — e.g.
-  AdaptiveTabStrip's `add_icon`/`close_icon` — are filled with `None` so
-  the preview still builds; the required-arg resolution walks the MRO, so
-  forwarding subclasses (`__init__(self, *args, **kwargs)`) cannot hide
-  the real parameters) in a panel below the editor; while open, it
-  re-builds on every edit (debounced 300ms), so the effect of a change is
-  visible before saving — compile/construct errors are shown in the panel
-  (with the exact attempted constructor call) instead of crashing.
-  **Apply** hot-patches the LIVE widget class in place (the edited class
-  region's methods/attributes are copied onto the real class — the actual
-  widget changes where it sits, same instance, host wiring intact, all
-  instances of that class affected — and repaints); **Revert** restores
-  the snapshot of the original class taken when the inspection opened.
-  Every Apply/Preview result is reported in the preview panel (auto-opened
-  on failure so nothing is silent) with a debug line: the compiled class,
-  the resolved constructor signature, the kwargs used and the skipped
-  values. Config-snippet kwarg extraction now resolves module-level names
-  through the widget's module namespace (e.g.
-  `CloseButtonPolicy.ALL_WHEN_FIT_ELSE_CURRENT`), so enum-valued config
-  no longer silently drops out of the preview construction.
-- Fixed: `FlyoutFadeController.start_hide_fade` now clears the flyout's
-  `_show_animation` reference after stopping the show animation — a
-  lingering reference pointed at the `deleteLater`-ed C++ animation and
-  crashed the next hide (RuntimeError: Internal C++ object already
-  deleted) in rapid show/hide/reposition cycles (slider-hint style). The
-  gutter numbers the actual file lines (starting at the class statement;
-  the snippet is 1-based). `Save` reconstructs the whole file with the
-  edited class region — the snippet and gap rows are never written to
-  disk.
-- `TextView.set_line_number_map(mapping)` — explicit per-display-line
-  gutter text (for collapsed-gap views; lines missing from the map fall
-  back to `start + index`), `TextCanvas.set_fold_lines(lines)` (gutter
-  disclosure arrows for collapsed rows, left of the line number; an empty
-  set keeps a constant arrow slot reserved, `None` disables it — the
-  content never shifts between states), `TextCanvas.line_at(y)` (display
-  line for a widget-space y — click targeting) and `TextView.canvas()`
-  (the painted surface, for event filters). `TextView.set_panel_fill(color)` paints a
-  rounded panel well behind the text (viewport fill clipped to the frame
-  radius — the recent-projects shelf look); `None` restores the page
-  background.
-
-### Changed
-- Large widget families were decomposed into folders, one concern per
-  module (the `buttons/` folder is the model; all old module paths stay as
-  thin re-export shims, the public API is unchanged):
-  - `base_flyout.py` → `ui/widgets/composite/base_flyout/`: `widget.py`
-    (thin facade), pure placement math in `geometry.py`, fade machinery in
-    `animation.py`, style/builder/placement/lifecycle/manager-contract
-    modules.
-  - `ui/windows/custom_title_bar.py` → `ui/windows/custom_title_bar/`:
-    zones/balance in `zones.py`, `window_controls.py`, `drag.py`,
-    `appearance.py`, thin `widget.py`.
-  - `ui/inspector/view.py` → section rendering in `rendering.py`, the Code
-    section in `code.py`, Layout/Constructor trees in `tree.py`, value
-    formatting in `fields.py`, plus a thin `view.py` (`InspectorWindow` +
-    `_InspectionPane`).
-  - `ui/widgets/composite/adaptive_tab_strip/widget.py` → `widget.py`
-    (thin host), `tab_bar.py` (the painted bar), `close_button.py` (close
-    slot + policy + tab-background layer).
-  - `ui/widgets/composite/list_panel.py` → `ui/widgets/composite/list_panel/`:
-    `widget.py` (facade), `rows.py`, `drag_drop.py`, `selection.py`.
-  - `ui/widgets/composite/sidebar_nav_list.py` →
-    `ui/widgets/composite/sidebar_nav_list/`: `widget.py` (facade),
-    `rows.py`, `icons.py`, `debug.py`.
-  - `ui/widgets/composite/toast.py` → `ui/widgets/composite/toast/`:
-    `progress_bar.py`, `notification.py`, `manager.py`.
-  - `ui/widgets/composite/text_view/canvas.py` → the document-mode
-    interaction moved to `document_mode.py`.
-- The mixin splits were further decoupled into state-owning objects and
-  pure functions with explicit inputs (no shared instance namespace):
-  - `list_panel`: `MarqueeSelectionModel` owns the selection set and
-    band-preview semantics; `drop_target_index()` / `should_hide_indicator()`
-    are pure geometry/decision functions; item/position transforms are pure
-    in `rows.py`. All testable without a widget.
-  - `sidebar_nav_list`: icon resolution (pixmap pairs, invert/replace
-    tinting, selected color) is pure in `icons.py`; the layout debug dump is
-    module functions taking the widget explicitly.
-  - `text_view`: `DocumentSelection` owns the document-mode selection/press/
-    drag state (widget-free); the canvas only delegates and repaints.
-  - `base_flyout`: `FlyoutFadeController` owns ALL fade state (snapshot
-    cache, opacity, hide-fade animation, flags); the widget only references
-    it and passes itself explicitly where the controller must touch it
-    (grab/update/hide children). Subclasses' show paths
-    (ContextMenu/SimpleOptionsFlyout) use the same controller API.
-  - `custom_title_bar`: the min/max/close buttons are now a real
-    self-contained child widget `WindowControlsCluster` — it owns its
-    buttons, deterministic-slot geometry, scaling and window-state icon
-    refresh; the bar wires signals and keeps the corner mask + flyout sweep.
-  - `inspector`: the Code section is a self-contained `CodeSectionEditor`
-    widget (source view, config view, Edit/Revert/Save, dirty tracking);
-    the pane keeps thin compatibility properties for the old private
-    attribute names.
-
-### Fixed
 - `IconListWidget` content shifted sideways when the vertical scrollbar
   appeared/disappeared (the `ScrollBarAsNeeded` platform bar shrank the
   viewport, reflowing the rows). The nav list now uses `OverlayScrollArea`
@@ -1163,38 +1209,6 @@
   window; they now use the `text_fit` Button mode (below) and show the
   full path with a marquee when it overflows.
 
-### Added
-- `Button(text_fit=True)` — grow-to-content sizing for text/rows buttons:
-  `sizeHint` tracks the parent row's available width (margins + preceding
-  siblings) capped at the full text width, `minimumSizeHint` stays tiny so
-  a scroll content can always shrink the button. Pair with a trailing
-  `addStretch(1)` in the row (a stretch/Expanding item right-anchors its
-  widget in Qt) and a row `marquee=True` for overflowing text.
-- `Button` size hints are now rows-aware: a `rows=[ButtonRow(...)]` button
-  reports the widest row's text width (measured with each row's own paint
-  font) instead of the fixed (36, 36) — `text=` and `rows=` size alike.
-- Markdown document mode (help/`TextView`): headings now render on a
-  strictly decreasing font scale (`#` 26px → `######` 13px, design px) —
-  previously `#`/`##` shared one size and `###`…`######` another. Fenced
-  code blocks now render as a shaded rounded box (the long-unused
-  `help.code.background` token) with the text inset and the fence language
-  label in the box header, instead of bare monospace paragraphs.
-- Markdown document mode: fenced code blocks lost their line breaks —
-  `QTextLayout` treats `\n` as a soft break, so without forced wrapping the
-  whole block collapsed into one line. Segment layout now splits on `\n`
-  (one fragment per line; blank lines reserve the font's line height), and
-  inline `` `code` `` spans get the monospace font **and** the
-  `help.code.background` tint instead of a bare font-family change.
-- Markdown document mode: code text could disappear or render with
-  mismatched backgrounds — two stacked PySide6 `QTextLayout` traps:
-  `FormatRange.format` holds a *reference* to the `QTextCharFormat`'s C++
-  object (the layout draws dangling formats once the Python wrapper is
-  collected — formats are now kept alive for the layout's lifetime), and a
-  second `setFormats` on an already-laid-out layout silently breaks its
-  drawing. Fence blocks no longer set a per-character tint at all (the box
-  is their background) instead of stripping it after layout.
-
-### Fixed
 - **Inspector Code section showed the whole ancestor class for bare
   `QWidget` containers** — selecting an anonymous `QWidget` (e.g.
   `ScrollableDialogPage.content_widget`) loaded the entire app ancestor
@@ -1227,14 +1241,6 @@
   token's line), custom `paintEvent` detection, and paint-relevant widget
   flags.
 
-### Docs
-- **QSS hard rule documented** — `AGENTS.md` and
-  `docs/dev/DESIGN_LANGUAGE.md` now state explicitly that toolkit widgets
-  are never styled via QSS (`setStyleSheet`); the painter pipeline owns all
-  visual output. QSS templates (`register_qss_path`, `@token` sheets)
-  remain a host-facing path for native/stock Qt widgets only.
-
-### Fixed
 - **`HelpDocumentView` painted on the near-black QPalette Window role** —
   the view is a transparent custom widget inside host scroll areas; stock
   `QScrollArea`/viewport auto-fill the `Window` role, which hosts keep
@@ -1244,23 +1250,6 @@
   `dialog.background` token in `paintEvent` (same explicit-paint pattern as
   `_SurfaceWidget`), re-read on `theme_changed`.
 
-### Added
-- **`SurfaceScrollArea`** (`sli_ui_toolkit.widgets`) — scroll area that
-  paints its surface from a theme token (default `dialog.background`),
-  extending `OverlayScrollArea` (overlay scrollbar kept). The token is
-  resolved to a widget-level `background-color` stylesheet on the scroll
-  area — it cascades to the viewport and the content widget, survives
-  `QStyle::polish` at `show()` (a per-widget palette does not), and is
-  re-tinted on `theme_changed`. `set_surface_token(token)` switches at
-  runtime; `set_surface_token(None)` pins the viewport and the content
-  widget transparent instead, so a host ancestor that paints the surface
-  shows through (the `SimpleOptionsFlyout` pattern). Closes the stock
-  scroll-container black-substrate mechanism for toolkit widgets: stock
-  `QScrollArea` viewports and `setWidget`-flipped content widgets auto-fill
-  the `Window` role, darker than the dialog surface token (dark `Window`
-  `#1e1e1e` vs `dialog.background` `#2b2b2b`).
-
-### Fixed
 - **`MarkdownHelpDialog` help body rendered on the `Window` role** — the
   content scroll area is now a `SurfaceScrollArea`, so the body surface
   reads `dialog.background` like the shell panels instead of the darker
@@ -1286,7 +1275,6 @@
   `_apply_styles`; the gaps around the output/input rows no longer read
   darker than the dialog surface. The `QTextEdit` QSS styling is unchanged.
 
-### Fixed
 - **Theme alias table removed** — `ThemeManager` no longer remaps token
   names (`ALIAS`, `theme_aliases.json`, `register_aliases` are gone):
   every `get_color`/`try_get_color` resolves the requested key directly
@@ -1299,23 +1287,47 @@
   Hosts must use canonical token names; `tests/test_no_theme_aliases.py`
   fails the suite on any reintroduced remapping.
 
-## 3.1.12
 
-### Added
-- `Button(overlay_painter=...)` — high-level parameter accepting a custom overlay painter callback `(painter, rect)` or `(painter, ctx, tm)` without requiring `Layer` subclassing or pipeline manipulation.
-- `Button(extra_layers=...)` — parameter to append custom `Layer` instances to the default painter pipeline.
-- Exported `Layer`, `DrawContext`, `default_layers`, `OverlayPainterLayer`, `OverlayPainterCallback`, `BackgroundLayer`, `RippleLayer`, `ContentLayer`, and other layer primitives in `sli_ui_toolkit.widgets` and `sli_ui_toolkit.ui.widgets.buttons`.
-- `emerald_button_demo.py` — demo of a multi-region `Button` where each octagonal
-  gem facet is an independent `ButtonRegion` with its own `path_fn`, `override_bg_color`,
-  and per-facet hover/ripple via the toolkit pipeline.
 
-### Fixed
+
+
+  `h_layout.invalidate()` on a freed `QHBoxLayout` when a host
+  `store.state_changed` observer (e.g.
+  `magnifier_color_controls.py:251` `_on_store_state_changed`) was still
+  connected at app shutdown (Python wrapper kept alive by the bound-method
+  signal connection). Now `update_state` guards `self`, `h_layout` and
+  `container` with `sip.isValid` + `try/except RuntimeError` before any
+  layout touch; `set_actions` and `_on_scale_changed` also guard layout
+  validity (same class as the 4.1.0 `AutoNavigationSection` / 4.2.1
+  stale-button fixes, but for the layout object).
+  connection (e.g. a store `state_changed` observer) can keep the flyout's
+  Python wrapper alive past its buttons' C++ deletion (parent teardown or
+  `set_actions` `deleteLater` processed by the event loop). `set_action_state`
+  then hit `button.setVisible(...)` on a freed `Button` →
+  `RuntimeError: Internal C++ object (Button) already deleted`
+  (`magnifier_color_controls.py` `_on_store_state_changed` → `update_state`).
+  Now `set_action_state`, `_on_scale_changed` and the `set_actions` cleanup
+  loop guard every cached button with `sip.isValid` and self-heal the
+  action dicts via `_purge_action` (same pattern as the 4.1.0
+  `AutoNavigationSection` stale-row fix).
+
+
+
+
 - `BackgroundLayer`: fixed a regression where `is_subregion` evaluated to `True` for standard single-region buttons due to default hit-testing paths, causing outer button borders to be skipped. `is_subregion` now correctly evaluates `False` for standard single-region buttons so that specified outer borders (e.g. `variant="surface"` or `override_border_color`) are stroked without adding unintended borders to standard/ghost buttons.
 - `region_at`: documented that `z_index` is sorted `reverse=True`, so assigning a
   high `z_index` to any region makes it win the hit-test over all other regions whose
   `rect_fn` returns the same (or overlapping) rect — even when their `path_fn` areas
   are non-overlapping. Use `z_index=0` for mutually-exclusive `path_fn` regions;
   priority is only needed when paths genuinely overlap.
+
+### Docs
+
+- **QSS hard rule documented** — `AGENTS.md` and
+  `docs/dev/DESIGN_LANGUAGE.md` now state explicitly that toolkit widgets
+  are never styled via QSS (`setStyleSheet`); the painter pipeline owns all
+  visual output. QSS templates (`register_qss_path`, `@token` sheets)
+  remain a host-facing path for native/stock Qt widgets only.
 
 ## 3.1.6-1.1.11
 
