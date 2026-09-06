@@ -302,48 +302,22 @@ class _ButtonEvents:
     def focusInEvent(self, event):
         # The FocusLayer only paints for keyboard-granted focus, so a mouse
         # click does not flash a ring while Tab/arrow navigation does.
+        # Modality is resolved centrally via NavigationManager (4.2.4):
+        # input device is the source of truth, reason is only a hint.
         reason = getattr(event, "reason", lambda: None)()
-        # ActiveWindowFocusReason on first window show (CsdMenuTrigger) must not
-        # flash ring before user ever touched keyboard — treat as non-keyboard
-        # unless last input was already keyboard (log 20:00:45 ActiveWindow).
-        if reason == Qt.FocusReason.ActiveWindowFocusReason:
-            try:
-                from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
+            )
 
-                is_keyboard_by_reason = NavigationManager.get_instance().last_input_was_keyboard()
-                if is_keyboard_by_reason:
-                    _button_focus_debug(
-                        "[button-focus] ActiveWindow->Other for %s (manager keyboard)",
-                        type(self).__name__,
-                    )
-            except Exception:
-                is_keyboard_by_reason = False
-        else:
+            is_keyboard_by_reason = resolve_keyboard_focus(reason)
+        except Exception:
+            # degraded, no manager
             is_keyboard_by_reason = reason not in (
                 Qt.FocusReason.MouseFocusReason,
                 Qt.FocusReason.MenuBarFocusReason,
+                Qt.FocusReason.PopupFocusReason,
             )
-            # Manager-level safeguard: never let a programmatic MouseFocusReason
-            # steal evaporate the ring forever when the user is navigating via
-            # keyboard (last_input_was_keyboard). Actual mouse clicks have already
-            # flipped last_input to False via MouseButtonPress, so they are not
-            # affected; only steals like flyout _grab_focus with wrong anchor
-            # (ButtonGroup has no _keyboard_focus) remain True and would otherwise
-            # clear the ring globally (see log 19:17:06 ColorSettingsButton ->
-            # Capture Ring Mouse).
-            try:
-                from sli_ui_toolkit.ui.managers.navigation_manager import NavigationManager
-
-                if not is_keyboard_by_reason and NavigationManager.get_instance().last_input_was_keyboard():
-                    # This Mouse reason is not from a real click — last_input still
-                    # reports keyboard — so treat as keyboard to preserve ring.
-                    is_keyboard_by_reason = True
-                    _button_focus_debug(
-                        "[button-focus] ring-preserve Mouse->Other for %s (manager keyboard)",
-                        type(self).__name__,
-                    )
-            except Exception:
-                pass
         self._keyboard_focus = is_keyboard_by_reason
         # Persist the raw reason so flyouts can read it even after
         # _keyboard_focus is cleared by CSD/title bar event handling.

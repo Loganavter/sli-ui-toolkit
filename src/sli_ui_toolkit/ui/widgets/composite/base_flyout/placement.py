@@ -181,6 +181,8 @@ class _FlyoutPlacementApi:
         # Prefer explicit focus_reason parameter, then the anchor widget's
         # persisted _last_focus_reason (survives CSD title bar clearing
         # _keyboard_focus), then _keyboard_focus itself.
+        # Modality is resolved centrally via NavigationManager (4.2.4):
+        # input device is the source of truth, reason is only a hint.
         #
         # NavigationManager.last_keyboard_focus() is NOT a substitute here:
         # it's a single global slot that gets overwritten by ANY widget's
@@ -188,20 +190,34 @@ class _FlyoutPlacementApi:
         # bar handling produces between the trigger's click/Enter and this
         # call. The per-widget persisted attribute survives that because it
         # is scoped to the trigger widget itself.
-        if focus_reason is not None:
-            self._anchor_keyboard_focus = focus_reason not in (
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
+            )
+
+            if focus_reason is not None:
+                self._anchor_keyboard_focus = resolve_keyboard_focus(focus_reason)
+            else:
+                raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+                if raw_reason is not None:
+                    self._anchor_keyboard_focus = resolve_keyboard_focus(raw_reason)
+                else:
+                    self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+        except Exception:
+            # degraded, no manager
+            _non_kbd = (
                 Qt.FocusReason.MouseFocusReason,
                 Qt.FocusReason.MenuBarFocusReason,
+                Qt.FocusReason.PopupFocusReason,
             )
-        else:
-            raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
-            if raw_reason is not None:
-                self._anchor_keyboard_focus = raw_reason not in (
-                    Qt.FocusReason.MouseFocusReason,
-                    Qt.FocusReason.MenuBarFocusReason,
-                )
+            if focus_reason is not None:
+                self._anchor_keyboard_focus = focus_reason not in _non_kbd
             else:
-                self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+                raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+                if raw_reason is not None:
+                    self._anchor_keyboard_focus = raw_reason not in _non_kbd
+                else:
+                    self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
 
         self.flyout_manager.request_show(self)
