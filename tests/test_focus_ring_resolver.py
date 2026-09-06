@@ -153,6 +153,8 @@ def test_widget_last_input_reads_go_through_helper():
         "nav_graph.py",  # reason generator (mouse/keyboard policy)
         "navigation_sections.py",  # reason generator (mouse/keyboard policy)
         "lifecycle.py",  # restore-reason generator (input → setFocus reason)
+        "flyout_timer_service.py",  # backstop timer: no FocusReason exists,
+        # only raw input modality (keep-open vs hover-governed)
         "test_focus_ring_resolver.py",
     }
     violations: list[str] = []
