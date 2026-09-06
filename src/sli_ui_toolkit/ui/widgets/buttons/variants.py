@@ -36,7 +36,7 @@ def default_resolve_bg(prefix: str) -> BackgroundResolver:
             disabled = tm.try_get_color(f"{prefix}.background.disabled")
             if disabled is not None:
                 return QColor(disabled)
-            return QColor(tm.get_color("button.toggle.background.normal"))
+            return QColor(tm.get_color("surface.list"))
 
         if ButtonState.PRESSED in states:
             return QColor(tm.get_color(f"{prefix}.background.pressed"))
@@ -55,7 +55,7 @@ def default_resolve_bg(prefix: str) -> BackgroundResolver:
             return QColor(tm.get_color(f"{prefix}.background.hover"))
 
         normal_key = (
-            f"{prefix}.background.normal" if prefix == "button.toggle"
+            "surface.list" if prefix == "button.toggle"
             else f"{prefix}.background"
         )
         return QColor(tm.get_color(normal_key))
@@ -117,10 +117,10 @@ def resolve_background_layers(spec: VariantSpec, states: StateSet, tm: ThemeMana
         disabled = tm.try_get_color(f"{prefix}.background.disabled")
         if disabled is not None:
             return [QColor(disabled)]
-        return [QColor(tm.get_color("button.toggle.background.normal"))]
+        return [QColor(tm.get_color("surface.list"))]
 
     normal_key = (
-        f"{prefix}.background.normal" if prefix == "button.toggle"
+        "surface.list" if prefix == "button.toggle"
         else f"{prefix}.background"
     )
     layers = [QColor(tm.get_color(normal_key))]

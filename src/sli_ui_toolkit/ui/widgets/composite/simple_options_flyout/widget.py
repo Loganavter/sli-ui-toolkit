@@ -536,7 +536,7 @@ SimpleOptionsFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
         SpecField("row_count", "row_count"),
         SpecField("max_visible_items", "max_visible_items"),
     ),
-    token_family=("flyout.background", "flyout.border", "shadow.color", "separator.color"),
+    token_family=("surface.background", "flyout.border", "shadow.color", "separator.color"),
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
 

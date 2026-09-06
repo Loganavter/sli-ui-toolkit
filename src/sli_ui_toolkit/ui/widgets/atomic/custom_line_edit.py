@@ -206,7 +206,7 @@ class CustomLineEdit(QLineEdit):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        bg_color = self.theme_manager.get_color("dialog.input.background")
+        bg_color = self.theme_manager.get_color("surface.background")
         painter.setBrush(bg_color)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(rounded_rect, radius, radius)
@@ -270,7 +270,7 @@ CustomLineEdit.inspect_spec = InspectSpec(
         SpecField("focused_underline_color", "focusedUnderlineColor"),
         SpecField("focused_underline_thickness", "focusedUnderlineThickness"),
     ),
-    token_family=("dialog.input.background", "input.border.thin", "dialog.text", "accent"),
+    token_family=("surface.background", "input.border.thin", "dialog.text", "accent"),
     docs='docs/user/INPUTS_API.md',
 )
 

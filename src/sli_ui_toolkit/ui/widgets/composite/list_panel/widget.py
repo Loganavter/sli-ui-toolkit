@@ -428,7 +428,7 @@ class ListPanel(QWidget):
             )
             try:
                 accent = QColor(self.theme_manager.get_color("accent"))
-                base = QColor(self.theme_manager.get_color("flyout.background"))
+                base = QColor(self.theme_manager.get_color("surface.background"))
                 pastel = QColor(
                     int(round(accent.red() * 0.38 + base.red() * 0.62)),
                     int(round(accent.green() * 0.38 + base.green() * 0.62)),
@@ -550,7 +550,7 @@ ListPanel.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
         SpecField("selected_indices", "selected_indices"),
         SpecField("drop_indicator_y", "drop_indicator_y"),
     ),
-    token_family=("flyout.background", "flyout.border", "accent"),
+    token_family=("surface.background", "flyout.border", "accent"),
     docs='docs/user/LIST_ITEMS_API.md',
 )
 

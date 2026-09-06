@@ -380,7 +380,7 @@ class ToastNotification(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(0, 0, -1, -1)
-        painter.setBrush(QBrush(self.theme_manager.get_color("toast.background")))
+        painter.setBrush(QBrush(self.theme_manager.get_color("surface.background")))
         painter.setPen(QPen(self.theme_manager.get_color("toast.border"), 1))
         painter.drawRoundedRect(rect, 8, 8)
         painter.end()
@@ -403,7 +403,7 @@ ToastNotification.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
         SpecField("visible", "isVisible"),
     ),
     token_family=(
-        "toast.background",
+        "surface.background",
         "toast.border",
         "toast.text",
         "toast.progress.background",

@@ -250,13 +250,13 @@ def test_close_slot_background_follows_bar_state(qapp):
     tm = ThemeManager.get_instance()
     tm.register_palettes(
         {
-            "dialog.input.background": "#123456",
+            "surface.background": "#123456",
             "button.toggle.background.hover": "#654321",
             "Window": "#ffffff",
             "dialog.text": "#111111",
         },
         {
-            "dialog.input.background": "#abcdef",
+            "surface.background": "#abcdef",
             "button.toggle.background.hover": "#fedcba",
             "Window": "#000000",
             "dialog.text": "#dddddd",

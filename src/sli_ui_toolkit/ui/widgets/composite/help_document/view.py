@@ -175,7 +175,7 @@ class HelpDocumentView(QWidget):
         """
         try:
             self._surface_color = QColor(
-                self._theme.get_color("dialog.background")
+                self._theme.get_color("surface.background")
             )
         except Exception:
             self._surface_color = QColor(self.palette().window().color())

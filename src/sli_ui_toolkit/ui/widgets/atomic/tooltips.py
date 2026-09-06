@@ -51,7 +51,7 @@ class _TooltipBubble(QWidget):
             radius=self.CONTENT_RADIUS,
         )
         tm = ThemeManager.get_instance()
-        painter.setBrush(tm.get_color("tooltip.background"))
+        painter.setBrush(tm.get_color("surface.background"))
         painter.setPen(QPen(tm.get_color("tooltip.border"), 1))
         painter.drawRoundedRect(geo, self.CONTENT_RADIUS, self.CONTENT_RADIUS)
         painter.end()

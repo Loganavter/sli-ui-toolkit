@@ -18,7 +18,7 @@ def apply_style(panel) -> None:
     # without a host-supplied QSS sheet. Selector keyed on the widget's
     # own objectName — subclasses that keep their legacy name (e.g. the
     # flyout panel) still match their own rule.
-    bg_color = panel.theme_manager.get_color("flyout.background").name(
+    bg_color = panel.theme_manager.get_color("surface.background").name(
         QColor.NameFormat.HexArgb
     )
     border_color = panel.theme_manager.get_color("flyout.border").name(

@@ -30,7 +30,7 @@ class BaseDialog(QDialog):
         """
         try:
             color = QColor(
-                ThemeManager.get_instance().get_color("dialog.background")
+                ThemeManager.get_instance().get_color("surface.background")
             )
         except Exception:
             color = QColor(self.palette().window().color())

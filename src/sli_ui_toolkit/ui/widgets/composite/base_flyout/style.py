@@ -116,7 +116,7 @@ class _FlyoutStyleApi:
         r = self.CONTENT_RADIUS
         path = rounded_rect_path(stroke_rect, (r, r, r, r))
         background = self._background_brush or QBrush(
-            self.theme_manager.get_color("flyout.background")
+            self.theme_manager.get_color("surface.background")
         )
         border = self._border_color_override or self.theme_manager.get_color(
             "flyout.border"

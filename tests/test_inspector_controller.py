@@ -119,7 +119,7 @@ def test_capture_tokens_populates_live_tokens(qapp):
         ctrl._capture_tokens()
         assert win._current.live_tokens
         keys = {f.name for f in win._current.live_tokens}
-        assert "button.toggle.background.normal" in keys
+        assert "surface.list" in keys
     finally:
         ctrl.shutdown()
 

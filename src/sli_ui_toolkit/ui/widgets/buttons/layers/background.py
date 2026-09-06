@@ -131,7 +131,7 @@ def _variant_normal(variant: VariantSpec, tm: ThemeManager) -> QColor:
     # permanently tinted against their host surface.
     if variant.resolve_bg is not None:
         return QColor(0, 0, 0, 0)
-    return QColor(tm.get_color("button.toggle.background.normal"))
+    return QColor(tm.get_color("surface.list"))
 
 
 def resolve_button_background(

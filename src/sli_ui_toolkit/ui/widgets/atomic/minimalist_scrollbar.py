@@ -641,7 +641,7 @@ class SurfaceScrollArea(OverlayScrollArea):
         self,
         parent: QWidget | None = None,
         *,
-        surface_token: str | None = "dialog.background",
+        surface_token: str | None = "surface.background",
     ) -> None:
         super().__init__(parent)
         self.set_corner_radius(0)

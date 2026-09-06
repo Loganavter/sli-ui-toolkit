@@ -439,7 +439,7 @@ BaseFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
         SpecField("fade_opacity", "_fade_opacity_proxy", private=True),
         SpecField("visible", "isVisible"),
     ),
-    token_family=("flyout.background", "flyout.border", "shadow.color", "separator.color"),
+    token_family=("surface.background", "flyout.border", "shadow.color", "separator.color"),
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
 

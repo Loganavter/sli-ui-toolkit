@@ -626,7 +626,7 @@ class _AdaptiveTabBar(QWidget):
             return theme.get_color(token).name()
 
         return {
-            "strip": color("button.toggle.background.normal"),
+            "strip": color("surface.list"),
             "background": color("Window"),
             "border": color("separator.color"),
             "hover": color("button.toggle.background.hover"),

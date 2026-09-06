@@ -86,13 +86,13 @@ def test_qss_property_rows_from_index(qapp, themed):
 def test_tokens_for_color_reverse_lookup(qapp, themed):
     tokens = tokens_for_color(themed, QColor("#222222"))
     assert "surface.background" in tokens
-    assert "dialog.background" in tokens  # alias chain
-    # ``Window`` aliases to surface.background — the resolver shadows an
-    # explicit Window key, so #000000 (the raw Window value) matches no
-    # token: this is exactly why stock widgets painted near-black in the
-    # app (the app's Window #1e1e1e never wins over the alias).
+    # ``dialog.background`` alias was dropped in batch B, so it no longer
+    # reverse-resolves (not in the fixture palette, no alias chain).
+    # ``Window`` now resolves directly to its own explicit palette entry,
+    # so #000000 (the raw Window value) reverse-resolves to the Window
+    # token instead of being shadowed by the old surface.background alias.
     tokens = tokens_for_color(themed, QColor("#000000"))
-    assert tokens == []
+    assert "Window" in tokens
 
 
 def test_palette_background_and_transparent_chain(qapp, themed):
