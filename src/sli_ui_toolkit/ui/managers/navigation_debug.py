@@ -35,7 +35,9 @@ def nav_debug(message: str, *args) -> None:
     if nav_debug_enabled():
         logger.debug(message, *args)
 
-_KEY_NAMES = {v: k.split(".")[-1] for k, v in Qt.Key.__members__.items()}
+# int() keys: Qt.Key members hash equal to their int value, so int-keyed
+# lookup by raw key code behaves identically while satisfying mypy.
+_KEY_NAMES: dict[int, str] = {int(v): k.split(".")[-1] for k, v in Qt.Key.__members__.items()}
 
 
 def _key_name(key: int) -> str:
