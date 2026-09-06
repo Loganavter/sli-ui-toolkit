@@ -174,7 +174,7 @@ def _apply_kbd_format(
     text_color: QColor | None,
 ) -> None:
     border = theme.try_get_color("dialog.border")
-    bg = theme.try_get_color("dialog.input.background")
+    bg = theme.try_get_color("surface.background")
     if text_color is not None and text_color.isValid():
         fmt.setForeground(text_color)
     if bg is not None and bg.isValid():

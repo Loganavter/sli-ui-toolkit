@@ -21,7 +21,7 @@ class DragDropOverlay(TopLevelInWindowOverlay):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         # React to theme changes – otherwise border/text stay with old theme's
-        # HighlightedText (dark in all themes due to alias fallback).
+        # HighlightedText.
         try:
             tm = ThemeManager.get_instance()
             tm.theme_changed.connect(self.update)
@@ -136,9 +136,9 @@ class DragDropOverlay(TopLevelInWindowOverlay):
         fill = QColor(accent)
         fill.setAlpha(153)
         # Text/border on accent must be light for contrast in both themes.
-        # HighlightedText resolves via alias to surface.background (white in
-        # light, dark gray in dark) – dark text on blue is unreadable and
-        # does not react to theme toggle. Use explicit white.
+        # HighlightedText is explicit white in both palettes; the luminance
+        # guard below stays as a contrast guarantee for custom palettes.
+        # Use explicit white.
         try:
             cand = tm.try_get_color("HighlightedText")
             if cand is not None and cand.isValid():

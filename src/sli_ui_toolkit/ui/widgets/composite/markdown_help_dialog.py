@@ -432,7 +432,7 @@ class MarkdownHelpDialog(QDialog):
         """
         try:
             color = QColor(
-                ThemeManager.get_instance().get_color("dialog.background")
+                ThemeManager.get_instance().get_color("surface.background")
             )
         except Exception:
             color = QColor(self.palette().window().color())
@@ -457,7 +457,7 @@ class MarkdownHelpDialog(QDialog):
         tm = self.theme_manager
         text_color = tm.get_color("dialog.text").name()
         separator_color = tm.get_color("help.separator").name()
-        dialog_bg_color = tm.get_color("dialog.background").name()
+        dialog_bg_color = tm.get_color("surface.background").name()
 
         def _hex_to_rgb(h: str):
             h = h.lstrip("#")

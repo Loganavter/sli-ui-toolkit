@@ -73,13 +73,13 @@ _make(
     "DoubleSpinBox",
     lambda w: type(w).__name__ == "DoubleSpinBox" and hasattr(w, "singleStep"),
     _SPINBOX_STATE + (("single_step", lambda w: w.singleStep()), ("decimals", lambda w: getattr(w, "_decimals", 2))),
-    ("dialog.input.background", "input.border.thin", "dialog.text", "accent"),
+    ("surface.background", "input.border.thin", "dialog.text", "accent"),
 )
 _make(
     "SpinBox",
     lambda w: hasattr(w, "value") and hasattr(w, "_minimum") and not hasattr(w, "singleStep"),
     _SPINBOX_STATE,
-    ("dialog.input.background", "input.border.thin", "dialog.text", "accent"),
+    ("surface.background", "input.border.thin", "dialog.text", "accent"),
 )
 
 _LINE_EDIT_STATE = (
@@ -95,7 +95,7 @@ _make(
     "CustomLineEdit",
     lambda w: hasattr(w, "underlineThickness") and hasattr(w, "textAlignment"),
     _LINE_EDIT_STATE,
-    ("dialog.input.background", "input.border.thin", "dialog.text", "accent"),
+    ("surface.background", "input.border.thin", "dialog.text", "accent"),
 )
 
 _COMBO_STATE = (
@@ -108,11 +108,11 @@ _make(
     "ComboBox",
     lambda w: hasattr(w, "showDropdown") and hasattr(w, "items"),
     _COMBO_STATE,
-    ("dialog.input.background", "input.border.thin", "list_item.background.hover", "flyout.background"),
+    ("surface.background", "input.border.thin", "list_item.background.hover", "surface.background"),
 )
 _make(
     "ScrollableComboBox",
     lambda w: hasattr(w, "updateState") and hasattr(w, "currentIndex"),
     _COMBO_STATE,
-    ("dialog.input.background", "input.border.thin", "dialog.text"),
+    ("surface.background", "input.border.thin", "dialog.text"),
 )

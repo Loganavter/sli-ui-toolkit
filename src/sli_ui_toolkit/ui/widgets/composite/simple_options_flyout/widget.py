@@ -35,6 +35,9 @@ from sli_ui_toolkit.ui.widgets.composite.base_flyout import (
     resolve_flyout_animation,
     slide_start_delta,
 )
+from sli_ui_toolkit.ui.widgets.composite.base_flyout.lifecycle import (
+    request_window_activation,
+)
 
 from . import animation as _animation
 from . import geometry as _geometry
@@ -278,14 +281,28 @@ class SimpleOptionsFlyout(BaseFlyout):
         # of False even when Enter/Space opened this dropdown, so the first
         # row grabs focus silently and no ring appears until an arrow key
         # explicitly moves focus (which does set OtherFocusReason itself).
-        raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
-        if raw_reason is not None:
-            self._anchor_keyboard_focus = raw_reason not in (
-                Qt.FocusReason.MouseFocusReason,
-                Qt.FocusReason.MenuBarFocusReason,
+        # Modality resolved centrally via NavigationManager (4.2.4).
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
             )
-        else:
-            self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+
+            raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+            if raw_reason is not None:
+                self._anchor_keyboard_focus = resolve_keyboard_focus(raw_reason)
+            else:
+                self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
+        except Exception:
+            # degraded, no manager
+            raw_reason = getattr(anchor_widget, "_last_focus_reason", None)
+            if raw_reason is not None:
+                self._anchor_keyboard_focus = raw_reason not in (
+                    Qt.FocusReason.MouseFocusReason,
+                    Qt.FocusReason.MenuBarFocusReason,
+                    Qt.FocusReason.PopupFocusReason,
+                )
+            else:
+                self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
         self.flyout_manager.request_show(self)
 
@@ -504,7 +521,11 @@ class SimpleOptionsFlyout(BaseFlyout):
             # dialog is active but the cursor still hovers the host window.
             active = QApplication.activeWindow()
             if win and (active is None or active is win):
-                win.activateWindow()
+                # Rate-limited via the shared BaseFlyout helper: kicking an
+                # already-active window still sends an xdg-activation request
+                # on Wayland and the compositor flashes busy for a frame per
+                # request (kbd open/close pairs did exactly that).
+                request_window_activation(win, reason="options-hide")
                 win.setFocus()
 
     def hideEvent(self, e):
@@ -536,7 +557,7 @@ SimpleOptionsFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
         SpecField("row_count", "row_count"),
         SpecField("max_visible_items", "max_visible_items"),
     ),
-    token_family=("flyout.background", "flyout.border", "shadow.color", "separator.color"),
+    token_family=("surface.background", "flyout.border", "shadow.color", "separator.color"),
     docs='docs/user/FLYOUT_SYSTEM.md',
 )
 

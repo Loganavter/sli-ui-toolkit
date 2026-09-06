@@ -183,7 +183,7 @@ class LogConsoleWidget(QWidget):
 
     def _apply_styles(self) -> None:
         info_color = self.theme_manager.get_color("dialog.text").name()
-        bg_color = self.theme_manager.get_color("dialog.input.background").name(QColor.NameFormat.HexArgb)
+        bg_color = self.theme_manager.get_color("surface.background").name(QColor.NameFormat.HexArgb)
         border_color = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
         error_color = "#D70000" if self.theme_manager.is_dark() else "#FF0000"
         status_color = "#9E9E9E"

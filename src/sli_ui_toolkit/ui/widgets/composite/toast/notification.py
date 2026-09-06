@@ -47,6 +47,10 @@ class ToastNotification(QWidget):
         self.setObjectName("ToastNotification")
         self.setWindowFlags(Qt.WindowType.Widget)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        # Destruction is the registry exit: manager pops on destroyed, so
+        # any close path must delete the C++ object, not just hide it.
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self._closing = False
 
         self._custom_content: QWidget | None = None
         self._action_widgets: list[QWidget] = []
@@ -165,6 +169,17 @@ class ToastNotification(QWidget):
         progress: Any = _PROGRESS_UNSET,
     ):
         del success  # reserved for toastSuccess property on the manager side
+        if content is None and actions is None:
+            # Progress-only tick: skip text/geometry/repolish entirely.
+            if progress is not _PROGRESS_UNSET:
+                was_hidden = self.progress_container.isHidden()
+                self._set_progress(progress)
+                if was_hidden != self.progress_container.isHidden():
+                    self.adjustSize()
+                    self.updateGeometry()
+            self._apply_duration(duration)
+            self.update()
+            return
         if actions is not None:
             self._set_actions(actions)
         self._apply_content_layout_state()
@@ -349,12 +364,16 @@ class ToastNotification(QWidget):
 
     def _set_progress(self, progress: int | None):
         if progress is None:
+            if self.progress_container.isHidden():
+                return
             self.progress_container.hide()
             self._apply_surface_state()
             return
 
         safe_progress = max(0, min(100, int(progress)))
         self.progress_bar.setValue(safe_progress)
+        if not self.progress_container.isHidden():
+            return
         self.progress_container.show()
         self._apply_surface_state()
 
@@ -364,9 +383,12 @@ class ToastNotification(QWidget):
             self._hide_timer.start(duration)
 
     def hide_and_close(self):
+        if self._closing:
+            return
+        self._closing = True
         self._hide_timer.stop()
         self.hide()
-        self.close()
+        self.deleteLater()
 
     def _handle_action_clicked(self, callback=None, dismiss: bool = True):
         try:
@@ -380,7 +402,7 @@ class ToastNotification(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect().adjusted(0, 0, -1, -1)
-        painter.setBrush(QBrush(self.theme_manager.get_color("toast.background")))
+        painter.setBrush(QBrush(self.theme_manager.get_color("surface.background")))
         painter.setPen(QPen(self.theme_manager.get_color("toast.border"), 1))
         painter.drawRoundedRect(rect, 8, 8)
         painter.end()
@@ -403,7 +425,7 @@ ToastNotification.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
         SpecField("visible", "isVisible"),
     ),
     token_family=(
-        "toast.background",
+        "surface.background",
         "toast.border",
         "toast.text",
         "toast.progress.background",

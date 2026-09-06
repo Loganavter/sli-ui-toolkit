@@ -150,7 +150,7 @@ class IconListWidget(QWidget):
         palette Window role as a last resort.
         """
         try:
-            color = QColor(ThemeManager.get_instance().get_color("dialog.background"))
+            color = QColor(ThemeManager.get_instance().get_color("surface.background"))
         except Exception:
             color = QColor(self.palette().window().color())
         self._surface_color = color

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFontMetrics,
@@ -443,10 +443,21 @@ class _AdaptiveTabBar(QWidget):
         super().leaveEvent(event)
 
     def focusInEvent(self, event):  # noqa: N802
-        self._keyboard_focus = event.reason() not in (
-            Qt.FocusReason.MouseFocusReason,
-            Qt.FocusReason.PopupFocusReason,
-        )
+        # Ring modality resolved centrally via NavigationManager (4.2.4):
+        # input device is the source of truth, reason is only a hint.
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
+            )
+
+            self._keyboard_focus = resolve_keyboard_focus(event.reason())
+        except Exception:
+            # degraded, no manager
+            self._keyboard_focus = event.reason() not in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+                Qt.FocusReason.PopupFocusReason,
+            )
         if self._focused_index < 0 or not (0 <= self._focused_index < len(self._tabs)):
             self._focused_index = self._current_index
         super().focusInEvent(event)
@@ -465,6 +476,13 @@ class _AdaptiveTabBar(QWidget):
         if self._current_index >= 0:
             self._ensure_visible(self._current_index)
         self._position_tab_buttons()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self._relayout()
+            self.updateGeometry()
+            self.update()
 
     def _position_tab_buttons(self) -> None:
         for index in range(len(self._tabs)):
@@ -626,7 +644,7 @@ class _AdaptiveTabBar(QWidget):
             return theme.get_color(token).name()
 
         return {
-            "strip": color("button.toggle.background.normal"),
+            "strip": color("surface.list"),
             "background": color("Window"),
             "border": color("separator.color"),
             "hover": color("button.toggle.background.hover"),

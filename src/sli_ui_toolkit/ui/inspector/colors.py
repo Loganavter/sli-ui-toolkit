@@ -27,7 +27,6 @@ from typing import Any, Iterable
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QWidget
 
-from sli_ui_toolkit.ui.managers.theme_manager import ALIAS
 from .qss_scan import QssRule
 
 _BG_NAMES = frozenset({"background", "background-color"})
@@ -178,8 +177,8 @@ def palette_background(widget: QWidget) -> tuple[str, QColor, bool]:
 
 
 def tokens_for_color(theme_manager, color: QColor) -> list[str]:
-    """Theme tokens whose resolved value equals ``color`` (alias-aware
-    reverse lookup: ``Window``, ``dialog.background``, …)."""
+    """Theme tokens whose resolved value equals ``color`` (direct reverse
+    lookup: ``Window``, ``dialog.background``, …)."""
     if theme_manager is None or not color.isValid():
         return []
     try:
@@ -198,7 +197,6 @@ def tokens_for_color(theme_manager, color: QColor) -> list[str]:
     keys: set[str] = set()
     if isinstance(palette, dict):
         keys.update(palette.keys())
-    keys.update(ALIAS.keys())
     keys.update(("surface.background", "Window", "WindowText", "Base", "Text"))
     out: list[str] = []
     for key in sorted(keys):
