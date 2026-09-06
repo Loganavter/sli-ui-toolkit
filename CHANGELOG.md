@@ -1,6 +1,8 @@
 # Changelog
 
-## 4.0.0 — Navigation graph explicit + Enter-to-activate (breaking)
+## Unreleased
+
+### 4.0.0 — Navigation graph explicit + Enter-to-activate (breaking)
 
 ### Breaking
 - **`NavigationSection.focus_first/last` now require `reason: Qt.FocusReason`** — `focus_first(self, ref_x=None, *, reason: Qt.FocusReason)` / `focus_last(..., *, reason)`. All sections (`ToolbarRowsSection`, `IconListNavSection`, `SessionPickerSection`, `TabStripSection`) and every `NavigationManager` call site (`register` bootstrap, `focus_section_for_owner`, `_neighbor` handoff, `eventFilter` bootstrap) now pass `NavigationManager.current_focus_reason()` / `nav_graph.focus_reason()`. Old `spec.focus_first()` without `reason` raises `TypeError`.
@@ -10,7 +12,7 @@
 - **`NavigationManager` focus-ring on new tab** — `ToolbarRowsSection`/`IconListNavSection` `focus_first` and bootstrap now respect mouse vs keyboard modality via `current_focus_reason()` (`MouseFocusReason` vs `OtherFocusReason`). Opening a tab with a mouse click (session picker) no longer lights up the ring; keyboard opens still do. Previously `OtherFocusReason` was unconditional.
 - **`AdaptiveTabStrip`/`_AdaptiveTabBar` tab switching requires Enter** — `Left`/`Right`/`Home`/`End` now move a separate keyboard-focused index (`_focused_index`) with modality preserved, `Enter`/`Space` activates (`setCurrentIndex`). `Delete`/`Backspace` closes the focused tab. Focus ring follows `_focusedTab()` when `hasFocus() && _keyboard_focus`. Mouse clicks still switch immediately.
 
-## 4.1.0 — Navigation declarative helpers
+### 4.1.0 — Navigation declarative helpers
 
 ### Added
 - **`declare_toolbar_navigation(owner, rows, tag="toolbar")`** — declarative one-liner for toolbar/panel navigation (`ToolbarRowsSection` via `NavigationManager.register`). Alias to `declare_navigation_rows` with toolbar-specific naming (Phase 3 `plan_navigation_simplification.md`). Migrated `tabs/image_compare` and `tabs/multi_compare` from 15-line `_toolbar_rows` + `_register_nav_section` to one call.
@@ -25,7 +27,7 @@
 - **`HelpDialog` focus loss on close** — `hideEvent`/`closeEvent` left `QApplication.focusWidget() → None` after `HelpDialogWindow` lost focus (`23:42:16:980`), because external focus (`CsdMenuRow`/`MainWindow`) was cleared by `SimpleOptionsFlyout` hide before Help opened and never saved. Now `showEvent` saves `_external_prev_focus`/`_external_prev_window` (incl. `NavigationManager.last_keyboard_focus` fallback) and `hideEvent` restores it with `OtherFocusReason` + `activateWindow`, so closing Help never leaves `None`.
 - **`AutoNavigationSection` crash on stale Help sidebar** — `HelpDialog._sync_sidebar` `clear()` deletes old `Button`s but `Auto._cached_rows_widgets` kept deleted `C++` pointers; `Key_Down` from `HelpSearchField` on next row did `min(target_row, key=lambda w: w.mapToGlobal(...))` on deleted `Button` → `RuntimeError: Internal C++ object (Button) already deleted` (`navigation_sections.py:589`, лог `23:49:46:925`). Now `_auto_rows` filters `shiboken6.isValid`/`isVisible`/`isEnabled`, `navigate`/`focus_first`/`focus_last` re-scan and filter target rows, `mapToGlobal` wrapped in `try/except`, so stale cache self-heals without crash.
 
-## 4.2.2 — IconActionFlyout layout teardown guard
+### 4.2.2 — IconActionFlyout layout teardown guard
 
 ### Fixed
 - **`IconActionFlyout` crash on deleted layout** — `update_state()` called
@@ -50,13 +52,11 @@
   action dicts via `_purge_action` (same pattern as the 4.1.0
   `AutoNavigationSection` stale-row fix).
 
-## 4.2.3 — DragDropOverlay theme and visibility
+### 4.2.3 — DragDropOverlay theme and visibility
 
 ### Fixed
 - **`DragDropOverlay` dark text in all themes** — `HighlightedText` alias resolves to `surface.background` (white in light, dark gray in dark) so text/border were dark on semi-transparent blue in both themes and did not react to theme toggle. Now text/border are forced to white (`#ffffff`) with luminance check fallback, `ThemeManager.theme_changed` triggers `update()`, so overlay is readable and theme-reactive in light and dark.
 - **`DragDropOverlay` not disappearing after drop until image loads** — `WindowEventHandler.handle_drop` hid the overlay via deferred `singleShot(0)` which raced with the also-deferred `load_images_from_paths`; overlay stayed visible until decode finished. Now hides synchronously via direct `_safe_update_drag_overlays(False)`.
-
-## Unreleased
 
 ### Added
 - **`OverlayScrollArea` smooth wheel scrolling** — wheel deltas now
