@@ -517,9 +517,11 @@ class SimpleOptionsFlyout(BaseFlyout):
             # a "«App» is ready" notification — exactly what happens when a
             # dialog is active but the cursor still hovers the host window.
             active = QApplication.activeWindow()
-            if win and (active is None or active is win):
-                win.activateWindow()
-                win.setFocus()
+            if active is None or active is win:
+                if win is not None and not win.isActiveWindow():
+                    win.activateWindow()
+                if win is not None:
+                    win.setFocus()
 
     def hideEvent(self, e):
         # Never swallow hideEvent: ignoring it after hide() already ran leaves
