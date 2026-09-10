@@ -931,6 +931,21 @@
 
 ### Fixed
 
+- **Theme token migration gap: painter reads of `"Window"` restored to
+  pre-alias-removal values** — before the alias machinery was removed,
+  `get_color`/`try_get_color` resolved `"Window"` canonical-first to
+  `surface.background`, and the alias removal commit (`2bcfcd1`) migrated
+  most call sites but missed several reads that still asked for `"Window"`.
+  In hosts whose palette keeps a distinct `Window` literal (Improve-ImgSLI:
+  light `#f5f5f5` / dark `#1e1e1e` vs surface `#ffffff` / `#2b2b2b`) those
+  surfaces silently shifted. Migrated to `surface.background` (with the
+  existing `get_color` fallback chain keeping `Window` for palettes without
+  `surface.*` keys): `CustomGroupWidget._paint_bottom_caption`,
+  timeline `canvas_bg` (light+dark), inspector `_panel_color`,
+  `AdaptiveTabStrip` `_palette()["background"]` + `AdaptiveTabStrip`/nav
+  `token_family` lists, and the CSD window-body defaults
+  (`WindowChromeConfig.bg_token`, `WindowChrome`, `resolve_window_bg_color`,
+  `apply_dialog_decorations`).
 - **`setup_logging()` re-entry no longer silences the host app's debug stream** — the app and toolkit loggers share handler instances, and the re-entry branch unconditionally set the shared handlers to the toolkit-only level (`INFO` without `SLI_TOOLKIT_DEBUG`). Hosts that configure logging twice at startup (Improve-ImgSLI re-applies it after loading persistent settings) lost every `DEBUG` line after the second call even though the app logger itself stayed on `DEBUG`. Shared handlers now keep `min(app, toolkit)` level; per-logger gating is unchanged, so the toolkit stream stays quiet by default.
 - **`SimpleOptionsFlyout.hide` no longer kicks an already-active window** — focus restore now skips `activateWindow()` when `win.isActiveWindow()` (keeps `setFocus()`), so closing a flyout over the active host no longer costs a Wayland busy-cursor frame. Satisfies the host `test_no_unconditional_activation` contract.
 - **`NavigationManager` focus-ring on new tab** — `ToolbarRowsSection`/`IconListNavSection` `focus_first` and bootstrap now respect mouse vs keyboard modality via `current_focus_reason()` (`MouseFocusReason` vs `OtherFocusReason`). Opening a tab with a mouse click (session picker) no longer lights up the ring; keyboard opens still do. Previously `OtherFocusReason` was unconditional.

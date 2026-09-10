@@ -257,7 +257,7 @@ def apply_top_trailing_rounded_mask(
     _mask_from_path(widget, path)
 
 
-def resolve_window_bg_color(window: QWidget, bg_token: str = "Window") -> QColor:
+def resolve_window_bg_color(window: QWidget, bg_token: str = "surface.background") -> QColor:
     try:
         tm = ThemeManager.get_instance()
         color = tm.get_color(bg_token)

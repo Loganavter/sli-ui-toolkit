@@ -803,7 +803,7 @@ TimelineWidget.inspect_spec = InspectSpec(
         SpecField("pixels_per_second", "get_pixels_per_second"),
         SpecField("has_selection", "has_selection"),
     ),
-    token_family=("accent", "Window", "AlternateBase", "separator.color", "dialog.border", "WindowText"),
+    token_family=("accent", "surface.background", "AlternateBase", "separator.color", "dialog.border", "WindowText"),
     docs='docs/user/API_CATALOG.md',
 )
 

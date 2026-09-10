@@ -237,7 +237,7 @@ class CustomGroupWidget(QWidget):
         must stay pixel-identical, ``magnifier_settings_flyout.py`` mirrors
         this exact routine to dock flush underneath a group using it."""
         border_color = self.theme_manager.get_color("dialog.border")
-        bg_color = self.theme_manager.get_color("Window")
+        bg_color = self.theme_manager.get_color("surface.background")
         text_color = self.theme_manager.get_color("WindowText")
 
         rect = self.rect()
