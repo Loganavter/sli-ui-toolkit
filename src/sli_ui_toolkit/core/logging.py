@@ -57,11 +57,20 @@ def setup_logging(
 
     if logger.handlers:
         logger.setLevel(level)
+        toolkit_logger.setLevel(toolkit_level)
         for handler in logger.handlers:
             handler.setLevel(level)
-        toolkit_logger.setLevel(toolkit_level)
         for handler in toolkit_logger.handlers:
-            handler.setLevel(toolkit_level)
+            if handler in logger.handlers:
+                # Same instance serves both loggers (wired at creation
+                # below): keep the more verbose level so the toolkit gate
+                # can't silence the host app's debug stream on a second
+                # setup_logging() call (hosts re-configure logging after
+                # loading persistent settings). Logger-level gating still
+                # separates the streams.
+                handler.setLevel(min(level, toolkit_level))
+            else:
+                handler.setLevel(toolkit_level)
         return
 
     logger.setLevel(level)
