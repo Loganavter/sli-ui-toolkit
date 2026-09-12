@@ -28,7 +28,7 @@ class WindowChromeConfig:
     title: str = ""
     title_bar: CustomTitleBar | None = None
     corner_radius: int = DEFAULT_CORNER_RADIUS
-    bg_token: str = "Window"
+    bg_token: str = "surface.background"
     resizable: bool = True
     resize_margin: int | None = None
     show_minimize: bool = False
@@ -51,7 +51,7 @@ class WindowChrome:
         paint_state: dict,
         geom_filter: QObject,
         bg_layer: CsdRoundedBackground | None = None,
-        bg_token: str = "Window",
+        bg_token: str = "surface.background",
     ) -> None:
         self._window = window
         self._title_bar = title_bar

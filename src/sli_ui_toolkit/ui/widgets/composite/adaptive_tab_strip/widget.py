@@ -360,7 +360,7 @@ AdaptiveTabStrip.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
     ),
     token_family=(
         "surface.list",
-        "Window",
+        "surface.background",
         "separator.color",
         "button.toggle.background.hover",
         "WindowText",
