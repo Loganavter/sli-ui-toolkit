@@ -75,7 +75,7 @@ def decorate_dialog(
     elif title_bar.parent() is not dialog:
         title_bar.setParent(dialog)
 
-    bg_token = "Window"
+    bg_token = "surface.background"
     if bg_color is not None:
         initial_color = QColor(bg_color)
     else:

@@ -42,7 +42,7 @@ def _extract(widget, theme_manager=None) -> WidgetInspection:
         state=state,
         token_family=(
             "accent",
-            "Window",
+            "surface.background",
             "AlternateBase",
             "separator.color",
             "dialog.border",

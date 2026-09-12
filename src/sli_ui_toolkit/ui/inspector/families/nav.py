@@ -63,7 +63,7 @@ _TAB_STRIP_STATE = (
 )
 _TAB_STRIP_TOKENS = (
     "surface.list",
-    "Window",
+    "surface.background",
     "separator.color",
     "button.toggle.background.hover",
     "WindowText",
