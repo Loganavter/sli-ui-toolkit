@@ -1291,6 +1291,14 @@
   `paintEvent` (same pattern as `_SurfaceWidget`), re-read in
   `_apply_styles`; the gaps around the output/input rows no longer read
   darker than the dialog surface. The `QTextEdit` QSS styling is unchanged.
+- **`_AdaptiveTabBar` dead zone after font change** — `sizeHint()` reads
+  the live font (`QFontMetrics(self.font())`) but `_rects` and the close
+  slots were only recomputed in `_relayout()` from tab mutations and scale
+  changes, never on a font change: after UiFont/theme/`setFont` switched
+  the face, the parent layout gave the bar the new (wider) hint while
+  content still painted from the old rects, leaving a dead zone between
+  the last tab and the "+" button. The bar now handles `FontChange` in
+  `changeEvent` (`_relayout()` + `updateGeometry()` + `update()`).
 
 - **Theme alias table removed** — `ThemeManager` no longer remaps token
   names (`ALIAS`, `theme_aliases.json`, `register_aliases` are gone):

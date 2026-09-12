@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFontMetrics,
@@ -476,6 +476,13 @@ class _AdaptiveTabBar(QWidget):
         if self._current_index >= 0:
             self._ensure_visible(self._current_index)
         self._position_tab_buttons()
+
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self._relayout()
+            self.updateGeometry()
+            self.update()
 
     def _position_tab_buttons(self) -> None:
         for index in range(len(self._tabs)):
