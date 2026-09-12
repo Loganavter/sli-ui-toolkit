@@ -2,16 +2,297 @@ from __future__ import annotations
 
 import bisect
 import math
+from types import SimpleNamespace
 
-from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 
 from . import layout as timeline_layout
 from . import primitives as timeline_primitives
 from . import theme as timeline_theme
 from . import viewport as timeline_viewport
-from .debug import _timeline_debug_enabled, _timeline_paint_debug
-from .segments import _draw_keyframe_segments
+
+def _channel_value_at_timestamp(channel, timestamp: float, *, prefer_exact: bool = False):
+    if channel is None:
+        return None
+    keyframes = channel.keyframes
+    if not keyframes:
+        return None
+    if prefer_exact:
+        exact_value = None
+        for keyframe in keyframes:
+            if math.isclose(float(keyframe.timestamp), float(timestamp), abs_tol=1e-9):
+                exact_value = keyframe.value
+            elif float(keyframe.timestamp) > float(timestamp):
+                break
+        if exact_value is not None:
+            return exact_value
+    return timeline_layout._evaluate_channel_at_timestamp(channel, timestamp)
+
+def _color_track_value(track, timestamp: float) -> QColor | None:
+    r = _channel_value_at_timestamp(track.channels.get("r"), timestamp, prefer_exact=True)
+    g = _channel_value_at_timestamp(track.channels.get("g"), timestamp, prefer_exact=True)
+    b = _channel_value_at_timestamp(track.channels.get("b"), timestamp, prefer_exact=True)
+    a = _channel_value_at_timestamp(track.channels.get("a"), timestamp, prefer_exact=True)
+    if None in {r, g, b}:
+        return None
+    try:
+        return QColor(int(r), int(g), int(b), int(a if a is not None else 255))
+    except (TypeError, ValueError):
+        return None
+
+def _segment_color(widget, track, channel, timestamp: float, fallback: QColor) -> QColor:
+    if track.kind == "color":
+        color = _color_track_value(track, timestamp)
+        if color is not None:
+            if color.alpha() <= 0:
+                color.setAlpha(255)
+            return color
+    return timeline_theme.track_value_color(
+        widget,
+        track_id=track.id,
+        track_kind=track.kind,
+        channel_kind=channel.kind,
+        value=timeline_layout._evaluate_channel_at_timestamp(channel, timestamp),
+        fallback=fallback,
+    )
+
+def _draw_color_track_segments(
+    widget,
+    painter: QPainter,
+    *,
+    group,
+    track,
+    duration: float,
+    logical_width: float,
+    row_center_y: float,
+    start_x: float,
+    end_x: float,
+    point_radius: float,
+    stagger_px: float = 7.0,
+) -> None:
+    timestamps = sorted(
+        {
+            float(keyframe.timestamp)
+            for channel in track.channels.values()
+            for keyframe in channel.keyframes
+        }
+    )
+    if not timestamps:
+        return
+
+    color_states: list[tuple[float, QColor]] = []
+    for timestamp in timestamps:
+        color = _color_track_value(track, timestamp)
+        if color is None:
+            continue
+        rgba = (color.red(), color.green(), color.blue(), color.alpha())
+        if color_states:
+            prev_color = color_states[-1][1]
+            prev_rgba = (
+                prev_color.red(),
+                prev_color.green(),
+                prev_color.blue(),
+                prev_color.alpha(),
+            )
+            if rgba == prev_rgba:
+                continue
+        color_states.append((timestamp, color))
+
+    if not color_states:
+        return
+
+    left_bound = start_x - 12.0
+    right_bound = end_x + 12.0
+    segments: list[tuple[float, float, float, QColor, object, object]] = []
+
+    for index, (timestamp, color) in enumerate(color_states):
+        end_timestamp = (
+            color_states[index + 1][0]
+            if index + 1 < len(color_states)
+            else duration
+        )
+        start_x_pos = timeline_layout.time_to_x(widget, timestamp, duration, logical_width)
+        end_x_pos = timeline_layout.time_to_x(widget, end_timestamp, duration, logical_width)
+        direction = -1.0 if index % 2 == 0 else 1.0
+        y = row_center_y + direction * stagger_px
+        start_keyframe_ref = SimpleNamespace(timestamp=timestamp, value=color)
+        end_keyframe_ref = SimpleNamespace(timestamp=end_timestamp, value=color)
+        segments.append(
+            (start_x_pos, end_x_pos, y, color, start_keyframe_ref, end_keyframe_ref)
+        )
+
+    if not segments:
+        return
+
+    for x1, x2, y, color, _, _ in segments:
+        if x2 < left_bound:
+            continue
+        if x1 > right_bound:
+            break
+        painter.setPen(QPen(color, 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(QPointF(x1, y), QPointF(x2, y))
+
+    painter.setPen(QPen(QColor(40, 40, 46), 1))
+    for x1, x2, y, color, start_keyframe_ref, end_keyframe_ref in segments:
+        painter.setBrush(QBrush(color))
+        if left_bound <= x1 <= right_bound:
+            painter.drawEllipse(QPointF(x1, y), point_radius, point_radius)
+            widget._hover_points.append(
+                (
+                    QRectF(x1 - 6, y - 6, 12, 12),
+                    timeline_viewport.tooltip_for_keyframe(
+                        widget,
+                        group,
+                        track,
+                        next(iter(track.channels.values())),
+                        start_keyframe_ref,
+                    ),
+                )
+            )
+        if left_bound <= x2 <= right_bound:
+            painter.drawEllipse(QPointF(x2, y), point_radius, point_radius)
+            widget._hover_points.append(
+                (
+                    QRectF(x2 - 6, y - 6, 12, 12),
+                    timeline_viewport.tooltip_for_keyframe(
+                        widget,
+                        group,
+                        track,
+                        next(iter(track.channels.values())),
+                        end_keyframe_ref,
+                    ),
+                ),
+            )
+
+def _draw_enum_track_segments(
+    widget,
+    painter: QPainter,
+    *,
+    group,
+    track,
+    channel,
+    duration: float,
+    logical_width: float,
+    row_center_y: float,
+    start_x: float,
+    end_x: float,
+    point_radius: float,
+    line_col: QColor,
+    stagger_px: float = 7.0,
+) -> None:
+    keyframes = channel.keyframes
+    if not keyframes:
+        return
+
+    states: list[tuple[float, object]] = []
+    for keyframe in keyframes:
+        timestamp = float(keyframe.timestamp)
+        value = keyframe.value
+        if states and states[-1][1] == value:
+            continue
+        states.append((timestamp, value))
+
+    if not states:
+        return
+
+    left_bound = start_x - 12.0
+    right_bound = end_x + 12.0
+    segments: list[tuple[float, float, float, object, object]] = []
+    active_index = 0
+
+    for index, (timestamp, value) in enumerate(states):
+        end_timestamp = states[index + 1][0] if index + 1 < len(states) else float(duration)
+        if end_timestamp < timestamp:
+            continue
+        if not timeline_layout._is_track_active(widget, track, channel, timestamp):
+            continue
+        x1 = timeline_layout.time_to_x(widget, timestamp, duration, logical_width)
+        x2 = timeline_layout.time_to_x(widget, end_timestamp, duration, logical_width)
+        direction = -1.0 if active_index % 2 == 0 else 1.0
+        y = row_center_y + direction * stagger_px
+        start_ref = SimpleNamespace(timestamp=timestamp, value=value)
+        end_ref = SimpleNamespace(timestamp=end_timestamp, value=value)
+        segments.append((x1, x2, y, start_ref, end_ref))
+        active_index += 1
+
+    for x1, x2, y, _, _ in segments:
+        if x2 < left_bound:
+            continue
+        if x1 > right_bound:
+            break
+        if abs(x2 - x1) <= 0.01:
+            continue
+        painter.setPen(QPen(line_col, 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawLine(QPointF(x1, y), QPointF(x2, y))
+
+    painter.setPen(QPen(QColor(40, 40, 46), 1))
+    point_positions: set[tuple[float, float]] = set()
+    for x1, x2, y, start_ref, end_ref in segments:
+        if left_bound <= x1 <= right_bound:
+            point_key = (round(x1, 4), round(y, 4))
+            if point_key not in point_positions:
+                point_positions.add(point_key)
+                painter.setBrush(QBrush(line_col))
+                painter.drawEllipse(QPointF(x1, y), point_radius, point_radius)
+                widget._hover_points.append(
+                    (
+                        QRectF(x1 - 6, y - 6, 12, 12),
+                        timeline_viewport.tooltip_for_keyframe(
+                            widget,
+                            group,
+                            track,
+                            channel,
+                            start_ref,
+                        ),
+                    )
+                )
+        if left_bound <= x2 <= right_bound and not math.isclose(
+            float(end_ref.timestamp), float(duration), abs_tol=1e-9
+        ):
+            point_key = (round(x2, 4), round(y, 4))
+            if point_key not in point_positions:
+                point_positions.add(point_key)
+                painter.setBrush(QBrush(line_col))
+                painter.drawEllipse(QPointF(x2, y), point_radius, point_radius)
+                widget._hover_points.append(
+                    (
+                        QRectF(x2 - 6, y - 6, 12, 12),
+                        timeline_viewport.tooltip_for_keyframe(
+                            widget,
+                            group,
+                            track,
+                            channel,
+                            end_ref,
+                        ),
+                    )
+                )
+
+def _curve_path(points: list[tuple[float, float]]) -> QPainterPath:
+    path = QPainterPath()
+    if not points:
+        return path
+    path.moveTo(QPointF(points[0][0], points[0][1]))
+    if len(points) == 1:
+        return path
+    if len(points) == 2:
+        path.lineTo(QPointF(points[1][0], points[1][1]))
+        return path
+
+    for index in range(1, len(points) - 1):
+        current_x, current_y = points[index]
+        next_x, next_y = points[index + 1]
+        mid_x = (current_x + next_x) * 0.5
+        mid_y = (current_y + next_y) * 0.5
+        path.quadTo(
+            QPointF(current_x, current_y),
+            QPointF(mid_x, mid_y),
+        )
+    last_x, last_y = points[-1]
+    path.lineTo(QPointF(last_x, last_y))
+    return path
 
 def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, content_start_x: float, strip_top: float, width: int, start_x: float, end_x: float, logical_width: float, slot_width: float) -> None:
     painter.fillRect(QRectF(content_start_x, strip_top, width - content_start_x, widget.STRIP_HEIGHT), canvas_bg)
@@ -20,22 +301,13 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     draw_w = frame_step * slot_width
     first_frame = max(0, int((start_x - content_start_x) / draw_w) * frame_step)
     last_frame = min(widget._total_frames, int((end_x - content_start_x) / draw_w + 1) * frame_step + frame_step)
-    if _timeline_debug_enabled():
-        # Check if strip is actually visible in widget
-        _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s step=%s draw_w=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frame_step, draw_w, first_frame, last_frame, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
-        # Log per-block pixmap validity
-        for _fi in range(first_frame, min(last_frame, first_frame+3)):
-            _ti = -1
-            if widget._thumb_indices:
-                _pos = bisect.bisect_right(widget._thumb_indices, _fi)
-                _ti = widget._thumb_indices[_pos-1] if _pos>0 else widget._thumb_indices[0]
-            _pix = widget._thumbnails.get(_ti) if _ti!=-1 else None
-            _timeline_paint_debug("block fi=%s thumb_idx=%s pix_null=%s pix_size=%s", _fi, _ti, _pix.isNull() if _pix else True, (_pix.width(), _pix.height()) if _pix and not _pix.isNull() else None)
 
     frame_idx = first_frame
     while frame_idx < last_frame:
         block_x = content_start_x + frame_idx * slot_width
         block_w = draw_w
+        if block_x + block_w > content_start_x + logical_width:
+            block_w = content_start_x + logical_width - block_x
         if block_w <= 0:
             break
         thumb_idx = -1
@@ -47,6 +319,103 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
             if pix and pix.height() > 0:
                 painter.drawPixmap(QRectF(block_x, strip_top, block_w, float(widget.STRIP_HEIGHT)), pix, QRectF(pix.rect()))
         frame_idx += frame_step
+
+def _draw_keyframe_segments(widget, painter: QPainter, *, group, track, channel, duration: float, logical_width: float, row_center_y: float, start_x: float, end_x: float, line_col: QColor, point_radius: float) -> None:
+    if track.kind == "color":
+        _draw_color_track_segments(
+            widget,
+            painter,
+            group=group,
+            track=track,
+            duration=duration,
+            logical_width=logical_width,
+            row_center_y=row_center_y,
+            start_x=start_x,
+            end_x=end_x,
+            point_radius=point_radius,
+        )
+        return
+    if track.kind == "enum":
+        _draw_enum_track_segments(
+            widget,
+            painter,
+            group=group,
+            track=track,
+            channel=channel,
+            duration=duration,
+            logical_width=logical_width,
+            row_center_y=row_center_y,
+            start_x=start_x,
+            end_x=end_x,
+            point_radius=point_radius,
+            line_col=line_col,
+        )
+        return
+    segments = timeline_layout.visible_keyframe_segments(widget, track, channel, duration, logical_width, row_center_y, start_x, end_x)
+    if segments:
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for segment in segments:
+            curve_points = segment.get("curve_points") or [
+                (segment["x1"], segment["y"]),
+                (segment["x2"], segment["y"]),
+            ]
+            segment_col = _segment_color(
+                widget,
+                track,
+                channel,
+                float(segment["start_kf"].timestamp),
+                line_col,
+            )
+            painter.setPen(QPen(segment_col, 1.5))
+            painter.drawPath(_curve_path(curve_points))
+
+    drawn_points: set[tuple[float, float]] = set()
+
+    def _draw_point_once(x: float, y: float, color: QColor, tooltip: str) -> None:
+        key = (round(float(x), 2), round(float(y), 2))
+        if key in drawn_points:
+            return
+        drawn_points.add(key)
+        painter.setPen(QPen(QColor(40, 40, 46), 1))
+        painter.setBrush(QBrush(color))
+        painter.drawEllipse(QPointF(x, y), point_radius, point_radius)
+        widget._hover_points.append((QRectF(x - 6, y - 6, 12, 12), tooltip))
+
+    for segment in segments:
+        curve_points = segment.get("curve_points") or [
+            (segment["x1"], segment["y"]),
+            (segment["x2"], segment["y"]),
+        ]
+        x1, y1 = curve_points[0]
+        x2, y2 = curve_points[-1]
+        start_kf = segment["start_kf"]
+        end_kf = segment["end_kf"]
+        start_col = _segment_color(
+            widget,
+            track,
+            channel,
+            float(start_kf.timestamp),
+            line_col,
+        )
+        end_col = _segment_color(
+            widget,
+            track,
+            channel,
+            float(end_kf.timestamp),
+            line_col,
+        )
+        _draw_point_once(
+            x1,
+            y1,
+            start_col,
+            timeline_viewport.tooltip_for_keyframe(widget, group, track, channel, start_kf),
+        )
+        _draw_point_once(
+            x2,
+            y2,
+            end_col,
+            timeline_viewport.tooltip_for_keyframe(widget, group, track, channel, end_kf),
+        )
 
 def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bottom: int, content_start_x: float, start_x: float, end_x: float, duration: float, logical_width: float, is_dark: bool, gutter_bg: QColor, track_bg: QColor, lane_bg: QColor, text_col: QColor, sep_soft: QColor) -> None:
     content_top = 0
@@ -90,7 +459,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             timeline_primitives.draw_track_title_label(widget, painter, QRectF(18, y, max(40, widget.LEFT_GUTTER - 30), row_h), track.label, text_col)
             row_center_y = y + row_h / 2.0
             painter.setPen(QPen(QColor(190, 190, 196), 1))
-            painter.drawLine(int(content_start_x), int(row_center_y), width, int(row_center_y))
+            painter.drawLine(content_start_x, int(row_center_y), width, int(row_center_y))
             _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=4.0)
             y += row_h
             continue
@@ -132,7 +501,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
         )
         row_center_y = y + row_h / 2.0
         painter.setPen(QPen(QColor(190, 190, 196), 1))
-        painter.drawLine(int(content_start_x), int(row_center_y), width, int(row_center_y))
+        painter.drawLine(content_start_x, int(row_center_y), width, int(row_center_y))
         _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=3.5)
         y += row_h
 
@@ -146,22 +515,15 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
     painter.setPen(QPen(sep_soft, 1))
     painter.drawLine(0, int(ruler_top) - 1, width, int(ruler_top) - 1)
     painter.setPen(QPen(grid_col, 1))
-    painter.drawLine(int(content_start_x), ruler_bottom - 1, width, ruler_bottom - 1)
+    painter.drawLine(content_start_x, ruler_bottom - 1, width, ruler_bottom - 1)
     painter.setPen(QPen(sep_strong, 1))
     painter.drawLine(0, widget.height() - 1, width, widget.height() - 1)
     if duration <= 0:
         return
     step_sec = timeline_viewport.choose_ruler_step(duration, logical_width)
     minor_divisions = timeline_viewport.choose_ruler_subdivisions(step_sec, duration, logical_width)
-    # The painter font is design-sized (the widget inherits the app font
-    # unscaled); ui_font() applies the UiScale factor exactly once. Restore
-    # afterwards: the ruler font must not leak into the sticky-gutter pass
-    # that follows (it is already scale-resolved, and the label painters
-    # would multiply the factor a second time).
-    from sli_ui_toolkit.ui.managers.ui_font import ui_font
-
-    ruler_font = ui_font(point_size=max(8, painter.font().pointSize() - 2))
-    painter.save()
+    ruler_font = painter.font()
+    ruler_font.setPointSize(max(8, ruler_font.pointSize() - 2))
     painter.setFont(ruler_font)
     if minor_divisions > 1:
         minor_step = step_sec / minor_divisions
@@ -188,7 +550,6 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
             painter.drawLine(int(x), ruler_top, int(x), ruler_top + 10)
             text_rect = QRectF(x + 4, ruler_top + 11, 52, max(18, ruler_bottom - ruler_top - 11 - 4))
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label_text)
-    painter.restore()
 
 def draw_sticky_gutter_overlay(widget, painter: QPainter, *, scroll_offset: int, rows_top: int, rows_bottom: int, footer_top: int, gutter_bg: QColor, track_bg: QColor, text_col: QColor, sep_color: QColor | None = None, sep_soft: QColor | None = None) -> None:
     gx = scroll_offset
@@ -269,13 +630,6 @@ def draw_sticky_right_gutter_overlay(widget, painter: QPainter, *, gutter_x: flo
     painter.restore()
 
 def paint_timeline(widget, painter: QPainter, event) -> None:
-    if _timeline_debug_enabled():
-        _sa = timeline_viewport.get_scroll_area(widget)
-        _so = _sa.horizontalScrollBar().value() if _sa else -1
-        _vpw = timeline_viewport.get_viewport_width(widget)
-        _lw = timeline_viewport.get_logical_width(widget)
-        _sw = timeline_viewport.get_slot_width(widget)
-        _timeline_paint_debug("paint id=%s rect=%s width=%s logical=%s slot=%s scroll=%s vpw=%s right_inset=%s total=%s thumb_n=%s", id(widget), event.rect(), widget.width(), _lw, _sw, _so, _vpw, timeline_viewport.right_inset(widget), widget._total_frames, len(widget._thumbnails))
     timeline_viewport.update_vertical_scrollbar(widget)
     colors = timeline_theme.build_theme_colors(widget)
     is_dark = colors["is_dark"]
@@ -337,17 +691,6 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
         fill = QColor(accent)
         fill.setAlpha(45)
         painter.fillRect(QRectF(x_start, 0, max(0.0, min(x_end, content_right) - x_start), footer_top), fill)
-        # Edge handles so the range can be resized / moved after Shift+drag.
-        handle = QColor(accent)
-        handle.setAlpha(220)
-        edge_w = 2.0
-        painter.fillRect(QRectF(x_start - edge_w * 0.5, 0, edge_w, footer_top), handle)
-        painter.fillRect(QRectF(x_end - edge_w * 0.5, 0, edge_w, footer_top), handle)
-        grip_h = 10.0
-        grip_w = 6.0
-        grip_y = max(2.0, (widget.STRIP_HEIGHT - grip_h) * 0.5)
-        painter.fillRect(QRectF(x_start - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
-        painter.fillRect(QRectF(x_end - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
     draw_footer_and_ruler(widget, painter, width=content_right, content_start_x=content_start_x, footer_height=footer_height_val, footer_top=footer_top, scrollbar_strip_top=scrollbar_strip_top, ruler_top=ruler_top, ruler_bottom=ruler_bottom, scroll_offset=scroll_offset, viewport_width=content_viewport_width, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x, is_dark=is_dark, footer_bg=footer_bg, sep_strong=sep_strong, sep_soft=sep_soft, grid_col=grid_col, text_col=text_col, sb_idle=sb_idle, sb_hover=sb_hover)
     x_head = timeline_viewport.visual_pos_from_index(widget, widget._scrub_visual_index if widget._scrub_visual_index is not None else widget._visual_index)
     timeline_primitives.draw_playhead(widget, painter, x_head=x_head, footer_top=footer_top, width=content_right)

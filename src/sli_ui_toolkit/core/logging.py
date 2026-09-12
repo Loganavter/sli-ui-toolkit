@@ -2,8 +2,6 @@ import logging
 import os
 import sys
 
-from sli_ui_toolkit.core.debug_flags import env_flag
-
 def get_log_directory(app_name: str) -> str:
     logger = logging.getLogger(app_name)
 
@@ -27,64 +25,35 @@ def get_log_directory(app_name: str) -> str:
 def setup_logging(
     app_name: str, debug_enabled: bool = False, debug_env_var: str | None = None
 ) -> None:
-    """Wire up the app's named logger — and this toolkit's own.
-
-    Handlers only get attached to the logger literally named ``app_name``
-    (e.g. ``"ImproveImgSLI"``); a submodule using ``logging.getLogger(name)``
-    with a dotted ``"ImproveImgSLI.xxx"`` name propagates up to it and gets
-    handled, but ``sli_ui_toolkit.*`` loggers (every widget file here uses
-    ``logging.getLogger(__name__)``, per normal library practice) are a
-    disjoint tree — their records had nowhere to go and were silently
-    dropped, even with the app's own debug logging enabled. Attaching the
-    same handlers to the ``"sli_ui_toolkit"`` logger closes that gap without
-    touching the app's own logger tree (siblings, so no duplicate lines).
-    """
     logger = logging.getLogger(app_name)
-    toolkit_logger = logging.getLogger("sli_ui_toolkit")
 
     if debug_env_var:
-        suppress_debug = env_flag(
-            f"{debug_env_var.replace('_DEBUG', '_SUPPRESS_DEBUG')}"
+        suppress_debug = (
+            os.getenv(f"{debug_env_var.replace('_DEBUG', '_SUPPRESS_DEBUG')}", "0")
+            == "1"
         )
         if suppress_debug:
             debug_enabled = False
-        elif env_flag(debug_env_var):
+        elif os.getenv(debug_env_var, "0") == "1":
             debug_enabled = True
 
     level = logging.DEBUG if debug_enabled else logging.INFO
-    # Toolkit is per-zone gated: default --debug stays INFO, only SLI_TOOLKIT_DEBUG=1 enables DEBUG
-    toolkit_level = logging.DEBUG if env_flag("SLI_TOOLKIT_DEBUG") else logging.INFO
 
     if logger.handlers:
         logger.setLevel(level)
-        toolkit_logger.setLevel(toolkit_level)
         for handler in logger.handlers:
             handler.setLevel(level)
-        for handler in toolkit_logger.handlers:
-            if handler in logger.handlers:
-                # Same instance serves both loggers (wired at creation
-                # below): keep the more verbose level so the toolkit gate
-                # can't silence the host app's debug stream on a second
-                # setup_logging() call (hosts re-configure logging after
-                # loading persistent settings). Logger-level gating still
-                # separates the streams.
-                handler.setLevel(min(level, toolkit_level))
-            else:
-                handler.setLevel(toolkit_level)
         return
 
     logger.setLevel(level)
-    toolkit_logger.setLevel(toolkit_level)
     formatter = logging.Formatter(
         "%(asctime)s - [%(levelname)s] - (%(filename)s:%(lineno)d) - %(message)s"
     )
 
-    # stderr: desktop/Qt launchers often capture or discard stdout; stderr stays visible
-    stream_handler = logging.StreamHandler(sys.stderr)
+    stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
     stream_handler.setLevel(level)
     logger.addHandler(stream_handler)
-    toolkit_logger.addHandler(stream_handler)
 
     try:
         log_dir = get_log_directory(app_name)
@@ -95,7 +64,6 @@ def setup_logging(
         file_handler.setFormatter(formatter)
         file_handler.setLevel(level)
         logger.addHandler(file_handler)
-        toolkit_logger.addHandler(file_handler)
 
         logging.getLogger("markdown").setLevel(logging.WARNING)
         logging.getLogger("markdown.extensions").setLevel(logging.WARNING)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QDate, Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QWheelEvent
+from PySide6.QtGui import QColor, QWheelEvent
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -25,7 +25,7 @@ _THEME_KEYS = {
     "accent": "accent",
     "hover": "dialog.button.hover",
     "text": "dialog.text",
-    "bg": "surface.background",
+    "bg": "dialog.background",
 }
 
 
@@ -189,22 +189,10 @@ class CalendarWidget(QWidget):
                 self._color_overrides[name] = value
         self._resolve_palette()
         self._apply_styles()
-        self.update()
 
     def _on_theme_changed(self, *args, **kwargs) -> None:
         self._resolve_palette()
         self._apply_styles()
-        self.update()
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        """Fill the calendar surface from the resolved ``dialog.background``
-        token (``self._bg``) — a plain QWidget would otherwise fall back to
-        the QPalette ``Window`` role, darker than the dialog surface token.
-        The view stack, the views and the day buttons are transparent, so
-        the fill shows through them."""
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(self._bg))
-        painter.end()
 
     def _font_unit(self) -> int:
         """Базовая единица — высота строки шрифта виджета."""
@@ -259,12 +247,7 @@ class CalendarWidget(QWidget):
         ]
 
     def _set_period_disabled_export(self, btn: Button, is_disabled: bool) -> None:
-        if is_disabled:
-            btn.set_override_bg_color(QColor(self._disabled_bg))
-            btn.set_bg_locked(True)
-        else:
-            btn.set_override_bg_color(None)
-            btn.set_bg_locked(False)
+        btn.set_override_bg_color(QColor(self._disabled_bg) if is_disabled else None)
 
     def _faded_color(self, factor: float = 0.6) -> str:
         bg = QColor(self._bg)
@@ -309,9 +292,9 @@ class CalendarWidget(QWidget):
 
 
     def _apply_styles(self) -> None:
-        # Color via palette on children — never setStyleSheet("color:…") on this
-        # widget (QSS on text widgets makes Qt ignore setFont when painting).
-        self._style_weekday_labels()
+        self.setStyleSheet(f"color: {self._text};")
+        if hasattr(self, "_day_view"):
+            self._day_view.setStyleSheet(self._day_view_stylesheet())
         for btn in (
             getattr(self, "prev_button", None),
             getattr(self, "title_button", None),
@@ -333,18 +316,19 @@ class CalendarWidget(QWidget):
         if self._last_vm is not None:
             self.update_view(self._last_vm)
 
-    def _style_weekday_labels(self) -> None:
-        from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, apply_ui_font
-
-        for lbl in self._weekday_labels_widgets:
-            lbl.setStyleSheet("")
-            apply_ui_font(lbl, bold=True)
-            apply_text_color(lbl, QColor(self._text))
+    def _day_view_stylesheet(self) -> str:
+        return f"""
+            QLabel[weekday="true"] {{
+                font-weight: bold; color: {self._text};
+            }}
+        """
 
     def _create_day_view(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setSpacing(self._spacing_unit())
+
+        widget.setStyleSheet(self._day_view_stylesheet())
 
         weekday_grid = QGridLayout()
         for i, name in enumerate(self._weekday_names):
@@ -354,7 +338,6 @@ class CalendarWidget(QWidget):
             lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
             weekday_grid.addWidget(lbl, 0, i)
             self._weekday_labels_widgets.append(lbl)
-        self._style_weekday_labels()
         layout.addLayout(weekday_grid)
 
         days_grid = QGridLayout()
@@ -390,9 +373,8 @@ class CalendarWidget(QWidget):
 
     def _create_year_view(self) -> QWidget:
         widget = QWidget()
-        year_layout = QGridLayout()
-        widget.setLayout(year_layout)
-        year_layout.setSpacing(self._spacing_unit())
+        widget.setLayout(QGridLayout())
+        widget.layout().setSpacing(self._spacing_unit())
         return widget
 
     def update_view(self, vm: CalendarViewModel) -> None:

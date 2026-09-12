@@ -1,256 +1,13 @@
 import copy
 import logging
 import os
-import re
-from contextlib import contextmanager
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QColor, QPalette
-from PySide6.QtWidgets import QApplication, QWidget
-
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from PySide6.QtWidgets import QApplication
 
 theme_logger = logging.getLogger("ThemeManager")
-
-
-# Derive expression: lighten(token, 10%) / darken(token, 8%) / alpha(token, 60%)
-_DERIVE_RE = re.compile(
-    r"^\s*(lighten|darken|alpha)\s*\(\s*([^,]+?)\s*,\s*([^)]+?)\s*\)\s*$",
-    re.IGNORECASE,
-)
-
-
-def _parse_amount(amount_str: str, *, for_alpha: bool = False) -> float | None:
-    s = amount_str.strip()
-    try:
-        if s.endswith("%"):
-            return float(s[:-1].strip()) / 100.0 if for_alpha else float(s[:-1].strip())
-        # plain number: 0.6 (fraction) or 10 / 60  (percent without %)
-        v = float(s)
-        return v
-    except ValueError:
-        return None
-
-
-def _apply_derive(base: QColor, func: str, amount_str: str) -> QColor | None:
-    c = QColor(base)
-    if not c.isValid():
-        return None
-    func_l = func.lower()
-    if func_l == "lighten":
-        pct = _parse_amount(amount_str, for_alpha=False)
-        if pct is None:
-            return None
-        # 0.1 -> 10%, 10 -> 10%
-        if 0 < pct < 1:
-            pct *= 100.0
-        # QColor.lighter(110) = 10% lighter
-        factor = int(round(100 + pct))
-        factor = max(100, factor)
-        return c.lighter(factor)
-    if func_l == "darken":
-        pct = _parse_amount(amount_str, for_alpha=False)
-        if pct is None:
-            return None
-        if 0 < pct < 1:
-            pct *= 100.0
-        factor = int(round(100 + pct))
-        factor = max(100, factor)
-        return c.darker(factor)
-    if func_l == "alpha":
-        raw = amount_str.strip()
-        # percent case: "60%"
-        if raw.endswith("%"):
-            pct = _parse_amount(raw, for_alpha=True)
-            if pct is None:
-                return None
-            a = int(round(255 * pct))
-        else:
-            try:
-                v = float(raw)
-            except ValueError:
-                return None
-            if 0 <= v <= 1:
-                # 0.6 -> 60% opacity
-                a = int(round(255 * v))
-            elif 1 < v <= 100:
-                # 60 -> 60% (common derive syntax without %); 128 would be >100 so raw alpha
-                a = int(round(255 * (v / 100.0)))
-            elif 100 < v <= 255:
-                # raw 0-255 alpha
-                a = int(round(v))
-            else:
-                return None
-        a = max(0, min(255, a))
-        c.setAlpha(a)
-        return c
-    return None
-
-
-def _resolve_palette_value(
-    raw: object,
-    palette: Dict[str, object],
-    *,
-    _seen_tokens: set[str] | None = None,
-    _depth: int = 0,
-) -> QColor | None:
-    """Turn a palette entry (QColor | hex literal | derive string) into QColor.
-
-    Handles:
-    - QColor pass-through
-    - derive strings: lighten(surface.background, 10%) / alpha(accent, 0.6)
-      whose base token is resolved by direct palette lookup (or hex literal)
-    - plain color literals (hex / named colors)
-
-    Bare token-name values (same-palette indirection) are NOT resolved:
-    palette entries must be QColor or hex/derive literals only.
-    """
-    if _depth > 10:
-        return None
-    if _seen_tokens is None:
-        _seen_tokens = set()
-    if isinstance(raw, QColor):
-        return QColor(raw)
-    if not isinstance(raw, str):
-        return None
-    s = raw.strip()
-    # derive?
-    m = _DERIVE_RE.match(s)
-    if m:
-        func, base_token, amount = m.group(1), m.group(2).strip(), m.group(3).strip()
-        base_token = base_token.strip().strip("'\"")
-        base_color: QColor | None = None
-        # base may be hex literal
-        if base_token.startswith("#"):
-            candidate = QColor(base_token)
-            if candidate.isValid():
-                base_color = candidate
-        if base_color is None:
-            # prevent cycle: token derives from itself
-            if base_token in _seen_tokens:
-                return None
-            new_seen = set(_seen_tokens)
-            new_seen.add(base_token)
-            # resolve base token by direct palette lookup only
-            if base_token in palette:
-                val = palette.get(base_token)
-                # if base entry itself is a derive, recurse
-                resolved = _resolve_palette_value(val, palette, _seen_tokens=new_seen, _depth=_depth + 1)
-                if resolved is not None and resolved.isValid():
-                    base_color = resolved
-            if base_color is None:
-                # last resort: try interpreting base_token as literal color
-                cand = QColor(base_token)
-                if cand.isValid():
-                    base_color = cand
-        if base_color is None or not base_color.isValid():
-            return None
-        derived = _apply_derive(base_color, func, amount)
-        return derived
-    # plain color literal?
-    cand = QColor(s)
-    if cand.isValid():
-        return cand
-    return None
-
-
-_QSS_PX_LITERAL = re.compile(r"(-?\d+(?:\.\d+)?)px")
-
-
-def _scale_qss_px(qss: str) -> str:
-    """Multiply ``Npx`` QSS literals by the current ``UiScale`` factor.
-
-    ``1px`` (and sub-px) borders stay untouched — scaling hairlines either
-    does nothing visible or thickens them unevenly; 2px and above scale so
-    padding/radius/sizes follow the interface factor.
-    """
-    factor = UiScale.get_instance().factor()
-    if factor == 1.0:
-        return qss
-
-    def _replace(match: "re.Match[str]") -> str:
-        value = float(match.group(1))
-        if abs(value) < 2:
-            return match.group(0)
-        return f"{int(round(value * factor))}px"
-
-    return _QSS_PX_LITERAL.sub(_replace, qss)
-
-
-def _qapp_instance() -> QApplication | None:
-    instance = QApplication.instance()
-    return instance if isinstance(instance, QApplication) else None
-
-
-def _ripple_remaining_ms(widget: QWidget) -> int:
-    """Duck-typed peek at toolkit button ripple state (avoids import cycles)."""
-    best = 0
-    candidates: list[object] = []
-    ripple = getattr(widget, "_ripple", None)
-    if ripple is not None:
-        candidates.append(ripple)
-    region = getattr(widget, "_region_ripple", None)
-    if isinstance(region, dict):
-        candidates.extend(region.values())
-    for effect in candidates:
-        if effect is None:
-            continue
-        remaining = getattr(effect, "remaining_ms", None)
-        if callable(remaining):
-            best = max(best, int(remaining()))
-            continue
-        is_active = getattr(effect, "is_active", None)
-        if not callable(is_active):
-            continue
-        if not is_active():
-            continue
-        elapsed = int(getattr(effect, "_elapsed", 0) or 0)
-        duration = int(getattr(effect, "DURATION_MS", 280) or 280)
-        best = max(best, max(0, duration - elapsed))
-    return best
-
-
-def _tree_ripple_remaining_ms(root: QWidget, *, limit: int = 8000) -> int:
-    best = 0
-    stack: list[QWidget] = [root]
-    seen = 0
-    while stack and seen < limit:
-        widget = stack.pop()
-        seen += 1
-        best = max(best, _ripple_remaining_ms(widget))
-        if best > 0 and seen > 64:
-            # Once any active ripple is found, remaining ms is enough for delay.
-            # Keep scanning siblings of the same top-level only lightly.
-            pass
-        for child in widget.children():
-            if isinstance(child, QWidget):
-                stack.append(child)
-    return best
-
-
-def max_active_ripple_remaining_ms(app: QApplication | None = None) -> int:
-    """Longest remaining button-ripple duration across top-level windows."""
-    app = app or _qapp_instance()
-    if app is None:
-        return 0
-    try:
-        from sli_ui_toolkit.ui.widgets.buttons.feedback import get_ripple_duration_ms
-
-        cap = get_ripple_duration_ms()
-    except Exception:
-        cap = 280
-    best = 0
-    for top in app.topLevelWidgets():
-        best = max(best, _tree_ripple_remaining_ms(top))
-        if best >= cap:
-            return best
-    return best
-
-
-def _tree_has_active_ripple(root: QWidget) -> bool:
-    return _tree_ripple_remaining_ms(root) > 0
-
 
 class ThemeManager(QObject):
     theme_changed = Signal()
@@ -264,11 +21,6 @@ class ThemeManager(QObject):
         self._dark_palette = {}
         self._qss_template = ""
         self._qss_paths = []
-        self._update_suspend_depth = 0
-        self._update_suspend_state: List[Tuple[QWidget, bool]] = []
-        self._pending_theme: str | None = None
-        self._theme_flush_scheduled = False
-        self._theme_flush_app: QApplication | None = None
 
     @classmethod
     def get_instance(cls) -> "ThemeManager":
@@ -276,7 +28,7 @@ class ThemeManager(QObject):
             cls._instance = cls()
         return cls._instance
 
-    def register_palettes(self, light_palette: Dict, dark_palette: Dict | None = None):
+    def register_palettes(self, light_palette: Dict, dark_palette: Dict = None):
         self._light_palette = copy.deepcopy(light_palette)
         if dark_palette:
             self._dark_palette = copy.deepcopy(dark_palette)
@@ -290,66 +42,26 @@ class ThemeManager(QObject):
         else:
             theme_logger.warning("QSS file not found: %s", qss_path)
 
-    def _resolve_key(self, color_key: str) -> str:
-        # No remapping: tokens always resolve to themselves.
-        # Kept for external callers; get_color/try_get_color use direct lookup.
-        return color_key
-
     def get_color(self, color_key: str) -> QColor:
         palette = self._dark_palette if self.is_dark() else self._light_palette
-        raw = palette.get(color_key)
-        if raw is not None:
-            # _resolve_palette_value handles QColor, hex literals, derive strings
-            resolved = _resolve_palette_value(raw, palette, _seen_tokens={color_key})  # type: ignore[arg-type]
-            if resolved is not None and resolved.isValid():
-                return QColor(resolved)
-            # raw was plain string color? _resolve already tried; fallback direct QColor
-            if isinstance(raw, QColor) and raw.isValid():
-                return QColor(raw)
-            if isinstance(raw, str):
-                cand = QColor(raw)
-                if cand.isValid():
-                    return cand
-        # Derive fallback via try_get_color with direct resolver
-        fallback = self.try_get_color(color_key)
-        if fallback is not None:
-            return fallback
-        # Unknown token — warn and fall back to palette default
-        theme_logger.warning("unknown theme token: %s", color_key)
-        for default_key in ("surface.background", "Window", "WindowText", "Base", "Text"):
-            raw_def = palette.get(default_key)
-            if raw_def is not None:
-                resolved_def = _resolve_palette_value(raw_def, palette, _seen_tokens={default_key})  # type: ignore[arg-type]
-                if resolved_def is not None and resolved_def.isValid():
-                    return QColor(resolved_def)
-                if isinstance(raw_def, QColor) and raw_def.isValid():
-                    return QColor(raw_def)
-                if isinstance(raw_def, str):
-                    cand = QColor(raw_def)
-                    if cand.isValid():
-                        return cand
+        value = palette.get(color_key)
+
+        if isinstance(value, QColor):
+            return QColor(value)
+        if isinstance(value, str):
+            return QColor(value)
         return QColor("#000000")
 
     def try_get_color(self, color_key: str) -> QColor | None:
-        """Return the color for *color_key*, or ``None`` if the key is absent.
-
-        Direct lookup (no remapping) plus derive awareness
-        (lighten/alpha). Returns None for unknown tokens instead of black,
-        preserving previous contract.
-        """
+        """Return the color for *color_key*, or ``None`` if the key is absent."""
         palette = self._dark_palette if self.is_dark() else self._light_palette
-        raw = palette.get(color_key)
-        if raw is None:
+        value = palette.get(color_key)
+        if value is None:
             return None
-        resolved = _resolve_palette_value(raw, palette, _seen_tokens={color_key})  # type: ignore[arg-type]
-        if resolved is not None and resolved.isValid():
-            return QColor(resolved)
-        if isinstance(raw, QColor) and raw.isValid():
-            return QColor(raw)
-        if isinstance(raw, str):
-            cand = QColor(raw)
-            if cand.isValid():
-                return QColor(cand)
+        if isinstance(value, QColor):
+            return QColor(value)
+        if isinstance(value, str):
+            return QColor(value)
         return None
 
     def set_color(self, color_key: str, color: QColor):
@@ -360,10 +72,8 @@ class ThemeManager(QObject):
             self._dark_palette[color_key] = color_to_store
         else:
             self._light_palette[color_key] = color_to_store
-        app = _qapp_instance()
-        with self.suspend_widget_updates(app):
-            self._apply_theme()
-            self.theme_changed.emit()
+        self._apply_theme()
+        self.theme_changed.emit()
 
     def get_current_theme(self) -> str:
         return self._current_theme
@@ -371,102 +81,20 @@ class ThemeManager(QObject):
     def is_dark(self) -> bool:
         return self._current_theme == "dark"
 
-    @contextmanager
-    def suspend_widget_updates(self, app: QApplication | None = None):
-        """Freeze top-level widget paints for one atomic theme apply + emit.
-
-        Nest-safe. Without this, ``setStyleSheet`` + hundreds of
-        ``theme_changed`` → ``update()`` slots paint frame-by-frame
-        ("theme fills in gradually") and extend the UI freeze.
-
-        Top-levels that currently host an active button ripple keep updates
-        enabled so a finishing wave is not frozen mid-frame (QSS itself still
-        blocks the GUI thread — prefer ``await_ripples`` / ``defer_click``).
-        """
-        app = app or _qapp_instance()
-        if app is None:
-            yield
-            return
-
-        if self._update_suspend_depth == 0:
-            state: List[Tuple[QWidget, bool]] = []
-            for widget in app.topLevelWidgets():
-                try:
-                    if _tree_has_active_ripple(widget):
-                        continue
-                    state.append((widget, widget.updatesEnabled()))
-                    widget.setUpdatesEnabled(False)
-                except RuntimeError:
-                    continue
-            self._update_suspend_state = state
-        self._update_suspend_depth += 1
-        try:
-            yield
-        finally:
-            self._update_suspend_depth = max(0, self._update_suspend_depth - 1)
-            if self._update_suspend_depth == 0:
-                state = self._update_suspend_state
-                self._update_suspend_state = []
-                for widget, enabled in state:
-                    try:
-                        widget.setUpdatesEnabled(enabled)
-                        if enabled:
-                            widget.update()
-                    except RuntimeError:
-                        continue
-
-    def set_theme(
-        self,
-        theme_name: str,
-        app=None,
-        *,
-        await_ripples: bool = True,
-    ):
-        """Apply *theme_name* to the application.
-
-        When *await_ripples* is true (default), a live button ripple delays the
-        blocking QSS/polish work until the wave finishes. That keeps the press
-        animation on the GUI thread instead of freezing it mid-flight — QSS
-        cannot run off-thread, so waiting is the reliable mitigation.
-        """
+    def set_theme(self, theme_name: str, app=None):
         new_theme = "dark" if theme_name == "dark" else "light"
-        app = app or _qapp_instance()
 
-        if self._current_theme == new_theme and self._pending_theme is None:
-            if app is not None and not app.styleSheet():
-                self.apply_theme_to_app(app)
-            return
+        if self._current_theme != new_theme:
+            self._current_theme = new_theme
 
-        self._pending_theme = new_theme
-        self._theme_flush_app = app
-        delay = 0
-        if await_ripples and app is not None:
-            delay = max_active_ripple_remaining_ms(app)
-        if delay > 0:
-            if not self._theme_flush_scheduled:
-                self._theme_flush_scheduled = True
-                QTimer.singleShot(delay, self._flush_pending_theme)
-            return
-        self._flush_pending_theme()
-
-    def _flush_pending_theme(self) -> None:
-        self._theme_flush_scheduled = False
-        pending = self._pending_theme
-        self._pending_theme = None
-        app = self._theme_flush_app or _qapp_instance()
-        self._theme_flush_app = None
-        if pending is None:
-            return
-        if self._current_theme == pending:
-            return
-        self._current_theme = pending
-        # Hold paints across QSS apply *and* theme_changed fan-out.
-        with self.suspend_widget_updates(app):
             if app and self._qss_template:
                 self.apply_theme_to_app(app)
             else:
                 self._apply_theme()
             self.theme_changed.emit()
+        else:
+            if app is not None and not app.styleSheet():
+                self.apply_theme_to_app(app)
 
     def _load_qss_template(self):
         templates = []
@@ -486,37 +114,11 @@ class ThemeManager(QObject):
             theme_logger.warning("Could not find any registered QSS file")
 
     def apply_theme_to_app(self, app):
-        with self.suspend_widget_updates(app):
-            self._apply_theme_to_app_unlocked(app)
-
-    def _apply_theme_to_app_unlocked(self, app):
         palette_data = self._dark_palette if self.is_dark() else self._light_palette
 
         if not palette_data:
             theme_logger.warning("No palettes registered, skipping theme application")
             return
-
-        # Direct palette copy — no token remapping. Resolve derive strings
-        # (lighten/alpha) and normalize all entries to QColor where possible.
-        expanded = palette_data.copy()
-        resolved: dict[str, QColor] = {}
-        for k, raw in expanded.items():
-            if isinstance(raw, QColor):
-                if raw.isValid():
-                    resolved[k] = QColor(raw)
-                continue
-            if isinstance(raw, str):
-                c = _resolve_palette_value(raw, expanded)
-                if c is not None and c.isValid():
-                    resolved[k] = c
-                else:
-                    # fallback: plain hex / named color
-                    cand = QColor(raw)
-                    if cand.isValid():
-                        resolved[k] = cand
-                continue
-        # Merge resolved QColors back into palette_data for QPalette/QSS
-        palette_data = {**expanded, **resolved}
 
         q_palette = QPalette()
         color_roles = {
@@ -536,58 +138,35 @@ class ThemeManager(QObject):
 
         for name, role in color_roles.items():
             if name in palette_data:
-                raw = palette_data[name]
-                if isinstance(raw, QColor):
-                    color = QColor(raw)
-                elif isinstance(raw, str):
-                    tmp = _resolve_palette_value(raw, palette_data)  # type: ignore[arg-type]
-                    color = tmp if tmp is not None and tmp.isValid() else QColor(raw)
-                else:
-                    continue
-                if color.isValid():
-                    q_palette.setColor(role, color)
+                color = QColor(palette_data[name])
+                q_palette.setColor(role, color)
 
         app.setPalette(q_palette)
 
-        processed_palette: dict[str, QColor] = {}
-        for k, v in palette_data.items():
-            if isinstance(v, QColor) and v.isValid():
-                processed_palette[k] = QColor(v)
-            elif isinstance(v, str):
-                tmp = _resolve_palette_value(v, palette_data)  # type: ignore[arg-type]
-                if tmp is not None and tmp.isValid():
-                    processed_palette[k] = tmp
-                else:
-                    cand = QColor(v)
-                    if cand.isValid():
-                        processed_palette[k] = cand
-        if "accent" in processed_palette and "accent.hover" not in processed_palette:
+        processed_palette = palette_data.copy()
+        if "accent" in processed_palette:
             accent_color = QColor(processed_palette["accent"])
-            if accent_color.isValid():
-                hover_color = (
-                    accent_color.lighter(115)
-                    if self.is_dark()
-                    else accent_color.darker(115)
-                )
-                processed_palette["accent.hover"] = hover_color
+            hover_color = (
+                accent_color.lighter(115)
+                if self.is_dark()
+                else accent_color.darker(115)
+            )
+            processed_palette["accent.hover"] = hover_color
 
         current_qss = self._qss_template
         sorted_keys = sorted(processed_palette.keys(), key=len, reverse=True)
 
         for key in sorted_keys:
             color = processed_palette[key]
-            if isinstance(color, QColor) and color.isValid():
+            if isinstance(color, QColor):
                 placeholder = f"@{key}"
                 if placeholder in current_qss:
                     current_qss = current_qss.replace(
                         placeholder, color.name(QColor.NameFormat.HexArgb)
                     )
 
-        current_qss = _scale_qss_px(current_qss)
-
-        # Clear then set in one go — do *not* processEvents between them.
-        # A mid-apply flush paints a half-themed tree and lengthens the freeze.
         app.setStyleSheet("")
+        QApplication.processEvents()
         app.setStyleSheet(current_qss)
 
         main_window = app.activeWindow()
@@ -597,7 +176,7 @@ class ThemeManager(QObject):
             main_window.update()
 
     def _apply_theme(self):
-        app = _qapp_instance()
+        app = QApplication.instance()
         if app is None:
             return
 
@@ -612,6 +191,7 @@ class ThemeManager(QObject):
             )
             return
 
+        q_palette = dialog.palette()
         color_roles = {
             "Window": QPalette.ColorRole.Window,
             "WindowText": QPalette.ColorRole.WindowText,
@@ -627,31 +207,14 @@ class ThemeManager(QObject):
             "HighlightedText": QPalette.ColorRole.HighlightedText,
         }
 
-        # Re-polish QSS first. unpolish/polish after setPalette() resets the
-        # widget palette back to the pre-theme colors when an application
-        # stylesheet is active (plain QLabel / dialog text then stay light).
-        dialog.style().unpolish(dialog)
-        dialog.style().polish(dialog)
-
-        # Direct palette copy — no token remapping.
-        expanded = palette_data.copy()
-        palette_data = expanded
-
-        app = _qapp_instance()
-        q_palette = QPalette(app.palette()) if app is not None else QPalette()
         for name, role in color_roles.items():
             if name in palette_data:
-                raw = palette_data[name]
-                if isinstance(raw, QColor):
-                    color = QColor(raw)
-                elif isinstance(raw, str):
-                    tmp = _resolve_palette_value(raw, palette_data)  # type: ignore[arg-type]
-                    color = tmp if tmp is not None and tmp.isValid() else QColor(raw)
-                else:
-                    continue
-                if color.isValid():
-                    q_palette.setColor(role, color)
+                color = QColor(palette_data[name])
+                q_palette.setColor(role, color)
 
         dialog.setPalette(q_palette)
+        dialog.style().unpolish(dialog)
+        dialog.style().polish(dialog)
         dialog.updateGeometry()
         dialog.update()
+

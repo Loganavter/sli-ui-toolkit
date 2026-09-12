@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QFrame, QTextEdit, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -60,17 +60,6 @@ class LogConsoleWidget(QWidget):
         self._max_entries = max(1, int(max_entries))
         self._entries = self._entries[-self._max_entries :]
         self._rebuild()
-
-    def set_output_font(self, font: QFont) -> None:
-        """Set the log text font.
-
-        Applied as the *document* font, not ``QTextEdit.setFont``: the
-        widget's own QSS (color/background/padding) makes Qt ignore
-        ``setFont()`` on the edit when painting, while the document font is
-        what actually renders the log lines.
-        """
-        self.output.document().setDefaultFont(QFont(font))
-        self.output.setFont(QFont(font))
 
     def clear(self) -> None:
         self._entries.clear()
@@ -183,7 +172,7 @@ class LogConsoleWidget(QWidget):
 
     def _apply_styles(self) -> None:
         info_color = self.theme_manager.get_color("dialog.text").name()
-        bg_color = self.theme_manager.get_color("surface.background").name(QColor.NameFormat.HexArgb)
+        bg_color = self.theme_manager.get_color("dialog.input.background").name(QColor.NameFormat.HexArgb)
         border_color = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
         error_color = "#D70000" if self.theme_manager.is_dark() else "#FF0000"
         status_color = "#9E9E9E"

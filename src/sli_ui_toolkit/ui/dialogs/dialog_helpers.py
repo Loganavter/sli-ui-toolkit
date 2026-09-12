@@ -1,7 +1,7 @@
 import os
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QPainter
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -13,40 +13,10 @@ class BaseDialog(QDialog):
         super().__init__(parent)
         self.setObjectName(f"{self.__class__.__name__}")
         self.theme_manager = ThemeManager.get_instance()
-        self._surface_color = QColor("#000000")
-        self._read_surface_color()
 
         self._setup_window(title, min_width, min_height)
         self._setup_icon()
         self._setup_theme()
-
-    def _read_surface_color(self) -> None:
-        """Re-read the ``dialog.background`` token into ``_surface_color``.
-
-        Re-read on every ``theme_changed`` (never cached forever): hosts may
-        override the token via ``ThemeManager.set_color``. ThemeManager may
-        be uninitialized in some test contexts — fall back to the palette
-        Window role as a last resort.
-        """
-        try:
-            color = QColor(
-                ThemeManager.get_instance().get_color("surface.background")
-            )
-        except Exception:
-            color = QColor(self.palette().window().color())
-        self._surface_color = color
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        """Fill the dialog surface with the ``dialog.background`` token.
-
-        Top-level QDialog QSS surface paint dies with host QSS: with no
-        stylesheet the dialog paints the QPalette Window role, which hosts
-        keep darker than the dialog surface token — the explicit paint keeps
-        the surface consistent with the toolkit's other painted surfaces.
-        """
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), self._surface_color)
-        painter.end()
 
     def _setup_window(self, title, min_width, min_height):
         if title:
@@ -71,7 +41,6 @@ class BaseDialog(QDialog):
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
 
     def _on_theme_changed(self):
-        self._read_surface_color()
         self.update()
 
 def setup_dialog_scaffold(
@@ -87,27 +56,22 @@ def setup_dialog_scaffold(
     action_layout.setSpacing(8)
     action_layout.addStretch()
 
-    ok_button = Button(text=ok_text, variant="surface", parent=action_bar)
-    ok_button.setProperty("class", "primary")
+    dialog.ok_button = Button(text=ok_text, variant="surface", parent=action_bar)
+    dialog.ok_button.setProperty("class", "primary")
 
-    cancel_button = Button(text=cancel_text, variant="surface", parent=action_bar)
+    dialog.cancel_button = Button(text=cancel_text, variant="surface", parent=action_bar)
 
-    ok_button.clicked.connect(dialog.accept)
-    cancel_button.clicked.connect(dialog.reject)
+    dialog.ok_button.clicked.connect(dialog.accept)
+    dialog.cancel_button.clicked.connect(dialog.reject)
 
     if not show_cancel_button:
-        cancel_button.hide()
+        dialog.cancel_button.hide()
 
-    action_layout.addWidget(ok_button)
-    action_layout.addWidget(cancel_button)
+    action_layout.addWidget(dialog.ok_button)
+    action_layout.addWidget(dialog.cancel_button)
     main_layout.addWidget(action_bar)
 
-    # Public API: host code (and this toolkit's own tests) read
-    # dialog.ok_button / dialog.cancel_button after calling this helper.
-    dialog.ok_button = ok_button  # type: ignore[attr-defined]
-    dialog.cancel_button = cancel_button  # type: ignore[attr-defined]
-
-def setup_dialog_icon(dialog: QDialog, icon_path: str | None = None):
+def setup_dialog_icon(dialog: QDialog, icon_path: str = None):
     if icon_path is None:
         try:
             icon_path = resource_path("resources/icons/icon.png")
@@ -136,7 +100,7 @@ def _update_group_sizes(dialog: QDialog):
     for child in dialog.findChildren(QWidget):
         if child.objectName() == "StyledGroupFrame":
             parent_group = child.parent()
-            if isinstance(parent_group, QWidget):
+            if parent_group:
                 content_width = child.sizeHint().width()
                 min_width = content_width + 30
 

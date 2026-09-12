@@ -7,16 +7,21 @@ If you need something else:
 - integration overview: [../../README.md](../../README.md)
 - public reference: [../user/API_CATALOG.md](../user/API_CATALOG.md)
 - visual conventions: [DESIGN_LANGUAGE.md](DESIGN_LANGUAGE.md)
-- logging convention: [LOGGING.md](LOGGING.md)
 
 ## What This Package Is
 
 `sli-ui-toolkit` is a reusable PySide6 UI layer with three main responsibilities:
 
 - preserve the SLI name as **Shared Lightweight Interface**;
+
 - provide custom-painted widgets and small reusable composites;
 - provide shared UI infrastructure such as theming, icon resolution, i18n, flyout management, and workers;
 - keep host-app specifics outside the toolkit and inject them through configuration hooks.
+
+The package was extracted from Improve-ImgSLI and Tkonverter, so it is not a
+from-scratch neutral framework. Treat it as a reusable slice of those apps that
+has been cleaned up for wider PyQt use: app behavior stays in host projects,
+while widgets, managers, and theme-aware primitives stay here.
 
 It is not a full application framework. App-specific icons, translations, business logic, and resource-folder conventions should stay in the host app.
 
@@ -32,8 +37,6 @@ The toolkit intentionally exposes a small number of public entry points.
   Main public widget catalog.
 - `sli_ui_toolkit.theme`
   `ThemeManager`.
-- `sli_ui_toolkit.managers`
-  `FlyoutManager`, `UiFont` / `ui_font(...)`, flyout show policies.
 - `sli_ui_toolkit.i18n`
   Translation manager and `tr(...)`.
 - `sli_ui_toolkit.icons`
@@ -91,7 +94,9 @@ Files:
 Responsibilities:
 
 - re-export public widgets from their implementation folders;
-- keep import ergonomics stable when internals move.
+- keep import ergonomics stable even if internals move.
+
+This layer is where compatibility is preserved when implementation files are reorganized.
 
 ### 3. Low-level widgets
 
@@ -137,35 +142,10 @@ Examples:
 - `AdaptiveTabStrip`, which owns tab painting, add/close controls, and
   adaptive close-button layout while the host owns document/session lifecycle
 
-`ui/widgets/composite/adaptive_tab_strip/` is split by widget boundary:
-`widget.py` is the thin host facade (row layout, close-button policy, the
-QTabBar-like surface), `tab_bar.py` is the painted tab bar itself, and
-`close_button.py` is the close-slot machinery (`_CloseButtonSlot`,
-`CloseButtonPolicy`, the tab-background layer).
-
-Same pattern for the other folder splits: `list_panel/` (facade in
-`widget.py`; selection is a state-owning `MarqueeSelectionModel` in
-`selection.py`, drop-target math is pure in `drag_drop.py`, item/position
-transforms are pure in `rows.py`), `sidebar_nav_list/` (facade; row
-spec/factory in `rows.py`, pure icon resolution in `icons.py`, geometry
-debug dump as module functions in `debug.py`), `toast/` (one module per
-class: `progress_bar.py`, `notification.py`, `manager.py`),
-`inspector/code.py` (the Code section is a self-contained
-`CodeSectionEditor` widget), and `text_view/document_mode.py` (the
-document-mode selection state is a plain `DocumentSelection` model —
-widget-free, canvas delegates).
-
-`ui/inspector/` follows the same model: `view.py` holds only
-`InspectorWindow` (tabs/toolbar) + the `_InspectionPane` owner; section
-rendering, the Code section, and the Layout/Constructor trees are mixins in
-`rendering.py` / `code.py` / `tree.py`, with value formatting in
-`fields.py`.
-
 ### 5. Specialized UI families
 
 Folders:
 
-- `ui/widgets/composite/base_flyout/`
 - `ui/widgets/composite/calendar_widget/`
 - `ui/widgets/composite/timeline_widget/`
 - `ui/widgets/composite/sunburst_chart/`
@@ -180,32 +160,13 @@ Responsibilities:
 
 If a widget family starts needing private helpers, models, renderers, or interaction controllers, it should become a folder like this.
 
-`base_flyout/` is the flyout shell split by concern: `widget.py` is a thin
-facade; `geometry.py` holds the pure placement math (point specs,
-alignment, slide deltas); `animation.py` owns ALL fade state in a
-`FlyoutFadeController` (the widget only references it); style, content
-building, placement, show/hide lifecycle and the FlyoutManager contract
-live in `style.py` / `builder.py` / `placement.py` / `lifecycle.py` /
-`contract.py`. State-owning helpers take the widget as an explicit
-argument where they must touch it (grab/update); decision logic is pure.
-Mixins precede `QWidget` in the MRO so their overrides
-(`show`/`hide`/`raise_`/`paintEvent`) win while `super()` still resolves
-to QWidget's methods.
-
-The same split applies to `ui/windows/custom_title_bar/` (zones/balance in
-`zones.py`, the min/max/close buttons as a real self-contained child
-widget `WindowControlsCluster` in `window_controls.py` — it owns its own
-buttons, slots and window-state refresh — the drag surface in `drag.py`,
-fill/paint/theme hooks in `appearance.py`); the old module path stays a
-thin re-export shim.
-
 ## Directory Map
 
 This is the practical meaning of the main folders.
 
 ### `ui/widgets/atomic/`
 
-Simple widgets.
+Simple widgets and compatibility re-exports.
 
 Put code here when:
 
@@ -213,12 +174,9 @@ Put code here when:
 - the widget has little or no internal decomposition;
 - it is a basic primitive.
 
-Do not put large subsystems here just because they are “single controls”.
-`ComboBox` belongs in `ui/widgets/comboboxes/`.
+Do not put large subsystems here just because they are “single controls”. `ComboBox` was already large enough to deserve its own folder.
 
-`atomic/combobox.py` and `atomic/comboboxes.py` are thin re-export shims.
-Canonical imports: `sli_ui_toolkit.widgets` or
-`sli_ui_toolkit.ui.widgets.comboboxes`.
+`atomic/combobox.py` and `atomic/comboboxes.py` are compatibility re-exports for older imports. New code should import comboboxes from `sli_ui_toolkit.widgets` or `sli_ui_toolkit.ui.widgets.comboboxes`.
 
 ### `ui/widgets/buttons/`
 
@@ -228,7 +186,7 @@ Typical internal split:
 
 - public re-export;
 - main widget facade (`Button`);
-- declarative specs (`ButtonSpec`, `ButtonRegion`, behavior/shape specs);
+- declarative specs (`ButtonSpec`, `RegionSpec`, content/style/behavior specs);
 - controller/runtime state (`ButtonController`);
 - painter/layers;
 - menu/dropdown helpers;
@@ -236,8 +194,9 @@ Typical internal split:
 
 Use this folder as the model for any control family that grows beyond one file.
 
-`Button` is a thin `QWidget` facade. Extend specs, controller routing, layouts,
-or renderer layers rather than growing ad-hoc state on the widget.
+`Button` should stay a compatibility-friendly QWidget facade. New behavior
+should be added by extending specs, controller routing, layouts, or renderer
+layers rather than growing ad-hoc state directly on the widget.
 
 ### `ui/widgets/comboboxes/`
 
@@ -253,11 +212,6 @@ Current split:
   Search and ranking helpers.
 - `_models.py`
   Small internal item model.
-- `capabilities/`
-  ComboBox-specific composable gesture/interaction behavior (e.g.
-  `GearDragCapability`, the press-hold/drag-to-scrub gesture), attached via
-  the `Button.attach_capability()` `ComboBox` inherits. Mirrors
-  `buttons/capabilities/` (`ButtonCapability`, `LongPressCapability`).
 - `scrollable_combobox.py`
   Separate lightweight widget with different behavior.
 
@@ -298,50 +252,6 @@ Use this layer for singleton-like or coordination objects such as:
 - `ThemeManager`
 - flyout manager / auto-hide coordination
 - delayed action helpers
-- `NavigationManager` — arrow-key navigation coordinator (see
-  `docs/dev/NAVIGATION.md` for the full trial-dispatch contract and wiring
-  guide)
-- `WidgetDescriptor` / `WidgetRegistry` — unified widget self-description
-
-#### `WidgetDescriptor` (unified widget self-description)
-
-Replaces three parallel systems with one declaration:
-
-| Old system | Section in `WidgetDescriptor` | What it provides |
-|---|---|---|
-| `InspectSpec` | `inspect: InspectSection` | family, config, state, tokens, docs |
-| `NavigationSpec` | `navigation: NavigationSection` | navigate, focus_first, focus_last |
-| `ActionDescriptor` | `action: ActionSection` | action_id, label, shortcut, run |
-
-Widgets declare a `WidgetDescriptor` as a class or instance attribute:
-
-```python
-class MyWidget(QWidget):
-    # Instance-level (set in __init__):
-    def __init__(self):
-        super().__init__()
-        self.widget_descriptor = WidgetDescriptor(
-            family="MyWidget",
-            navigation=my_toolbar_rows_section,  # any NavigationSection impl
-        )
-```
-
-`navigation` holds a `NavigationSection` *implementation* (a
-`ToolbarRowsSection`, `IconListNavSection`, or any other object satisfying
-the `owns`/`navigate`/`focus_first`/`focus_last`/`extra_keys` Protocol in
-`ui/managers/navigation_manager.py`) — it is a Protocol, not a
-constructible dataclass, so build the section itself first and assign it.
-Call `register_navigation(owner)` to read it back off and register it with
-`NavigationManager` — see `docs/dev/NAVIGATION.md` for the full guide,
-including `NavRowBuilder` for accumulating a page's rows in order.
-
-The `WidgetRegistry` singleton collects descriptors. Consumers
-(`NavigationManager`, inspector, palette) query the registry.
-
-**Backward compatibility:** `WidgetRegistry.get_for_class()` auto-converts
-existing `inspect_spec = InspectSpec(...)` declarations to `WidgetDescriptor`
-via `WidgetDescriptor.from_inspect_spec()`. No code changes needed for
-widgets that only use `InspectSpec`.
 
 ### `ui/services/`
 
@@ -417,13 +327,16 @@ When the composite itself becomes a subsystem with:
 
 ## How To Move Code Without Breaking Apps
 
-Safe pattern when relocating an implementation:
+The package already uses compatibility re-exports for this.
+
+Safe pattern:
 
 1. Move the real implementation to a better folder.
-2. Keep the previous module path as a thin import shim (or update all call
-   sites in the same change if the path was never public).
+2. Keep the old module path as a thin import shim.
 3. Keep `widgets.py` exporting the same public names.
-4. Update docs to point to the canonical location.
+4. Update docs to point to the new canonical location.
+
+This is how `ComboBox` was reorganized into `ui/widgets/comboboxes/` without breaking older imports.
 
 ## Host-App Boundary
 

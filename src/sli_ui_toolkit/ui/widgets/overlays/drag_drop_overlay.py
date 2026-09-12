@@ -1,28 +1,8 @@
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 
-import logging
-
-from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.widgets.overlays.in_window_overlay import TopLevelInWindowOverlay
-
-_dnd_logger = logging.getLogger("sli_ui_toolkit.dnd")
-
-
-def _dnd_debug_enabled() -> bool:
-    return any_flag(
-        "SLI_DND_DEBUG",
-        "IMGSLI_DND_DEBUG",
-        "IMGSLI_IMAGE_COMPARE_DEBUG",
-        "IMGSLI_IC_DEBUG",
-    )
-
-
-def _dnd_debug(message: str, *args) -> None:
-    if _dnd_debug_enabled():
-        _dnd_logger.debug("[dnd-overlay] " + message, *args)
 
 
 class DragDropOverlay(TopLevelInWindowOverlay):
@@ -39,13 +19,6 @@ class DragDropOverlay(TopLevelInWindowOverlay):
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        # React to theme changes – otherwise border/text stay with old theme's
-        # HighlightedText.
-        try:
-            tm = ThemeManager.get_instance()
-            tm.theme_changed.connect(self.update)
-        except Exception:
-            pass
 
     def set_overlay_state(
         self,
@@ -55,11 +28,6 @@ class DragDropOverlay(TopLevelInWindowOverlay):
         text1: str = "",
         text2: str = "",
     ):
-        _was_visible = self.isVisible()
-        # Only log when visibility actually changes to avoid 60Hz spam
-        _should_log = _dnd_debug_enabled() and (_was_visible != bool(visible) or self._texts != (text1, text2))
-        if _should_log:
-            _dnd_debug("set_overlay_state visible=%s->%s texts=%r", _was_visible, visible, (text1, text2))
         if target_rect is None:
             self.hide()
             return
@@ -82,17 +50,6 @@ class DragDropOverlay(TopLevelInWindowOverlay):
             self.show()
         else:
             self.hide()
-            # Force immediate repaint of parent to avoid stale overlay frame
-            # staying on screen until next RHI present (which is tied to image
-            # decode). Without this, hide() is processed on next event loop
-            # and the blue squares remain visible until the canvas repaints
-            # after pyvips finishes (~0.5s).
-            try:
-                self.update()
-                if self.parent():
-                    self.parent().update()
-            except Exception:
-                pass
 
         if state_changed and visible:
             self.update()
@@ -105,7 +62,9 @@ class DragDropOverlay(TopLevelInWindowOverlay):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
-        font = paint_font(self, pixel_size=20, bold=True)
+        font = QFont(self.font())
+        font.setPixelSize(20)
+        font.setBold(True)
         painter.setFont(font)
 
         margin = 10.0
@@ -150,30 +109,9 @@ class DragDropOverlay(TopLevelInWindowOverlay):
         accent = QColor(tm.get_color("accent"))
         fill = QColor(accent)
         fill.setAlpha(153)
-        # Text/border on accent must be light for contrast in both themes.
-        # HighlightedText is explicit white in both palettes; the luminance
-        # guard below stays as a contrast guarantee for custom palettes.
-        # Use explicit white.
-        try:
-            cand = tm.try_get_color("HighlightedText")
-            if cand is not None and cand.isValid():
-                lum = (cand.red() * 299 + cand.green() * 587 + cand.blue() * 114) // 1000
-                if lum > 150:
-                    text_color = QColor(cand)
-                    border = QColor(cand)
-                    border.setAlpha(179)
-                else:
-                    text_color = QColor("#ffffff")
-                    border = QColor("#ffffff")
-                    border.setAlpha(179)
-            else:
-                text_color = QColor("#ffffff")
-                border = QColor("#ffffff")
-                border.setAlpha(179)
-        except Exception:
-            text_color = QColor("#ffffff")
-            border = QColor("#ffffff")
-            border.setAlpha(179)
+        border = QColor(tm.get_color("HighlightedText"))
+        border.setAlpha(179)
+        text_color = QColor(tm.get_color("HighlightedText"))
 
         pen = QPen(border, 1.25)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)

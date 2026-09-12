@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=77", "wheel"]
+requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "sli-ui-toolkit"
-version = "4.2.4"
+version = "0.2.16"
 description = "Reusable PySide6 UI toolkit primitives for SLI desktop tools."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,8 +12,7 @@ dependencies = [
     "PySide6>=6.6",
     "markdown>=3.4",
 ]
-license = "MIT"
-license-files = ["LICENSE"]
+license = { text = "MIT" }
 authors = [
     { name = "Loganavter" },
 ]
@@ -23,9 +22,6 @@ dev = [
     "pytest>=7",
     "pytest-qt>=4.2",
     "tomli>=2.0; python_version < '3.11'",
-    "mypy>=1.10",
-    "PySide6-stubs>=6.7.3.0",
-    "types-Markdown>=3.4",
 ]
 
 [project.urls]
@@ -36,7 +32,7 @@ Issues = "https://github.com/Loganavter/sli-ui-toolkit/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"sli_ui_toolkit" = ["py.typed", "resources/assets/icons/*.svg", "resources/assets/icons/light/*.svg", "resources/assets/icons/dark/*.svg", "ui/widgets/composite/gpu_fill/shaders/*.qsb"]
+"sli_ui_toolkit" = ["resources/assets/icons/*.svg", "resources/assets/icons/light/*.svg", "resources/assets/icons/dark/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

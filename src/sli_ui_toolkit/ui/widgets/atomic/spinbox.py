@@ -1,11 +1,9 @@
-from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QDoubleValidator, QFocusEvent, QIntValidator
+from PySide6.QtGui import QColor, QFocusEvent, QIntValidator
 from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
-from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit, TextAlignment
+from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
 
@@ -17,7 +15,7 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         parent=None,
         default_value: int = 0,
         *,
-        alignment: TextAlignment = Qt.AlignmentFlag.AlignCenter,
+        alignment=Qt.AlignmentFlag.AlignCenter,
         wheel_requires_focus: bool = False,
         underline_color: QColor | None = None,
         underline_thickness: float | None = None,
@@ -42,18 +40,12 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setText(str(default_value))
         self.setMinimumWidth(self.minimumSizeHint().width())
-        self.setFixedHeight(scaled_px(32))
+        self.setFixedHeight(32)
 
         self.editingFinished.connect(self._on_editing_finished)
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._update_style)
         self._update_style()
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
-
-    def on_scale_changed(self, _factor: float) -> None:
-        self.setFixedHeight(scaled_px(32))
-        self.updateGeometry()
-        self.update()
 
     def setRange(self, min_val: int, max_val: int):
         self._minimum = min_val
@@ -77,10 +69,10 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         self.updateGeometry()
 
     def sizeHint(self) -> QSize:
-        return QSize(self._content_width(), scaled_px(32))
+        return QSize(self._content_width(), 32)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(self._content_width(), scaled_px(32))
+        return QSize(self._content_width(), 32)
 
     def _content_width(self) -> int:
         widest = max(
@@ -91,8 +83,8 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
             2,
         )
         text_width = self.fontMetrics().horizontalAdvance("8" * widest)
-        margins = scaled_px(self.H_PADDING) * 2 + scaled_px(14)
-        return max(scaled_px(44), text_width + margins)
+        margins = self.H_PADDING * 2 + 14
+        return max(44, text_width + margins)
 
     def _on_editing_finished(self):
         text = self.text().strip()
@@ -121,24 +113,10 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         event.accept()
 
     def keyPressEvent(self, event):
-        key = event.key()
-        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-            # Up/Down are reserved for routing between controls (row/panel
-            # navigation, see NavigationManager/ToolbarRowsSection) -- never
-            # value-adjustment here. Leave the event unaccepted (matches
-            # Slider.keyPressEvent's identical contract) so it stays
-            # available for routing instead of being silently swallowed by
-            # a SpinBox sitting inside a ToolbarRowsSection row.
-            event.ignore()
-            return
-        if key == Qt.Key.Key_PageUp:
-            # Left/Right are not repurposed for value-stepping here (unlike
-            # Slider) -- SpinBox is a text field where Left/Right must stay
-            # cursor movement for manual digit editing. PageUp/PageDown are
-            # free for keyboard-driven stepping instead.
+        if event.key() == Qt.Key.Key_Up:
             self.setValue(self._value + 1)
             event.accept()
-        elif key == Qt.Key.Key_PageDown:
+        elif event.key() == Qt.Key.Key_Down:
             self.setValue(self._value - 1)
             event.accept()
         else:
@@ -152,180 +130,3 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
-
-
-class DoubleSpinBox(SpinBox):
-    """Float-valued variant of :class:`SpinBox` (same painting/layout).
-
-    Design values, `scaled_px`-aware geometry, `singleStep` + optional
-    `decimals` for display formatting. ``setValue`` clamps to the range and
-    snaps to ``singleStep`` increments, matching SpinBox's stepped semantics.
-    """
-
-    valueChanged = Signal(float)
-
-    def __init__(
-        self,
-        parent=None,
-        default_value: float = 0.0,
-        *,
-        single_step: float = 1.0,
-        decimals: int = 2,
-        alignment: TextAlignment = Qt.AlignmentFlag.AlignCenter,
-        wheel_requires_focus: bool = False,
-    ):
-        self._single_step = max(0.0, float(single_step))
-        self._decimals = max(0, int(decimals))
-        super().__init__(
-            parent,
-            default_value=int(default_value),
-            alignment=alignment,
-            wheel_requires_focus=wheel_requires_focus,
-        )
-        self._minimum = 0.0
-        self._maximum = 100.0
-        self._value = float(default_value)
-        self._default_value = float(default_value)
-
-        self.setValidator(QDoubleValidator(-1e9, 1e9, self._decimals, self))
-        self.setText(self._format(self._value))
-        self._update_content_width()
-
-    def _format(self, value: float) -> str:
-        return f"{value:.{self._decimals}f}"
-
-    def setDecimals(self, decimals: int) -> None:
-        self._decimals = max(0, int(decimals))
-        self.setValidator(QDoubleValidator(-1e9, 1e9, self._decimals, self))
-        self.setText(self._format(self._value))
-        self._update_content_width()
-        self.updateGeometry()
-
-    def setSingleStep(self, step: float) -> None:
-        self._single_step = max(0.0, float(step))
-
-    def singleStep(self) -> float:
-        return self._single_step
-
-    def setRange(self, min_val: float, max_val: float):  # type: ignore[override]
-        self._minimum = float(min_val)
-        self._maximum = float(max_val)
-        self.setValue(self._value)
-        self._update_content_width()
-        self.updateGeometry()
-
-    def value(self) -> float:  # type: ignore[override]
-        return self._value
-
-    def setValue(self, val: float):  # type: ignore[override]
-        clamped = min(max(float(val), self._minimum), self._maximum)
-        if self._single_step > 0:
-            clamped = round((clamped - self._minimum) / self._single_step) * self._single_step + self._minimum
-            clamped = min(max(clamped, self._minimum), self._maximum)
-        if abs(clamped - self._value) > 1e-12:
-            self._value = clamped
-            self.valueChanged.emit(self._value)
-        if self.text() != self._format(clamped):
-            self.setText(self._format(clamped))
-        self.updateGeometry()
-
-    def _content_width(self) -> int:
-        widest = max(
-            len(self._format(self._minimum)),
-            len(self._format(self._maximum)),
-            len(self._format(self._value)),
-            len(self._format(self._default_value)),
-            2,
-        )
-        text_width = self.fontMetrics().horizontalAdvance("8" * widest)
-        margins = scaled_px(self.H_PADDING) * 2 + scaled_px(14)
-        return max(scaled_px(44), text_width + margins)
-
-    def _update_content_width(self) -> None:
-        self.setMinimumWidth(self.minimumSizeHint().width())
-
-    def _on_editing_finished(self):
-        text = self.text().strip()
-        try:
-            val = float(text) if text else self._default_value
-        except ValueError:
-            val = self._default_value
-        self.setValue(val)
-
-    def wheelEvent(self, event):
-        if not self.shouldHandleWheelEvent(event):
-            return
-        delta = event.angleDelta().y()
-        if delta == 0:
-            return
-        factor = 10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
-        if delta > 0:
-            self.setValue(self._value + self._single_step * factor)
-        else:
-            self.setValue(self._value - self._single_step * factor)
-        event.accept()
-
-    def keyPressEvent(self, event):
-        key = event.key()
-        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-            # See SpinBox.keyPressEvent -- same routing contract.
-            event.ignore()
-            return
-        if key == Qt.Key.Key_PageUp:
-            self.setValue(self._value + self._single_step)
-            event.accept()
-        elif key == Qt.Key.Key_PageDown:
-            self.setValue(self._value - self._single_step)
-            event.accept()
-        else:
-            super().keyPressEvent(event)
-
-SpinBox.inspect_spec = InspectSpec(
-    family="SpinBox",
-    state=(
-        SpecField("value", "value"),
-        SpecField("minimum", "_minimum", private=True),
-        SpecField("maximum", "_maximum", private=True),
-        SpecField("default_value", "_default_value", private=True),
-    ),
-    token_family=("surface.background", "input.border.thin", "dialog.text", "accent"),
-    docs='docs/user/INPUTS_API.md',
-)
-
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
-SpinBox.widget_descriptor = WidgetDescriptor(
-    family=SpinBox.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(SpinBox.inspect_spec, 'config', ()),
-        state=SpinBox.inspect_spec.state,
-        token_family=getattr(SpinBox.inspect_spec, 'token_family', ()),
-        regions=getattr(SpinBox.inspect_spec, 'regions', False),
-        layers=getattr(SpinBox.inspect_spec, 'layers', False),
-        docs=getattr(SpinBox.inspect_spec, 'docs', ''),
-    ),
-)
-
-DoubleSpinBox.inspect_spec = InspectSpec(
-    family="DoubleSpinBox",
-    state=(
-        SpecField("value", "value"),
-        SpecField("minimum", "_minimum", private=True),
-        SpecField("maximum", "_maximum", private=True),
-        SpecField("single_step", "singleStep"),
-        SpecField("decimals", "_decimals", private=True),
-    ),
-    token_family=("surface.background", "input.border.thin", "dialog.text", "accent"),
-    docs='docs/user/INPUTS_API.md',
-)
-
-DoubleSpinBox.widget_descriptor = WidgetDescriptor(
-    family=DoubleSpinBox.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(DoubleSpinBox.inspect_spec, 'config', ()),
-        state=DoubleSpinBox.inspect_spec.state,
-        token_family=getattr(DoubleSpinBox.inspect_spec, 'token_family', ()),
-        regions=getattr(DoubleSpinBox.inspect_spec, 'regions', False),
-        layers=getattr(DoubleSpinBox.inspect_spec, 'layers', False),
-        docs=getattr(DoubleSpinBox.inspect_spec, 'docs', ''),
-    ),
-)

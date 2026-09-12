@@ -77,25 +77,12 @@ def test_standard_variant_background_is_resolved_as_layers(qapp):
     from sli_ui_toolkit.theme import ThemeManager
 
     tm = ThemeManager.get_instance()
-    tm.register_palettes(
-        {
-            "surface.background": "#222222",
-            "surface.list": "#f0f0f0",
-            "button.toggle.background.hover": "#654321",
-        },
-        {
-            "surface.background": "#333333",
-            "surface.list": "#313131",
-            "button.toggle.background.hover": "#654321",
-        },
-    )
-    tm.set_theme("light", qapp)
     variant = get_variant("default")
 
     layers = resolve_background_layers(variant, frozenset({ButtonState.HOVERED}), tm)
 
     assert len(layers) == 2
-    assert layers[0].rgba() == QColor(tm.get_color("surface.list")).rgba()
+    assert layers[0].rgba() == QColor(tm.get_color("button.toggle.background.normal")).rgba()
     assert layers[1].rgba() == QColor(tm.get_color("button.toggle.background.hover")).rgba()
 
 

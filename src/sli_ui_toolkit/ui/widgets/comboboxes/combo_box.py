@@ -1,28 +1,17 @@
 from __future__ import annotations
-from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
+import logging
 from typing import Any
 
-from PySide6.QtCore import (
-    QEvent,
-    QRect,
-    QSize,
-    Qt,
-    QTimer,
-    Signal,
-)
-from PySide6.QtGui import QFontMetrics, QMouseEvent
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_font import paint_font
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer, RippleLayer
-from sli_ui_toolkit.ui.widgets.comboboxes._layers import (
-    _ComboFieldBgLayer,
-    _ComboFieldContentLayer,
-)
+from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
+from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
+from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.comboboxes._models import _ComboItem
 from sli_ui_toolkit.ui.widgets.comboboxes._overlay import _DropdownOverlay
 from sli_ui_toolkit.ui.widgets.comboboxes._search import (
@@ -30,7 +19,64 @@ from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     normalize_for_search,
     visible_indices_normalized,
 )
-from sli_ui_toolkit.ui.widgets.comboboxes.capabilities import GearDragCapability
+
+logger = logging.getLogger(__name__)
+
+
+class _ComboFieldBgLayer(Layer):
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        states = ctx.effective_states
+        p = ctx.painter
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rectf = QRectF(ctx.rect).adjusted(0.5, 0.5, -0.5, -0.5)
+        if ButtonState.PRESSED in states or widget._expanded:
+            bg_color = QColor(tm.get_color("flyout.background"))
+        elif ButtonState.HOVERED in states:
+            bg_color = QColor(tm.get_color("list_item.background.hover"))
+        else:
+            bg_color = QColor(tm.get_color("dialog.input.background"))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(bg_color))
+        p.drawRoundedRect(rectf, widget.RADIUS, widget.RADIUS)
+        pen_border = QPen(QColor(tm.get_color("input.border.thin")))
+        pen_border.setWidthF(1.0)
+        p.setPen(pen_border)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRoundedRect(rectf, widget.RADIUS, widget.RADIUS)
+
+
+class _ComboFieldContentLayer(Layer):
+    def draw(self, ctx, tm: ThemeManager) -> None:
+        widget = ctx.widget
+        current_text = widget.currentText()
+        if not current_text:
+            return
+        is_disabled = ButtonState.DISABLED in ctx.effective_states
+        text_color = QColor(tm.get_color("dialog.text"))
+        if is_disabled:
+            text_color.setAlpha(140 if tm.is_dark() else 120)
+        rect = ctx.rect.toRect()
+        fm = QFontMetrics(widget.font())
+        inner_h = widget._item_height()
+        inner_top = (rect.height() - inner_h) // 2
+        text_rect = QRect(
+            widget.TEXT_HORIZONTAL_PADDING,
+            inner_top,
+            rect.width() - 2 * widget.TEXT_HORIZONTAL_PADDING,
+            inner_h,
+        )
+        display_text = current_text
+        if widget._search_text and widget._expanded:
+            display_text = f"{widget._search_text} -> {current_text}"
+        p = ctx.painter
+        p.setFont(widget.font())
+        p.setPen(QPen(text_color))
+        p.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            fm.elidedText(display_text, Qt.TextElideMode.ElideRight, text_rect.width()),
+        )
 
 
 class ComboBox(Button):
@@ -41,24 +87,6 @@ class ComboBox(Button):
     RADIUS = 6
     ITEM_VERTICAL_PADDING = 12
     TEXT_HORIZONTAL_PADDING = 12
-
-    # "Gear-shifter" drag-select: hold the field for GEAR_HOLD_MS, or drag it
-    # sideways/vertically past GEAR_DRAG_THRESHOLD_PX right after pressing, to
-    # open the dropdown and scrub through rows by dragging — like sliding a
-    # gearbox knob into its slot. Releasing commits whichever row is under the
-    # field at that moment; a plain click/release still just toggles the list.
-    GEAR_HOLD_MS = 450
-    GEAR_DRAG_THRESHOLD_PX = 8
-    # On release, the popup window snaps the rest of the way to the exact
-    # item-boundary offset (see GearDragCapability._finish_drag) so the
-    # focused row ends up perfectly centered under the field before the
-    # dropdown closes, instead of closing mid-drag with the row a few pixels
-    # off.
-    GEAR_SNAP_DURATION_MS = 40
-    # Brief hold once the snap has landed, so the fully-settled state is
-    # actually visible for a beat before the dropdown closes, instead of
-    # collapsing the instant the animation finishes.
-    GEAR_SNAP_HOLD_MS = 250
 
     def __init__(
         self,
@@ -71,22 +99,16 @@ class ComboBox(Button):
             size=(0, self.BASE_HEIGHT),
             corner_radius=self.RADIUS,
             wheel_requires_focus=wheel_requires_focus,
-            long_press=True,
-            long_press_ms=self.GEAR_HOLD_MS,
             layers=[
                 _ComboFieldBgLayer(),
                 RippleLayer(),
                 _ComboFieldContentLayer(),
-                FocusLayer(),
             ],
             parent=parent,
         )
         self._theme = ThemeManager.get_instance()
         self._items: list[_ComboItem] = []
         self._current_index = -1
-        # While expanded, optional scroll/center target that does not change
-        # ``currentIndex`` (Find Action "show me this option" without applying).
-        self._dropdown_focus_index: int | None = None
         self._expanded = False
         self._max_visible_items = 12
         self._minimum_contents_length = 0
@@ -99,46 +121,10 @@ class ComboBox(Button):
         self._visible_positions_cache: dict[int, int] = {}
         self._visible_cache_dirty = True
 
-        # Gear-shifter drag-select (see GEAR_HOLD_MS above) — behavior lives
-        # in GearDragCapability, mirroring Button's own capability system
-        # (LongPressCapability). Cached directly here (in addition to being
-        # reachable via get_capability) since hideDropdown() and the proxy
-        # properties below need cheap, frequent access.
-        self._gear = GearDragCapability(
-            hold_ms=self.GEAR_HOLD_MS,
-            drag_threshold_px=scaled_px(self.GEAR_DRAG_THRESHOLD_PX),
-            snap_duration_ms=self.GEAR_SNAP_DURATION_MS,
-            snap_hold_ms=self.GEAR_SNAP_HOLD_MS,
-        )
-        self.attach_capability(self._gear)
-
         self.clicked.connect(self._on_field_clicked)
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
-
-    def on_scale_changed(self, _factor: float) -> None:
-        super().on_scale_changed(_factor)
-        self._gear.drag_threshold_px = scaled_px(self.GEAR_DRAG_THRESHOLD_PX)
-        self.updateGeometry()
-        self.update()
 
     def _item_height(self) -> int:
-        return max(
-            scaled_px(28),
-            QFontMetrics(paint_font(self)).height()
-            + scaled_px(self.ITEM_VERTICAL_PADDING),
-        )
-
-    @property
-    def _gear_active(self) -> bool:
-        """Proxy to GearDragCapability.active — _overlay.py reads this as a
-        plain ComboBox attribute and has no reason to know capabilities
-        exist."""
-        return self._gear.active
-
-    @property
-    def _gear_focus_index(self) -> int:
-        """Proxy to GearDragCapability.focus_index — see _gear_active."""
-        return self._gear.focus_index
+        return max(28, QFontMetrics(self.font()).height() + self.ITEM_VERTICAL_PADDING)
 
     def _invalidate_visible_cache(self) -> None:
         self._visible_cache_dirty = True
@@ -152,21 +138,14 @@ class ComboBox(Button):
         self._visible_indices()
         return self._visible_positions_cache.get(index, 0)
 
-    def _focus_or_current_index(self) -> int:
-        if self._dropdown_focus_index is not None and 0 <= self._dropdown_focus_index < len(
-            self._items
-        ):
-            return self._dropdown_focus_index
-        return self._current_index
-
-    def _ensure_index_visible(self, index: int) -> None:
+    def _ensure_current_visible(self):
         visible = self._visible_indices()
         visible_count = len(visible)
-        if visible_count <= self._max_visible_items or index < 0:
+        if visible_count <= self._max_visible_items or self._current_index < 0:
             self._scroll_offset = 0
             return
         try:
-            visible_position = visible.index(index)
+            visible_position = visible.index(self._current_index)
         except ValueError:
             self._scroll_offset = 0
             return
@@ -174,9 +153,6 @@ class ComboBox(Button):
             self._scroll_offset = visible_position
         elif visible_position >= self._scroll_offset + self._max_visible_items:
             self._scroll_offset = visible_position - self._max_visible_items + 1
-
-    def _ensure_current_visible(self):
-        self._ensure_index_visible(self._focus_or_current_index())
 
     def count(self) -> int:
         return len(self._items)
@@ -395,25 +371,22 @@ class ComboBox(Button):
         pass
 
     def _content_width_hint(self) -> int:
-        # Measure with the paint font (design size × UiScale) — the field
-        # layer draws through ``paint_font``, so a raw-font hint under-
-        # measures at scale > 1.0 and long labels elide inside the field.
-        fm = QFontMetrics(paint_font(self))
+        fm = QFontMetrics(self.font())
         text_width = 0
         for item in self._items:
             text_width = max(text_width, fm.horizontalAdvance(item.text))
         if self._minimum_contents_length > 0:
             text_width = max(text_width, fm.horizontalAdvance("M" * self._minimum_contents_length))
-        return max(scaled_px(100), text_width + scaled_px(24))
+        return max(100, text_width + 24)
 
     def sizeHint(self) -> QSize:
-        return QSize(self._content_width_hint(), scaled_px(self.BASE_HEIGHT))
+        return QSize(self._content_width_hint(), self.BASE_HEIGHT)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(max(scaled_px(80), self._content_width_hint()), scaled_px(self.BASE_HEIGHT))
+        return QSize(max(80, self._content_width_hint()), self.BASE_HEIGHT)
 
     def _field_rect(self) -> QRect:
-        return QRect(0, 0, self.width(), scaled_px(self.BASE_HEIGHT))
+        return QRect(0, 0, self.width(), self.BASE_HEIGHT)
 
     def _ensure_overlay(self):
         window = self.window()
@@ -425,52 +398,34 @@ class ComboBox(Button):
             self._overlay_parent = window
             self._overlay = _DropdownOverlay(self, window)
 
-    def showDropdown(self, focus_index: int | None = None):
-        """Open the dropdown.
-
-        ``focus_index`` scrolls that row into view without changing
-        ``currentIndex`` (button label stays put until the user picks a row).
-        """
+    def showDropdown(self):
         if self.count() == 0:
             return
         self._ensure_overlay()
         if self._overlay is None:
             return
-        if focus_index is not None and 0 <= int(focus_index) < self.count():
-            self._dropdown_focus_index = int(focus_index)
-        else:
-            self._dropdown_focus_index = None
         self._expanded = True
         self._pressed = False
         self._ensure_current_visible()
+        logger.debug(
+            "[ComboBox.showDropdown] object=%s current=%d count=%d scroll_offset=%d",
+            self.objectName() or "<unnamed>",
+            self.currentIndex(),
+            self.count(),
+            self._scroll_offset,
+        )
         self._overlay.show_for_owner()
         self.update()
-        app = QApplication.instance()
-        if app is not None:
-            app.installEventFilter(self)
+        QApplication.instance().installEventFilter(self)
         window = self.window()
         if window is not None:
             window.installEventFilter(self)
 
-    def dropdown_row_widget(self, index: int):
-        """Visible dropdown row for ``index`` after ``showDropdown``, or ``None``."""
-        if self._overlay is None:
-            return None
-        return self._overlay.slot_for_index(index)
-
     def hideDropdown(self):
-        if self._gear.snap_in_progress:
-            # Let the in-flight snap animation land on its own — see
-            # GearDragCapability.snap_in_progress. It calls back into
-            # hideDropdown() itself once settled.
-            return
-        self._gear.cancel()
         if self._overlay is not None:
-            self._overlay.clear_hover()
             self._overlay.hide()
         self._expanded = False
         self._pressed = False
-        self._dropdown_focus_index = None
         self.clearSearch()
         self.update()
         app = QApplication.instance()
@@ -485,28 +440,6 @@ class ComboBox(Button):
             self.hideDropdown()
         else:
             self.showDropdown()
-
-    # -------- gear-shifter drag-select (see GearDragCapability) --------
-
-    def mousePressEvent(self, event: QMouseEvent):
-        self._gear.handle_press(event)
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QMouseEvent):
-        if self._gear.handle_move(event):
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event: QMouseEvent):
-        outcome = self._gear.handle_release(event)
-        if outcome is not None:
-            self._suppress_next_click = outcome.suppress_click
-            super().mouseReleaseEvent(event)
-            self._suppress_next_click = False
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
         if self._search_enabled and event.key() == Qt.Key.Key_Backspace:
@@ -550,19 +483,12 @@ class ComboBox(Button):
             event.accept()
             return
 
-        # Only steer the selection while the dropdown is actually open
-        # (entered via Enter/Space above) -- collapsed, Up/Down must not
-        # silently spin the value. This also matters for row-to-row
-        # navigation: NavigationManager's ToolbarRowsSection trial-dispatches
-        # arrow keys to the focused widget first (see its _widget_handles),
-        # and a collapsed combo accepting them here would swallow the key
-        # instead of letting the section move focus to the next/previous row.
-        if event.key() == Qt.Key.Key_Down and self._expanded and self.count() > 0:
+        if event.key() == Qt.Key.Key_Down and self.count() > 0:
             self._move_visible_selection(1)
             event.accept()
             return
 
-        if event.key() == Qt.Key.Key_Up and self._expanded and self.count() > 0:
+        if event.key() == Qt.Key.Key_Up and self.count() > 0:
             self._move_visible_selection(-1)
             event.accept()
             return
@@ -587,6 +513,14 @@ class ComboBox(Button):
 
     def focusOutEvent(self, event):
         super().focusOutEvent(event)
+        next_widget = QApplication.focusWidget()
+        logger.debug(
+            "[ComboBox.focusOut] object=%s next=%s expanded=%r overlay_visible=%r",
+            self.objectName() or "<unnamed>",
+            type(next_widget).__name__ if next_widget is not None else None,
+            self._expanded,
+            self._overlay.isVisible() if self._overlay is not None else False,
+        )
         if not self._expanded:
             return
         QTimer.singleShot(0, self._hide_dropdown_if_focus_left)
@@ -612,63 +546,26 @@ class ComboBox(Button):
         self.hideDropdown()
 
     def eventFilter(self, watched, event):
-        expanded = getattr(self, "_expanded", False)
-        overlay = getattr(self, "_overlay", None)
-        if not expanded or overlay is None:
+        if not self._expanded or self._overlay is None:
             return super().eventFilter(watched, event)
 
         if watched is self.window() and event.type() in (QEvent.Type.Move, QEvent.Type.Resize):
             self._overlay.show_for_owner()
             return False
 
-        # Outside-click and window/app deactivate dismiss are now handled by
-        # FlyoutManager._dismiss_passive — _DropdownOverlay is a registered
-        # BaseFlyout (see docs/legacy/plan_combobox_baseflyout_unification.md
-        # Phase 2). Hide/Close still needs handling here: FlyoutManager
-        # doesn't listen for QEvent.Type.Close at all, and only this combo's
-        # own host leaving should collapse it — an app-wide filter would
-        # otherwise collapse the list when Find Action's pulse overlay hides
-        # after its blink timer.
-        if event.type() in (QEvent.Type.Hide, QEvent.Type.Close) and watched in (
-            self,
-            self._overlay,
-            self.window(),
+        if event.type() in (
+            QEvent.Type.WindowDeactivate,
+            QEvent.Type.ApplicationDeactivate,
+            QEvent.Type.Hide,
+            QEvent.Type.Close,
         ):
             self.hideDropdown()
             return False
 
+        if event.type() == QEvent.Type.MouseButtonPress:
+            global_pos = event.globalPosition().toPoint()
+            inside_field = self.rect().contains(self.mapFromGlobal(global_pos))
+            inside_overlay = self._overlay.geometry().contains(self._overlay.parentWidget().mapFromGlobal(global_pos))
+            if not inside_field and not inside_overlay:
+                self.hideDropdown()
         return super().eventFilter(watched, event)
-
-ComboBox.inspect_spec = InspectSpec(
-    family="ComboBox",
-    state=(
-        SpecField("current_index", "currentIndex"),
-        SpecField("current_text", "currentText"),
-        SpecField("count", "count"),
-        SpecField("items", lambda w: [t for t, _d in w.items()]),
-        SpecField("max_visible_items", "maxVisibleItems"),
-    ),
-    token_family=(
-        "surface.background",
-        "input.border.thin",
-        "list_item.background.hover",
-        "surface.background",
-    ),
-    docs='docs/user/INPUTS_API.md',
-)
-
-from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
-
-ComboBox.widget_descriptor = WidgetDescriptor(
-    family=ComboBox.inspect_spec.family,
-    inspect=InspectSection(
-        config=getattr(ComboBox.inspect_spec, 'config', ()),
-        state=ComboBox.inspect_spec.state,
-        token_family=getattr(ComboBox.inspect_spec, 'token_family', ()),
-        regions=getattr(ComboBox.inspect_spec, 'regions', False),
-        layers=getattr(ComboBox.inspect_spec, 'layers', False),
-        docs=getattr(ComboBox.inspect_spec, 'docs', ''),
-        preview_seed=getattr(ComboBox.inspect_spec, 'preview_seed', None),
-        apply_config_refresh=getattr(ComboBox.inspect_spec, 'apply_config_refresh', None),
-    ),
-)

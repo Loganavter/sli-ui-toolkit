@@ -5,19 +5,18 @@ import unicodedata
 from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QSize, Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFontMetrics, QPainter
+from PySide6.QtGui import QDesktopServices, QFontMetrics
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
+    QScrollArea,
     QSizePolicy,
     QTextBrowser,
 )
 from markdown import markdown
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
-    SurfaceScrollArea,
-)
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.dialog_shell import SidebarDialogShell
 
 @dataclass(frozen=True)
@@ -160,8 +159,6 @@ class MarkdownHelpDialog(QDialog):
         super().__init__(parent)
         self.setObjectName("MarkdownHelpDialog")
         self.theme_manager = ThemeManager.get_instance()
-        self._dialog_surface_color = QColor("#000000")
-        self._read_dialog_surface_color()
         self._pages: list[MarkdownHelpPageBrowser] = []
         self._sections: tuple[MarkdownHelpSection, ...] = ()
         self._toc_title_text = str(toc_title)
@@ -192,7 +189,13 @@ class MarkdownHelpDialog(QDialog):
         self.nav_widget.enable_minimal_scrollbar()
         self.nav_widget.currentRowChanged.connect(self.change_page)
 
-        self.scroll_area = SurfaceScrollArea()
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_area.setVerticalScrollBar(MinimalistScrollBar())
+        self.scroll_area.setHorizontalScrollBar(MinimalistScrollBar())
         self.scroll_area.viewport().installEventFilter(self)
 
         self.shell.pages_stack.hide()
@@ -250,8 +253,6 @@ class MarkdownHelpDialog(QDialog):
         metrics = QFontMetrics(self.nav_widget.font())
         for i in range(self.nav_widget.count()):
             item = self.nav_widget.item(i)
-            if item is None:
-                continue
             max_text_width = max(max_text_width, metrics.horizontalAdvance(item.text()))
         self.nav_widget.setMinimumWidth(max_text_width + 32)
 
@@ -382,10 +383,6 @@ class MarkdownHelpDialog(QDialog):
                 return index
         return -1
 
-    def navigate_to(self, slug: str, anchor: str | None = None) -> None:
-        """Open a help section by slug and optionally scroll to an in-page anchor."""
-        self._navigate_to_help_target(slug, anchor)
-
     def _navigate_to_help_target(self, slug: str, anchor: str | None = None) -> None:
         index = self._find_section_index(slug)
         if index < 0:
@@ -421,43 +418,12 @@ class MarkdownHelpDialog(QDialog):
             if slug:
                 self._navigate_to_help_target(slug, url.fragment().strip() or None)
 
-    def _read_dialog_surface_color(self) -> None:
-        """Re-read the ``dialog.background`` token into ``_dialog_surface_color``.
-
-        Re-read on every ``theme_changed`` (via ``_apply_styles``, never
-        cached forever): hosts may override the token via
-        ``ThemeManager.set_color``. ThemeManager may be uninitialized in
-        some test contexts — fall back to the palette Window role as a last
-        resort.
-        """
-        try:
-            color = QColor(
-                ThemeManager.get_instance().get_color("surface.background")
-            )
-        except Exception:
-            color = QColor(self.palette().window().color())
-        self._dialog_surface_color = color
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        """Fill the dialog surface with the ``dialog.background`` token.
-
-        Top-level QDialog QSS surface paint dies with host QSS: with no
-        stylesheet the dialog paints the QPalette Window role, which hosts
-        keep darker than the dialog surface token — the explicit paint keeps
-        the surface consistent with the shell's ``_SurfaceWidget`` /
-        ``IconListWidget`` fills.
-        """
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), self._dialog_surface_color)
-        painter.end()
-
     def _apply_styles(self) -> None:
-        self._read_dialog_surface_color()
         self.theme_manager.apply_theme_to_dialog(self)
         tm = self.theme_manager
         text_color = tm.get_color("dialog.text").name()
         separator_color = tm.get_color("help.separator").name()
-        dialog_bg_color = tm.get_color("surface.background").name()
+        dialog_bg_color = tm.get_color("dialog.background").name()
 
         def _hex_to_rgb(h: str):
             h = h.lstrip("#")
