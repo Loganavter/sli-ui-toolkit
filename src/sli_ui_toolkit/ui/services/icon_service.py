@@ -1,4 +1,5 @@
 import os
+from enum import Enum
 from pathlib import Path
 from typing import Dict, Type, TypeVar, Union
 
@@ -6,7 +7,7 @@ from PySide6.QtGui import QIcon
 
 from sli_ui_toolkit.theme import ThemeManager
 
-T = TypeVar("T")
+T = TypeVar("T", bound=Enum)
 
 class IconService:
     def __init__(
@@ -17,7 +18,7 @@ class IconService:
         self._md_cache: Dict[str, Dict[str, QIcon]] = {}
         self._icon_cache: Dict[tuple[str, bool], QIcon] = {}
 
-    def get_icon(self, icon_name: str, is_dark: bool = None) -> QIcon:
+    def get_icon(self, icon_name: str, is_dark: bool | None = None) -> QIcon:
         if is_dark is None:
             theme_manager = ThemeManager.get_instance()
             is_dark = theme_manager.is_dark()
@@ -55,7 +56,7 @@ class IconService:
         return icon
 
     def get_enum_icon(
-        self, icon_enum: Union[str, object], enum_class: Type[T]
+        self, icon_enum: Union[str, T], enum_class: Type[T]
     ) -> QIcon:
         if isinstance(icon_enum, str):
             for item in enum_class:

@@ -66,7 +66,7 @@ def test_show_below_drop_respects_shadow_inset(qtbot):
     combo.setGeometry(80, 40, 160, 32)
     combo.show()
 
-    flyout = SimpleOptionsFlyout(parent_widget=parent)
+    flyout = SimpleOptionsFlyout(parent_widget=parent, animation="slide")
     flyout.populate(["Nearest", "Bilinear", "Bicubic"], 0)
     flyout.show_below(combo, exact_width_match=True)
     qtbot.wait(10)

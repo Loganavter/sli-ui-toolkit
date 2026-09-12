@@ -9,7 +9,6 @@ _ROOT = Path(__file__).resolve().parents[1] / "src" / "sli_ui_toolkit"
 _PATHS = [
     _ROOT / "ui" / "widgets" / "buttons",
     _ROOT / "ui" / "widgets" / "comboboxes",
-    _ROOT / "ui" / "widgets" / "composite" / "unified_flyout",
     _ROOT / "ui" / "widgets" / "composite" / "simple_options_flyout.py",
     _ROOT / "ui" / "widgets" / "composite" / "context_menu",
     _ROOT / "ui" / "widgets" / "list_items",

@@ -209,3 +209,40 @@ def test_button_group_stack_resolve_via_iter_regions(qtbot):
     assert local not in resolved["left"]
     assert local in resolved["right"]
     assert resolved["right"][-1] == local
+
+
+def test_disabled_surface_uses_disabled_token():
+    """A disabled button renders a gray fill (the ``.background.disabled``
+    token), not the enabled white — the inspector Save/Apply must visibly
+    mark the inactive state instead of looking like a ghost."""
+    tm = _tm()
+    layers, _border = resolve_button_background(
+        BgResolveParams(
+            states=frozenset({ButtonState.DISABLED}),
+            variant=get_variant("surface"),
+        ),
+        tm,
+    )
+    assert layers == [
+        QColor(tm.get_color("button.dialog.default.background.disabled"))
+    ]
+    assert layers[0].name() != tm.get_color(
+        "button.dialog.default.background"
+    ).name()
+
+
+def test_set_enabled_propagates_disabled_paint_state():
+    """Button.setEnabled must reach the paint-state set: QWidget would
+    otherwise shadow the events-mixin override (QWidget precedes
+    _ButtonEvents in the MRO) and disabled buttons would paint exactly
+    like enabled ones."""
+    from sli_ui_toolkit.ui.widgets.buttons.button import Button
+
+    btn = Button(text="Save", variant="surface", size=(0, 26))
+    assert ButtonState.DISABLED not in btn._states
+    btn.setEnabled(False)
+    assert ButtonState.DISABLED in btn._states
+    assert not btn.isEnabled()
+    btn.setEnabled(True)
+    assert ButtonState.DISABLED not in btn._states
+    assert btn.isEnabled()

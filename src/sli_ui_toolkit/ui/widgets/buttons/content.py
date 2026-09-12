@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from pathlib import Path
 
@@ -20,6 +20,7 @@ from PySide6.QtGui import QColor, QFontMetrics, QImage, QPixmap
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font, ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     draw_marquee_text,
@@ -31,12 +32,13 @@ from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 from .context import DrawContext
 from .state import ButtonState
 
+ImageFill = Literal["cover", "contain", "stretch"]
 _IMAGE_FILLS = frozenset({"cover", "contain", "stretch"})
 
 
-def normalize_image_fill(value: str | None) -> str:
+def normalize_image_fill(value: str | None) -> ImageFill:
     fill = str(value or "cover").strip().lower()
-    return fill if fill in _IMAGE_FILLS else "cover"
+    return fill if fill in _IMAGE_FILLS else "cover"  # type: ignore[return-value]
 
 
 def coerce_pixmap(value: Any) -> QPixmap | None:
@@ -121,11 +123,8 @@ def _text_color(ctx: DrawContext, tm: ThemeManager) -> QColor:
 
 
 def _rect(ctx: DrawContext) -> QRect:
-    rect = ctx.effective_rect
-    if isinstance(rect, QRectF):
-        rect = rect.toAlignedRect()
-    else:
-        rect = QRect(rect)
+    raw = ctx.effective_rect
+    rect = raw.toAlignedRect() if isinstance(raw, QRectF) else QRect(raw)
     left, top, right, bottom = ctx.content_padding
     if left or top or right or bottom:
         rect = rect.adjusted(int(left), int(top), -int(right), -int(bottom))
@@ -173,7 +172,10 @@ class TextContent(Content):
 class ButtonRow:
     """Одна строка в RowsContent — размер/жирность/цвет/доля высоты."""
     text: str
-    size: int = 12
+    # ``None`` = the current default UI font (``ui_font()``, point-based app
+    # font) instead of an explicit pixel size — use it for rows that must
+    # match the host's normal text (e.g. SimpleOptionsFlyout default rows).
+    size: int | None = 12
     weight: str = "normal"
     color: QColor | None = None
     ratio: float = 0.5
@@ -293,7 +295,7 @@ class PixmapContent(Content):
     """
 
     pixmap: Any = None
-    image_fill: str = "cover"
+    image_fill: ImageFill = "cover"
 
     def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
         pix = coerce_pixmap(self.pixmap)
@@ -314,7 +316,7 @@ class PixmapContent(Content):
         if radii is not None:
             from .layers.background import rounded_rect_path
 
-            clip = rounded_rect_path(QRectF(dest), tuple(int(r) for r in radii))
+            clip = rounded_rect_path(QRectF(dest), radii)
             p.setClipPath(clip)
         else:
             p.setClipRect(dest)
@@ -337,7 +339,7 @@ class IconContent(Content):
             return
 
         icon_size = int(
-            ctx.region_icon_size_px
+            scaled_px(ctx.region_icon_size_px)
             if ctx.region_icon_size_px is not None
             else (read_widget_style(ctx.widget).icon_size_px or ctx.effective_icon_size_px)
         )
@@ -345,6 +347,44 @@ class IconContent(Content):
         x = rect.x() + (rect.width() - icon_size) // 2
         y = rect.y() + (rect.height() - icon_size) // 2
         p.drawPixmap(x, y, pixmap)
+
+
+def build_button_content(button) -> "Content | None":
+    """Content for the button's ``_main`` region, from its own text/icon/rows state."""
+    if button._rows:
+        return RowsContent(rows=button._rows, compact=button._rows_compact)
+    if button._has_text and button._text and button._icon_unchecked:
+        return IconTextContent(icon=button._icon_unchecked, text=button._text)
+    if button._has_text and button._text:
+        return TextContent(text=button._text)
+    if button._icon_unchecked or button._icon_checked:
+        return IconContent(icon_unchecked=button._icon_unchecked, icon_checked=button._icon_checked)
+    return None
+
+
+def build_region_content(button, region) -> "Content | None":
+    """Content for one multi-region button's region, from its own field set."""
+    rows = region.rows or []
+    if rows:
+        return RowsContent(rows=rows, compact=button._rows_compact)
+    pixmap = getattr(region, "pixmap", None)
+    if pixmap is not None:
+        return PixmapContent(
+            pixmap=pixmap,
+            image_fill=getattr(region, "image_fill", "cover") or "cover",
+        )
+    icon = region.icon
+    if isinstance(icon, (tuple, list)) and len(icon) >= 2:
+        icon_unchecked, icon_checked = icon[0], icon[1]
+    else:
+        icon_unchecked = icon_checked = icon
+    if region.text and icon_unchecked:
+        return IconTextContent(icon=icon_unchecked, text=region.text)
+    if region.text:
+        return TextContent(text=region.text)
+    if icon_unchecked or icon_checked:
+        return IconContent(icon_unchecked=icon_unchecked, icon_checked=icon_checked)
+    return None
 
 
 @dataclass
@@ -358,7 +398,7 @@ class IconTextContent(Content):
         rect = _rect(ctx)
         style = read_widget_style(widget)
         icon_px = int(
-            ctx.region_icon_size_px
+            scaled_px(ctx.region_icon_size_px)
             if ctx.region_icon_size_px is not None
             else (style.icon_size_px or ctx.effective_icon_size_px)
         )
@@ -396,8 +436,10 @@ class IconTextContent(Content):
         p.drawPixmap(start_x, icon_y, pixmap)
         p.setPen(_text_color(ctx, tm))
         text_x = start_x + icon_px + gap
+        text_w = max(0, int(rect.right()) - text_x + 1)
+        elided = p.fontMetrics().elidedText(self.text, Qt.TextElideMode.ElideRight, text_w)
         p.drawText(
-            QRect(text_x, int(rect.y()), max(0, int(rect.right()) - text_x + 1), int(rect.height())),
+            QRect(text_x, int(rect.y()), text_w, int(rect.height())),
             text_v | Qt.AlignmentFlag.AlignLeft,
-            self.text,
+            elided,
         )

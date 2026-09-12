@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
+from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_font import paint_font, ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_font import rebase_family, ui_font
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
@@ -28,13 +29,13 @@ class SeparatorRow(QWidget):
 
     def __init__(self, parent: QWidget):
         super().__init__(parent)
-        self.setFixedHeight(9)
+        self.setFixedHeight(scaled_px(9))
 
     def paintEvent(self, event):  # noqa: N802 - Qt API
         painter = QPainter(self)
         color = ThemeManager.get_instance().get_color("separator.color")
         y = self.height() // 2
-        inset = self._H_INSET
+        inset = scaled_px(self._H_INSET)
         painter.setPen(QPen(color, 1))
         painter.drawLine(inset, y, self.width() - inset, y)
         painter.end()
@@ -44,14 +45,14 @@ class SectionTitleRow(QWidget):
     def __init__(self, text: str, parent: QWidget):
         super().__init__(parent)
         self._text = text
-        self.setFixedHeight(24)
+        self.setFixedHeight(scaled_px(24))
 
     def paintEvent(self, event):  # noqa: N802 - Qt API
         painter = QPainter(self)
         painter.setPen(QPen(ThemeManager.get_instance().get_color("dialog.text")))
         painter.setFont(ui_font(pixel_size=11, bold=True))
         painter.drawText(
-            self.rect().adjusted(12, 0, -12, 0),
+            self.rect().adjusted(scaled_px(12), 0, -scaled_px(12), 0),
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
             self._text,
         )
@@ -59,9 +60,8 @@ class SectionTitleRow(QWidget):
 
     def sizeHint(self):
         font = ui_font(pixel_size=11, bold=True)
-        font.setPixelSize(11)
         fm = QFontMetrics(font)
-        return QSize(_measure_text_width(fm, self._text) + 24, 24)
+        return QSize(_measure_text_width(fm, self._text) + scaled_px(24), scaled_px(24))
 
 
 class _RowBgLayer(Layer):
@@ -108,13 +108,15 @@ class _CurrentIndicatorLayer(Layer):
     def draw(self, ctx, tm: ThemeManager) -> None:
         rect = ctx.rect.toRect()
         pen = QPen(tm.get_color("accent"))
-        pen.setWidth(3)
+        pen.setWidth(scaled_px(3))
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         p = ctx.painter
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(pen)
         x = rect.left() + pen.width()
-        p.drawLine(x, rect.top() + 7, x, rect.bottom() - 7)
+        p.drawLine(
+            x, rect.top() + scaled_px(7), x, rect.bottom() - scaled_px(7)
+        )
 
 
 class _RowContentLayer(Layer):
@@ -140,16 +142,22 @@ class _RowContentLayer(Layer):
 
         x = widget._check_gutter
         if widget._icon_pixmap is not None:
-            icon_rect = QRect(x, (rect.height() - widget.ICON_SIZE) // 2, widget.ICON_SIZE, widget.ICON_SIZE)
+            icon_size = scaled_px(widget.ICON_SIZE)
+            icon_rect = QRect(x, (rect.height() - icon_size) // 2, icon_size, icon_size)
             p.drawPixmap(icon_rect, widget._icon_pixmap)
-            x += widget.ICON_SIZE + 8
+            x += icon_size + scaled_px(8)
 
         p.setPen(QPen(text_color))
-        font = paint_font(widget)
+        # The row's font is already scale-resolved (set by the menu's
+        # _relayout_widths via ui_font()); paint_font()/rebase() would treat
+        # it as design space and multiply the UiScale factor a SECOND time,
+        # painting the label ~factor^2 large and pushing it out of the row.
+        # rebase_family() is the size-preserving, family-only variant.
+        font = rebase_family(widget.font())
         p.setFont(font)
         fm = QFontMetrics(font)
         text_y = rect.center().y() + 5
-        available = max(0, rect.width() - x - widget._trailing_width - _ROW_H_PADDING)
+        available = max(0, rect.width() - x - widget._trailing_width - scaled_px(_ROW_H_PADDING))
         if widget._text and fm.horizontalAdvance(widget._text) <= available:
             display_text = widget._text
         else:
@@ -167,14 +175,28 @@ class _RowContentLayer(Layer):
             )
             p.setPen(QPen(shortcut_color))
             sc_width = fm.horizontalAdvance(widget._shortcut_text)
-            p.drawText(rect.width() - _ROW_H_PADDING - sc_width, text_y, widget._shortcut_text)
-        elif widget._has_children:
-            arrow_rect = QRect(rect.width() - 20, 0, 16, rect.height())
-            p.setPen(QPen(text_color))
             p.drawText(
-                arrow_rect,
-                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
-                "›",
+                rect.width() - scaled_px(_ROW_H_PADDING) - sc_width, text_y, widget._shortcut_text
+            )
+        elif widget._has_children:
+            # Painted chevron instead of the "›" glyph: the single-arrow
+            # character is very narrow (≈4px at 12pt — half the width of
+            # ">"), so it reads as a tiny dot at any UI scale and looked
+            # like it never scaled. A polygon scales with scaled_px() and
+            # stays visually comparable to the row text.
+            cy = rect.center().y()
+            sx = rect.width() - scaled_px(16)
+            arm = scaled_px(5)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(text_color))
+            p.drawPolygon(
+                QPolygonF(
+                    [
+                        QPointF(sx, cy - arm),
+                        QPointF(sx + arm, cy),
+                        QPointF(sx, cy + arm),
+                    ]
+                )
             )
 
         if disabled:
@@ -188,7 +210,7 @@ class ContextMenuRow(Button):
     def __init__(self, action: ContextMenuAction, *, check_gutter: int, parent: QWidget):
         super().__init__(
             text="",
-            size=(0, self.ROW_HEIGHT),
+            size=(0, scaled_px(self.ROW_HEIGHT)),
             corner_radius=5,
             toggle=bool(action.checkable),
             layers=[_RowBgLayer(), RippleLayer(), _CurrentIndicatorLayer(), _RowContentLayer()],
@@ -199,14 +221,14 @@ class ContextMenuRow(Button):
         self._has_children = bool(action.children)
         self._check_gutter = check_gutter
         self._icon_pixmap = (
-            normalized_icon_pixmap(action.icon, self.ICON_SIZE) if action.icon else None
+            normalized_icon_pixmap(action.icon, scaled_px(self.ICON_SIZE)) if action.icon else None
         )
         self._shortcut_text = "" if action.children else _shortcut_display_text(action.shortcut)
         self._trailing_width = 0
         if self._shortcut_text:
-            self._trailing_width = QFontMetrics(self.font()).horizontalAdvance(self._shortcut_text) + 8
+            self._trailing_width = QFontMetrics(self.font()).horizontalAdvance(self._shortcut_text) + scaled_px(8)
         elif self._has_children:
-            self._trailing_width = 20
+            self._trailing_width = scaled_px(20)
         self._submenu_open = False
         self._has_text = bool(self._text)
         self.position = "only"
@@ -221,9 +243,9 @@ class ContextMenuRow(Button):
     def refresh_metrics(self) -> None:
         fm = QFontMetrics(self.font())
         if self._shortcut_text:
-            self._trailing_width = fm.horizontalAdvance(self._shortcut_text) + 8
+            self._trailing_width = fm.horizontalAdvance(self._shortcut_text) + scaled_px(8)
         elif self._has_children:
-            self._trailing_width = 20
+            self._trailing_width = scaled_px(20)
         else:
             self._trailing_width = 0
         self.updateGeometry()
@@ -231,9 +253,15 @@ class ContextMenuRow(Button):
     def sizeHint(self):
         fm = QFontMetrics(self.font())
         text_w = _measure_text_width(fm, self._text)
-        icon_w = self.ICON_SIZE + 8 if self._icon_pixmap is not None else 0
-        w = self._check_gutter + icon_w + text_w + self._trailing_width + _ROW_H_PADDING
-        return QSize(w, self.ROW_HEIGHT)
+        icon_w = scaled_px(self.ICON_SIZE) + scaled_px(8) if self._icon_pixmap is not None else 0
+        w = (
+            self._check_gutter
+            + icon_w
+            + text_w
+            + self._trailing_width
+            + scaled_px(_ROW_H_PADDING)
+        )
+        return QSize(w, scaled_px(self.ROW_HEIGHT))
 
     def minimumSizeHint(self):
         return self.sizeHint()

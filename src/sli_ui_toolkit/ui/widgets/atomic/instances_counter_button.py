@@ -114,6 +114,7 @@ class InstancesCounterButton(Button):
         self.set_spec(self._button_spec())
 
     def _button_spec(self) -> ButtonSpec:
+        regions: tuple[ButtonRegion, ...]
         if self._count <= 1:
             regions = (
                 ButtonRegion(

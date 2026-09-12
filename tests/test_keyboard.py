@@ -7,11 +7,8 @@ from sli_ui_toolkit.widgets import (
     Button,
     InstancesCounterButton,
     ScrollableComboBox,
-    SimpleUnifiedFlyoutController,
-    SimpleUnifiedFlyoutStore,
     Switch,
     TimelineWidget,
-    UnifiedFlyout,
 )
 
 
@@ -151,18 +148,3 @@ def test_timeline_home_end_jump_to_bounds(qtbot):
     assert tl._current_index == 0
 
 
-def test_flyout_closes_on_escape(qtbot):
-    host = QWidget()
-    host.resize(400, 300)
-    _show(host, qtbot)
-
-    store = SimpleUnifiedFlyoutStore()
-    controller = SimpleUnifiedFlyoutController(store)
-    flyout = UnifiedFlyout(store=store, main_controller=controller, main_window=host)
-    flyout.show()
-    qtbot.waitExposed(flyout)
-    flyout.setFocus()
-    assert flyout.isVisible()
-
-    qtbot.keyClick(flyout, Qt.Key.Key_Escape)
-    assert not flyout.isVisible()

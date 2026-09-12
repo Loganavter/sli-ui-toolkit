@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtGui import QColor, QPen
 
+from sli_ui_toolkit.managers import scaled_px
 from sli_ui_toolkit.theme import ThemeManager
 
 from ..context import DrawContext
@@ -20,5 +21,8 @@ class StrikethroughLayer(Layer):
         widget = ctx.widget
         color = QColor("#ff4444") if tm.is_dark() else QColor("#cc0000")
         color.setAlpha(180)
-        ctx.painter.setPen(QPen(color, 2))
-        ctx.painter.drawLine(4, widget.height() - 4, widget.width() - 4, 4)
+        ctx.painter.setPen(QPen(color, scaled_px(2)))
+        inset = scaled_px(4)
+        ctx.painter.drawLine(
+            inset, widget.height() - inset, widget.width() - inset, inset
+        )

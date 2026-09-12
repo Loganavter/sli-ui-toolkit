@@ -4,17 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtGui import QColor, QFontMetrics, QKeySequence
+from PySide6.QtGui import QColor, QKeySequence
+
+from sli_ui_toolkit.ui.managers.ui_font import measure_text_width
 
 _DANGER_COLOR = QColor("#e5484d")
 _ROW_H_PADDING = 12
-_TEXT_WIDTH_FUDGE = 8
 
-
-def _measure_text_width(fm: QFontMetrics, text: str) -> int:
-    if not text:
-        return 0
-    return max(fm.horizontalAdvance(text), fm.boundingRect(text).width()) + _TEXT_WIDTH_FUDGE
+# Back-compat alias for callers that imported the helper from here before it
+# moved to the toolkit text home (ui_font.measure_text_width).
+_measure_text_width = measure_text_width
 
 
 @dataclass(slots=True)
@@ -31,6 +30,14 @@ class ContextMenuAction:
     tooltip: str = ""
     data: object = None
     children: tuple["ContextMenuEntry", ...] = ()
+    # Row click closes the menu (hiding/destroying the row) and invokes
+    # on_triggered synchronously -- fine for lightweight actions, but a
+    # handler that opens a modal (``.exec()``) dialog blocks the event loop
+    # before the row's own click ripple has any chance to play at all (the
+    # row is gone the instant the menu hides). Set True to delay the
+    # hide+emit+on_triggered by the ripple duration instead, same rationale
+    # as ``Button(defer_click=DEFER_CLICK_AWAIT_RIPPLE)``.
+    defer_trigger: bool = False
 
 
 @dataclass(slots=True)

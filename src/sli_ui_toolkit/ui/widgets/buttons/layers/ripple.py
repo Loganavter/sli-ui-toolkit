@@ -210,10 +210,7 @@ class RippleLayer(Layer):
             p.drawEllipse(center, radius, radius)
         else:
             # Overlay-mode: полупрозрачная тёмная/светлая прослойка, как M3-state-layer.
-            try:
-                is_dark = tm.is_dark()
-            except Exception:
-                is_dark = False
+            is_dark = tm.is_dark()
             peak = (
                 RippleEffect.PEAK_ALPHA_DARK if is_dark else RippleEffect.PEAK_ALPHA_LIGHT
             )

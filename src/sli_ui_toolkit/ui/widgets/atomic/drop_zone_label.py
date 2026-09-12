@@ -1,3 +1,4 @@
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 import os
 
 from PySide6.QtCore import QRectF, Qt, QTimer, QUrl, Signal
@@ -60,10 +61,9 @@ class DropZoneLabel(Label):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         accent = self._theme_manager.get_color("accent")
-        try:
-            border_normal = self._theme_manager.get_color("dialog.border")
-        except Exception:
-            border_normal = QColor("#aaaaaa")
+        border_normal = self._theme_manager.try_get_color("dialog.border")
+        if border_normal is None or not border_normal.isValid():
+            border_normal = self._theme_manager.get_color("separator.color")
 
         if self._drag_active:
             border_color = QColor(accent)
@@ -145,3 +145,27 @@ class DropZoneLabel(Label):
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
+
+DropZoneLabel.inspect_spec = InspectSpec(
+    family="DropZoneLabel",
+    state=(
+        SpecField("text", "get_original_text"),
+        SpecField("drag_active", "_drag_active", private=True),
+        SpecField("hovered", "_hovered", private=True),
+    ),
+    token_family=("accent", "dialog.border"),
+    docs='docs/user/LABELS_API.md',
+)
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+DropZoneLabel.widget_descriptor = WidgetDescriptor(
+    family=DropZoneLabel.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(DropZoneLabel.inspect_spec, 'config', ()),
+        state=DropZoneLabel.inspect_spec.state,
+        token_family=getattr(DropZoneLabel.inspect_spec, 'token_family', ()),
+        regions=getattr(DropZoneLabel.inspect_spec, 'regions', False),
+        layers=getattr(DropZoneLabel.inspect_spec, 'layers', False),
+        docs=getattr(DropZoneLabel.inspect_spec, 'docs', ''),
+    ),
+)

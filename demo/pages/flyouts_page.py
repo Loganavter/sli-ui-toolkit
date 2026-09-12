@@ -13,16 +13,68 @@ from sli_ui_toolkit.widgets import (
     IconActionFlyout,
     IndexedToggleFlyout,
     Label,
+    ListPanel,
+    ListRowSpec,
     ScrollableComboBox,
     SimpleOptionsFlyout,
     Slider,
     Switch,
-    UnifiedFlyout,
-    UnifiedFlyoutItem,
 )
 
 from demo.components import GalleryPage
 from demo.components.color_swatch import ColorSwatch
+
+
+class _DemoRow(Button):
+    """Minimal host-built ListPanel row (the assembly-pattern example)."""
+
+    itemSelected = Signal(int)
+
+    def __init__(self, spec: ListRowSpec):
+        super().__init__(text="", size=(0, spec.item_height), parent=None)
+        self.index = spec.index
+        self.full_path = spec.full_path or ""
+        self.is_current = spec.is_current
+        self.position = spec.position
+        self.is_selected = False
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 0, 8, 0)
+        self.name_label = Label(spec.text)
+        layout.addWidget(self.name_label)
+        self.clicked.connect(lambda: self.itemSelected.emit(self.index))
+
+    def set_selected(self, selected: bool) -> None:
+        self.is_selected = bool(selected)
+        self.update()
+
+    def set_dragging_state(self, dragging: bool) -> None:
+        pass
+
+
+def _demo_row_factory(spec: ListRowSpec) -> _DemoRow:
+    return _DemoRow(spec)
+
+
+class _ListPanelPopup(BaseFlyout):
+    """Tiny popup shell hosting one ListPanel — the picker assembly example."""
+
+    item_chosen = Signal(int)
+
+    def __init__(self, parent_widget):
+        super().__init__(parent_widget)
+        self.panel = ListPanel(
+            list_num=1,
+            item_height=34,
+            item_font=None,
+            get_current_index=lambda list_num: 0,
+            on_item_selected=lambda list_num, index: self.item_chosen.emit(index),
+            on_item_context_menu=lambda *args, **kwargs: None,
+            on_reorder=lambda *args, **kwargs: None,
+            on_move_between_lists=lambda *args, **kwargs: None,
+            on_update_drop_indicator=lambda pos: None,
+            on_clear_drop_indicator=lambda: None,
+        )
+        self.content_layout.addWidget(self.panel)
 
 
 def _trigger(text: str, on_click) -> Button:
@@ -186,46 +238,69 @@ class FlyoutsPage(GalleryPage):
             "целиком собрано через add_row/add_radio_row.",
         )
 
-        unified_holder = QWidget()
-        ul = QVBoxLayout(unified_holder)
-        ul.setContentsMargins(0, 0, 0, 0)
-        ul.setSpacing(6)
-        anchors_row = QWidget()
-        anchors_layout = QHBoxLayout(anchors_row)
-        anchors_layout.setContentsMargins(0, 0, 0, 0)
-        anchors_layout.setSpacing(8)
-        self._unified_anchor_left = ScrollableComboBox()
-        self._unified_anchor_right = ScrollableComboBox()
-        self._unified_anchor_left.setFixedWidth(220)
-        self._unified_anchor_right.setFixedWidth(220)
-        left_items_text = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
-        right_items_text = ["One", "Two", "Three", "Four"]
-        self._unified_anchor_left.updateState(
-            count=len(left_items_text), current_index=0,
-            text=left_items_text[0], items=left_items_text,
+        # --- ListPanel: example of assembling a list picker from library
+        # widgets: a generic ListPanel + a host-built row + BaseFlyout shell.
+        list_holder = QWidget()
+        ll = QVBoxLayout(list_holder)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.setSpacing(6)
+        self._list_popup = None
+        self._list_anchor = ScrollableComboBox()
+        self._list_anchor.setFixedWidth(220)
+        list_items_text = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
+        self._list_anchor.updateState(
+            count=len(list_items_text), current_index=0,
+            text=list_items_text[0], items=list_items_text,
         )
-        self._unified_anchor_right.updateState(
-            count=len(right_items_text), current_index=0,
-            text=right_items_text[0], items=right_items_text,
-        )
-        anchors_layout.addWidget(self._unified_anchor_left)
-        anchors_layout.addWidget(self._unified_anchor_right)
-        anchors_layout.addStretch()
-        ul.addWidget(anchors_row)
-
-        self._unified_flyout: UnifiedFlyout | None = None
-        self._unified_left_items = [UnifiedFlyoutItem(t) for t in left_items_text]
-        self._unified_right_items = [UnifiedFlyoutItem(t) for t in right_items_text]
-        self._unified_anchor_left.clicked.connect(lambda: self._open_unified_single(1))
-        self._unified_anchor_right.clicked.connect(lambda: self._open_unified_single(2))
-        self._unified_status = Label("Кликните по любой кнопке списка.", pixel_size=11)
-        ul.addWidget(self._unified_status)
+        self._list_anchor.clicked.connect(self._open_list_panel)
+        ll.addWidget(self._list_anchor)
+        self._list_status = Label("Кликните по кнопке списка.", pixel_size=11)
+        ll.addWidget(self._list_status)
         self.add_card(
-            "UnifiedFlyout (double list)",
-            unified_holder,
-            "Две горизонтальные кнопки-якоря открывают соответствующий список.",
+            "ListPanel (assembled picker)",
+            list_holder,
+            "Пример сборки из примитивов: generic ListPanel + собственная строка "
+            "(row factory) + BaseFlyout как оболочка поп-апа.",
         )
 
+        self.add_stretch()
+
+    # -------- ListPanel example (assembly pattern) --------
+
+    def _open_list_panel(self) -> None:
+        popup = self._ensure_list_popup()
+        if popup.isVisible():
+            popup.hide()
+            return
+        popup.show_aligned(
+            self._list_anchor,
+            anchor_point="bottom-center",
+            flyout_point="top-center",
+            offset=6,
+        )
+
+    def _ensure_list_popup(self) -> "_ListPanelPopup":
+        if self._list_popup is None:
+            self._list_popup = _ListPanelPopup(self.window())
+            self._list_popup.panel.set_row_factory(_demo_row_factory)
+            self._list_popup.item_chosen.connect(self._on_list_item_chosen)
+            self._list_popup.panel.clear_and_rebuild(
+                [type("_I", (), {"display_name": n})() for n in
+                 ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]],
+                item_height=34,
+                item_font=None,
+                list_type="default",
+                current_index=0,
+            )
+        return self._list_popup
+
+    def _on_list_item_chosen(self, index: int) -> None:
+        names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"]
+        if 0 <= index < len(names):
+            self._list_anchor.setCurrentIndex(index)
+            self._list_status.setText(f"Выбран '{names[index]}'")
+
+    def _show_simple(self, anchor: Button) -> None:
         self.add_stretch()
 
     def _show_simple(self, anchor: Button) -> None:
@@ -314,35 +389,3 @@ class FlyoutsPage(GalleryPage):
     def _schedule_indexed_hide(self) -> None:
         if self._indexed_flyout is not None:
             self._indexed_flyout.schedule_auto_hide(250)
-
-    def _ensure_unified_flyout(self) -> UnifiedFlyout:
-        if self._unified_flyout is None:
-            self._unified_flyout = UnifiedFlyout.create_double_list(
-                self.window(),
-                self._unified_anchor_left,
-                self._unified_anchor_right,
-                left_items=self._unified_left_items,
-                right_items=self._unified_right_items,
-                current_left=self._unified_anchor_left.currentIndex(),
-                current_right=self._unified_anchor_right.currentIndex(),
-            )
-            self._unified_flyout.item_chosen.connect(self._on_unified_chosen)
-        return self._unified_flyout
-
-    def _open_unified_single(self, list_num: int) -> None:
-        flyout = self._ensure_unified_flyout()
-        anchor = (
-            self._unified_anchor_left if list_num == 1 else self._unified_anchor_right
-        )
-        flyout.showAsSingle(list_num, anchor)
-
-    def _on_unified_chosen(self, list_num: int, index: int) -> None:
-        anchor = (
-            self._unified_anchor_left if list_num == 1 else self._unified_anchor_right
-        )
-        items = self._unified_left_items if list_num == 1 else self._unified_right_items
-        if 0 <= index < len(items):
-            anchor.setCurrentIndex(index)
-            self._unified_status.setText(
-                f"Список {list_num}: выбран '{items[index].display_name}'"
-            )

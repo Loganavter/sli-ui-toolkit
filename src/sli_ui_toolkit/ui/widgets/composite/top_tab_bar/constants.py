@@ -14,6 +14,8 @@ DEFAULT_PANE_RADIUS = 10
 PANE_BORDER_WIDTH = 1.0
 # Keep square page content inside the rounded fill without QWidget masks.
 PANE_CONTENT_INSET = 2
+# Right/top inset of the embedded close button inside a tab.
+TAB_CLOSE_MARGIN = 4
 
 
 def content_inset_for_radii(pane_radii: tuple[int, int, int, int]) -> int:

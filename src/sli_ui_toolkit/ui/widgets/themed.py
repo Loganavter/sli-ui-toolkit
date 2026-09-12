@@ -9,10 +9,19 @@ opt-in per file.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from sli_ui_toolkit.ui.managers.theme_manager import ThemeManager
 
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QWidget
 
-class ThemedWidget:
+    _Base = QWidget
+else:
+    _Base = object
+
+
+class ThemedWidget(_Base):
     """Auto-subscribes to ``ThemeManager.theme_changed`` and repaints.
 
     Subclasses override :meth:`on_theme_changed` for anything beyond a

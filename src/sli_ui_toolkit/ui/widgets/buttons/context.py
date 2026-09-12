@@ -38,6 +38,9 @@ class DrawContext:
     show_underline: bool = False
     underline_color: Any = None
     underline_thickness: float | None = None
+    underline_tongue_reach: float | None = None
+    underline_ring: bool = False
+    underline_fade: bool | None = None
     show_strike_through: bool = False
     is_footer: bool = False
 

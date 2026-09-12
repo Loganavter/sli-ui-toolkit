@@ -13,6 +13,8 @@ For other needs:
 The toolkit implements a custom theme-aware design language with the following principles:
 
 - **Custom-painted controls** — all interactive widgets (checkbox, radio, slider, switch, combobox, spinbox) are painted entirely via `QPainter`, not styled via QSS.
+- **No QSS on toolkit widgets** — toolkit widgets are never styled with `setStyleSheet` (local or app-wide); the painter pipeline owns all visual output. QSS templates (`register_qss_path` with `@token` placeholders) are a host-facing path for native/stock Qt widgets only.
+- **Surface scroll areas** — hosts host scrollable content in `SurfaceScrollArea` (token fill, `dialog.background` by default, or `surface_token=None` transparent mode when an ancestor paints), never in a stock `QScrollArea`: stock scroll viewports auto-fill the QPalette `Window` role, which hosts keep darker than the surface token — the "black substrate".
 - **Smooth animated transitions** — state changes (hover, check, toggle) use `QPropertyAnimation` with `OutCubic` easing and short durations (100–200 ms).
 - **Accent-driven color** — a single accent color (from `ThemeManager`) propagates through all active/focus/selected states.
 - **Light and dark themes** — two palette sets registered at startup; widgets resolve colors from the active palette at paint time. Light mode is a first-class target, and dark mode stays reliable because the same token system drives both palettes.
@@ -50,7 +52,11 @@ button = palette.get("Button")       # Button surface
 
 ### Semantic QSS Tokens
 
-QSS files use `@token` placeholders resolved at theme-apply time:
+QSS files use `@token` placeholders resolved at theme-apply time. These tokens
+target **native/stock Qt widgets** via host QSS sheets
+(`ThemeManager.register_qss_path`). Toolkit widgets never read QSS — they
+resolve tokens directly from the palette at paint time; never style toolkit
+widgets with `setStyleSheet`.
 
 - `@accent` — primary accent
 - `@dialog.text` — text in dialogs
@@ -108,8 +114,17 @@ Common options include `family`, `pixel_size`, `bold`, `italic`, `underline`,
 
 All controls share one **compact density mode**. There is no separate
 "comfortable" / "touch" mode — the toolkit targets tool-dense desktop UIs.
-Defaults below assume a 96-DPI logical baseline; Qt's `devicePixelRatio` keeps
-them sharp on hi-DPI screens without per-widget tuning.
+All px values below are **design px** at `UiScale` factor 1.0; Qt's
+`devicePixelRatio` keeps them sharp on hi-DPI screens without per-widget
+tuning, and the `UiScale` factor multiplies them for interface scaling
+(see [ui_scale](dev-only section below) / the `UiScale` singleton
+reference in `docs/user/API_CATALOG.md`).
+
+Widgets read their constants through `UiScale.scaled_px()` (fonts through
+`UiFont.resolve()` / `base_font()`, icon/corner tokens through
+`read_widget_style()`), so a factor change rescales the whole control —
+including `sizeHint`s and fixed sizes — and re-flows live via
+`scale_changed` → `updateGeometry()` + `update()`.
 
 | Control | Key dimensions | Source constant |
 |---------|---------------|-----------------|
@@ -134,6 +149,13 @@ them sharp on hi-DPI screens without per-widget tuning.
 - **Single density.** No `density="comfortable"` / `density="touch"` switch
   exists. Hosts that need looser spacing should wrap controls in their own
   layouts (extra `QSpacerItem`, larger margins on parent containers).
+- **Interface scaling** (`UiScale`). Independent of the OS/Qt display
+  factor, `UiScale` multiplies all design px — fonts, icons, tokens, and
+  widget geometry — by one factor (safety clamp 0.5–2.5, the same range the
+  Improve-ImgSLI settings UI exposes via "Interface Scale"). `devicePixelRatio`
+  stays at the render/pixmap boundary only; chrome never reads DPR. Widgets
+  that need relayout on factor change subscribe to `UiScale.scale_changed`
+  (same idiom as `ThemedWidget` / `theme_changed`).
 - **Minimum hit target.** 22 px is the smallest interactive size used in the
   toolkit (slider thumb radius doubled, switch track height, small step
   buttons). Buttons default to 44 px, which is comfortably above standard

@@ -7,6 +7,7 @@ If you need something else:
 - integration overview: [../../README.md](../../README.md)
 - public reference: [../user/API_CATALOG.md](../user/API_CATALOG.md)
 - visual conventions: [DESIGN_LANGUAGE.md](DESIGN_LANGUAGE.md)
+- logging convention: [LOGGING.md](LOGGING.md)
 
 ## What This Package Is
 
@@ -136,10 +137,35 @@ Examples:
 - `AdaptiveTabStrip`, which owns tab painting, add/close controls, and
   adaptive close-button layout while the host owns document/session lifecycle
 
+`ui/widgets/composite/adaptive_tab_strip/` is split by widget boundary:
+`widget.py` is the thin host facade (row layout, close-button policy, the
+QTabBar-like surface), `tab_bar.py` is the painted tab bar itself, and
+`close_button.py` is the close-slot machinery (`_CloseButtonSlot`,
+`CloseButtonPolicy`, the tab-background layer).
+
+Same pattern for the other folder splits: `list_panel/` (facade in
+`widget.py`; selection is a state-owning `MarqueeSelectionModel` in
+`selection.py`, drop-target math is pure in `drag_drop.py`, item/position
+transforms are pure in `rows.py`), `sidebar_nav_list/` (facade; row
+spec/factory in `rows.py`, pure icon resolution in `icons.py`, geometry
+debug dump as module functions in `debug.py`), `toast/` (one module per
+class: `progress_bar.py`, `notification.py`, `manager.py`),
+`inspector/code.py` (the Code section is a self-contained
+`CodeSectionEditor` widget), and `text_view/document_mode.py` (the
+document-mode selection state is a plain `DocumentSelection` model —
+widget-free, canvas delegates).
+
+`ui/inspector/` follows the same model: `view.py` holds only
+`InspectorWindow` (tabs/toolbar) + the `_InspectionPane` owner; section
+rendering, the Code section, and the Layout/Constructor trees are mixins in
+`rendering.py` / `code.py` / `tree.py`, with value formatting in
+`fields.py`.
+
 ### 5. Specialized UI families
 
 Folders:
 
+- `ui/widgets/composite/base_flyout/`
 - `ui/widgets/composite/calendar_widget/`
 - `ui/widgets/composite/timeline_widget/`
 - `ui/widgets/composite/sunburst_chart/`
@@ -153,6 +179,25 @@ Responsibilities:
 - widgets that are too large to keep as single-module composites.
 
 If a widget family starts needing private helpers, models, renderers, or interaction controllers, it should become a folder like this.
+
+`base_flyout/` is the flyout shell split by concern: `widget.py` is a thin
+facade; `geometry.py` holds the pure placement math (point specs,
+alignment, slide deltas); `animation.py` owns ALL fade state in a
+`FlyoutFadeController` (the widget only references it); style, content
+building, placement, show/hide lifecycle and the FlyoutManager contract
+live in `style.py` / `builder.py` / `placement.py` / `lifecycle.py` /
+`contract.py`. State-owning helpers take the widget as an explicit
+argument where they must touch it (grab/update); decision logic is pure.
+Mixins precede `QWidget` in the MRO so their overrides
+(`show`/`hide`/`raise_`/`paintEvent`) win while `super()` still resolves
+to QWidget's methods.
+
+The same split applies to `ui/windows/custom_title_bar/` (zones/balance in
+`zones.py`, the min/max/close buttons as a real self-contained child
+widget `WindowControlsCluster` in `window_controls.py` — it owns its own
+buttons, slots and window-state refresh — the drag surface in `drag.py`,
+fill/paint/theme hooks in `appearance.py`); the old module path stays a
+thin re-export shim.
 
 ## Directory Map
 
@@ -208,6 +253,11 @@ Current split:
   Search and ranking helpers.
 - `_models.py`
   Small internal item model.
+- `capabilities/`
+  ComboBox-specific composable gesture/interaction behavior (e.g.
+  `GearDragCapability`, the press-hold/drag-to-scrub gesture), attached via
+  the `Button.attach_capability()` `ComboBox` inherits. Mirrors
+  `buttons/capabilities/` (`ButtonCapability`, `LongPressCapability`).
 - `scrollable_combobox.py`
   Separate lightweight widget with different behavior.
 
@@ -248,6 +298,50 @@ Use this layer for singleton-like or coordination objects such as:
 - `ThemeManager`
 - flyout manager / auto-hide coordination
 - delayed action helpers
+- `NavigationManager` — arrow-key navigation coordinator (see
+  `docs/dev/NAVIGATION.md` for the full trial-dispatch contract and wiring
+  guide)
+- `WidgetDescriptor` / `WidgetRegistry` — unified widget self-description
+
+#### `WidgetDescriptor` (unified widget self-description)
+
+Replaces three parallel systems with one declaration:
+
+| Old system | Section in `WidgetDescriptor` | What it provides |
+|---|---|---|
+| `InspectSpec` | `inspect: InspectSection` | family, config, state, tokens, docs |
+| `NavigationSpec` | `navigation: NavigationSection` | navigate, focus_first, focus_last |
+| `ActionDescriptor` | `action: ActionSection` | action_id, label, shortcut, run |
+
+Widgets declare a `WidgetDescriptor` as a class or instance attribute:
+
+```python
+class MyWidget(QWidget):
+    # Instance-level (set in __init__):
+    def __init__(self):
+        super().__init__()
+        self.widget_descriptor = WidgetDescriptor(
+            family="MyWidget",
+            navigation=my_toolbar_rows_section,  # any NavigationSection impl
+        )
+```
+
+`navigation` holds a `NavigationSection` *implementation* (a
+`ToolbarRowsSection`, `IconListNavSection`, or any other object satisfying
+the `owns`/`navigate`/`focus_first`/`focus_last`/`extra_keys` Protocol in
+`ui/managers/navigation_manager.py`) — it is a Protocol, not a
+constructible dataclass, so build the section itself first and assign it.
+Call `register_navigation(owner)` to read it back off and register it with
+`NavigationManager` — see `docs/dev/NAVIGATION.md` for the full guide,
+including `NavRowBuilder` for accumulating a page's rows in order.
+
+The `WidgetRegistry` singleton collects descriptors. Consumers
+(`NavigationManager`, inspector, palette) query the registry.
+
+**Backward compatibility:** `WidgetRegistry.get_for_class()` auto-converts
+existing `inspect_spec = InspectSpec(...)` declarations to `WidgetDescriptor`
+via `WidgetDescriptor.from_inspect_spec()`. No code changes needed for
+widgets that only use `InspectSpec`.
 
 ### `ui/services/`
 

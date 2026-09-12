@@ -1,3 +1,4 @@
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QConicalGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
@@ -57,3 +58,26 @@ class LoadingSpinner(QWidget):
         path.setFillRule(Qt.FillRule.OddEvenFill)
 
         painter.drawPath(path)
+
+LoadingSpinner.inspect_spec = InspectSpec(
+    family="LoadingSpinner",
+    state=(
+        SpecField("spinning", "is_spinning"),
+        SpecField("angle", "_angle", private=True),
+    ),
+    token_family=("accent",),
+    docs='docs/user/INPUTS_API.md',
+)
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+LoadingSpinner.widget_descriptor = WidgetDescriptor(
+    family=LoadingSpinner.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(LoadingSpinner.inspect_spec, 'config', ()),
+        state=LoadingSpinner.inspect_spec.state,
+        token_family=getattr(LoadingSpinner.inspect_spec, 'token_family', ()),
+        regions=getattr(LoadingSpinner.inspect_spec, 'regions', False),
+        layers=getattr(LoadingSpinner.inspect_spec, 'layers', False),
+        docs=getattr(LoadingSpinner.inspect_spec, 'docs', ''),
+    ),
+)

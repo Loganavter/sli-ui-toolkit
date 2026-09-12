@@ -37,6 +37,7 @@ FLUENT_LIGHT = {
     "button.dialog.default.background": QColor("#ffffff"),
     "button.dialog.default.background.hover": QColor("#f8f8f8"),
     "button.dialog.default.background.pressed": QColor("#e9e9e9"),
+    "button.dialog.default.background.disabled": QColor("#e0e0e0"),
     "button.dialog.default.border": QColor("#1E000000"),
     "button.dialog.default.bottom.edge": QColor("#32000000"),
     "button.primary.background": QColor("#100078D4"),
@@ -97,6 +98,7 @@ FLUENT_LIGHT = {
     "button.toggle.background.pressed": QColor("#dcdcdc"),
     "button.toggle.background.checked": QColor("#c0c0c0"),
     "button.toggle.background.checked.hover": QColor("#b0b0b0"),
+    "button.toggle.background.disabled": QColor("#e2e2e2"),
 }
 
 FLUENT_DARK = {
@@ -121,6 +123,7 @@ FLUENT_DARK = {
     "button.dialog.default.background": QColor("#3c3c3c"),
     "button.dialog.default.background.hover": QColor("#4a4a4a"),
     "button.dialog.default.background.pressed": QColor("#555555"),
+    "button.dialog.default.background.disabled": QColor("#2e2e2e"),
     "button.dialog.default.border": QColor("#26FFFFFF"),
     "button.dialog.default.bottom.edge": QColor("#1EFFFFFF"),
     "button.primary.background": QColor("#180096FF"),
@@ -181,6 +184,7 @@ FLUENT_DARK = {
     "button.toggle.background.pressed": QColor("#353535"),
     "button.toggle.background.checked": QColor("#555555"),
     "button.toggle.background.checked.hover": QColor("#606060"),
+    "button.toggle.background.disabled": QColor("#2b2b2b"),
 }
 
 __all__ = ["FLUENT_LIGHT", "FLUENT_DARK"]

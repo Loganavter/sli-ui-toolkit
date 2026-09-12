@@ -2,7 +2,7 @@ from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTime, QTimer
 from PySide6.QtGui import QColor, QFont, QKeyEvent, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy
 
-from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
+from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit, TextAlignment
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.context import DrawContext
@@ -54,7 +54,7 @@ class TimeLineEdit(WheelScrollPolicyMixin, CustomLineEdit):
         initial_time: str = "00:05",
         parent=None,
         *,
-        alignment=Qt.AlignmentFlag.AlignCenter,
+        alignment: TextAlignment = Qt.AlignmentFlag.AlignCenter,
         show_step_buttons: bool = True,
         wheel_requires_focus: bool = False,
         underline_color: QColor | None = None,
@@ -116,8 +116,8 @@ class TimeLineEdit(WheelScrollPolicyMixin, CustomLineEdit):
     def minimumSizeHint(self) -> QSize:
         return QSize(self._content_width(), 32)
 
-    def setText(self, text: str):
-        normalized = self._normalize_text(text)
+    def setText(self, text: str | None):
+        normalized = self._normalize_text(text or "")
         if normalized is None:
             normalized = self._last_valid_text
         self._last_valid_text = normalized

@@ -71,3 +71,45 @@ def test_checkbox_hover_hit_test_ignores_empty_widget_area(qapp):
     assert not checkbox.hoverHitTest(QPointF(checkbox.width() - 2, checkbox.height() / 2))
 
     checkbox.deleteLater()
+
+
+def test_button_set_hover_active_lights_region_without_position(qapp, monkeypatch):
+    """setHoverActive(True) must activate hover (HoverCoordinator contract).
+
+    Regression: only the False branch existed, so coordinator-driven
+    activation (widget slid under a stationary cursor, flyout opened under
+    it) silently never lit — e.g. +/- buttons in virtualized lists.
+    """
+    from PySide6.QtCore import QPoint
+
+    from sli_ui_toolkit.ui.widgets.buttons import events as button_events
+    from sli_ui_toolkit.widgets import Button
+
+    button = Button(text="card")
+    button.resize(120, 36)
+    button.show()
+    qapp.processEvents()
+
+    center = button.mapToGlobal(button.rect().center())
+
+    class _CursorAtButton:
+        @staticmethod
+        def pos() -> QPoint:
+            return center
+
+    monkeypatch.setattr(button_events, "QCursor", _CursorAtButton)
+
+    button.setHoverActive(False)
+    assert button._hovered_region is None
+    button.setHoverActive(True)
+    assert button._hovered_region is not None
+    assert button._hovered_region in {region.id for region in button._regions}
+
+    # Idempotent while lit: repeated True calls keep state, no crash.
+    button.setHoverActive(True)
+    assert button._hovered_region is not None
+
+    button.setHoverActive(False)
+    assert button._hovered_region is None
+
+    button.deleteLater()

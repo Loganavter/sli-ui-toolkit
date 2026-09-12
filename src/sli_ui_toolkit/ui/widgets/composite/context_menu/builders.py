@@ -8,6 +8,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QWidget
 
+from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.ui.widgets.composite.context_menu.menu import ContextMenu
 from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
     ContextMenuAction,
@@ -132,6 +133,20 @@ def show_context_menu(
     return menu
 
 
+def _context_menu_animation(animation: str | None) -> str:
+    """Resolve a context-menu show animation.
+
+    An explicit per-call value wins; otherwise the process-wide
+    ``FlyoutTimingConfig.default_flyout_animation`` applies; with no global
+    configured (or explicitly ``"none"``), the historical ``"slide"`` is kept
+    so hosts that never touch the config keep the previous slide-in menus.
+    """
+    if animation is not None:
+        return animation if animation else "none"
+    default = get_flyout_timings().default_flyout_animation
+    return default if default and default != "none" else "slide"
+
+
 def popup_context_menu_for_anchor(
     parent: QWidget,
     anchor: QWidget,
@@ -142,6 +157,7 @@ def popup_context_menu_for_anchor(
     anchor_point: str = "bottom-left",
     flyout_point: str = "top-left",
     offset: int = 2,
+    animation: str | None = None,
     animation_distance: int | None = None,
     animation_duration_ms: int | None = None,
 ) -> ContextMenu:
@@ -164,7 +180,7 @@ def popup_context_menu_for_anchor(
 
     if existing is not None:
         try:
-            from shiboken6 import isValid
+            from shiboken6 import isValid  # type: ignore[attr-defined]
 
             alive = bool(isValid(existing))
         except Exception:
@@ -189,7 +205,7 @@ def popup_context_menu_for_anchor(
         anchor_point=anchor_point,
         flyout_point=flyout_point,
         offset=offset,
-        animation="slide",
+        animation=_context_menu_animation(animation),
         animation_axis="vertical",
         animation_distance=animation_distance,
         animation_duration_ms=animation_duration_ms,

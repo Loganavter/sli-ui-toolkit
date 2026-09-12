@@ -343,6 +343,54 @@ def test_grouped_ripple_paints_once_over_united_rect_including_gap(qtbot):
     assert applies == [("left", True), ("right", False)]
 
 
+def test_plain_group_paints_one_united_fill(qtbot):
+    """Plain (rect, no corner_radii) group members share ONE fill.
+
+    The first member's fill path covers the united group rect and the
+    siblings' fill paths are empty — abutting per-region fills left an
+    antialiased seam at the split boundary (and overlap nudges double-tinted
+    it), so the row hover must be a single seamless wash.
+    """
+    from PySide6.QtCore import QRectF
+
+    button = _show(
+        Button(
+            regions=[
+                ButtonRegion(id="main", text="L", group="row", weight=1.0),
+                ButtonRegion(id="shortcut", text="R", group="row", weight=1.0),
+            ],
+            split=HorizontalSplit(),
+            size=(120, 36),
+        ),
+        qtbot,
+    )
+    main_rect = button._controller.rects["main"]
+    shortcut_rect = button._controller.rects["shortcut"]
+
+    main_fill = button._controller.fill_paths["main"]
+    shortcut_fill = button._controller.fill_paths["shortcut"]
+
+    # First member paints the whole group; sibling paints nothing.
+    assert shortcut_fill.isEmpty()
+    expected = main_rect.united(shortcut_rect)
+    actual = main_fill.boundingRect()
+    assert (
+        pytest.approx((actual.x(), actual.y(), actual.width(), actual.height()))
+        == (expected.x(), expected.y(), expected.width(), expected.height())
+    )
+
+    # Ungrouped single-region fill stays the plain region path.
+    solo = _show(Button(text="S", size=(60, 36)), qtbot)
+    solo_fill = solo._controller.fill_paths["_main"]
+    assert not solo_fill.isEmpty()
+    solo_rect = solo._controller.rects["_main"]
+    solo_box = solo_fill.boundingRect()
+    assert (
+        pytest.approx((solo_box.x(), solo_box.y(), solo_box.width(), solo_box.height()))
+        == (solo_rect.x(), solo_rect.y(), solo_rect.width(), solo_rect.height())
+    )
+
+
 def test_grouped_ripple_survives_sibling_background_overpaint(qtbot):
     """Sibling BackgroundLayer must not clip the shared group wave to the owner half.
 
@@ -549,3 +597,45 @@ def test_grouped_checked_does_not_leak_across_groups(qtbot):
     button.setRegionChecked("plate", True)
     assert ButtonState.CHECKED in button.region_states("plate")
     assert ButtonState.CHECKED not in button.region_states("run")
+
+
+def test_subregion_clip_applied_with_path_fn_without_rect_fn_hack(qtbot):
+    """Path clip in BackgroundLayer must be applied when path_fn is present even if rect_fn is omitted."""
+    from sli_ui_toolkit.ui.widgets.buttons.layers.background import BackgroundLayer
+
+    path = QPainterPath()
+    path.addEllipse(10, 10, 20, 20)
+
+    button = Button(
+        regions=[
+            ButtonRegion(
+                id="circle",
+                path_fn=lambda r: path,
+                override_bg_color=QColor("#ff0000"),
+            )
+        ],
+        size=(40, 40),
+    )
+    _show(button, qtbot)
+
+    layer = BackgroundLayer()
+    img = QImage(button.size(), QImage.Format.Format_ARGB32)
+    painter = QPainter(img)
+    ctx = button._make_context(painter)
+    scoped_list = list(button.iter_regions(ctx))
+
+    # is_subregion must evaluate to True because path_fn is present
+    backgrounds, border_color = layer._resolve(scoped_list[0], button.theme_manager)
+    region_rect = scoped_list[0].effective_rect
+    is_subregion = (
+        scoped_list[0].region_id is not None
+        and region_rect is not None
+        and (
+            region_rect != scoped_list[0].rect
+            or scoped_list[0].region_path is not None
+            or scoped_list[0].region_corner_radii is not None
+        )
+    )
+    painter.end()
+
+    assert is_subregion is True

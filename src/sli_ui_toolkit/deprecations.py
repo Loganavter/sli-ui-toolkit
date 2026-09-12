@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, NoReturn
 import warnings
 
 
@@ -71,7 +71,7 @@ def resolve_deprecated_attribute(
     return values[name]
 
 
-def raise_missing_attribute(module_name: str, name: str) -> None:
+def raise_missing_attribute(module_name: str, name: str) -> NoReturn:
     raise AttributeError(
         f"module {module_name!r} has no attribute {name!r}. "
         "If this was a removed compatibility import, check CHANGELOG.md for "

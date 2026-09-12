@@ -128,7 +128,7 @@ class SunburstChartWidget(QWidget):
         main_font = self._fit_font(text, base_size, bold=True, max_width=max_width)
         sub_font = None
         if sub_text:
-            sub_base = max(8, main_font.pointSize() - 3)
+            sub_base = max(8, base_size - 3)
             sub_font = self._fit_font(sub_text, sub_base, bold=False, max_width=max_width)
 
         main_text = self._elide(text, main_font, max_width)

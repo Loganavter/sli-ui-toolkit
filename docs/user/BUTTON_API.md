@@ -152,6 +152,42 @@ when converting between the imperative (`Button(show_underline=...)`) and
 declarative (`ButtonSpec`) constructors — setting them on any other region
 has no visual effect; there is no per-region underline override.
 
+`underline_color` also accepts a `list[QColor]`, splitting the underline
+into N equal-width vertical zones (one color each) — used e.g. by a "smart
+color settings" button that shows several independently-colored features
+under one icon. Only the true left/right ends of the whole strip get a
+rounded end cap; interior zone boundaries are plain flush seams.
+
+The underline's shape (not just its color/thickness) is configurable via
+`underline_tongue_reach` and `underline_ring`, both constructor kwargs and
+`setUnderlineTongueReach`/`setUnderlineRing` setters:
+
+- `underline_thickness` has no upper cap. The band is built from rounded-rect
+  path boolean ops (`outer.intersected(strip)` minus an inward-shrunk
+  `inner`), so it is geometrically impossible for it to spill past the
+  button's own rounded silhouette, no matter how thick — unlike the old
+  stroked-arc implementation, which visibly overflowed into square corners
+  once `thickness` exceeded the corner radius.
+- `underline_tongue_reach` (px, default `None`) caps how high the end caps
+  ("tongues") are allowed to climb up the sides, independent of thickness:
+  `0` gives hard square corners (no rounding followed at all); `None`
+  matches the button's own corner radius (the old default look); any larger
+  value lets the ends climb further up the sides. If `thickness` would need
+  more room than the corner radius provides, the extra fill grows *upward*
+  toward `tongue_reach`, never sideways past the rounding.
+- `underline_ring=True` ignores `tongue_reach` and draws a closed frame
+  (outline) around the entire button instead of just a bottom band — still
+  split into `underline_color`'s zones by the same vertical x-slicing.
+
+The true left/right ends additionally fade from transparent at the tip to
+full alpha, over a small fixed physical size (not scaled by `thickness` or
+`tongue_reach` — a value tied to either would either drown a short tongue
+entirely in fade or be invisible against a tall one). The fade only applies
+while `thickness < tongue_reach`, i.e. while the end is still an actual
+taper; once `thickness` reaches or exceeds `tongue_reach` the end is just a
+flat block by construction, and a gradient over a flat block reads as a
+smeared edge rather than a taper, so it's skipped.
+
 Regions may also use arbitrary `QPainterPath` hit areas. `rect_fn` supplies the
 region's content/bounding rect, `path_fn` supplies the true clickable/painted
 shape, and `z_index` controls overlapping hit priority.
@@ -189,10 +225,24 @@ Background, content, ripple, and hit-testing are clipped to the path. Dividers
 are still layout-line based; custom path-shaped separators should be rendered
 as a dedicated layer.
 
+#### High-level overlay painter & custom layers
+
+To draw custom decorations or outlines over a button without subclassing `Layer` or replacing default layers, pass `overlay_painter=`:
+
+```python
+def draw_outline(painter: QPainter, rect: QRectF):
+    painter.drawPath(my_custom_path)
+
+btn = Button(text="Custom", overlay_painter=draw_outline)
+```
+
+`overlay_painter` accepts a callback with signature `(painter, rect)` or `(painter, ctx, tm)` and executes automatically at the end of the widget-scoped paint pass.
+
+To append custom `Layer` objects to the default pipeline without replacing it, pass `extra_layers=[...]`.
+
 #### Custom `layers=` and paint order
 
-`Button(..., layers=[...])` replaces the default painter pipeline. Each layer
-declares a `scope`:
+`Button(..., layers=[...])` replaces the default painter pipeline entirely. `Layer`, `DrawContext`, `default_layers`, and built-in layer classes (`BackgroundLayer`, `RippleLayer`, `ContentLayer`, `BadgeLayer`, etc.) are importable from `sli_ui_toolkit.widgets`. Each layer declares a `scope`:
 
 | `scope` | When it runs |
 |---------|----------------|
@@ -537,6 +587,7 @@ Button(
     variant: str = "default",
     density: str = "normal",
     defer_click: bool | int | str | None = None,
+    text_fit: bool = False,
     regions: list[ButtonRegion] | None = None,
     split: SplitLayout | None = None,
     divider: Divider | None = None,
@@ -558,6 +609,10 @@ Button(
 | `long_press_ms` | `int` | `600` | Time (ms) before long-press triggers |
 | `badge` | `int` | `None` | Number badge (top-right corner) |
 | `show_underline` | `bool` | `False` | Show underline decoration |
+| `underline_color` | `QColor \| list[QColor]` | `None` | Underline color, or a list to split it into equal-width colored zones |
+| `underline_thickness` | `float` | `None` | Underline thickness in px. Uncapped — never overflows the button's rounding regardless of value |
+| `underline_tongue_reach` | `float` | `None` | How high (px) the underline's end caps climb the sides. `0` = square ends, `None` = matches corner radius |
+| `underline_ring` | `bool` | `False` | Draw the underline as a closed frame around the whole button instead of a bottom band |
 | `menu` | `list[tuple]` | `None` | Dropdown menu items: [(label, action), ...] |
 | `size` | `(int, int)` | `(36, 36)` | Fixed size (width, height) |
 | `icon_size` | `int` | `22` | Icon pixel size |
@@ -566,6 +621,7 @@ Button(
 | `variant` | `str` | `"default"` | Color variant: "default", "surface", "ghost". Deprecated aliases warn. |
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
 | `defer_click` | `bool \| int \| str \| None` | `None` | `None` inherits `get_default_defer_click()`; `False` sync; `True` next tick; `int` ms; `"ripple"` awaits `get_ripple_duration_ms()` (see [Press animations](#press-animations--blocking-handlers)) |
+| `text_fit` | `bool` | `False` | Grow with the parent row up to the full text width, compress below it. `sizeHint` tracks the parent layout's available width (margins + preceding siblings) capped at the text width; `minimumSizeHint` stays tiny so a scroll content can always shrink the button. Pair with a **trailing `addStretch(1)`** in the row (a stretch/Expanding item right-anchors its widget in Qt) and a row `marquee=True` for overflowing text. `text=` and `rows=` both work. |
 | `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the flat constructor params. |
 | `split` | `SplitLayout` | `None` | Geometry strategy for regions: `HorizontalSplit`, `VerticalSplit`, `GridSplit`, or `CustomSplit`. |
 | `divider` | `Divider` | `None` | Optional whole-widget divider between regions. |
@@ -733,7 +789,7 @@ from sli_ui_toolkit.ui.widgets.buttons import ButtonRow
 
 row = ButtonRow(
     text='Row text',
-    size=12,                                    # Font pixel size
+    size=12,                                    # Font pixel size, or None = default UI font
     weight='normal',                            # 'normal' or 'bold'
     color=QColor('blue'),                       # Text color (optional)
     ratio=0.5,                                  # Height fraction of button
@@ -741,6 +797,14 @@ row = ButtonRow(
     marquee=False,                              # Loop left→right when text overflows
 )
 ```
+
+`size=None` renders the row with the current default UI font
+(`ui_font()`, point-based) instead of an explicit pixel size — use it when the
+row's text must match the host's normal text (e.g. `SimpleOptionsFlyout`
+default rows). Hosts sizing panels around such rows should measure with
+`measure_text_width` (from `sli_ui_toolkit.widgets`) — plain
+`QFontMetrics.horizontalAdvance` under-measures some UI fonts and the panel
+then clips the painted text.
 
 When ``marquee=True`` and the painted text is wider than the row, `Button`
 scrolls that **single** row left→right via the shared
@@ -866,6 +930,31 @@ btn = Button(
 btn.toggled.connect(lambda checked: print(f"Date selected: {checked}"))
 ```
 
+### Fit-to-content path button
+
+Grows with the window only until the path fits fully, compresses below it
+(marquee scrolls the overflow), and stays left-anchored in the row:
+
+```python
+from PySide6.QtWidgets import QHBoxLayout, QWidget
+from sli_ui_toolkit.ui.widgets.buttons import Button, ButtonRow
+
+row = QWidget()
+lay = QHBoxLayout(row)
+lay.setContentsMargins(0, 0, 0, 0)
+lay.setSpacing(6)
+lay.addWidget(Label('path', pixel_size=13, bold=True))
+button = Button(
+    rows=[ButtonRow(text='/long/path/to/file.py:42', size=None, ratio=1.0, marquee=True)],
+    variant='surface',
+    size=(0, 26),
+    text_fit=True,
+)
+button.setToolTip('/long/path/to/file.py:42')
+lay.addWidget(button)
+lay.addStretch(1)  # the leftover space goes after the button
+```
+
 ### Custom Styling
 
 ```python
@@ -882,6 +971,9 @@ btn.set_override_bg_color(QColor('#0066cc'))
 # Add underline
 btn.setShowUnderline(True)
 btn.setUnderlineColor(QColor('white'))
+btn.setUnderlineThickness(11.0)       # px; no upper cap — geometry bounds itself
+btn.setUnderlineTongueReach(18.0)     # px the end caps climb; 0 = square ends
+# btn.setUnderlineRing(True)          # closed frame around the whole button instead
 
 # Add error indicator
 btn.set_show_strike_through(True)

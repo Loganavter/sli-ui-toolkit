@@ -5,6 +5,9 @@ import math
 from typing import Any
 
 from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtGui import QColor
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+
 from . import viewport as timeline_viewport
 
 logger = logging.getLogger(__name__)
@@ -194,7 +197,7 @@ def rebuild_row_layout(widget) -> None:
         return
 
     for group in widget._timeline_model.groups.values():
-        group_items = []
+        group_items: list[tuple] = []
         for track in group.tracks.values():
             if not should_show_track(widget, track):
                 continue
@@ -319,11 +322,11 @@ def rows_height(widget) -> int:
 
 def ensure_preferred_height(widget) -> None:
     final_height = max(
-        120,
+        scaled_px(120),
         widget.STRIP_HEIGHT
         + widget.RULER_HEIGHT
         + widget.SCROLLBAR_STRIP_HEIGHT
-        + max(widget.TRACK_ROW_HEIGHT * 2, 40),
+        + max(widget.TRACK_ROW_HEIGHT * 2, scaled_px(40)),
     )
     widget.setMinimumHeight(final_height)
     timeline_viewport.update_vertical_scrollbar(widget)
@@ -388,6 +391,35 @@ def _is_track_active(widget, track, channel, timestamp: float) -> bool:
     """Internal wrapper that delegates to the callback-based is_track_active."""
     return is_track_active(widget, track, channel, timestamp)
 
+def _channel_value_at_timestamp(channel, timestamp: float, *, prefer_exact: bool = False):
+    if channel is None:
+        return None
+    keyframes = channel.keyframes
+    if not keyframes:
+        return None
+    if prefer_exact:
+        exact_value = None
+        for keyframe in keyframes:
+            if math.isclose(float(keyframe.timestamp), float(timestamp), abs_tol=1e-9):
+                exact_value = keyframe.value
+            elif float(keyframe.timestamp) > float(timestamp):
+                break
+        if exact_value is not None:
+            return exact_value
+    return _evaluate_channel_at_timestamp(channel, timestamp)
+
+def _color_track_value(track, timestamp: float) -> QColor | None:
+    r = _channel_value_at_timestamp(track.channels.get("r"), timestamp, prefer_exact=True)
+    g = _channel_value_at_timestamp(track.channels.get("g"), timestamp, prefer_exact=True)
+    b = _channel_value_at_timestamp(track.channels.get("b"), timestamp, prefer_exact=True)
+    a = _channel_value_at_timestamp(track.channels.get("a"), timestamp, prefer_exact=True)
+    if None in {r, g, b}:
+        return None
+    try:
+        return QColor(int(r), int(g), int(b), int(a if a is not None else 255))
+    except (TypeError, ValueError):
+        return None
+
 def _activity_boundary_timestamps(widget, track, channel, start_ts: float, end_ts: float) -> list[float]:
     boundaries: list[float] = [float(start_ts), float(end_ts)]
 
@@ -441,7 +473,7 @@ def visible_keyframe_segments(
         if x < start_x - 12.0 or x > end_x + 12.0:
             return []
         point_y = row_center_y if is_active_bool_channel else row_center_y - stagger_px
-        return [(x, point_y, x, keyframe, keyframe)]
+        return [_segment_payload(x, point_y, x, keyframe, keyframe)]
 
     segments: list[dict[str, Any]] = []
     left_bound = start_x - 12.0

@@ -12,12 +12,17 @@ from sli_ui_toolkit.ui.widgets.composite.context_menu import (
     ContextMenuSeparator,
     entries_from_callbacks,
     entries_from_labeled_data,
+    measure_text_width,
     popup_context_menu_for_anchor,
     show_context_menu,
 )
 from sli_ui_toolkit.ui.widgets.composite.icon_action_flyout import (
     IconAction,
     IconActionFlyout,
+)
+from sli_ui_toolkit.ui.widgets.composite.list_panel import (
+    ListPanel,
+    ListRowSpec,
 )
 from sli_ui_toolkit.ui.widgets.composite.dialog_shell import (
     ScrollableDialogPage,
@@ -28,6 +33,13 @@ from sli_ui_toolkit.ui.widgets.composite.log_console_widget import (
     LogConsoleWidget,
 )
 from sli_ui_toolkit.ui.widgets.composite.help_document import HelpDocumentView
+from sli_ui_toolkit.ui.widgets.composite.text_view import (
+    TextCanvas,
+    TextSelection,
+    TextView,
+    python_line_spans,
+    python_span_colors,
+)
 from sli_ui_toolkit.ui.widgets.composite.markdown_help_dialog import (
     MarkdownHelpDialog,
     MarkdownHelpSection,
@@ -58,13 +70,6 @@ from sli_ui_toolkit.ui.widgets.composite.toast import ToastAction
 from sli_ui_toolkit.ui.widgets.composite.toast import ToastNotification
 from sli_ui_toolkit.ui.widgets.composite.toast import ToastManager
 from sli_ui_toolkit.ui.widgets.composite.toast import ToastProgressBar
-from sli_ui_toolkit.ui.widgets.composite.unified_flyout import (
-    FlyoutMode,
-    SimpleUnifiedFlyoutController,
-    SimpleUnifiedFlyoutStore,
-    UnifiedFlyout,
-    UnifiedFlyoutItem,
-)
 from sli_ui_toolkit.ui.widgets.composite.sunburst_chart import (
     SunburstChartWidget,
     SunburstSegmentData,
@@ -95,6 +100,7 @@ __all__ = [
     "ContextMenuSeparator",
     "entries_from_callbacks",
     "entries_from_labeled_data",
+    "measure_text_width",
     "popup_context_menu_for_anchor",
     "IconAction",
     "IconActionFlyout",
@@ -107,6 +113,11 @@ __all__ = [
     "LogConsoleEntry",
     "LogConsoleWidget",
     "HelpDocumentView",
+    "TextView",
+    "TextCanvas",
+    "TextSelection",
+    "python_line_spans",
+    "python_span_colors",
     "MarkdownHelpDialog",
     "MarkdownHelpSection",
     "NonPropagatingTextEdit",
@@ -120,11 +131,7 @@ __all__ = [
     "ToastNotification",
     "ToastManager",
     "ToastProgressBar",
-    "UnifiedFlyout",
-    "UnifiedFlyoutItem",
-    "SimpleUnifiedFlyoutStore",
-    "SimpleUnifiedFlyoutController",
-    "CalendarDayButton",
+                    "CalendarDayButton",
     "CalendarDayInfo",
     "CalendarMonthInfo",
     "CalendarViewModel",

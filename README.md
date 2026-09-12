@@ -1,5 +1,9 @@
 # SLI UI Toolkit
 
+[![PyPI](https://img.shields.io/pypi/v/sli-ui-toolkit)](https://pypi.org/project/sli-ui-toolkit/)
+[![CI](https://github.com/Loganavter/sli-ui-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/Loganavter/sli-ui-toolkit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Reusable PySide6 widgets and UI infrastructure for compact desktop tools.
 
 SLI stands for **Shared Lightweight Interface**. Host-specific icons,
@@ -95,11 +99,20 @@ Hosts can inject app-specific behavior at startup:
   Supplies icon lookup for app icon enums, names, or resources.
 - `configure_toolkit(...)`
   Supplies overlay placement and timing defaults for flyouts and popups.
+- `ThemeManager.get_instance().register_palettes(...)` / `.set_theme(...)`
+  Registers color tokens and picks the active light/dark theme.
 - `configure_i18n(...)`
   Supplies translation roots and language handling.
+- `setup_logging(...)`
+  Routes toolkit log records into the host app's own logger/handlers.
+- `install_application_tooltips(app)`
+  Installs the toolkit's themed hover-tooltip behavior app-wide.
 
-Minimal apps can use bundled toolkit icons and skip these hooks. Larger host
-apps should configure them once during startup.
+Minimal apps can use bundled toolkit icons, the built-in palette, and English
+strings, and skip all of these hooks. Larger host apps should configure them
+once during startup — see
+**[Configuration Guide](docs/user/CONFIGURATION.md)** for the full startup
+sequence, every parameter, and what happens if a hook is skipped.
 
 ## Public Import Layers
 
@@ -124,6 +137,7 @@ inside toolkit internals, or only when no public export exists yet.
 ## Documentation
 
 - [User docs](docs/user/README.md)
+- [Configuration guide](docs/user/CONFIGURATION.md)
 - [Full public API](docs/user/API_CATALOG.md)
 - [Button API](docs/user/BUTTON_API.md)
 - [Developer docs](docs/dev/README.md)
@@ -148,3 +162,7 @@ inside toolkit internals, or only when no public export exists yet.
   widgets.
 - Light and dark themes are both first-class. Avoid hard-coded colors in custom
   widgets; use theme tokens.
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.

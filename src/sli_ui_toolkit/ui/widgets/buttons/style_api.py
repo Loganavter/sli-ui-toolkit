@@ -11,17 +11,15 @@ setProperty, setFixedSize…).
 
 from __future__ import annotations
 
-from typing import Any
-import warnings
+from typing import Any, Callable
 
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QColor, QCursor
+from PySide6.QtGui import QColor, QCursor, QFontMetrics
 
 from sli_ui_toolkit.deprecations import BUTTON_PRIMARY_VARIANT, warn_deprecated
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
-
-
-_MAX_UNDERLINE_THICKNESS = 3.0
 
 
 def normalize_content_padding(
@@ -37,7 +35,8 @@ def normalize_content_padding(
             raise ValueError(
                 f"content_padding tuple must have 4 elements (left, top, right, bottom), got {len(padding)}"
             )
-        return tuple(max(0.0, float(v)) for v in padding)
+        left, top, right, bottom = padding
+        return (max(0.0, float(left)), max(0.0, float(top)), max(0.0, float(right)), max(0.0, float(bottom)))
     value = max(0.0, float(padding))
     return (value, value, value, value)
 
@@ -45,26 +44,43 @@ def normalize_content_padding(
 def _normalize_underline_thickness(thickness: float | None) -> float | None:
     if thickness is None:
         return None
-    normalized = max(0.0, float(thickness))
-    if normalized > _MAX_UNDERLINE_THICKNESS:
-        warnings.warn(
-            (
-                "Button underline thickness is capped at "
-                f"{_MAX_UNDERLINE_THICKNESS:.1f}px; got {normalized:.1f}px."
-            ),
-            RuntimeWarning,
-            stacklevel=3,
-        )
-        return _MAX_UNDERLINE_THICKNESS
-    return normalized
+    return max(0.0, float(thickness))
 
 
 class _ButtonStyleApi:
     """Mixin: визуальные атрибуты + dynamic Qt-property dispatch."""
 
+    # Declared here only so mypy can resolve them across the mixin split —
+    # the real assignments/definitions live in Button.__init__ (button.py),
+    # the sibling _ButtonEvents mixin (events.py), or QWidget itself.
+    # Plain annotations only (no `= value`) so nothing is created at import
+    # time — Button's own MRO still supplies the real objects at runtime.
+    _show_underline: bool
+    _has_text: bool
+    _gap_px: int
+    _content_align: Qt.AlignmentFlag
+    _content_padding: tuple[float, float, float, float]
+    _background_color: QColor | None
+    _controller: Any
+    _checked: bool
+    update_region: Callable[..., None]
+    _region_by_id: Callable[[str | None], Any]
+    update: Callable[[], None]
+    setProperty: Callable[[str, Any], bool]
+    property: Callable[[str], Any]
+    setMinimumWidth: Callable[[int], None]
+    setMaximumWidth: Callable[[int], None]
+    setMinimumHeight: Callable[[int], None]
+    setMaximumHeight: Callable[[int], None]
+    minimumHeight: Callable[[], int]
+    setFixedSize: Callable[..., None]
+    updateGeometry: Callable[[], None]
+    rect: Callable[[], Any]
+    mapFromGlobal: Callable[[Any], Any]
+
     # -------- badge --------
 
-    def setBadge(self, num: int | None):
+    def setBadge(self, num: int | str | None):
         self._badge = num
         self.update()
 
@@ -113,6 +129,27 @@ class _ButtonStyleApi:
         self.update()
 
     set_underline_thickness = setUnderlineThickness
+
+    def setUnderlineTongueReach(self, reach: float | None):
+        self._underline_tongue_reach = None if reach is None else max(0.0, float(reach))
+        self.setProperty("underlineTongueReachPx", self._underline_tongue_reach)
+        self.update()
+
+    set_underline_tongue_reach = setUnderlineTongueReach
+
+    def setUnderlineRing(self, ring: bool):
+        self._underline_ring = bool(ring)
+        self.setProperty("underlineRing", self._underline_ring)
+        self.update()
+
+    set_underline_ring = setUnderlineRing
+
+    def setUnderlineFade(self, fade: bool | None):
+        self._underline_fade = None if fade is None else bool(fade)
+        self.setProperty("underlineFade", self._underline_fade)
+        self.update()
+
+    set_underline_fade = setUnderlineFade
 
     def setShowUnderline(self, show: bool):
         if self._show_underline != show:
@@ -300,17 +337,69 @@ class _ButtonStyleApi:
 
     # -------- size hints --------
 
+    def _content_text_width(self) -> int:
+        """Painted text width of the current content: the ``text=`` label or
+        the widest ``rows=`` row. Measured with each row's own paint font
+        (design size × UiScale) so hints stay correct at any scale."""
+        if self._has_text and self._text:
+            return QFontMetrics(paint_font(self)).horizontalAdvance(self._text)
+        if not self._rows:
+            return 0
+        from sli_ui_toolkit.ui.managers.ui_font import measure_text_width, ui_font
+
+        widths = []
+        for row in self._rows:
+            fm = QFontMetrics(
+                ui_font(
+                    pixel_size=getattr(row, "size", None),
+                    bold=(getattr(row, "weight", "normal") == "bold"),
+                )
+            )
+            widths.append(measure_text_width(fm, getattr(row, "text", "") or ""))
+        return max(widths) if widths else 0
+
     def sizeHint(self):
-        if self._has_text:
-            fm = self.fontMetrics()
-            text_w = fm.horizontalAdvance(self._text) if self._text else 0
-            icon_w = self._icon_size_px + self._gap_px if self._icon_unchecked else 0
-            w = text_w + icon_w + 24
-            h = max(32, fm.height() + 16)
+        text_w = self._content_text_width()
+        icon_w = scaled_px(self._icon_size_px) + scaled_px(self._gap_px) if self._icon_unchecked else 0
+        if self._has_text or self._rows:
+            w = text_w + icon_w + scaled_px(24)
+            fm = QFontMetrics(paint_font(self))
+            h = max(scaled_px(32), fm.height() + scaled_px(16))
+            if self._text_fit:
+                w = self._fit_width(w)
             return QSize(w, h)
-        return QSize(36, 36)
+        return QSize(scaled_px(36), scaled_px(36))
+
+    def _fit_width(self, natural: int) -> int:
+        """``text_fit=True``: grow with the parent row up to the natural
+        text width, compress below it. Reads the parent layout's available
+        width (margins + the siblings before this button), falling back to
+        the natural width when there is no parent/layout. Pair with a
+        trailing ``addStretch(1)`` in the row: a stretch/Expanding item
+        right-anchors its widget in Qt, while a plain sizeHint keeps it
+        left-anchored."""
+        parent = self.parentWidget()
+        layout = parent.layout() if parent is not None else None
+        if layout is None:
+            return natural
+        left, _top, right, _bottom = layout.getContentsMargins()
+        available = parent.width() - left - right
+        spacing = layout.spacing()
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item.widget() is self:
+                break
+            if item.widget() is not None:
+                available -= item.sizeHint().width() + spacing
+        return max(scaled_px(36), min(natural, available))
 
     def minimumSizeHint(self):
+        if self._text_fit:
+            # The default minimum mirrors sizeHint; for text_fit that would
+            # push a scroll content's minimum up to the full text width and
+            # wedge the viewport (no compression). Keep the minimum tiny so
+            # parent layouts can always shrink the button.
+            return QSize(scaled_px(36), scaled_px(36))
         return self.sizeHint()
 
     # -------- variant / density / corner radius / icon size --------
@@ -432,6 +521,14 @@ class _ButtonStyleApi:
         elif name == "underlineThicknessPx":
             value = self.property("underlineThicknessPx")
             self._underline_thickness = _normalize_underline_thickness(value)
+        elif name == "underlineTongueReachPx":
+            value = self.property("underlineTongueReachPx")
+            self._underline_tongue_reach = None if value is None else max(0.0, float(value))
+        elif name == "underlineRing":
+            self._underline_ring = bool(self.property("underlineRing"))
+        elif name == "underlineFade":
+            value = self.property("underlineFade")
+            self._underline_fade = None if value is None else bool(value)
         else:
             return
         update_widget_style(self, update_geometry=needs_geometry)

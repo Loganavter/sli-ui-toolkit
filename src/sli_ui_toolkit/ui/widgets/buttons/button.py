@@ -17,13 +17,19 @@ capability API, state/value API и paint plumbing.
 """
 
 from __future__ import annotations
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import dataclasses
-from dataclasses import dataclass
+import logging
+import time
 from typing import Any
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QPainter
+
+logger = logging.getLogger(__name__)
+_last_button_paint_error_ts: float = 0.0
+_BUTTON_PAINT_ERROR_THROTTLE_S = 5.0
+from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -32,65 +38,36 @@ from sli_ui_toolkit.deprecations import (
     BUTTON_SET_CHECKED_EMIT_SIGNAL,
     warn_deprecated,
 )
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 
 from .capabilities import (
     ButtonCapability,
     LongPressCapability,
 )
-from .content import (
-    ButtonRow,
-    IconContent,
-    IconTextContent,
-    PixmapContent,
-    RowsContent,
-    TextContent,
-)
+from .content import ButtonRow, build_button_content, build_region_content
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import ensure_marquee_driver
 from .controller import ButtonController
 from .context import DrawContext
 from .events import _ButtonEvents
 from .layers._base import Layer
+from .layers.focus import FocusLayer
+from .layers.overlay import OverlayPainterCallback, OverlayPainterLayer
 from .layers.ripple import RippleEffect
 from .feedback import (
     coerce_defer_click_ms,
     get_default_defer_click,
 )
-from .painter import Painter
+from . import painter as _painter_module
+from .painter import Painter, default_layers
 from .regions import ButtonRegion, Divider, RegionHandle, SingleRegionSplit, SplitLayout
-from .specs import ButtonSpec, ShapeSpec, normalize_corner_radii
+from .specs import ButtonConfig, ButtonSpec, ShapeSpec, _to_corner_radii
 from .state import ButtonState
 from .style_api import (
     _ButtonStyleApi,
     _normalize_underline_thickness,
     normalize_content_padding,
 )
-from .variants import get_variant
-
-
-@dataclass
-class ButtonConfig:
-    """Декларативная конфигурация — альтернатива kwargs."""
-    icon: Any = None
-    text: str = ""
-    rows: list[ButtonRow] | None = None
-    toggle: bool = False
-    long_press: bool = False
-    long_press_ms: int = 600
-    badge: int | None = None
-    show_underline: bool = False
-    underline_color: Any = None
-    underline_thickness: float | None = None
-    size: tuple[int, int] = (36, 36)
-    icon_size: int = 22
-    corner_radius: int | None = None
-    corner_radii: tuple[int, int, int, int] | None = None
-    border_color: QColor | None = None
-    variant: str = "default"
-    density: str = "normal"
-    wheel_requires_focus: bool = False
-    # ``None`` → process-wide ``get_default_defer_click()``.
-    defer_click: bool | int | str | None = None
 
 
 def _state_property(state: ButtonState):
@@ -145,6 +122,15 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     def focusOutEvent(self, event):
         _ButtonEvents.focusOutEvent(self, event)
 
+    def setEnabled(self, enabled: bool) -> None:
+        """Propagate widget enablement into the paint-state set.
+
+        QWidget.setEnabled would otherwise shadow the events-mixin override
+        (QWidget precedes _ButtonEvents in the MRO), so the DISABLED state
+        never reached the painter and disabled buttons rendered exactly
+        like enabled ones. The mixin still calls QWidget.setEnabled."""
+        _ButtonEvents.setEnabled(self, enabled)
+
     def event(self, event):
         return _ButtonStyleApi.event(self, event)
 
@@ -177,10 +163,13 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         toggle: bool = False,
         long_press: bool = False,
         long_press_ms: int = 600,
-        badge: int | None = None,
+        badge: int | str | None = None,
         show_underline: bool = False,
         underline_color: Any = None,
         underline_thickness: float | None = None,
+        underline_tongue_reach: float | None = None,
+        underline_ring: bool = False,
+        underline_fade: bool | None = None,
         size: tuple[int, int] = (36, 36),
         icon_size: int = 22,
         gap: int = 6,
@@ -196,12 +185,15 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         wheel_requires_focus: bool = False,
         background_color: QColor | None = None,
         defer_click: bool | int | str | None = None,
+        text_fit: bool = False,
         regions: list[ButtonRegion] | None = None,
         split: SplitLayout | None = None,
         divider: Divider | None = None,
         spec: ButtonSpec | None = None,
         config: ButtonConfig | None = None,
         layers: list[Layer] | None = None,
+        extra_layers: list[Layer] | None = None,
+        overlay_painter: OverlayPainterCallback | None = None,
         parent: QWidget | None = None,
     ):
         # Call QWidget directly. Cooperative ``super()`` through the non-QObject
@@ -211,25 +203,30 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         QWidget.__init__(self, parent)
 
         if config is not None:
-            icon = config.icon
-            text = config.text
-            rows = config.rows
-            toggle = config.toggle
-            long_press = config.long_press
-            long_press_ms = config.long_press_ms
-            badge = config.badge
-            show_underline = config.show_underline
-            underline_color = config.underline_color
-            underline_thickness = config.underline_thickness
-            size = config.size
-            icon_size = config.icon_size
-            corner_radius = config.corner_radius
-            corner_radii = config.corner_radii
-            border_color = config.border_color
-            variant = config.variant
-            density = config.density
-            wheel_requires_focus = config.wheel_requires_focus
-            defer_click = config.defer_click
+            cfg = config.to_kwargs()
+            icon = cfg["icon"]
+            text = cfg["text"]
+            rows = cfg["rows"]
+            toggle = cfg["toggle"]
+            long_press = cfg["long_press"]
+            long_press_ms = cfg["long_press_ms"]
+            badge = cfg["badge"]
+            show_underline = cfg["show_underline"]
+            underline_color = cfg["underline_color"]
+            underline_thickness = cfg["underline_thickness"]
+            underline_tongue_reach = cfg["underline_tongue_reach"]
+            underline_ring = cfg["underline_ring"]
+            underline_fade = cfg["underline_fade"]
+            size = cfg["size"]
+            icon_size = cfg["icon_size"]
+            corner_radius = cfg["corner_radius"]
+            corner_radii = cfg["corner_radii"]
+            border_color = cfg["border_color"]
+            variant = cfg["variant"]
+            density = cfg["density"]
+            wheel_requires_focus = cfg["wheel_requires_focus"]
+            defer_click = cfg["defer_click"]
+            text_fit = cfg["text_fit"]
 
         if spec is not None:
             regions = spec.to_regions()
@@ -269,7 +266,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._split: SplitLayout = split or SingleRegionSplit()
         self._divider: Divider | None = divider
         self._region_rects: dict[str, QRectF] = {}
-        self._region_paths = {}
+        self._region_paths: dict[str, QPainterPath] = {}
         self._region_ripple: dict[str, RippleEffect] = {}
         self._hovered_region: str | None = None
         self._pressed_region: str | None = None
@@ -284,6 +281,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._text = text
         self._rows = rows or []
         self._rows_compact = False
+        self._text_fit = bool(text_fit)
 
         self._variant = variant
         self._density = density
@@ -294,9 +292,12 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         if corner_radius is None:
             corner_radius = 2 if self._has_text else 6
         self._corner_radius_px = corner_radius
-        self._corner_radii_px: tuple[int, int, int, int] | None = (
-            tuple(int(r) for r in corner_radii) if corner_radii is not None else None
+        # Corner-radii tuples are design px; the scaled copy feeds hit-test
+        # and paint paths consistently and is re-derived in on_scale_changed.
+        self._design_corner_radii: tuple[int, int, int, int] | None = (
+            _to_corner_radii(corner_radii) if corner_radii is not None else None
         )
+        self._corner_radii_px = self._scaled_corner_radii()
         self._border_color_override: QColor | None = border_color
 
         self.setProperty("variant", variant)
@@ -310,6 +311,11 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._accent_color: QColor | None = None
         self._show_underline = show_underline
         self._underline_thickness = _normalize_underline_thickness(underline_thickness)
+        self._underline_tongue_reach = (
+            None if underline_tongue_reach is None else max(0.0, float(underline_tongue_reach))
+        )
+        self._underline_ring = bool(underline_ring)
+        self._underline_fade = None if underline_fade is None else bool(underline_fade)
         self._show_strike_through = False
         self._is_footer = False
         self._underline_config_color: QColor | list | None = underline_color
@@ -326,23 +332,53 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self.setProperty("underlineThicknessPx", self._underline_thickness)
 
         w, h = size
+        # Design px — re-applied scaled in ``on_scale_changed`` so live
+        # factor changes actually resize fixed-size buttons.
+        self._design_fixed_size = (0, 0)
+        self._design_min_height = None
         if self._has_text and w == 36 and h == 36:
-            self.setMinimumHeight(32)
+            self._design_min_height = 32
+            self.setMinimumHeight(scaled_px(32))
             self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         elif w > 0 and h > 0:
-            self.setFixedSize(w, h)
+            self._design_fixed_size = (int(w), int(h))
+            self.setFixedSize(scaled_px(w), scaled_px(h))
         elif h > 0:
-            self.setFixedHeight(h)
+            self._design_fixed_size = (0, int(h))
+            self.setFixedHeight(scaled_px(h))
         elif w > 0:
-            self.setFixedWidth(w)
+            self._design_fixed_size = (int(w), 0)
+            self.setFixedWidth(scaled_px(w))
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         register_hover_widget(self)
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update)
+        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
 
-        self._painter = Painter(self.theme_manager, layers=layers)
+        effective_extra: list[Layer] = []
+        if extra_layers:
+            effective_extra.extend(extra_layers)
+        if overlay_painter is not None:
+            effective_extra.append(OverlayPainterLayer(overlay_painter))
+
+        if layers is not None:
+            final_layers = list(layers) + effective_extra
+        elif effective_extra:
+            final_layers = default_layers() + effective_extra
+        else:
+            final_layers = None
+
+        # FocusLayer is always required for keyboard focus ring rendering.
+        # Append it automatically when not already present so subclasses
+        # that pass custom layers don't lose focus ring behavior.
+        if final_layers is not None and not any(
+            isinstance(l, FocusLayer) for l in final_layers
+        ):
+            final_layers.append(FocusLayer())
+
+        self._painter = Painter(self.theme_manager, layers=final_layers)
         self._ripple = RippleEffect(self)
         self._region_ripple["_main"] = self._ripple
         self._ripple_color_from = None
@@ -384,6 +420,28 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self.set_spec(spec)
         else:
             self.set_regions(regions, split=split, divider=divider)
+
+    def on_scale_changed(self, _factor: float) -> None:
+        if self._design_min_height is not None:
+            self.setMinimumHeight(scaled_px(self._design_min_height))
+        w, h = self._design_fixed_size
+        if w > 0 and h > 0:
+            self.setFixedSize(scaled_px(w), scaled_px(h))
+        elif h > 0:
+            self.setFixedHeight(scaled_px(h))
+        elif w > 0:
+            self.setFixedWidth(scaled_px(w))
+        self._corner_radii_px = self._scaled_corner_radii()
+        self.updateGeometry()
+        self.update()
+
+    def _scaled_corner_radii(self) -> tuple[int, int, int, int] | None:
+        design = getattr(self, "_design_corner_radii", None)
+        if design is None:
+            return None
+        # 0 (square corner) must stay 0 — scaled_px's min-1 clamp would turn
+        # it into a 1px rounding at every factor.
+        return tuple(0 if v == 0 else scaled_px(v) for v in design)
 
     @classmethod
     def from_spec(
@@ -550,16 +608,23 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self._corner_radius_px = int(spec.shape.corner_radius)
             self.setProperty("cornerRadiusPx", self._corner_radius_px)
         if spec.shape.corner_radii is not None:
-            self._corner_radii_px = tuple(int(r) for r in spec.shape.corner_radii)
+            self._design_corner_radii = _to_corner_radii(spec.shape.corner_radii)
+            self._corner_radii_px = self._scaled_corner_radii()
         else:
             self._corner_radii_px = None
+            self._design_corner_radii = None
         w, h = spec.shape.size
+        self._design_min_height = None
+        self._design_fixed_size = (0, 0)
         if w > 0 and h > 0:
-            self.setFixedSize(int(w), int(h))
+            self._design_fixed_size = (int(w), int(h))
+            self.setFixedSize(scaled_px(w), scaled_px(h))
         elif h > 0:
-            self.setFixedHeight(int(h))
+            self._design_fixed_size = (0, int(h))
+            self.setFixedHeight(scaled_px(h))
         elif w > 0:
-            self.setFixedWidth(int(w))
+            self._design_fixed_size = (int(w), 0)
+            self.setFixedWidth(scaled_px(w))
 
     def _detach_stale_region_capabilities(self, regions: list[ButtonRegion]) -> None:
         """Detach capabilities left over from regions that no longer exist.
@@ -622,114 +687,16 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     # -------- paint --------
 
     def _build_content(self):
-        if self._rows:
-            return RowsContent(rows=self._rows, compact=self._rows_compact)
-        if self._has_text and self._text and self._icon_unchecked:
-            return IconTextContent(icon=self._icon_unchecked, text=self._text)
-        if self._has_text and self._text:
-            return TextContent(text=self._text)
-        if self._icon_unchecked or self._icon_checked:
-            return IconContent(icon_unchecked=self._icon_unchecked,
-                               icon_checked=self._icon_checked)
-        return None
+        return build_button_content(self)
 
     def _build_region_content(self, region: ButtonRegion):
-        rows = region.rows or []
-        if rows:
-            return RowsContent(rows=rows, compact=self._rows_compact)
-        pixmap = getattr(region, "pixmap", None)
-        if pixmap is not None:
-            return PixmapContent(
-                pixmap=pixmap,
-                image_fill=getattr(region, "image_fill", "cover") or "cover",
-            )
-        icon = region.icon
-        if isinstance(icon, (tuple, list)) and len(icon) >= 2:
-            icon_unchecked, icon_checked = icon[0], icon[1]
-        else:
-            icon_unchecked = icon_checked = icon
-        if region.text and icon_unchecked:
-            return IconTextContent(icon=icon_unchecked, text=region.text)
-        if region.text:
-            return TextContent(text=region.text)
-        if icon_unchecked or icon_checked:
-            return IconContent(icon_unchecked=icon_unchecked, icon_checked=icon_checked)
-        return None
+        return build_region_content(self, region)
 
     def _make_context(self, qpainter: QPainter) -> DrawContext:
-        return DrawContext(
-            widget=self,
-            painter=qpainter,
-            rect=QRectF(self.rect()),
-            states=frozenset(self._states),
-            variant=get_variant(self._variant),
-            corner_radius=max(0, int(self._corner_radius_px)),
-            corner_radii=normalize_corner_radii(
-                self._corner_radius_px,
-                self._corner_radii_px,
-                fallback=max(0, int(self._corner_radius_px)),
-            ),
-            content=self._build_content(),
-            override_bg_color=self._override_bg_color,
-            custom_bg_color=self._custom_bg_color,
-            override_border_color=self._border_color_override,
-            hover_color=getattr(self, "_hover_color", None),
-            hover_compose=getattr(self, "_hover_compose", "replace"),
-            bg_locked=bool(getattr(self, "_bg_locked", False)),
-            hovered_region_id=getattr(self, "_hovered_region", None),
-            badge_text=str(self._badge) if self._badge is not None else None,
-            show_underline=self._show_underline,
-            underline_color=self._underline_config_color,
-            underline_thickness=self._underline_thickness,
-            show_strike_through=self._is_strike_through(),
-            is_footer=self._is_footer,
-            icon_size_px=self._icon_size_px,
-            content_padding=self._content_padding,
-            gap_px=self._gap_px,
-            content_align=self._content_align,
-        )
+        return _painter_module.make_draw_context(self, qpainter)
 
     def iter_regions(self, ctx: DrawContext):
-        if not self._controller.rects:
-            self._controller.recompute_rects()
-            self._sync_region_aliases()
-        ordered_regions = sorted(
-            enumerate(self._controller.regions),
-            key=lambda item: (item[1].z_index, item[0]),
-        )
-        for _index, region in ordered_regions:
-            rect = self._controller.rects.get(region.id)
-            if rect is None:
-                continue
-            states = frozenset(self._controller.states(region.id))
-            yield ctx.scoped_to(
-                region_id=region.id,
-                rect=rect,
-                path=self._controller.paths.get(region.id),
-                fill_path=self._controller.fill_paths.get(region.id),
-                states=states,
-                content=self._build_region_content(region),
-                variant=get_variant(region.variant or self._variant),
-                override_bg_color=region.override_bg_color,
-                custom_bg_color=region.custom_bg_color,
-                override_border_color=region.override_border_color,
-                hover_color=(
-                    region.hover_color
-                    if region.hover_color is not None
-                    else getattr(self, "_hover_color", None)
-                ),
-                hover_compose=region.hover_compose or getattr(self, "_hover_compose", "replace"),
-                bg_locked=bool(region.bg_locked) or bool(getattr(self, "_bg_locked", False)),
-                group=region.group,
-                icon_size_px=region.icon_size_px,
-                corner_radii=(
-                    tuple(int(r) for r in region.corner_radii)
-                    if region.corner_radii is not None
-                    else None
-                ),
-                clip_content=not bool(getattr(region, "group", None)),
-                ripple_rect=self._controller.ripple_rect(region.id),
-            )
+        yield from _painter_module.iter_button_regions(self, ctx)
 
     def region_states(self, region_id: str) -> frozenset[ButtonState]:
         return frozenset(self._controller.states(region_id))
@@ -818,10 +785,64 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             finally:
                 painter.restore()
                 painter.end()
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            global _last_button_paint_error_ts
+            now = time.monotonic()
+            if now - _last_button_paint_error_ts >= _BUTTON_PAINT_ERROR_THROTTLE_S:
+                _last_button_paint_error_ts = now
+                logger.exception("Button paint failed")
+            else:
+                logger.debug("Button paint failed (throttled)", exc_info=True)
 
 
 # Backwards-compat: ButtonRow re-exported from button module.
 __all__ = ["Button", "ButtonConfig", "ButtonRow"]
+
+Button.inspect_spec = InspectSpec(
+    family="Button",
+    config=(
+        SpecField("text"),
+        SpecField("rows"),
+        SpecField("toggle", "_has_toggle", private=True),
+        SpecField("variant"),
+        SpecField("density"),
+        SpecField("content_align"),
+        SpecField("content_padding"),
+        SpecField("corner_radius", "_corner_radius_px", private=True),
+        SpecField("corner_radii", "_corner_radii_px", private=True),
+        SpecField("defer_click", "_defer_click", private=True),
+    ),
+    state=(
+        SpecField("checked", "isChecked"),
+        SpecField("hovered", "_hovered", private=True),
+        SpecField("pressed", "_pressed", private=True),
+        SpecField("hovered_region", "_hovered_region", private=True),
+        SpecField("pressed_region", "_pressed_region", private=True),
+        SpecField("icon_size_px", "iconSizePx"),
+        SpecField("corner_radius_px", "cornerRadiusPx"),
+    ),
+    token_family=(
+        "surface.list",
+        "button.toggle.background.hover",
+        "button.toggle.background.pressed",
+        "button.toggle.background.checked",
+        "button.toggle.background.checked.hover",
+    ),
+    regions=True,
+    layers=True,
+    docs="docs/user/BUTTON_API.md",
+)
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
+
+Button.widget_descriptor = WidgetDescriptor(
+    family="Button",
+    inspect=InspectSection(
+        config=Button.inspect_spec.config,
+        state=Button.inspect_spec.state,
+        token_family=Button.inspect_spec.token_family,
+        regions=Button.inspect_spec.regions,
+        layers=Button.inspect_spec.layers,
+        docs=Button.inspect_spec.docs,
+    ),
+)

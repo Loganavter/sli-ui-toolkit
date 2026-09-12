@@ -18,6 +18,7 @@ class WindowControlsConfig:
     show_minimize: bool = True
     show_maximize: bool = True
     show_close: bool = True
+    defer_close_click: Any = None
 
 
 class WindowControlsHandle:
@@ -53,4 +54,10 @@ class WindowControlsHandle:
         return self._container
 
     def size_hint_width(self) -> int:
-        return self._container.sizeHint().width()
+        # The controls are positioned manually inside the container (see
+        # CustomTitleBar._sync_buttons_geometry), so the container's layout
+        # no longer contributes to its sizeHint. Its fixed width IS the
+        # cluster width — read it directly (minimumWidth is set by
+        # _resize_buttons_container before any layout pass).
+        container = self._container
+        return max(container.minimumWidth(), container.width())

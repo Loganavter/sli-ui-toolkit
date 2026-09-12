@@ -3,7 +3,7 @@ from __future__ import annotations
 from weakref import WeakKeyDictionary, ref
 
 import shiboken6
-from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, Qt
 from PySide6.QtGui import QCursor, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -28,7 +28,7 @@ def _is_alive(widget: QWidget | None) -> bool:
     if widget is None:
         return False
     try:
-        return bool(shiboken6.isValid(widget))
+        return bool(shiboken6.isValid(widget))  # type: ignore[attr-defined]
     except Exception:
         return False
 
@@ -52,7 +52,14 @@ class HoverCoordinator(QObject):
         self._widgets: WeakKeyDictionary[QWidget, tuple[bool, bool]] = (
             WeakKeyDictionary()
         )
-        self._installed_app: QApplication | None = None
+        self._installed_app: QCoreApplication | None = None
+        # True while some gesture elsewhere (e.g. ComboBox gear-drag) is
+        # driving the real, physically-moving cursor across the app under a
+        # blanked icon. reconcile() would otherwise light up hover on
+        # whatever unrelated widget the pointer happens to cross — the
+        # gesture visually "owns" input until it ends, so nothing else
+        # should react to cursor position meanwhile. See suppress_all().
+        self._suppressed = False
 
     def register(self, widget: QWidget) -> None:
         self._install()
@@ -73,11 +80,26 @@ class HoverCoordinator(QObject):
         if widget is not None:
             self._widgets.pop(widget, None)
 
+    def suppress_all(self, suppressed: bool) -> None:
+        """Freeze hover reconciliation app-wide (used while a gesture like
+        ComboBox gear-drag owns the real cursor). Clears current hover on
+        entry so nothing stays lit from before the gesture started; on exit
+        the next real hover event re-derives state from cursor position as
+        usual, so no explicit re-reconcile is needed here.
+        """
+        if suppressed == self._suppressed:
+            return
+        self._suppressed = suppressed
+        if suppressed:
+            self.clear_all()
+
     def reconcile(
         self,
         global_pos: QPoint | None = None,
         source_window: QWidget | None = None,
     ) -> None:
+        if self._suppressed:
+            return
         pos = global_pos or QCursor.pos()
         # One widgetAt() hit-test for the whole reconcile pass, not one per
         # registered widget: with N hover-tracked buttons in a window, doing

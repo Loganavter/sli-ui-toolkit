@@ -4,6 +4,24 @@ from PySide6.QtCore import QPoint, QRect, QSize
 from PySide6.QtWidgets import QWidget
 
 
+def centered_inner_offset(outer: float, inner: float) -> int:
+    """``round((outer - inner) / 2)`` — the offset that centers a smaller
+    box inside a bigger one along one axis.
+
+    Use this (never plain ``// 2``) anywhere a widget's own centered content
+    must land in visual agreement with a *different* widget/overlay that
+    centers the same-size inner box independently — e.g. ComboBox's field
+    label vs. its dropdown popup and gear-drag frame, which all align the
+    same row height inside the field height. ``//`` floors and ``round()``
+    rounds-half-to-even, so mixing the two across such call sites drifts
+    apart by a px whenever the height difference is odd — this bit twice in
+    the combo box (see ``combo_box.py``'s ``_ComboFieldContentLayer`` and
+    ``_overlay.py``'s ``_update_gear_frame``) before both were switched to
+    call this helper instead of re-deriving the formula by hand.
+    """
+    return round((outer - inner) / 2)
+
+
 def calculate_centered_overlay_geometry(
     *,
     anchor_widget: QWidget,
@@ -19,6 +37,7 @@ def calculate_centered_overlay_geometry(
     outer_height = content_size.height() + shadow_radius * 2
 
     combo_rect = anchor_widget.rect()
+    field_top_global = anchor_widget.mapToGlobal(combo_rect.topLeft()).y()
     anchor_center = anchor_widget.mapToGlobal(combo_rect.center())
     owner_top_left_global = anchor_widget.mapToGlobal(combo_rect.topLeft())
     window_top_left_global = owner_window.mapToGlobal(QPoint(0, 0))
@@ -30,11 +49,21 @@ def calculate_centered_overlay_geometry(
         visible_index = 0
 
     if scrollable:
-        ideal_y_global = int(anchor_center.y() - outer_height / 2)
+        ideal_y_global = round(anchor_center.y() - outer_height / 2)
     else:
+        # Anchor the anchored row to the field's top edge, NOT its center:
+        # the gear-drag frame (``_GearFrame``) positions itself with the
+        # same ``centered_inner_offset`` from the field top. Center-anchoring
+        # with the popup's own rounding (which can agree or disagree with
+        # the frame's on half-pixel remainders depending on field/row height
+        # parity) left the row poking a full pixel out of the frame at odd
+        # scale factors.
         selected_item_offset_y = visible_index * row_height
-        ideal_y_global = int(
-            anchor_center.y() - selected_item_offset_y - row_height / 2 - shadow_radius
+        ideal_y_global = (
+            field_top_global
+            + centered_inner_offset(combo_rect.height(), row_height)
+            - selected_item_offset_y
+            - shadow_radius
         )
 
     ideal_x_global = int(owner_top_left_global.x() - shadow_radius)

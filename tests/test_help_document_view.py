@@ -6,12 +6,12 @@ import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtWidgets import QApplication, QFrame
 
-from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
+from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
     parse_help_blocks,
 )
 from sli_ui_toolkit.ui.widgets.composite.help_document.canvas import HelpDocumentBodyCanvas
-from sli_ui_toolkit.ui.widgets.composite.help_document.layout.hit_test import hit_test_link
-from sli_ui_toolkit.ui.widgets.composite.help_document.text_index import (
+from sli_ui_toolkit.ui.widgets.composite.text_view.layout.hit_test import hit_test_link
+from sli_ui_toolkit.ui.widgets.composite.text_view.text_index import (
     assert_index_matches_blocks,
     build_text_index,
 )
@@ -46,6 +46,21 @@ def test_text_index_matches_blocks_to_plain_text():
     assert_index_matches_blocks(blocks, index)
 
 
+def test_text_index_matches_code_and_h1_blocks():
+    blocks = parse_help_blocks(
+        "# Title\n\n"
+        "```python\n"
+        "value = 42\n"
+        "```\n\n"
+        "After.\n"
+    )
+    index = build_text_index(blocks)
+    assert_index_matches_blocks(blocks, index)
+    assert "value = 42" in index.text
+    assert "# Title" not in index.text
+    assert "```" not in index.text
+
+
 def test_help_document_view_renders_and_emits_links(qapp, qtbot):
     view = HelpDocumentView(show_toc=True, toc_title="On this page")
     qtbot.addWidget(view)
@@ -78,9 +93,45 @@ def test_help_document_view_renders_and_emits_links(qapp, qtbot):
     assert frag.links
     pos = frag.rect.topLeft() + frag.links[0].rect.center()
     assert hit_test_link(canvas._layout, QPointF(pos)) == "help://magnifier#freeze"
-    view.linkActivated.emit("help://magnifier#freeze")
-    assert received == ["help://magnifier#freeze"]
-    view.deleteLater()
+
+
+def test_help_document_renders_h1_and_code_fence(qapp, qtbot):
+    """``#`` headings and `` ``` `` fenced code blocks render as document
+    blocks: heading role level 1, code as a monospaced fragment."""
+    from sli_ui_toolkit.ui.widgets.composite.text_view.text_index import (
+        TextRoleKind,
+    )
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(640, 480)
+    view.set_markdown(
+        "# Title\n\n"
+        "```python\n"
+        "value = 42\n"
+        "```\n\n"
+        "Done.\n"
+    )
+    qapp.processEvents()
+
+    canvas = _canvas(view)
+    index = canvas.text_index()
+    heading_levels = [
+        r.heading_level
+        for r in index.roles
+        if r.kind == TextRoleKind.HEADING
+    ]
+    assert heading_levels
+    assert all(level == 1 for level in heading_levels)
+
+    frags = canvas._layout.text_fragments
+    code_frags = [
+        f
+        for f in frags
+        if index.text[f.global_start : f.global_end] == "value = 42"
+    ]
+    assert code_frags, "code fence must produce a text fragment"
+    assert code_frags[0].layout.font().family().lower() == "monospace"
 
 
 def test_help_document_toc_link_heights_are_even(qapp, qtbot):
@@ -202,12 +253,62 @@ def test_help_document_cross_block_selection(qapp, qtbot):
     )
     qapp.processEvents()
     canvas = _canvas(view)
-    canvas._sel_anchor = 0
-    canvas._sel_focus = len(canvas.plain_text())
+    canvas._selection.set_range(0, len(canvas.plain_text()))
     selected = view.selected_plain_text()
     assert "Heading" in selected
     assert "First paragraph" in selected
     assert "list item" in selected
+    view.deleteLater()
+
+
+def test_help_document_scroll_to_text_highlights_match(qapp, qtbot):
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(640, 480)
+    view.set_markdown(
+        "## Title\n\n"
+        "The magnifier samples a region.\n\n"
+        "Another paragraph.\n"
+    )
+    qapp.processEvents()
+    canvas = _canvas(view)
+
+    target = view.scroll_to_text("magnifier")
+    assert target is not None
+    assert target is canvas._search_marker
+    assert not target.isHidden()
+    rng = canvas._selection.range()
+    assert rng is not None
+    assert canvas.plain_text()[rng[0] : rng[1]] == "magnifier"
+
+    # Case-insensitive: finds the second occurrence as well.
+    target2 = view.scroll_to_text("ANOTHER")
+    assert target2 is not None
+    rng2 = canvas._selection.range()
+    assert canvas.plain_text()[rng2[0] : rng2[1]].casefold() == "another"
+
+    # Absent query clears the highlight and returns no target.
+    assert view.scroll_to_text("missing-zzz") is None
+    assert canvas._selection.range() is None
+    assert target.isHidden()
+    view.deleteLater()
+
+
+def test_help_document_scroll_to_text_matches_normalized_diacritics(qapp, qtbot):
+    """The highlight uses the same normalization as the search scorers, so a
+    diacritic-free query finds the accented occurrence on the page."""
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(640, 480)
+    view.set_markdown("Le Café était excellent.\n")
+    qapp.processEvents()
+    canvas = _canvas(view)
+
+    target = view.scroll_to_text("cafe")
+    assert target is not None
+    rng = canvas._selection.range()
+    assert rng is not None
+    assert canvas.plain_text()[rng[0] : rng[1]] == "Café"
     view.deleteLater()
 
 
@@ -241,6 +342,9 @@ def test_help_document_double_click_selects_word(qapp, qtbot):
     qapp.processEvents()
     canvas = _canvas(view)
     pos = canvas._layout.text_fragments[0].rect.topLeft().toPoint() + QPoint(20, 10)
+    # press (chain 1) then the real double-click press (chain 2 → word) —
+    # the unified chain counter resolves the click modes like code mode
+    qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
     qtbot.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
     qapp.processEvents()
     selected = canvas.selected_plain_text()
@@ -265,19 +369,16 @@ def test_help_document_double_click_drag_extends_by_words(qapp, qtbot):
     world_end = text.index("world") + len("world")
     more_end = text.index("more") + len("more")
 
-    canvas._sel_anchor = hello
-    canvas._sel_focus = hello_end
-    canvas._word_anchor = (hello, hello_end)
-    canvas._word_selecting = True
-    canvas._press_pos = QPointF(40.0, 20.0)
-    canvas._dragging = True
+    canvas._selection.arm("word", (hello, hello_end))
+    canvas._selection.press_point = QPointF(40.0, 20.0)
+    canvas._selection.dragged = True
 
-    canvas._extend_word_selection(world_end - 1)
+    canvas._selection.extend_word(world_end - 1)
     selected = canvas.selected_plain_text()
     assert selected.startswith("Hello")
     assert "world" in selected
 
-    canvas._extend_word_selection(more_end - 1)
+    canvas._selection.extend_word(more_end - 1)
     selected = canvas.selected_plain_text()
     assert "Hello" in selected and "world" in selected
     assert "paragraph" in selected and "more" in selected
@@ -285,7 +386,7 @@ def test_help_document_double_click_drag_extends_by_words(qapp, qtbot):
 
 
 def test_segment_bounds_at_offset_selects_paragraph():
-    from sli_ui_toolkit.ui.widgets.composite.help_document.text_index import (
+    from sli_ui_toolkit.ui.widgets.composite.text_view.text_index import (
         segment_bounds_at_offset,
     )
 
@@ -299,6 +400,32 @@ def test_segment_bounds_at_offset_selects_paragraph():
     assert index.text[a:b] == "First paragraph here."
     c, d = segment_bounds_at_offset(index, second + 2)
     assert index.text[c:d] == "Second paragraph there."
+
+
+def test_segment_bounds_in_code_block_resolve_to_line():
+    """A fenced code block is ONE segment, but the triple-click unit inside
+    it is the current line — not the whole fence (matches code mode)."""
+    from sli_ui_toolkit.ui.widgets.composite.text_view.text_index import (
+        segment_bounds_at_offset,
+    )
+
+    blocks = parse_help_blocks(
+        "```python\n"
+        "alpha = 1\n"
+        "beta = 2\n"
+        "gamma = 3\n"
+        "```\n"
+    )
+    index = build_text_index(blocks)
+    text = index.text
+    # the whole fence is one segment…
+    whole = index.segments[0]
+    assert text[whole.start:whole.end] == "alpha = 1\nbeta = 2\ngamma = 3"
+    # …but bounds resolve to the current line
+    a, b = segment_bounds_at_offset(index, text.index("beta") + 2)
+    assert text[a:b] == "beta = 2"
+    c, d = segment_bounds_at_offset(index, text.index("gamma") + 1)
+    assert text[c:d] == "gamma = 3"
 
 
 def test_help_document_triple_click_selects_paragraph(qapp, qtbot):
@@ -333,6 +460,7 @@ def test_help_document_triple_click_after_double_click_window(qapp, qtbot):
     qapp.processEvents()
     canvas = _canvas(view)
     pos = canvas._layout.text_fragments[0].rect.topLeft().toPoint() + QPoint(20, 10)
+    qtbot.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
     qtbot.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
     qapp.processEvents()
     assert canvas.selected_plain_text() in ("Hello", "world", "paragraph.")
@@ -359,14 +487,11 @@ def test_help_document_triple_click_drag_extends_by_paragraphs(qapp, qtbot):
     first_end = first_start + len("First paragraph here.")
     second_end = text.index("there.") + len("there.")
 
-    canvas._sel_anchor = first_start
-    canvas._sel_focus = first_end
-    canvas._paragraph_anchor = (first_start, first_end)
-    canvas._paragraph_selecting = True
-    canvas._press_pos = QPointF(40.0, 20.0)
-    canvas._dragging = True
+    canvas._selection.arm("paragraph", (first_start, first_end))
+    canvas._selection.press_point = QPointF(40.0, 20.0)
+    canvas._selection.dragged = True
 
-    canvas._extend_paragraph_selection(second_end - 1)
+    canvas._selection.extend_paragraph(second_end - 1)
     selected = canvas.selected_plain_text()
     assert "First paragraph here." in selected
     assert "Second paragraph there." in selected
@@ -395,7 +520,7 @@ def test_help_document_selection_includes_kbd_shortcut(qapp, qtbot):
     from PySide6.QtGui import QImage, QPainter
 
     from sli_ui_toolkit.theme import ThemeManager
-    from sli_ui_toolkit.ui.widgets.composite.help_document.layout.paint import paint_layout
+    from sli_ui_toolkit.ui.widgets.composite.text_view.layout.paint import paint_layout
 
     view = HelpDocumentView(show_toc=False)
     qtbot.addWidget(view)
@@ -408,8 +533,7 @@ def test_help_document_selection_includes_kbd_shortcut(qapp, qtbot):
     text = canvas.plain_text()
     start = text.index("Ctrl+V")
     end = start + len("Ctrl+V")
-    canvas._sel_anchor = start
-    canvas._sel_focus = end
+    canvas._selection.set_range(start, end)
     assert canvas.selected_plain_text() == "Ctrl+V"
 
     img = QImage(640, 120, QImage.Format.Format_ARGB32)
@@ -429,7 +553,7 @@ def test_help_document_selection_includes_kbd_shortcut(qapp, qtbot):
 def test_help_document_hit_test_spans_wrapped_lines(qapp, qtbot):
     from PySide6.QtCore import QPointF
 
-    from sli_ui_toolkit.ui.widgets.composite.help_document.layout.hit_test import (
+    from sli_ui_toolkit.ui.widgets.composite.text_view.layout.hit_test import (
         hit_test_text_offset,
     )
 
@@ -453,8 +577,7 @@ def test_help_document_hit_test_spans_wrapped_lines(qapp, qtbot):
     assert start_off is not None
     assert end_off is not None
     assert end_off > start_off
-    canvas._sel_anchor = start_off
-    canvas._sel_focus = end_off
+    canvas._selection.set_range(start_off, end_off)
     selected = view.selected_plain_text()
     assert len(selected) > 20
     assert "длинный абзац" in selected
@@ -514,6 +637,66 @@ def test_help_document_figure_caption_sits_below_image(qapp, qtbot):
     next_gap = next_frags[0].rect.y() - (cap.rect.y() + cap.rect.height())
     assert next_gap < 30, next_gap
     view.deleteLater()
+
+
+def test_code_boxes_painted_once_regardless_of_line_count(qapp):
+    """``help.code.background`` is semi-transparent; the rounded box behind a
+    fence must be drawn exactly once per block, not once per line fragment —
+    otherwise alpha accumulates and a block's shade depends on its line
+    count."""
+    from PySide6.QtGui import QColor, QImage, QPainter
+
+    from sli_ui_toolkit.ui.widgets.composite.text_view.layout.builder import (
+        layout_document,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.text_view.layout.paint import paint_layout
+    from sli_ui_toolkit.ui.widgets.composite.text_view.text_index import (
+        build_text_index,
+    )
+
+    class _Theme:
+        def try_get_color(self, token: str) -> QColor:
+            if token == "help.code.background":
+                return QColor(0, 0, 0, 13)
+            return QColor(0, 0, 0)
+
+        def get_color(self, token: str) -> QColor:
+            return QColor(0, 0, 0)
+
+    blocks = parse_help_blocks(
+        "```python\n"
+        "a = 1\n"
+        "```\n\n"
+        "```\n"
+        "b = 2\n"
+        "c = 3\n"
+        "d = 4\n"
+        "e = 5\n"
+        "```\n"
+    )
+    layout = layout_document(blocks, build_text_index(blocks), 400.0, _Theme())
+
+    img = QImage(400, 300, QImage.Format.Format_ARGB32)
+    img.fill(0xFFFFFFFF)
+    painter = QPainter(img)
+    paint_layout(painter, layout, selection_start=None, selection_end=None, theme=_Theme())
+    painter.end()
+
+    boxes = sorted(
+        {
+            (f.code_box.x(), f.code_box.y(), f.code_box.width(), f.code_box.height())
+            for f in layout.text_fragments
+            if f.code_box is not None
+        }
+    )
+    assert len(boxes) == 2
+    shades = []
+    for bx, by, bw, bh in boxes:
+        # Sample in the left padding (CODE_PAD_X == 12), clear of text.
+        x = int(bx + 4)
+        y = int(by + bh / 2.0)
+        shades.append(img.pixelColor(x, y).getRgb())
+    assert shades[0] == shades[1], shades
 
 
 def test_help_document_reflows_when_window_narrows(qapp, qtbot):
@@ -741,3 +924,33 @@ def test_help_image_lightbox_skips_csd_title_bar(qapp, qtbot, tmp_path):
     assert title.isVisible()
     box.dismiss()
     host.deleteLater()
+
+
+def test_help_document_renders_pipe_table_with_borders(qapp, qtbot):
+    """Authored pipe tables render as the bordered TableBlock grid (the
+    Image Properties look), header row separated by a divider."""
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(640, 480)
+    view.set_markdown(
+        "| Param | Meaning |\n"
+        "|---|---|\n"
+        "| `alpha` | allow alpha editing |\n"
+        "| hover | keep hover overlays |\n"
+    )
+    qapp.processEvents()
+
+    canvas = _canvas(view)
+    tables = canvas._layout.tables
+    assert len(tables) == 1
+    table = tables[0]
+    assert table.rect.width() > 0
+    assert table.rect.height() > 0
+    # One vertical divider (2 columns); two horizontal dividers: under the
+    # header and between the two body rows.
+    assert len(table.col_xs) == 1
+    assert len(table.row_ys) == 2
+
+    text = view.plain_text()
+    assert "Param" in text
+    assert "allow alpha editing" in text

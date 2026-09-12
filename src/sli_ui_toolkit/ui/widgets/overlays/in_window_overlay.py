@@ -260,7 +260,7 @@ class TopLevelInWindowOverlay(QWidget):
 
     def _dismiss_after_deactivate(self) -> None:
         try:
-            from shiboken6 import isValid
+            from shiboken6 import isValid  # type: ignore[attr-defined]
         except ImportError:  # pragma: no cover
             isValid = None  # type: ignore[assignment]
         if isValid is not None and not isValid(self):

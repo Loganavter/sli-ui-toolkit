@@ -226,3 +226,88 @@ def test_right_click_on_close_button_does_not_emit_context_menu(qapp):
     qapp.processEvents()
 
     assert requested == []
+
+
+def test_close_slots_follow_scale_change(qapp):
+    """Live UiScale change must re-fit close slots to the rescaled buttons.
+
+    Regression: the slot baked its fixed size from the button at creation;
+    on scale change the button rescales but the slot did not, so the close
+    button stuck out past the tab's right edge and sat vertically off-center.
+    """
+    from sli_ui_toolkit.managers import UiScale
+
+    previous = UiScale.get_instance().factor()
+    try:
+        UiScale.get_instance().set_factor(1.0)
+        strip = _strip(policy=CloseButtonPolicy.ALL)
+        for i in range(3):
+            strip.addTab(f"Tab {i}")
+        strip.resize(900, 100)
+        strip.show()
+        qapp.processEvents()
+
+        bar = strip.tab_bar
+
+        def assert_fit(tag):
+            for index in range(strip.count()):
+                slot = bar.tabButton(index, QTabBar.ButtonPosition.RightSide)
+                assert slot is not None, f"{tag}: tab {index} lost its close slot"
+                tab_rect = bar._painted_tab_rect(bar.tabRect(index))
+                button = slot.button
+                btn_right = slot.x() + button.x() + button.width()
+                # The close button must sit inside its tab, right-aligned
+                # with the tab's painted right edge (margin tolerance).
+                assert tab_rect.contains(slot.geometry().center()), (
+                    f"{tag}: tab {index} slot center outside tab"
+                )
+                assert btn_right <= tab_rect.right() + 1, (
+                    f"{tag}: tab {index} button right {btn_right} "
+                    f"past tab right {tab_rect.right()}"
+                )
+                assert btn_right >= tab_rect.right() - slot.width() - 3, (
+                    f"{tag}: tab {index} button floated left of the tab edge"
+                )
+
+        assert_fit("1.0")
+        UiScale.get_instance().set_factor(1.5)
+        qapp.processEvents()
+        assert_fit("1.5")
+        UiScale.get_instance().set_factor(1.0)
+        qapp.processEvents()
+        assert_fit("1.0 back")
+    finally:
+        UiScale.get_instance().set_factor(previous)
+
+
+def test_current_tab_stays_visible_when_bar_shrinks(qapp):
+    """Live resize must keep the current tab (and its close button) in view.
+
+    Regression: resizeEvent only clamped the scroll offset, so shrinking the
+    window could leave the current tab scrolled past the edge with its close
+    button off-screen.
+    """
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    for i in range(10):
+        strip.addTab(f"Session {i}")
+    strip.resize(900, 60)
+    strip.show()
+    qapp.processEvents()
+
+    bar = strip.tab_bar
+    bar.setCurrentIndex(9)
+    qapp.processEvents()
+    assert bar.tabRect(9).right() <= bar.width()
+
+    for width in (600, 350, 250):
+        strip.resize(width, 60)
+        qapp.processEvents()
+        rect = bar.tabRect(9)
+        assert rect.left() >= 0, f"width {width}: current tab left {rect.left()} < 0"
+        assert rect.right() <= bar.width(), (
+            f"width {width}: current tab right {rect.right()} > bar {bar.width()}"
+        )
+        slot = bar.tabButton(9, QTabBar.ButtonPosition.RightSide)
+        assert slot is not None and bar.rect().contains(slot.geometry().center()), (
+            f"width {width}: close button off-screen"
+        )

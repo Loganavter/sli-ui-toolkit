@@ -1,16 +1,36 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtGui import QPainter
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.config import resolve_overlay_layer
 from sli_ui_toolkit.ui.widgets.helpers import draw_rounded_shadow
 
 def attach_in_window_widget(widget: QWidget, anchor: QWidget | None) -> object | None:
+    if anchor is None:
+        return None
     overlay_layer = resolve_overlay_layer(anchor)
     if overlay_layer is not None:
+        host = getattr(overlay_layer, "host", None)
+        # Never re-parent a flyout into an overlay host that lives in a
+        # *different top-level window* than its anchor. Resolvers often walk
+        # up the QObject chain and find an ancestor window's overlay layer
+        # (e.g. a flyout anchored inside a dialog whose QObject parent is the
+        # main window): attaching would paint the flyout *under* the dialog.
+        # The combo dropdown stays above the dialog precisely because it is a
+        # plain child of the dialog window; flyouts must keep the same
+        # invariant. Fake/test overlays expose host differently (attribute,
+        # property or callable) -- the guard only applies to real QWidget
+        # hosts, where the window comparison is meaningful.
+        if isinstance(host, QWidget):
+            try:
+                same_window = anchor.window() is host.window()
+            except RuntimeError:
+                same_window = False
+            if not same_window:
+                return None
         overlay_layer.attach(widget)
     return overlay_layer
 
@@ -21,12 +41,29 @@ def surface_anchor_rect(
     overlay_layer: object | None = None,
 ) -> QRect:
     if overlay_layer is not None and hasattr(overlay_layer, "anchor_rect"):
-        return overlay_layer.anchor_rect(anchor)
+        full_rect = overlay_layer.anchor_rect(anchor)
+    else:
+        parent = surface.parentWidget()
+        if parent is not None and not surface.isWindow():
+            full_rect = QRect(anchor.mapTo(parent, QPoint(0, 0)), anchor.size())
+        else:
+            full_rect = QRect(anchor.mapToGlobal(QPoint(0, 0)), anchor.size())
 
-    parent = surface.parentWidget()
-    if parent is not None and not surface.isWindow():
-        return QRect(anchor.mapTo(parent, QPoint(0, 0)), anchor.size())
-    return QRect(anchor.mapToGlobal(QPoint(0, 0)), anchor.size())
+    # A widget can narrow what "anchor rect" means for flyout positioning by
+    # implementing ``flyoutAnchorRect() -> QRect | None`` (local coordinates,
+    # relative to its own top-left) -- e.g. Slider anchors to its thumb
+    # instead of the whole track, so a value flyout tracks the handle as it
+    # moves rather than staying pinned to the track's horizontal center.
+    # None (or no such method) keeps the full-widget-rect default.
+    sub_rect_getter = getattr(anchor, "flyoutAnchorRect", None)
+    if callable(sub_rect_getter):
+        local_sub_rect = sub_rect_getter()
+        if local_sub_rect is not None:
+            return QRect(
+                full_rect.topLeft() + local_sub_rect.topLeft(),
+                local_sub_rect.size(),
+            )
+    return full_rect
 
 
 def surface_available_rect(
@@ -166,7 +203,7 @@ def create_shadow_surface(
     *,
     shadow_radius: int,
     container_object_name: str,
-    layout_cls: type[QBoxLayout] = QVBoxLayout,
+    layout_cls: type[QVBoxLayout] | type[QHBoxLayout] = QVBoxLayout,
     outer_margins: tuple[int, int, int, int] | None = None,
     content_margins: tuple[int, int, int, int] = (4, 4, 4, 4),
     content_spacing: int = 4,
@@ -194,6 +231,7 @@ def paint_shadowed_surface(
     *,
     shadow_radius: int,
     corner_radius: int,
+    shadow_color: QColor | None = None,
 ) -> None:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
@@ -202,4 +240,5 @@ def paint_shadowed_surface(
         surface_rect,
         steps=shadow_radius,
         radius=corner_radius,
+        color=shadow_color,
     )

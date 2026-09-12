@@ -108,8 +108,8 @@ def _variant_standard_hover(variant: VariantSpec, tm: ThemeManager) -> QColor | 
         return color if color.alpha() > 0 else None
     prefix = variant.token_prefix
     key = f"{prefix}.background.hover"
-    color = tm.try_get_color(key)
-    return QColor(color) if color is not None else None
+    theme_color = tm.try_get_color(key)
+    return QColor(theme_color) if theme_color is not None else None
 
 
 def _variant_standard_pressed(variant: VariantSpec, tm: ThemeManager) -> QColor | None:
@@ -118,8 +118,8 @@ def _variant_standard_pressed(variant: VariantSpec, tm: ThemeManager) -> QColor 
         return color if color.alpha() > 0 else None
     prefix = variant.token_prefix
     key = f"{prefix}.background.pressed"
-    color = tm.try_get_color(key)
-    return QColor(color) if color is not None else None
+    theme_color = tm.try_get_color(key)
+    return QColor(theme_color) if theme_color is not None else None
 
 
 def _variant_normal(variant: VariantSpec, tm: ThemeManager) -> QColor:
@@ -131,7 +131,7 @@ def _variant_normal(variant: VariantSpec, tm: ThemeManager) -> QColor:
     # permanently tinted against their host surface.
     if variant.resolve_bg is not None:
         return QColor(0, 0, 0, 0)
-    return QColor(tm.get_color("button.toggle.background.normal"))
+    return QColor(tm.get_color("surface.list"))
 
 
 def resolve_button_background(
@@ -247,6 +247,7 @@ def resolve_button_background(
     layers.extend(hover_layers)
 
     if ButtonState.PRESSED in states and ButtonState.DISABLED not in states:
+        pressed: QColor | None
         if custom_pal is not None and params.override_bg is None:
             pressed = custom_pal.pressed
         else:
@@ -283,7 +284,10 @@ class BackgroundLayer(Layer):
         is_subregion = (
             ctx.region_id is not None
             and region_rect is not None
-            and region_rect != ctx.rect
+            and (
+                region_rect != ctx.rect
+                or ctx.region_corner_radii is not None
+            )
         )
 
         for bg in backgrounds:
@@ -304,12 +308,13 @@ class BackgroundLayer(Layer):
                     region_path = rounded_rect_path(region_rect, region_radii)
                 else:
                     # Use the fill-only path (controller.fill_paths), not the
-                    # hit-test path (controller.paths/ctx.region_path): plain
-                    # rect regions get a hairline overlap there so adjacent
-                    # same-group fills don't leave an antialiased seam at
-                    # non-pixel-aligned split boundaries. The outer clip below
-                    # still trims overflow at the button's true edges, so
-                    # this only affects inner region-to-region seams.
+                    # hit-test path (controller.paths/ctx.region_path). For a
+                    # plain group (all members plain rects) the first member's
+                    # fill is the UNITED group rect and the siblings' fills are
+                    # empty, so the row paints one seamless wash with no seam at
+                    # the split boundary; other subregions keep the per-region
+                    # hairline-overlap path. The outer clip below still trims
+                    # overflow at the button's true edges.
                     region_path = ctx.effective_fill_path
                 p.save()
                 p.setClipPath(outer)

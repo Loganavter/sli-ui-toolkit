@@ -3,13 +3,15 @@ from __future__ import annotations
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen, QPolygonF
 
+from sli_ui_toolkit.managers import scaled_px
 from .i18n import localize_token
+from .theme import resolve_accent_color
 
 def draw_gutter_background(widget, painter: QPainter, rect: QRectF, gutter_bg: QColor, sep_soft: QColor) -> None:
     painter.save()
     painter.fillRect(rect, gutter_bg)
 
-    accent = QColor(widget.theme_manager.get_color("accent"))
+    accent = resolve_accent_color(widget)
     wash = QLinearGradient(rect.topLeft(), rect.bottomLeft())
     top = QColor(accent)
     top.setAlpha(26 if widget.theme_manager.is_dark() else 18)
@@ -50,8 +52,11 @@ def draw_group_header_label(widget, painter: QPainter, rect: QRectF, group, labe
     painter.setBrush(accent_fill)
     painter.drawRoundedRect(accent_bar, 1.5, 1.5)
 
-    font = painter.font()
-    font.setPointSize(max(8, font.pointSize() - 1))
+    # The painter font is design-sized; ui_font() applies the UiScale
+    # factor exactly once (see render.py draw_footer_and_ruler).
+    from sli_ui_toolkit.ui.managers.ui_font import ui_font
+
+    font = ui_font(point_size=max(8, painter.font().pointSize() - 1))
     font.setBold(True)
     painter.setFont(font)
 
@@ -81,7 +86,12 @@ def draw_group_header_label(widget, painter: QPainter, rect: QRectF, group, labe
 
 def draw_track_title_label(widget, painter: QPainter, rect: QRectF, label: str, text_col: QColor) -> None:
     painter.save()
-    font = painter.font()
+    # Scale-resolve the font like draw_group_header_label: the painter font
+    # is design-sized (the widget inherits the app font unscaled), so
+    # ui_font() applies the UiScale factor exactly once.
+    from sli_ui_toolkit.ui.managers.ui_font import ui_font
+
+    font = ui_font(point_size=max(8, painter.font().pointSize()))
     font.setBold(True)
     painter.setFont(font)
     painter.setPen(QPen(text_col, 1))
@@ -95,18 +105,29 @@ def draw_track_title_label(widget, painter: QPainter, rect: QRectF, label: str, 
 def draw_channel_label(widget, painter: QPainter, rect: QRectF, label: str, text_col: QColor, dot_color: QColor) -> None:
     painter.save()
     center_y = rect.center().y()
-    dot_x = rect.left() + 6
+    dot_x = rect.left() + scaled_px(6)
     dot = QColor(dot_color)
     dot.setAlpha(230)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(dot)
-    painter.drawEllipse(QPointF(dot_x, center_y), 2.5, 2.5)
+    # Scale the indicator dot with the UI scale (it used to stay at the
+    # design 2.5px radius while the lane text grew — a "tiny dot" like the
+    # old context-menu arrow glyph).
+    dot_radius = scaled_px(5) / 2.0
+    painter.drawEllipse(QPointF(dot_x, center_y), dot_radius, dot_radius)
 
     guide_col = QColor(dot)
     guide_col.setAlpha(120)
     painter.setPen(QPen(guide_col, 1))
-    painter.drawLine(int(dot_x), int(rect.top()) + 2, int(dot_x), int(rect.bottom()) - 2)
+    painter.drawLine(
+        int(dot_x), int(rect.top()) + scaled_px(2),
+        int(dot_x), int(rect.bottom()) - scaled_px(2),
+    )
 
+    from sli_ui_toolkit.ui.managers.ui_font import ui_font
+
+    font = ui_font(point_size=max(8, painter.font().pointSize()))
+    painter.setFont(font)
     text_rect = QRectF(rect.left() + 14, rect.top(), max(10.0, rect.width() - 14), rect.height())
     painter.setPen(QPen(text_col, 1))
     painter.drawText(
@@ -152,7 +173,7 @@ def draw_playhead(widget, painter: QPainter, *, x_head: float, footer_top: int, 
     )
     painter.setClipRect(extended_rect, Qt.ClipOperation.ReplaceClip)
 
-    accent_color = widget.theme_manager.get_color("accent")
+    accent_color = resolve_accent_color(widget)
     outline_color = QColor(0, 0, 0, 90)
     painter.setPen(QPen(outline_color, widget.HEAD_LINE_WIDTH + 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
     painter.drawLine(QPointF(x_head, 0), QPointF(x_head, footer_top))

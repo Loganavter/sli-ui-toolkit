@@ -257,7 +257,7 @@ def apply_top_trailing_rounded_mask(
     _mask_from_path(widget, path)
 
 
-def resolve_window_bg_color(window: QWidget, bg_token: str = "Window") -> QColor:
+def resolve_window_bg_color(window: QWidget, bg_token: str = "surface.background") -> QColor:
     try:
         tm = ThemeManager.get_instance()
         color = tm.get_color(bg_token)
@@ -279,9 +279,15 @@ def make_rounded_paint_event(bg_color: QColor, radius: int):
         painter = QPainter(self)
         try:
             squared = self.isMaximized() or self.isFullScreen()
+            from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+            band = resolve_csd_band(self)
+            # The window surface carries the outer resize band — the visible
+            # rounded body is inset by it on every side.
+            rect = QRectF(self.rect()).adjusted(band, band, -band, -band)
             paint_rounded_window_background(
                 painter,
-                QRectF(self.rect()),
+                rect,
                 color=state["color"],
                 radius=float(state["radius"]),
                 squared=squared,

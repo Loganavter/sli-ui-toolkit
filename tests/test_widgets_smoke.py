@@ -11,12 +11,9 @@ from sli_ui_toolkit.widgets import (
     CustomLineEdit,
     Label,
     RadioButton,
-    SimpleUnifiedFlyoutController,
-    SimpleUnifiedFlyoutStore,
     Slider,
     SpinBox,
     Switch,
-    UnifiedFlyout,
 )
 
 
@@ -40,12 +37,4 @@ def test_widget_instantiates(qapp, factory):
     widget.deleteLater()
 
 
-def test_unified_flyout_instantiates(qapp):
-    store = SimpleUnifiedFlyoutStore()
-    controller = SimpleUnifiedFlyoutController(store)
-    host = QWidget()
-    flyout = UnifiedFlyout(store=store, main_controller=controller, main_window=host)
-    assert flyout is not None
-    flyout.deleteLater()
-    host.deleteLater()
 

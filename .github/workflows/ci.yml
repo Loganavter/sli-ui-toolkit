@@ -43,6 +43,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]" build twine
 
+      - name: Run mypy
+        run: mypy src/sli_ui_toolkit
+
       - name: Run tests
         run: pytest
 
