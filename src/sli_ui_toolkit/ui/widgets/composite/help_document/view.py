@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPaintEvent, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QSizePolicy,
@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
-from sli_ui_toolkit.ui.widgets.composite.help_document.blocks import (
+from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
     HeadingBlock,
     HelpBlock,
     blocks_to_plain_text,
@@ -59,6 +59,8 @@ class HelpDocumentView(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.setMinimumWidth(0)
         self._theme = ThemeManager.get_instance()
+        self._surface_color = QColor("#000000")
+        self._read_surface_color()
         self._resolve_asset = resolve_asset
         self._open_external_links = open_external_links
         self._show_toc = show_toc
@@ -89,6 +91,10 @@ class HelpDocumentView(QWidget):
 
     def set_show_toc(self, enabled: bool) -> None:
         self._show_toc = bool(enabled)
+
+    def set_tab_stop_px(self, px: float) -> None:
+        """See ``HelpDocumentBodyCanvas.set_tab_stop_px``."""
+        self._canvas.set_tab_stop_px(px)
 
     def clear(self) -> None:
         self._blocks = ()
@@ -146,6 +152,39 @@ class HelpDocumentView(QWidget):
     def scroll_to_anchor(self, anchor: str) -> QWidget | None:
         """Return the widget for ``anchor`` so a parent scroll area can ensure visible."""
         return self._canvas.anchor_widget(anchor)
+
+    def scroll_to_text(self, query: str) -> QWidget | None:
+        """Highlight the first case-insensitive occurrence of ``query`` in the body.
+
+        Returns a scroll-target widget for a parent ``QScrollArea`` to call
+        ``ensureWidgetVisible`` on (``None`` when the query is absent).
+        """
+        return self._canvas.scroll_to_text(query)
+
+    def _read_surface_color(self) -> None:
+        """Re-read the ``dialog.background`` token into ``_surface_color``.
+
+        The document view typically sits inside a host ``QScrollArea``: the
+        stock scroll area and its viewport auto-fill the QPalette Window
+        role, which hosts keep darker than the dialog surface token (dark
+        ``Window`` ``#1e1e1e`` vs ``dialog.background`` ``#2b2b2b``), so a
+        transparent document renders on a near-black substrate. An explicit
+        ``paintEvent`` fill is the reliable path — same as ``_SurfaceWidget``
+        — re-read on ``theme_changed`` so palette overrides via ``set_color``
+        take effect.
+        """
+        try:
+            self._surface_color = QColor(
+                self._theme.get_color("surface.background")
+            )
+        except Exception:
+            self._surface_color = QColor(self.palette().window().color())
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802
+        del event
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self._surface_color)
+        painter.end()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -219,6 +258,8 @@ class HelpDocumentView(QWidget):
         return pix if not pix.isNull() else None
 
     def _repolish(self, *_args) -> None:
+        self._read_surface_color()
+        self.update()
         toc = self.findChild(QFrame, "HelpDocumentToc")
         if toc is not None:
             sep = self._theme.try_get_color("help.separator")
@@ -249,6 +290,66 @@ class _LinkLabel(Label):
         self._href = href
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._keyboard_focus = False
+        self._focus_ring_width = 2
+
+    def focusInEvent(self, event) -> None:  # noqa: N802
+        # Ring modality resolved centrally via NavigationManager (4.2.4):
+        # input device is the source of truth, reason is only a hint.
+        reason = event.reason() if hasattr(event, "reason") else Qt.FocusReason.OtherFocusReason
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
+            )
+
+            is_kbd = resolve_keyboard_focus(reason)
+        except Exception:
+            # degraded, no manager
+            is_kbd = reason not in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+                Qt.FocusReason.PopupFocusReason,
+            )
+        self._keyboard_focus = bool(is_kbd)
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        self._keyboard_focus = False
+        super().focusOutEvent(event)
+        self.update()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self.clicked.emit(self._href)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        if getattr(self, "_keyboard_focus", False) and self.hasFocus():
+            from PySide6.QtGui import QColor, QPen, QPainter
+
+            from sli_ui_toolkit.theme import ThemeManager
+
+            tm = ThemeManager.get_instance()
+            accent = tm.try_get_color("accent")
+            if accent is not None and accent.isValid():
+                c = QColor(accent)
+            else:
+                c = QColor(tm.get_color("accent"))
+            try:
+                c.setAlpha(220)
+            except Exception:
+                pass
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(QPen(c, 1.5))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRoundedRect(self.rect().adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+            p.end()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:

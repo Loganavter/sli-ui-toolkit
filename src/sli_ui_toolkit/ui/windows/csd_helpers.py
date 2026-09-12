@@ -7,7 +7,12 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from .custom_title_bar import CustomTitleBar
-from .rounded_body import paint_rounded_window_background
+from .rounded_body import (
+    apply_bottom_rounded_mask,
+    apply_rounded_window_mask,
+    apply_top_rounded_mask,
+    paint_rounded_window_background,
+)
 
 
 class CsdRoundedBackground(QWidget):
@@ -31,7 +36,15 @@ class CsdRoundedBackground(QWidget):
         dialog = self.parentWidget()
         if dialog is None:
             return
-        self.setGeometry(0, 0, dialog.width(), dialog.height())
+        from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+        band = resolve_csd_band(dialog)
+        self.setGeometry(
+            band,
+            band,
+            max(1, dialog.width() - 2 * band),
+            max(1, dialog.height() - 2 * band),
+        )
 
     def paintEvent(self, event):  # noqa: ARG001 — Qt API
         dialog = self.parentWidget()
@@ -51,13 +64,97 @@ class CsdRoundedBackground(QWidget):
             painter.end()
 
 
+def _mask_edge_hosts(dialog: QWidget, radius: float, squared: bool) -> None:
+    """Systematic CSD corner contract: clip every direct child that reaches
+    a rounded corner zone to that corner's silhouette.
+
+    The window's rounded corners stay transparent only while no opaque
+    child paints its square corners over them (the inspector bug: an opaque
+    tab pane left a rectangular corner inside the rounded window). Instead
+    of trusting each host to apply the masks itself, inspect every direct
+    child's rect against the window's four corner zones here — masking a
+    transparent parent clips its whole subtree, so "reaches a corner zone"
+    is the only condition that matters. Children spanning both the top and
+    the bottom corners get the full silhouette mask.
+    """
+    from PySide6.QtWidgets import QWidget as _QWidget
+
+    width = int(dialog.width())
+    height = int(dialog.height())
+    if width <= 0 or height <= 0:
+        return
+    tolerance = max(2, int(radius))
+    title_bar = getattr(dialog, "_csd_title_bar", None)
+    bg_layer = getattr(dialog, "_csd_bg_layer", None)
+    for child in dialog.findChildren(
+        _QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly
+    ):
+        if child.isWindow() or not child.isVisibleTo(dialog):
+            continue
+        if child is title_bar or child is bg_layer:
+            # These paint the rounded silhouette themselves (AA) — a binary
+            # mask on them would destroy the antialiased edge.
+            continue
+        rect = child.geometry()
+        touches_top = rect.top() <= tolerance
+        touches_bottom = rect.bottom() >= height - tolerance
+        touches_left = rect.left() <= tolerance
+        touches_right = rect.right() >= width - tolerance
+        top = (touches_top and touches_left) or (touches_top and touches_right)
+        bottom = (touches_bottom and touches_left) or (
+            touches_bottom and touches_right
+        )
+        if not top and not bottom:
+            continue
+        if top and bottom:
+            apply_rounded_window_mask(child, radius=radius, squared=squared)
+        elif top:
+            apply_top_rounded_mask(child, radius=radius, squared=squared)
+        else:
+            apply_bottom_rounded_mask(child, radius=radius, squared=squared)
+
+
+def _sync_csd_layout_margins(dialog: QWidget) -> None:
+    """Collapse the outer-band layout inset in maximized/fullscreen.
+
+    Mirrors ``MainWindow._sync_csd_content_band``: the root layout insets
+    content by the outer resize band (so the visible body sits inside the
+    transparent grab margin). In maximized/fullscreen the band is gone and
+    keeping the inset leaves a strip of window background around the content.
+    """
+    chrome = getattr(dialog, "_window_chrome", None)
+    base = getattr(chrome, "_base_layout_margins", None) if chrome is not None else None
+    if base is None:
+        return
+    layout = dialog.layout()
+    if layout is None:
+        return
+    from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+    from sli_ui_toolkit.ui.windows.custom_title_bar import CustomTitleBar
+    from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+    band = resolve_csd_band(dialog)
+    try:
+        l, t, r, b = base  # type: ignore[misc]
+        layout.setContentsMargins(
+            l + band,
+            t + scaled_px(CustomTitleBar.HEIGHT) + band,
+            r + band,
+            b + band,
+        )
+        layout.invalidate()
+        layout.activate()
+    except Exception:
+        pass
+
+
 def sync_csd_chrome(dialog: QWidget) -> None:
     """Re-fit CSD background and title bar to the current size.
 
     Intentionally does **not** ``setMask`` the top-level shell: binary masks
     destroy the antialiased corner painted by :class:`CsdRoundedBackground`.
-    Opaque content hosts that reach the edge should use
-    ``apply_bottom_rounded_mask`` themselves (see main window).
+    Opaque content hosts that reach a corner zone are masked automatically
+    by :func:`_mask_edge_hosts`.
     """
     if dialog is None:
         return
@@ -72,6 +169,7 @@ def sync_csd_chrome(dialog: QWidget) -> None:
         dialog, "_csd_title_bar", None
     ) is None:
         return
+    _sync_csd_layout_margins(dialog)
     bg_layer = getattr(dialog, "_csd_bg_layer", None)
     if bg_layer is not None:
         bg_layer.sync_geometry()
@@ -79,8 +177,31 @@ def sync_csd_chrome(dialog: QWidget) -> None:
         bg_layer.update()
     title_bar = getattr(dialog, "_csd_title_bar", None)
     if title_bar is not None:
-        title_bar.setGeometry(0, 0, width, CustomTitleBar.HEIGHT)
+        from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+        from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
+
+        band = resolve_csd_band(dialog)
+        title_bar.setGeometry(
+            band,
+            band,
+            max(1, width - 2 * band),
+            scaled_px(CustomTitleBar.HEIGHT),
+        )
         title_bar.raise_()
+        # Force the bar's paint synchronously: after a live scale change the
+        # geometry may heal on a later tick while the stale frame stays on
+        # screen (translucent-window repaint quirk on some compositors).
+        try:
+            title_bar.repaint()
+        except Exception:
+            pass
+    state = getattr(dialog, "_csd_paint_state", None)
+    if state is not None:
+        _mask_edge_hosts(
+            dialog,
+            radius=float(state.get("radius", 10)),
+            squared=bool(dialog.isMaximized() or dialog.isFullScreen()),
+        )
     # Drop any stale shell mask from older toolkit builds / maximize toggles.
     try:
         dialog.clearMask()

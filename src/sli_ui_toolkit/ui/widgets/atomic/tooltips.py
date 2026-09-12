@@ -51,7 +51,7 @@ class _TooltipBubble(QWidget):
             radius=self.CONTENT_RADIUS,
         )
         tm = ThemeManager.get_instance()
-        painter.setBrush(tm.get_color("tooltip.background"))
+        painter.setBrush(tm.get_color("surface.background"))
         painter.setPen(QPen(tm.get_color("tooltip.border"), 1))
         painter.drawRoundedRect(geo, self.CONTENT_RADIUS, self.CONTENT_RADIUS)
         painter.end()
@@ -79,20 +79,21 @@ class _TooltipInterceptor(QObject):
         # forward those to QObject.eventFilter — PySide rejects the call.
         if not isinstance(watched, QObject):
             return False
-        if not _should_handle_tooltip_widget(watched):
+        t = event.type()
+        if t == QEvent.Type.ToolTip:
+            if not _should_handle_tooltip_widget(watched):
+                return False
+            tooltip_text = _resolve_tooltip_text(watched, event)
+            if tooltip_text:
+                global_pos = (
+                    event.globalPos()
+                    if hasattr(event, "globalPos")
+                    else watched.mapToGlobal(watched.rect().center())
+                )
+                PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
+                return True
             return False
-        tooltip_text = _resolve_tooltip_text(watched, event)
-
-        if event.type() == QEvent.Type.ToolTip and tooltip_text:
-            global_pos = (
-                event.globalPos()
-                if hasattr(event, "globalPos")
-                else watched.mapToGlobal(watched.rect().center())
-            )
-            PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
-            return True
-
-        if event.type() in (
+        if t in (
             QEvent.Type.Leave,
             QEvent.Type.Hide,
             QEvent.Type.Close,
@@ -106,20 +107,21 @@ class _ApplicationTooltipInterceptor(QObject):
     def eventFilter(self, watched, event):
         if not isinstance(watched, QObject):
             return False
-        if not _should_handle_tooltip_widget(watched):
+        t = event.type()
+        if t == QEvent.Type.ToolTip:
+            if not _should_handle_tooltip_widget(watched):
+                return False
+            tooltip_text = _resolve_tooltip_text(watched, event)
+            if tooltip_text:
+                global_pos = (
+                    event.globalPos()
+                    if hasattr(event, "globalPos")
+                    else watched.mapToGlobal(watched.rect().center())
+                )
+                PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
+                return True
             return False
-
-        tooltip_text = _resolve_tooltip_text(watched, event)
-        if event.type() == QEvent.Type.ToolTip and tooltip_text:
-            global_pos = (
-                event.globalPos()
-                if hasattr(event, "globalPos")
-                else watched.mapToGlobal(watched.rect().center())
-            )
-            PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
-            return True
-
-        if event.type() in (
+        if t in (
             QEvent.Type.Leave,
             QEvent.Type.Hide,
             QEvent.Type.Close,
@@ -135,7 +137,7 @@ def _should_handle_tooltip_widget(watched) -> bool:
     if not isinstance(watched, QWidget):
         return False
     try:
-        if not shiboken6.isValid(watched):
+        if not shiboken6.isValid(watched):  # type: ignore[attr-defined]
             return False
     except Exception:
         return False
@@ -152,16 +154,16 @@ def install_custom_tooltip(widget: QWidget):
         return
     interceptor = _TooltipInterceptor(widget)
     widget.installEventFilter(interceptor)
-    widget._custom_tooltip_installed = True
-    widget._custom_tooltip_interceptor = interceptor
+    setattr(widget, "_custom_tooltip_installed", True)
+    setattr(widget, "_custom_tooltip_interceptor", interceptor)
 
 def install_application_tooltips(app: QApplication | None):
     if app is None or getattr(app, "_custom_tooltip_installed", False):
         return
     interceptor = _ApplicationTooltipInterceptor(app)
     app.installEventFilter(interceptor)
-    app._custom_tooltip_installed = True
-    app._custom_tooltip_interceptor = interceptor
+    setattr(app, "_custom_tooltip_installed", True)
+    setattr(app, "_custom_tooltip_interceptor", interceptor)
 
 def set_application_tooltips_enabled(enabled: bool) -> None:
     PathTooltip.get_instance().set_enabled(enabled)
@@ -210,9 +212,10 @@ class PathTooltip(QObject):
         self._host = None
 
     def _resolve_host(self, global_pos: QPoint) -> QWidget | None:
-        app = QApplication.instance()
-        if app is None:
+        instance = QApplication.instance()
+        if not isinstance(instance, QApplication):
             return None
+        app = instance
 
         widget = QApplication.widgetAt(global_pos)
         if widget is None:
