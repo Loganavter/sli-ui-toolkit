@@ -487,13 +487,25 @@
   render smoke test).
 - Timeline token handoff closed on integration: `render.py` row rules /
   center lines (`timeline.separator.row`, `timeline.center.line`, defaults
-  byte-identical to the old hardcodes) and `viewport.py` scrollbar fallbacks
+  byte-identical to the old hardcodes) and   `viewport.py` scrollbar fallbacks
   (`timeline.scrollbar.idle/hover`) now resolve through the new helpers
   (`row_separator_color()`, `row_center_line_color()`,
   `scrollbar_idle_color()`, `scrollbar_hover_color()`). No hardcoded
   `QColor` remains in the timeline paint path; `inspect_spec`
   `token_family` extension deferred to the timer/state phase (owns
   `widget.py`).
+- Timeline timer/state cleanup: the playhead lerp `QTimer` is a
+  `QPropertyAnimation` (150 ms OutCubic — same smoothing, `headMoved`
+  still fires synchronously), the two `singleShot(0, fit_view)` calls are
+  coalesced through the layout settle gate, `TimelineViewportState` is the
+  single mutation source (zoom commits go through `_commitState` with
+  identical emit semantics; silent write-through keeps readers fresh), and
+  localization hooks are per-widget (`bind_widget`, process-global
+  callbacks kept as fallback for handle-less paint paths).
+  `inspect_spec.token_family` now references `theme.TIMELINE_TOKENS`.
+  Guarded by `tests/test_timeline_state.py`. Host note: the private
+  `timeline._lerp_timer` poked by old host cleanup code is gone — guarded
+  `hasattr` call sites simply skip.
 
 ### Changed
 

@@ -196,14 +196,16 @@ def test_lerp_timer_gone(qapp):
 
 
 def test_token_family_references_timeline_tokens():
-    assert len(TIMELINE_TOKENS) >= 6
+    # Integration: token_family is the canonical theme.TIMELINE_TOKENS
+    # (timeline.* tokens + wash alphas), not the 6 legacy shared keys.
+    assert len(TIMELINE_TOKENS) >= 20
     assert set(TIMELINE_TOKENS) >= {
-        "accent",
-        "Window",
-        "WindowText",
-        "AlternateBase",
-        "separator.color",
-        "dialog.border",
+        "timeline.gutter.background",
+        "timeline.separator.row",
+        "timeline.center.line",
+        "timeline.keyframe.outline",
+        "timeline.playhead.outline",
+        "timeline.scrollbar.idle",
     }
     spec = TimelineWidget.inspect_spec
     assert tuple(spec.token_family) == tuple(TIMELINE_TOKENS)

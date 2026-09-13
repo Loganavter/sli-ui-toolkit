@@ -30,19 +30,6 @@ from . import i18n as timeline_i18n
 
 logger = logging.getLogger(__name__)
 
-#: Canonical theme tokens read by the timeline paint path (resolved in
-#: ``theme.build_theme_colors``). ``theme.py`` owns this tuple on the Phase-B
-#: integration branches; the local definition keeps this base self-contained
-#: — keep both in sync. ``inspect_spec.token_family`` references it directly.
-TIMELINE_TOKENS: tuple[str, ...] = (
-    "accent",
-    "Window",
-    "WindowText",
-    "AlternateBase",
-    "separator.color",
-    "dialog.border",
-)
-
 class TimelineWidget(QWidget):
     """Generic keyframe timeline with thumbnail strip, grouped tracks, and playhead.
 
@@ -882,7 +869,7 @@ TimelineWidget.inspect_spec = InspectSpec(
         SpecField("pixels_per_second", "get_pixels_per_second"),
         SpecField("has_selection", "has_selection"),
     ),
-    token_family=TIMELINE_TOKENS,
+    token_family=timeline_theme.TIMELINE_TOKENS,
     docs='docs/user/API_CATALOG.md',
 )
 
