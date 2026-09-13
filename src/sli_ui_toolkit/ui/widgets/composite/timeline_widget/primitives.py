@@ -5,18 +5,19 @@ from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen, QPoly
 
 from sli_ui_toolkit.managers import scaled_px
 from .i18n import localize_token
-from .theme import resolve_accent_color
+from .theme import playhead_outline_color, resolve_accent_color, timeline_alpha
 
 def draw_gutter_background(widget, painter: QPainter, rect: QRectF, gutter_bg: QColor, sep_soft: QColor) -> None:
     painter.save()
     painter.fillRect(rect, gutter_bg)
 
+    tm = widget.theme_manager
     accent = resolve_accent_color(widget)
     wash = QLinearGradient(rect.topLeft(), rect.bottomLeft())
     top = QColor(accent)
-    top.setAlpha(26 if widget.theme_manager.is_dark() else 18)
+    top.setAlpha(timeline_alpha(tm, "timeline.gutter.wash.top.alpha"))
     bottom = QColor(accent)
-    bottom.setAlpha(8 if widget.theme_manager.is_dark() else 4)
+    bottom.setAlpha(timeline_alpha(tm, "timeline.gutter.wash.bottom.alpha"))
     wash.setColorAt(0.0, top)
     wash.setColorAt(0.35, bottom)
     wash.setColorAt(1.0, QColor(0, 0, 0, 0))
@@ -24,7 +25,7 @@ def draw_gutter_background(widget, painter: QPainter, rect: QRectF, gutter_bg: Q
 
     edge = QLinearGradient(rect.topLeft(), rect.topRight())
     glow = QColor(accent)
-    glow.setAlpha(22 if widget.theme_manager.is_dark() else 14)
+    glow.setAlpha(timeline_alpha(tm, "timeline.gutter.edge.alpha"))
     edge.setColorAt(0.0, glow)
     edge.setColorAt(0.18, QColor(0, 0, 0, 0))
     painter.fillRect(rect, edge)
@@ -36,9 +37,9 @@ def draw_group_header_label(widget, painter: QPainter, rect: QRectF, group, labe
     collapsed = widget._is_group_collapsed(group)
     gradient = QLinearGradient(rect.topLeft(), rect.topRight())
     start = QColor(accent)
-    start.setAlpha(70 if widget.theme_manager.is_dark() else 52)
+    start.setAlpha(timeline_alpha(widget.theme_manager, "timeline.group.header.start.alpha"))
     end = QColor(accent)
-    end.setAlpha(12 if widget.theme_manager.is_dark() else 18)
+    end.setAlpha(timeline_alpha(widget.theme_manager, "timeline.group.header.end.alpha"))
     gradient.setColorAt(0.0, start)
     gradient.setColorAt(0.6, end)
     gradient.setColorAt(1.0, QColor(0, 0, 0, 0))
@@ -144,7 +145,7 @@ def draw_vertical_scrollbar_track(widget, painter: QPainter, bg_color: QColor) -
     if rect.isEmpty():
         return
     track = QColor(bg_color)
-    track.setAlpha(190 if widget.theme_manager.is_dark() else 235)
+    track.setAlpha(timeline_alpha(widget.theme_manager, "timeline.scrollbar.track.alpha"))
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setPen(Qt.PenStyle.NoPen)
@@ -174,7 +175,7 @@ def draw_playhead(widget, painter: QPainter, *, x_head: float, footer_top: int, 
     painter.setClipRect(extended_rect, Qt.ClipOperation.ReplaceClip)
 
     accent_color = resolve_accent_color(widget)
-    outline_color = QColor(0, 0, 0, 90)
+    outline_color = playhead_outline_color(widget)
     painter.setPen(QPen(outline_color, widget.HEAD_LINE_WIDTH + 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
     painter.drawLine(QPointF(x_head, 0), QPointF(x_head, footer_top))
     painter.setPen(QPen(accent_color, widget.HEAD_LINE_WIDTH, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
