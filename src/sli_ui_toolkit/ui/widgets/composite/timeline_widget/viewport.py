@@ -13,6 +13,7 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
 )
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from . import layout as timeline_layout
+from . import theme as timeline_theme
 from .i18n import localize_token, localize_value
 from .theme import resolve_accent_color
 
@@ -363,9 +364,9 @@ def draw_inner_scrollbar(
     if handle_rect.isEmpty():
         return
     if idle_color is None:
-        idle_color = QColor(0, 0, 0, 65)
+        idle_color = timeline_theme.scrollbar_idle_color(widget)
     if hover_color is None:
-        hover_color = QColor(0, 0, 0, 95)
+        hover_color = timeline_theme.scrollbar_hover_color(widget)
     if widget._sb_dragging:
         color = resolve_accent_color(widget)
     elif sb_rect.contains(QPointF(widget.mapFromGlobal(widget.cursor().pos()))):

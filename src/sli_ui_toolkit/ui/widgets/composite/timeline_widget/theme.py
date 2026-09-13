@@ -20,6 +20,8 @@ _TIMELINE_TOKEN_DEFAULTS: dict[str, tuple[QColor, QColor]] = {
     "timeline.footer.background": (QColor(236, 238, 242), QColor(38, 38, 42)),
     "timeline.separator.strong": (QColor(188, 192, 200), QColor(85, 85, 85)),
     "timeline.separator.soft": (QColor(218, 220, 226), QColor(55, 55, 60)),
+    "timeline.separator.row": (QColor(210, 210, 214), QColor(210, 210, 214)),
+    "timeline.center.line": (QColor(190, 190, 196), QColor(190, 190, 196)),
     "timeline.scrollbar.idle": (QColor(0, 0, 0, 65), QColor(255, 255, 255, 55)),
     "timeline.scrollbar.hover": (QColor(0, 0, 0, 95), QColor(255, 255, 255, 85)),
     "timeline.track.bool": (QColor(0, 140, 198), QColor(0, 140, 198)),
@@ -96,6 +98,26 @@ def keyframe_outline_color(widget) -> QColor:
 def playhead_outline_color(widget) -> QColor:
     """Dark halo under the playhead line (handoff helper for primitives.py)."""
     return _timeline_color(widget.theme_manager, "timeline.playhead.outline")
+
+
+def row_separator_color(widget) -> QColor:
+    """Row bottom rule (integration helper for render.py draw_rows)."""
+    return _timeline_color(widget.theme_manager, "timeline.separator.row")
+
+
+def row_center_line_color(widget) -> QColor:
+    """Lane center line (integration helper for render.py draw_rows)."""
+    return _timeline_color(widget.theme_manager, "timeline.center.line")
+
+
+def scrollbar_idle_color(widget) -> QColor:
+    """Scrollbar handle idle fill (integration helper for viewport.py)."""
+    return _timeline_color(widget.theme_manager, "timeline.scrollbar.idle")
+
+
+def scrollbar_hover_color(widget) -> QColor:
+    """Scrollbar handle hover fill (integration helper for viewport.py)."""
+    return _timeline_color(widget.theme_manager, "timeline.scrollbar.hover")
 
 
 def build_theme_colors(widget) -> dict[str, Any]:

@@ -77,6 +77,8 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
     lane_x0 = max(content_start_x, start_x)
     lane_x1 = min(float(width), end_x)
     lane_has_damage = lane_x1 > lane_x0
+    sep_row = timeline_theme.row_separator_color(widget)
+    center_line = timeline_theme.row_center_line_color(widget)
     for item in widget._row_layout[start:end]:
         if item[0] == "group":
             group = item[1]
@@ -100,12 +102,12 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             painter.fillRect(QRectF(0, y, content_start_x, row_h), gutter_track_bg)
             if lane_has_damage:
                 painter.fillRect(QRectF(lane_x0, y, lane_x1 - lane_x0, row_h), lane_bg)
-            painter.setPen(QPen(QColor(210, 210, 214), 1))
+            painter.setPen(QPen(sep_row, 1))
             painter.drawLine(0, y + row_h, width, y + row_h)
             timeline_primitives.draw_track_title_label(widget, painter, QRectF(18, y, max(40, widget.LEFT_GUTTER - 30), row_h), track.label, text_col)
             if lane_has_damage:
                 row_center_y = y + row_h / 2.0
-                painter.setPen(QPen(QColor(190, 190, 196), 1))
+                painter.setPen(QPen(center_line, 1))
                 painter.drawLine(int(lane_x0), int(row_center_y), int(lane_x1), int(row_center_y))
                 if not _row_segments_culled(widget, track=track, channel=channel, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x):
                     _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=4.0)
@@ -128,7 +130,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             painter.fillRect(QRectF(0, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, gutter_bg, group, 24 if is_dark else 10))
         if lane_has_damage:
             painter.fillRect(QRectF(lane_x0, y, lane_x1 - lane_x0, row_h), lane_bg)
-        painter.setPen(QPen(QColor(210, 210, 214), 1))
+        painter.setPen(QPen(sep_row, 1))
         painter.drawLine(0, y + row_h, width, y + row_h)
         if is_first_channel:
             timeline_primitives.draw_track_title_label(widget, painter, QRectF(18, y, max(40, widget.LEFT_GUTTER * 0.44 - 22), row_h), track.label, text_col)
@@ -144,7 +146,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
         )
         if lane_has_damage:
             row_center_y = y + row_h / 2.0
-            painter.setPen(QPen(QColor(190, 190, 196), 1))
+            painter.setPen(QPen(center_line, 1))
             painter.drawLine(int(lane_x0), int(row_center_y), int(lane_x1), int(row_center_y))
             if not _row_segments_culled(widget, track=track, channel=channel, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x):
                 _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=3.5)

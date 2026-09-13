@@ -485,6 +485,15 @@
   Guarded by `tests/test_timeline_tokens.py` (light+dark resolution, token
   override wins, no-`is_dark`-branch source scan, real-widget light/dark
   render smoke test).
+- Timeline token handoff closed on integration: `render.py` row rules /
+  center lines (`timeline.separator.row`, `timeline.center.line`, defaults
+  byte-identical to the old hardcodes) and `viewport.py` scrollbar fallbacks
+  (`timeline.scrollbar.idle/hover`) now resolve through the new helpers
+  (`row_separator_color()`, `row_center_line_color()`,
+  `scrollbar_idle_color()`, `scrollbar_hover_color()`). No hardcoded
+  `QColor` remains in the timeline paint path; `inspect_spec`
+  `token_family` extension deferred to the timer/state phase (owns
+  `widget.py`).
 
 ### Changed
 
