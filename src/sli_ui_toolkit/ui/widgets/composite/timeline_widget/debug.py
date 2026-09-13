@@ -17,6 +17,7 @@ greppable independently:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 
@@ -33,11 +34,15 @@ def _timeline_debug_enabled() -> bool:
     return any_flag(*_TIMELINE_DEBUG_VARS)
 
 
-def _timeline_debug(message: str, *args) -> None:
+def _emit(prefix: str, message: str, *args: Any) -> None:
+    """Shared gate + logger for the timeline trace wrappers below."""
     if _timeline_debug_enabled():
-        _timeline_logger.debug("[timeline-debug] " + message, *args)
+        _timeline_logger.debug(prefix + " " + message, *args)
 
 
-def _timeline_paint_debug(message: str, *args) -> None:
-    if _timeline_debug_enabled():
-        _timeline_logger.debug("[timeline-paint] " + message, *args)
+def _timeline_debug(message: str, *args: Any) -> None:
+    _emit("[timeline-debug]", message, *args)
+
+
+def _timeline_paint_debug(message: str, *args: Any) -> None:
+    _emit("[timeline-paint]", message, *args)

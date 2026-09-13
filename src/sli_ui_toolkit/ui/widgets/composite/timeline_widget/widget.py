@@ -7,7 +7,7 @@ import warnings
 from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QMetaMethod, QEvent, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QMetaMethod, QEvent, QPropertyAnimation, QRectF, Qt, QTimer, Signal
 
 from .state import TimelineViewportState
 from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
@@ -29,6 +29,19 @@ from . import viewport as timeline_viewport
 from . import i18n as timeline_i18n
 
 logger = logging.getLogger(__name__)
+
+#: Canonical theme tokens read by the timeline paint path (resolved in
+#: ``theme.build_theme_colors``). ``theme.py`` owns this tuple on the Phase-B
+#: integration branches; the local definition keeps this base self-contained
+#: — keep both in sync. ``inspect_spec.token_family`` references it directly.
+TIMELINE_TOKENS: tuple[str, ...] = (
+    "accent",
+    "Window",
+    "WindowText",
+    "AlternateBase",
+    "separator.color",
+    "dialog.border",
+)
 
 class TimelineWidget(QWidget):
     """Generic keyframe timeline with thumbnail strip, grouped tracks, and playhead.
@@ -71,6 +84,14 @@ class TimelineWidget(QWidget):
             if value is not None:
                 self._color_overrides[key] = QColor(value)
 
+        # Per-widget scope first (no cross-widget poison); the process-global
+        # fallback is also refreshed so viewport/primitives paths that format
+        # without a widget handle keep today's behavior.
+        timeline_i18n.bind_widget(
+            self,
+            token_fn=self._callbacks.localize_token,
+            value_fn=self._callbacks.localize_value,
+        )
         if self._callbacks.localize_token is not None:
             timeline_i18n.set_localize_token(self._callbacks.localize_token)
         if self._callbacks.localize_value is not None:
@@ -84,7 +105,13 @@ class TimelineWidget(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        self._lerp_factor = 0.5
+        # Playhead display state (triple, deliberately not collapsed):
+        # _current_index is the logical head (what headMoved reports),
+        # _visual_index is the eased on-screen position driven by
+        # _playhead_anim, and _scrub_visual_index is the transient drag
+        # override render.py prefers while scrubbing. Collapsing the scrub
+        # override into _visual_index is unsafe: the running animation would
+        # overwrite the live drag position on every tick.
         self._visual_index = 0.0
         self._scrub_visual_index: float | None = None
         self._timeline_model = None
@@ -94,7 +121,6 @@ class TimelineWidget(QWidget):
         self._hover_tooltip_pos = None
         self._collapsed_group_ids: set[str] = set()
 
-        self._lerp_timer = QTimer(self)
         self._tooltip_timer = QTimer(self)
         self._tooltip_timer.setSingleShot(True)
         self._tooltip_timer.setInterval(350)
@@ -107,9 +133,13 @@ class TimelineWidget(QWidget):
         if store and hasattr(store, "settings"):
             fps = getattr(store.settings, "video_recording_fps", 60)
         self._fps = max(1, int(fps))
-        interval = int(1000 / max(1, fps))
-        self._lerp_timer.setInterval(interval)
-        self._lerp_timer.timeout.connect(self._process_lerp)
+        # Playhead smoothing: OutCubic ease over 150 ms (DESIGN_LANGUAGE
+        # animation timing). headMoved still fires synchronously per input;
+        # only the painted position eases.
+        self._playhead_anim = QPropertyAnimation(self)
+        self._playhead_anim.setDuration(150)
+        self._playhead_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._playhead_anim.valueChanged.connect(self._on_playhead_frame)
 
         self.RULER_HEIGHT = 25
         self.STRIP_HEIGHT = 72
@@ -206,7 +236,10 @@ class TimelineWidget(QWidget):
         self.theme_manager = ThemeManager.get_instance()
 
         if self.has_snapshots():
-            QTimer.singleShot(0, self.fit_view)
+            # Coalesced through the settle gate (same as showEvent/set_data):
+            # the fit only runs once resizes stop arriving.
+            self._needs_fit_view = True
+            self._layout_settle.ping()
 
     _PROMINENT_TRACK_IDS: set[str] = set()
 
@@ -518,7 +551,6 @@ class TimelineWidget(QWidget):
         self._timeline_model = timeline_model
         if fps is not None:
             self._fps = max(1, int(fps))
-            self._lerp_timer.setInterval(int(1000 / self._fps))
         self._total_frames = timeline_viewport.compute_total_frames(self)
         self._rebuild_row_layout()
         self._ensure_preferred_height()
@@ -532,9 +564,12 @@ class TimelineWidget(QWidget):
         self._press_pos = None
         self._press_frame = 0
         self._visual_index = 0.0
+        self._playhead_anim.stop()
         self._current_index = 0
 
-        QTimer.singleShot(0, self.fit_view)
+        # Coalesced through the settle gate (same as __init__/showEvent).
+        self._needs_fit_view = True
+        self._layout_settle.ping()
 
     def _set_color_override(self, key: str, color: QColor | str | None) -> None:
         if color is None:
@@ -568,6 +603,7 @@ class TimelineWidget(QWidget):
         self._thumb_indices = sorted(self._thumbnails.keys())
         if self.has_snapshots():
             self._last_min_zoom = timeline_viewport.calculate_min_zoom(self)
+            self._refresh_viewport_state()
         self.update()
 
     def add_thumbnail(self, index: int, pixmap: QPixmap):
@@ -580,6 +616,7 @@ class TimelineWidget(QWidget):
             self._thumb_indices.sort()
         if self.has_snapshots():
             self._last_min_zoom = timeline_viewport.calculate_min_zoom(self)
+            self._refresh_viewport_state()
         self.update()
 
     def clear_thumbnails(self):
@@ -610,6 +647,11 @@ class TimelineWidget(QWidget):
 
     def fit_view(self):
         timeline_viewport.fit_view(self)
+        # Silent write-through: keep the committed snapshot fresh without
+        # emitting (paths that need an emit go through _commitState, e.g.
+        # _on_layout_settle). No-op until the first _commitState, so the
+        # old=None first-commit emit is preserved.
+        self._refresh_viewport_state()
 
     def update_layout_width(self):
         # Called on every host-dialog resizeEvent tick (dozens/sec while the
@@ -657,11 +699,27 @@ class TimelineWidget(QWidget):
             new_zoom = self._zoom_level * factor if delta > 0 else self._zoom_level / factor
             min_zoom = timeline_viewport.calculate_min_zoom(self)
             max_zoom = 1.0
-            self._zoom_level = max(min_zoom, min(new_zoom, max_zoom))
+            clamped = max(min_zoom, min(new_zoom, max_zoom))
 
-            if math.isclose(self._zoom_level, min_zoom, rel_tol=0.01):
-                self._zoom_level = min_zoom
-                self._last_min_zoom = min_zoom
+            if math.isclose(clamped, min_zoom, rel_tol=0.01):
+                clamped = min_zoom
+
+            # Single source: the zoom mutation commits through _commitState,
+            # which owns the zoomChanged/viewportChanged/viewportChangedState
+            # (+ deprecated shim) emit sequence. Two deliberate deltas vs the
+            # old manual emits: a real zoom change now also notifies the
+            # typed viewportChangedState channel, and a wheel tick that
+            # changes nothing (already at min/max) stays silent instead of
+            # re-emitting the unchanged zoom.
+            try:
+                nxt = self._current_state().with_zoom(float(clamped))
+            except Exception:
+                nxt = None
+            if nxt is not None:
+                self._commitState(nxt, source="wheelZoom")
+            else:  # pragma: no cover - defensive; _current_state is total
+                self._zoom_level = float(clamped)
+                self._last_min_zoom = float(min_zoom)
 
             timeline_viewport.update_fixed_width(self)
 
@@ -673,12 +731,6 @@ class TimelineWidget(QWidget):
                 target_scroll = max(scrollbar.minimum(), min(target_scroll, scrollbar.maximum()))
                 QTimer.singleShot(0, lambda: scrollbar.setValue(target_scroll))
 
-            self.zoomChanged.emit(float(self._zoom_level))
-            self.viewportChanged.emit()
-            try:
-                self._state = self._current_state()
-            except Exception:
-                pass
             event.accept()
         else:
             delta = event.angleDelta().y()
@@ -777,19 +829,46 @@ class TimelineWidget(QWidget):
 
     def set_current_frame(self, index):
         self._current_index = max(0, min(index, self._total_frames - 1))
-        if abs(self._current_index - self._visual_index) > 2.0:
-            self._visual_index = float(self._current_index)
-        if not self._lerp_timer.isActive():
-            self._lerp_timer.start()
+        target = float(self._current_index)
+        start = float(self._visual_index)
+        if abs(self._current_index - start) > 2.0 or math.isclose(
+            start, target, abs_tol=1e-9
+        ):
+            # Large jump: snap like the old lerp did; settled: nothing to do.
+            self._playhead_anim.stop()
+            self._visual_index = target
+            self.update()
+            return
+        self._playhead_anim.stop()
+        self._playhead_anim.setStartValue(start)
+        self._playhead_anim.setEndValue(target)
+        self._playhead_anim.start()
 
-    def _process_lerp(self):
-        diff = self._current_index - self._visual_index
-        if abs(diff) < 0.01:
-            self._visual_index = float(self._current_index)
-            self._lerp_timer.stop()
-        else:
-            self._visual_index += diff * self._lerp_factor
+    def _on_playhead_frame(self, value) -> None:
+        try:
+            self._visual_index = float(value)
+        except (TypeError, ValueError):
+            return
         self.update()
+
+    def _refresh_viewport_state(self) -> None:
+        """Silently re-snapshot ``self._state`` from live fields (no emits).
+
+        Write-through cache for paths that mutate geometry without a
+        viewport notification today (gutter drag, thumbnail updates,
+        fit_view): keeps ``TimelineViewportState`` authoritative for readers
+        like ``_on_host_scroll`` while ``_commitState`` remains the only emit
+        path. Deliberately a no-op while ``_state`` is ``None`` so the first
+        ``_commitState(old=None)`` still emits.
+        """
+        if self._state is None:
+            return
+        try:
+            nxt = self._current_state()
+        except Exception:
+            return
+        self._state = nxt
+        self._last_min_zoom = float(nxt.min_zoom)
 
 TimelineWidget.inspect_spec = InspectSpec(
     family="TimelineWidget",
@@ -803,7 +882,7 @@ TimelineWidget.inspect_spec = InspectSpec(
         SpecField("pixels_per_second", "get_pixels_per_second"),
         SpecField("has_selection", "has_selection"),
     ),
-    token_family=("accent", "Window", "AlternateBase", "separator.color", "dialog.border", "WindowText"),
+    token_family=TIMELINE_TOKENS,
     docs='docs/user/API_CATALOG.md',
 )
 

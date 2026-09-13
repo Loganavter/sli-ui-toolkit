@@ -205,6 +205,9 @@ def mouse_move_event(widget, event):
         )
         widget._last_min_zoom = timeline_viewport.calculate_min_zoom(widget)
         timeline_viewport.update_fixed_width(widget)
+        # Silent write-through (no viewport emit today): keep the committed
+        # TimelineViewportState authoritative for _on_host_scroll readers.
+        widget._refresh_viewport_state()
         widget.update()
         event.accept()
         return

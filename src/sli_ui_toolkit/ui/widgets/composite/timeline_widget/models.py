@@ -63,10 +63,18 @@ class TimelineCallbacks:
     """(track, channel, timestamp) -> bool. If None, always True."""
 
     localize_token: Any = None
-    """(token: str) -> str. If None, returns token as-is."""
+    """(token: str) -> str. If None, returns token as-is.
+
+    Bound per-widget (see ``i18n.bind_widget``); also mirrored to the
+    process-global fallback consumed by viewport/primitives paint paths.
+    """
 
     localize_value: Any = None
-    """(value) -> str. If None, uses default formatting."""
+    """(value) -> str. If None, uses default formatting.
+
+    Bound per-widget (see ``i18n.bind_widget``); also mirrored to the
+    process-global fallback consumed by viewport/primitives paint paths.
+    """
 
     prominent_track_ids: set[str] = field(default_factory=set)
     """Track IDs that are shown only when they have changes."""
