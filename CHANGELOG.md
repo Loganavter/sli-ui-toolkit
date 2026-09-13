@@ -929,6 +929,28 @@
     the pane keeps thin compatibility properties for the old private
     attribute names.
 
+- **`TimelineWidget` paint contract + row virtualization (Phase A)** —
+  `render.paint_timeline` no longer mutates geometry: the
+  `update_vertical_scrollbar` call (which did `setVisible`/`setGeometry`/
+  `widget.update`) moved out of the paint path — scrollbar sync lives only
+  in the resize/settle/scroll paths (`resizeEvent`,
+  `_onViewportGeometryChanged`, `_on_layout_settle`, `_on_scale_changed`,
+  `_on_host_scroll`); the pure desired state is queryable via the new
+  `viewport.vertical_scrollbar_state()`. Damage handling is formalized:
+  `event.rect()` → `start_x`/`end_x` drives the strip frame range, ruler
+  ticks, lane fills (now clipped to the damage instead of full-width),
+  selection fill/handles, playhead, and the sticky-gutter vertical damage
+  band. Rows paint through the new cached `layout.visible_row_window()`
+  slice (offsets cached per `_row_layout` identity, O(visible) paint —
+  both paint passes previously iterated the whole layout) with per-row
+  horizontal culling via the new `layout.row_time_x_range()` (segment
+  computation skipped when a row's keyframe content sits fully outside
+  the damage). `widget._hover_points` is still rebuilt per paint but is
+  hit-test scratch, not geometry, and is now damage-scoped. Signals,
+  slots, and all public methods are unchanged. Covered by the new
+  `tests/test_timeline_paint_contract.py` (no-geometry-mutation spies,
+  narrow-damage subset, window-vs-brute-force, public-surface checks).
+
 ### Fixed
 
 - **`SimpleOptionsFlyout.hide` no longer kicks an already-active window** — focus restore now skips `activateWindow()` when `win.isActiveWindow()` (keeps `setFocus()`), so closing a flyout over the active host no longer costs a Wayland busy-cursor frame. Satisfies the host `test_no_unconditional_activation` contract.
