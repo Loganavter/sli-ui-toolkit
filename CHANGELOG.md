@@ -456,6 +456,36 @@
   gem facet is an independent `ButtonRegion` with its own `path_fn`, `override_bg_color`,
   and per-facet hover/ripple via the toolkit pipeline.
 
+- `TimelineWidget` colors are now `timeline.*` theme tokens — every
+  previously hardcoded `QColor` in the timeline paint path resolves through
+  `ThemeManager.try_get_color` with a per-theme fallback, and the
+  per-`is_dark` hardcoded branches are gone from `theme.py` /
+  `primitives.py` / `segments.py`: gutter/group/lane/footer/track
+  backgrounds (`timeline.gutter.background`, `timeline.group.background`,
+  `timeline.lane.background`, `timeline.footer.background`,
+  `timeline.track.background` → `AlternateBase`), grid/separator colors
+  (`timeline.grid.color` → `separator.color`,
+  `timeline.separator.strong` → `dialog.border`,
+  `timeline.separator.soft`), scrollbar fills
+  (`timeline.scrollbar.idle/hover`), track kind colors
+  (`timeline.track.bool/enum/state/vec2`), the keyframe dot outline
+  (`timeline.keyframe.outline`) and the playhead halo
+  (`timeline.playhead.outline`). The accent-wash translucencies are
+  alpha tokens too (`timeline.gutter.wash.top/bottom.alpha`,
+  `timeline.gutter.edge.alpha`, `timeline.group.header.start/end.alpha`,
+  `timeline.scrollbar.track.alpha`) — a host overrides one by registering
+  a `QColor` whose alpha carries the value. Hosts can restyle any of these
+  via `register_palettes` without touching the widget; defaults render byte-
+  identical to the old hardcodes in both light and dark. New helpers
+  `keyframe_outline_color()` / `playhead_outline_color()` /
+  `timeline_alpha()` (plus the `TIMELINE_TOKENS` tuple) are the handoff API
+  for the `render.py` / `viewport.py` call sites owned by the parallel paint-
+  contract work, which still hold their own hardcoded fallbacks. Public API
+  unchanged (`track_line_color`, `group_content_bg` signatures intact).
+  Guarded by `tests/test_timeline_tokens.py` (light+dark resolution, token
+  override wins, no-`is_dark`-branch source scan, real-widget light/dark
+  render smoke test).
+
 ### Changed
 
 - **`ColorSettingsButton` uses `bind_auto_preview`** — `bind_flyout(..., side="above")` → `bind_auto_preview(..., side="above")` (with fallback). Hover/focus preview + Enter interactive + Esc/focusOut wiring now via `_AutoPreviewController` event filter, not per-anchor `enterEvent/leaveEvent/focusIn/keyPress/focusOut` duplication. Business signals (`elementHovered`, underline colors) kept.
