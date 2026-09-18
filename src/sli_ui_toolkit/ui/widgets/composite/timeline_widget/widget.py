@@ -748,8 +748,6 @@ class TimelineWidget(QWidget):
         self._wheel_pending_ticks = 0
         if pending_y == 0.0 or cursor_x is None:
             return
-        if not self.has_snapshots():
-            return
         old_zoom = float(self._zoom_level)
         steps = pending_y / 120.0
         new_zoom = timeline_viewport.clamp_zoom(
