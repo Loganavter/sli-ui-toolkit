@@ -91,7 +91,11 @@ Current streams (canonical name first, legacy aliases after):
 | `SLI_RESIZE_DEBUG` | — | `[resize-debug]` | `ui/windows/frameless/resize_filter.py` |
 | `SLI_TIMELINE_DEBUG` | `IMGSLI_TIMELINE_DEBUG`, `IMGSLI_VIDEO_EDITOR_DEBUG` | `[timeline-debug]` / `[timeline-paint]` | `ui/widgets/composite/timeline_widget/debug.py` |
 | `SLI_DND_DEBUG` | `IMGSLI_DND_DEBUG`, `IMGSLI_IMAGE_COMPARE_DEBUG`, `IMGSLI_IC_DEBUG` | `[dnd-overlay]` | `ui/widgets/overlays/drag_drop_overlay.py` |
-| `SLI_TEXTVIEW_DEBUG` | — | (paint/state detail, raw `os.getenv` check) | `ui/widgets/composite/text_view/` — legacy strict `== "1"` check; migrate to `any_flag` when touched |
+| `SLI_TEXTVIEW_DEBUG` | `IMGSLI_TRACE` | `[textview]` | `ui/widgets/composite/text_view/` (canvas/widget/events/paint share one stream) |
+| `SLI_INSPECTOR_DEBUG` | — | `[inspector]` | `ui/inspector/tree.py` |
+| `SLI_MARQUEE_DEBUG` | — | `[marquee]` | `ui/widgets/overlays/marquee_band_gesture.py` |
+| `SLI_TABSTRIP_DEBUG` | — | `[TAB-BAR]` | `ui/widgets/composite/adaptive_tab_strip/tab_bar.py` |
+| `SLI_CTX_MENU_DEBUG` | — | `[ctx-menu]` | `ui/widgets/composite/context_menu/menu.py` |
 
 ## Never mutate logger levels at import time
 

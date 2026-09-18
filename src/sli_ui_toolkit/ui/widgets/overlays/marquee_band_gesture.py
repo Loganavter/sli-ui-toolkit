@@ -8,11 +8,29 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.ui.widgets.overlays.marquee_band_overlay import MarqueeBandOverlay
 
 import logging
 
-_dbg = logging.getLogger("ImproveImgSLI.flyout")  # TEMP debug
+logger = logging.getLogger(__name__)
+
+# Canonical toolkit var for marquee-band gesture traces (start/finish
+# geometry). Call-time check, ``[marquee]`` prefix on every line, off by
+# default even under host ``--debug``. Never mutates logger levels at
+# import time.
+_MARQUEE_DEBUG_VARS = ("SLI_MARQUEE_DEBUG",)
+
+
+def _marquee_debug_enabled() -> bool:
+    """True when marquee gesture tracing was opted in via env."""
+    return any_flag(*_MARQUEE_DEBUG_VARS)
+
+
+def _marquee_debug(message: str, *args) -> None:
+    """Env-gated marquee trace line (already carries its ``[marquee]`` prefix)."""
+    if _marquee_debug_enabled():
+        logger.debug(message, *args)
 
 
 def map_content_rect_to_window(
@@ -104,8 +122,8 @@ class MarqueeBandGesture(QObject):
     def start(self, content_pos: QPoint) -> bool:
         """Begin a band at ``content_pos`` (content-local). Returns False if no window."""
         overlay = self._ensure_overlay()
-        _dbg.debug(
-            "[DBG-MARQUEE] gesture.start pos=%s overlay=%r window=%r",
+        _marquee_debug(
+            "[marquee] gesture.start pos=%s overlay=%r window=%r",
             content_pos, overlay, self._content.window(),
         )
         if overlay is None:
@@ -189,7 +207,7 @@ class MarqueeBandGesture(QObject):
         origin = self._origin
         self._origin = None
         rect = QRect(origin, content_pos).normalized()
-        _dbg.debug("[DBG-MARQUEE] gesture.finish rect=%s", rect)
+        _marquee_debug("[marquee] gesture.finish rect=%s", rect)
         self._hide_band()
         if self._on_finish is not None:
             if rect.width() < self._min_drag_px and rect.height() < self._min_drag_px:
