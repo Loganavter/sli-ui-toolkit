@@ -15,38 +15,37 @@ from .segments import _draw_keyframe_segments
 
 def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, content_start_x: float, strip_top: float, width: int, start_x: float, end_x: float, logical_width: float, slot_width: float) -> None:
     painter.fillRect(QRectF(content_start_x, strip_top, width - content_start_x, widget.STRIP_HEIGHT), canvas_bg)
+    blocks = timeline_viewport.strip_block_layout(
+        widget, content_start_x=content_start_x, start_x=start_x, end_x=end_x
+    )
     base_tile = timeline_viewport.get_base_tile_width(widget)
-    frame_step = 1 if slot_width >= base_tile else math.ceil(base_tile / slot_width)
-    draw_w = frame_step * slot_width
-    first_frame = max(0, int((start_x - content_start_x) / draw_w) * frame_step)
-    last_frame = min(widget._total_frames, int((end_x - content_start_x) / draw_w + 1) * frame_step + frame_step)
+    draw_w = blocks[0][1] if blocks else base_tile
+    frames_per_block = draw_w / slot_width if slot_width > 0 else 1.0
+    first_rep = blocks[0][2] if blocks else 0
+    last_rep = blocks[-1][2] if blocks else 0
     if _timeline_debug_enabled():
         # Check if strip is actually visible in widget
-        _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s step=%s draw_w=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frame_step, draw_w, first_frame, last_frame, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
+        _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s fpb=%.2f draw_w=%.2f blocks=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frames_per_block, draw_w, first_rep, last_rep, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
         # Log per-block pixmap validity
-        for _fi in range(first_frame, min(last_frame, first_frame+3)):
+        for _bx, _bw, _rep in blocks[:3]:
             _ti = -1
             if widget._thumb_indices:
-                _pos = bisect.bisect_right(widget._thumb_indices, _fi)
+                _pos = bisect.bisect_right(widget._thumb_indices, _rep)
                 _ti = widget._thumb_indices[_pos-1] if _pos>0 else widget._thumb_indices[0]
             _pix = widget._thumbnails.get(_ti) if _ti!=-1 else None
-            _timeline_paint_debug("block fi=%s thumb_idx=%s pix_null=%s pix_size=%s", _fi, _ti, _pix.isNull() if _pix else True, (_pix.width(), _pix.height()) if _pix and not _pix.isNull() else None)
+            _timeline_paint_debug("block x=%.1f rep=%s thumb_idx=%s pix_null=%s pix_size=%s", _bx, _rep, _ti, _pix.isNull() if _pix else True, (_pix.width(), _pix.height()) if _pix and not _pix.isNull() else None)
 
-    frame_idx = first_frame
-    while frame_idx < last_frame:
-        block_x = content_start_x + frame_idx * slot_width
-        block_w = draw_w
+    for block_x, block_w, rep_frame in blocks:
         if block_w <= 0:
             break
         thumb_idx = -1
         if widget._thumb_indices:
-            pos = bisect.bisect_right(widget._thumb_indices, frame_idx)
+            pos = bisect.bisect_right(widget._thumb_indices, rep_frame)
             thumb_idx = widget._thumb_indices[pos - 1] if pos > 0 else widget._thumb_indices[0]
         if thumb_idx != -1:
             pix = widget._thumbnails.get(thumb_idx)
             if pix and pix.height() > 0:
                 painter.drawPixmap(QRectF(block_x, strip_top, block_w, float(widget.STRIP_HEIGHT)), pix, QRectF(pix.rect()))
-        frame_idx += frame_step
 
 def _row_segments_culled(widget, *, track, channel, duration: float, logical_width: float, start_x: float, end_x: float) -> bool:
     """Per-row horizontal cull: True when the row has no keyframe content
