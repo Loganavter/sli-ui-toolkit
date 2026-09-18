@@ -10,18 +10,39 @@ cached container for the window-level Layout tree).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRect, Qt, Signal
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPolygonF
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.regions import ButtonRegion
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.buttons.variants import VariantSpec, register_variant
+
+logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
+
+# Canonical toolkit var for inspector tree/hover traces. Call-time check,
+# ``[inspector]`` prefix on every line, off by default even under host
+# ``--debug``. Never mutates logger levels at import time.
+_INSPECTOR_DEBUG_VARS = ("SLI_INSPECTOR_DEBUG",)
+
+
+def _inspector_debug_enabled() -> bool:
+    """True when inspector tree tracing was opted in via env."""
+    return any_flag(*_INSPECTOR_DEBUG_VARS)
+
+
+def _inspector_debug(message: str, *args) -> None:
+    """Env-gated inspector trace line (already carries its ``[inspector]`` prefix)."""
+    if _inspector_debug_enabled():
+        logger.debug(message, *args)
+
 
 class _TreeRowSplit:
     """Split for tree row: twist 12px at depth indent, content fills rest."""
@@ -251,10 +272,9 @@ class _TreeHoverFilter(QObject):
         tree.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         tree.installEventFilter(self)
         # Visual cursor debug — small tooltip-like label directly at cursor
+        # (gated by SLI_INSPECTOR_DEBUG via _inspector_debug_enabled).
         try:
-            import logging
-
-            if logging.getLogger("sli_ui_toolkit.inspector.tree").isEnabledFor(logging.DEBUG):
+            if _inspector_debug_enabled():
                 from PySide6.QtWidgets import QLabel
 
                 self._cursor_label = QLabel("", None)  # type: ignore[attr-defined]
@@ -284,11 +304,8 @@ class _TreeHoverFilter(QObject):
                 pass
             if self._current is not None:
                 try:
-                    import logging
-
-                    logger = logging.getLogger("sli_ui_toolkit.inspector.controller")
-                    logger.debug(
-                        "tree hover cleared (tree leave) last=%s",
+                    _inspector_debug(
+                        "[inspector] tree hover cleared (tree leave) last=%s",
                         type(self._current).__name__,
                     )
                 except Exception:
@@ -297,27 +314,25 @@ class _TreeHoverFilter(QObject):
                 self._current = None
                 # cursor back to Arrow on leave — unambiguous
                 try:
-                    import logging
-
-                    dbg = logging.getLogger("sli_ui_toolkit.inspector.tree")
-                    if dbg.isEnabledFor(logging.DEBUG):
+                    if _inspector_debug_enabled():
                         prev = getattr(self, "_last_cursor_shape", None)
                         cur_shape = "ArrowCursor (leave)"
                         if prev is not None and prev != cur_shape:
-                            dbg.debug("cursor changed: %s -> %s at tree leave", prev, cur_shape)
+                            _inspector_debug(
+                                "[inspector] cursor changed: %s -> %s at tree leave",
+                                prev,
+                                cur_shape,
+                            )
                         self._last_cursor_shape = cur_shape
                 except Exception:
                     pass
             else:
                 # leave without current hover — still ensure cursor shape reset logged once
                 try:
-                    import logging
-
-                    dbg = logging.getLogger("sli_ui_toolkit.inspector.tree")
-                    if dbg.isEnabledFor(logging.DEBUG):
+                    if _inspector_debug_enabled():
                         if getattr(self, "_last_cursor_shape", None) != "ArrowCursor (leave)":
-                            dbg.debug(
-                                "cursor changed: %s -> %s at tree leave (no hover)",
+                            _inspector_debug(
+                                "[inspector] cursor changed: %s -> %s at tree leave (no hover)",
                                 getattr(self, "_last_cursor_shape", None),
                                 "ArrowCursor (leave)",
                             )
@@ -353,10 +368,7 @@ class _TreeHoverFilter(QObject):
             widget = row.widget() if isinstance(row, _TreeNodeRow) else None  # type: ignore[attr-defined]
             # --- unambiguous per-move debug (every HoverMove/MouseMove, DEBUG) ---
             try:
-                import logging
-
-                dbg_logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
-                if dbg_logger.isEnabledFor(logging.DEBUG):
+                if _inspector_debug_enabled():
                     try:
                         # global pos for this event
                         if hasattr(event, "globalPosition"):
@@ -441,8 +453,8 @@ class _TreeHoverFilter(QObject):
                         if self._last_cursor_shape is None:
                             self._last_cursor_shape = cursor_shape
                         elif cursor_shape != self._last_cursor_shape:
-                            dbg_logger.debug(
-                                "cursor changed: %s -> %s at tree_pos=%s gap=%s row=%s depth=%s y_covered_by=%s",
+                            _inspector_debug(
+                                "[inspector] cursor changed: %s -> %s at tree_pos=%s gap=%s row=%s depth=%s y_covered_by=%s",
                                 self._last_cursor_shape,
                                 cursor_shape,
                                 pos,
@@ -454,8 +466,8 @@ class _TreeHoverFilter(QObject):
                             self._last_cursor_shape = cursor_shape
                     except Exception:
                         pass
-                    dbg_logger.debug(
-                        "tree hit: ev=%s tree_pos=%s global=%s tree_h=%s inside_h=%s gap=%s cursor=%s childAt=%s#%s geo=%s y_in_tree=%s row=%s#%s depth=%s row_geo=%s row_y=%s y_covered_by=%s chain=%s cur=%s -> %s",
+                    _inspector_debug(
+                        "[inspector] tree hit: ev=%s tree_pos=%s global=%s tree_h=%s inside_h=%s gap=%s cursor=%s childAt=%s#%s geo=%s y_in_tree=%s row=%s#%s depth=%s row_geo=%s row_y=%s y_covered_by=%s chain=%s cur=%s -> %s",
                         t.name if hasattr(t, "name") else t,
                         pos,
                         gpos_dbg,
@@ -512,17 +524,14 @@ class _TreeHoverFilter(QObject):
                 # Log deterministically (no QCursor guessing) — helps pinpoint
                 # the visual "nothing" between buttons.
                 try:
-                    import logging
-
-                    logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
-                    if logger.isEnabledFor(logging.DEBUG):
+                    if _inspector_debug_enabled():
                         # Check if pos is actually inside tree's height but not covered
                         # (i.e., y in y_gaps)
                         h = self._tree.height()
                         inside_h = 0 <= pos.y() < h
                         w_at = self._tree.childAt(pos)
-                        logger.debug(
-                            "tree gap hit: tree pos=%s h=%s inside_h=%s childAt=%s (%s) geo=%s current=%s",
+                        _inspector_debug(
+                            "[inspector] tree gap hit: tree pos=%s h=%s inside_h=%s childAt=%s (%s) geo=%s current=%s",
                             pos,
                             h,
                             inside_h,
@@ -542,16 +551,13 @@ class _TreeHoverFilter(QObject):
                 return False
             # switching rows — direct hover, no intermediate cleared
             try:
-                import logging
-
-                logger = logging.getLogger("sli_ui_toolkit.inspector.controller")
                 row_label_dbg = getattr(row, "_label", "?") if isinstance(row, _TreeNodeRow) else "?"
                 row_depth_dbg = getattr(row, "_depth", "?") if isinstance(row, _TreeNodeRow) else "?"
                 row_geo_dbg = row.geometry() if isinstance(row, _TreeNodeRow) else None
                 w_name = widget.objectName() if widget is not None and hasattr(widget, "objectName") else ""
                 cur_name = self._current.objectName() if self._current is not None and hasattr(self._current, "objectName") else ""
-                logger.debug(
-                    "tree hover: %s#%s -> %s#%s at tree pos=%s row=%s depth=%s row_geo=%s childAt=%s#%s geo=%s",
+                _inspector_debug(
+                    "[inspector] tree hover: %s#%s -> %s#%s at tree pos=%s row=%s depth=%s row_geo=%s childAt=%s#%s geo=%s",
                     type(self._current).__name__ if self._current else "None",
                     cur_name,
                     type(widget).__name__,
@@ -583,10 +589,7 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
     Called after every tree build; cheap (O(n + h)).
     """
     try:
-        import logging
-
-        logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
-        if not logger.isEnabledFor(logging.DEBUG):
+        if not _inspector_debug_enabled():
             return
         lay = tree.layout()
         spacing = lay.spacing() if lay is not None else -1
@@ -681,8 +684,8 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
         uniq_containers = sorted(set(containers))
         # Detailed Y-gap dump
         y_gap_str = f" y_uncovered={y_gaps}" if y_gaps else " y_covered_fully"
-        logger.debug(
-            "%s gaps: spacing=%s margins=%s visible_rows=%s gaps=%s tree_geo=%s h=%s details=%s containers=%s%s",
+        _inspector_debug(
+            "[inspector] %s gaps: spacing=%s margins=%s visible_rows=%s gaps=%s tree_geo=%s h=%s details=%s containers=%s%s",
             prefix,
             spacing,
             margins,
@@ -700,7 +703,7 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
                 try:
                     y = r.mapTo(tree, r.rect().topLeft()).y()
                     y1 = r.mapTo(tree, r.rect().bottomRight()).y()
-                    logger.debug("  row %s y=%s..%s h=%s geo=%s depth=%s parent=%s", r._label, y, y1, r.geometry(), r._depth, type(r.parentWidget()).__name__)
+                    _inspector_debug("[inspector] row %s y=%s..%s h=%s geo=%s depth=%s parent=%s", r._label, y, y1, r.geometry(), r._depth, type(r.parentWidget()).__name__)
                 except Exception:
                     pass
             # Probe childAt for first gap y to see what widget is there
@@ -724,8 +727,8 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
                             pass
                         except Exception:
                             pass
-                        logger.debug(
-                            "  gap probe y=%s x=%s childAt=%s (%s) geo=%s",
+                        _inspector_debug(
+                            "[inspector] gap probe y=%s x=%s childAt=%s (%s) geo=%s",
                             gy,
                             probe_x,
                             type(w_at).__name__ if w_at else "None",
@@ -733,7 +736,7 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
                             w_at.geometry() if w_at else "None",
                         )
                 except Exception as e:
-                    logger.debug("  gap probe err %s", e)
+                    _inspector_debug("[inspector] gap probe err %s", e)
     except Exception:
         pass
 

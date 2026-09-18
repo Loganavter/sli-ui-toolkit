@@ -13,6 +13,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, QVariantAnimation,
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.config import get_context_menu_surface
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.ui.widgets.buttons.feedback import get_ripple_duration_ms
 from sli_ui_toolkit.ui.popup_surface import (
     bind_popup_transient_parent,
@@ -27,6 +28,22 @@ from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
 )
 from sli_ui_toolkit.ui.widgets.composite.context_menu.rows import ContextMenuRow
 from sli_ui_toolkit.ui.widgets.composite.context_menu import submenu as submenu_ops
+
+# Canonical toolkit var for context-menu key traces. Call-time check,
+# ``[ctx-menu]`` prefix on every line, off by default even under host
+# ``--debug``. Never mutates logger levels at import time.
+_CTX_MENU_DEBUG_VARS = ("SLI_CTX_MENU_DEBUG",)
+
+
+def _ctx_menu_debug_enabled() -> bool:
+    """True when context-menu tracing was opted in via env."""
+    return any_flag(*_CTX_MENU_DEBUG_VARS)
+
+
+def _ctx_menu_debug(message: str, *args) -> None:
+    """Env-gated context-menu trace line (already carries its ``[ctx-menu]`` prefix)."""
+    if _ctx_menu_debug_enabled():
+        logger.debug(message, *args)
 
 
 class ContextMenu(BaseFlyout):
@@ -260,7 +277,7 @@ class ContextMenu(BaseFlyout):
     def keyPressEvent(self, event):
         key = event.key()
         if key == Qt.Key.Key_Escape:
-            logger.debug("[ctx-menu] Escape pressed, submenu=%s", self._open_submenu is not None)
+            _ctx_menu_debug("[ctx-menu] Escape pressed, submenu=%s", self._open_submenu is not None)
             if self._open_submenu is not None:
                 submenu_ops.close_submenu(self)
                 event.accept()
@@ -270,20 +287,20 @@ class ContextMenu(BaseFlyout):
             return
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             focused = QApplication.focusWidget()
-            logger.debug("[ctx-menu] Enter pressed, focused=%s rows=%d", type(focused).__name__ if focused else None, len(self._rows))
+            _ctx_menu_debug("[ctx-menu] Enter pressed, focused=%s rows=%d", type(focused).__name__ if focused else None, len(self._rows))
             if focused is not None:
                 for row in self._rows:
                     if row is focused or row.isAncestorOf(focused):
                         spec = getattr(row, "_spec", None)
                         if spec is not None:
-                            logger.debug("[ctx-menu] Enter -> activate row action_id=%s", spec.action_id)
+                            _ctx_menu_debug("[ctx-menu] Enter -> activate row action_id=%s", spec.action_id)
                             self._on_row_clicked(row, spec)
                             event.accept()
                             return
             event.accept()
             return
         if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-            logger.debug("[ctx-menu] %s pressed", "Down" if key == Qt.Key.Key_Down else "Up")
+            _ctx_menu_debug("[ctx-menu] %s pressed", "Down" if key == Qt.Key.Key_Down else "Up")
             self._navigate_rows(1 if key == Qt.Key.Key_Down else -1)
             event.accept()
             return

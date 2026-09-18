@@ -19,19 +19,16 @@ mirrors ``FlyoutFadeController``'s convention in
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
-from .navigation_debug import logger as _base_logger
+from .navigation_debug import nav_debug, nav_debug_enabled
 from .navigation_debug import widget_label
 
 if TYPE_CHECKING:
     from .navigation_manager import NavigationManager, NavigationSection
-
-logger: logging.Logger = _base_logger
 
 
 class ClickRealignCoordinator:
@@ -111,8 +108,8 @@ class ClickRealignCoordinator:
                 clicked.setFocus(_nav_focus_reason())
             except Exception:
                 clicked.setFocus(Qt.FocusReason.OtherFocusReason)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
+            if nav_debug_enabled():
+                nav_debug(
                     "[nav] realign: click -> %s directly",
                     widget_label(clicked),
                 )
@@ -141,8 +138,8 @@ class ClickRealignCoordinator:
             except Exception:
                 _realign_ok = focus_nearest(pos)
             if _realign_ok:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
+                if nav_debug_enabled():
+                    nav_debug(
                         "[nav] realign: click -> nearest (2D) in %s",
                         type(owner).__name__,
                     )
@@ -161,8 +158,8 @@ class ClickRealignCoordinator:
                 target.setFocus(_nav_focus_reason2())
             except Exception:
                 target.setFocus(Qt.FocusReason.OtherFocusReason)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
+            if nav_debug_enabled():
+                nav_debug(
                     "[nav] realign: click -> nearest (generic) %s in %s",
                     widget_label(target),
                     type(owner).__name__,

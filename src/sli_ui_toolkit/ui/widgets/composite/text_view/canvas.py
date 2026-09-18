@@ -23,10 +23,10 @@ from PySide6.QtGui import QFontDatabase, QFontMetrics, QKeySequence, QGuiApplica
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 import logging
-import os
 import time
 import traceback
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from . import constants
@@ -42,6 +42,26 @@ from .editing import Position, _CanvasEditingApi
 from .events import _CanvasEventsApi
 
 _canvas_logger = logging.getLogger(__name__)
+
+# Canonical toolkit var for TextCanvas repaint/scroll/height traces.
+# ``IMGSLI_TRACE`` is the legacy host alias read at these same sites, kept
+# so one env var enables both sides of the same trace. Call-time check,
+# ``[textview]`` prefix on every line, off by default even under host
+# ``--debug``. Never mutates logger levels at import time.
+_TEXTVIEW_DEBUG_VARS = ("SLI_TEXTVIEW_DEBUG", "IMGSLI_TRACE")
+
+
+def _textview_debug_enabled() -> bool:
+    """True when TextCanvas tracing was opted in via env."""
+    return any_flag(*_TEXTVIEW_DEBUG_VARS)
+
+
+def _textview_debug(message: str, *args) -> None:
+    """Env-gated TextCanvas trace line (already carries its ``[textview]`` prefix)."""
+    if _textview_debug_enabled():
+        _canvas_logger.debug(message, *args)
+
+
 _update_counter = 0
 _last_update_ts = 0.0
 
@@ -402,8 +422,8 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self.update()
 
     def update(self, *args, **kwargs) -> None:  # noqa: N802  # debug probe for repaint storm
-        # Single getenv per update, logger only — no file IO on hot path
-        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1" or os.getenv("IMGSLI_TRACE") == "1":
+        # Call-time env gate, logger only — no file IO on hot path
+        if _textview_debug_enabled():
             global _update_counter, _last_update_ts
             _update_counter += 1
             now = time.perf_counter()
@@ -411,14 +431,18 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             _last_update_ts = now
             if _update_counter % 10 == 0 or (interval < 20 and interval != 0):
                 stack = "".join(traceback.format_stack()[-7:-3])
-                msg = f"TextCanvas update#{_update_counter} interval={interval:.1f}ms stack:\n{stack}"
-                _canvas_logger.warning(msg)
+                _textview_debug(
+                    "[textview] TextCanvas update#%d interval=%.1fms stack:\n%s",
+                    _update_counter,
+                    interval,
+                    stack,
+                )
         super().update(*args, **kwargs)
 
     def repaint(self, *args, **kwargs) -> None:  # noqa: N802
-        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1":
+        if _textview_debug_enabled():
             stack = "".join(traceback.format_stack()[-6:-2])
-            _canvas_logger.warning("TextCanvas repaint stack:\n%s", stack)
+            _textview_debug("[textview] TextCanvas repaint stack:\n%s", stack)
         super().repaint(*args, **kwargs)
 
     def _sync_height(self) -> None:
@@ -426,7 +450,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         # area stretches the canvas to its viewport (the text view fills the
         # window and only scrolls when the content exceeds it) — a fixed
         # height forced the renderer to expand to the whole document.
-        _dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+        _dbg = _textview_debug_enabled()
         t0 = time.perf_counter() if _dbg else 0
         if self._document_layout is not None:
             h = int(self._document_layout.height) + 2 * constants.PAD
@@ -436,14 +460,17 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             h = self._line_height * lines + 2 * constants.PAD
             self.setMinimumHeight(h)
             if _dbg and lines > 1000:
-                _canvas_logger.warning(
-                    "TextCanvas _sync_height N=%d h=%d line_h=%d", lines, h, self._line_height
+                _textview_debug(
+                    "[textview] TextCanvas _sync_height N=%d h=%d line_h=%d",
+                    lines,
+                    h,
+                    self._line_height,
                 )
         self.updateGeometry()
         if _dbg and t0:
             dt = (time.perf_counter() - t0) * 1000
             if dt > 5:
-                _canvas_logger.warning("TextCanvas _sync_height dt=%.2fms", dt)
+                _textview_debug("[textview] TextCanvas _sync_height dt=%.2fms", dt)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
