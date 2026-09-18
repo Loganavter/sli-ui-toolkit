@@ -187,6 +187,14 @@ class TimelineWidget(QWidget):
             parent=self,
         )
         self._needs_fit_view = False
+        # Coalesced Ctrl+wheel zoom (Z2): ticks accumulate here and flush
+        # once per frame window via _flush_wheel_zoom — one _commitState +
+        # one updateGeometry+update per window, scrollbar set synchronously
+        # from the cursor-anchor math (no singleShot roundtrip).
+        self._wheel_pending_y = 0.0
+        self._wheel_pending_x: float | None = None
+        self._wheel_pending_ticks = 0
+        self._wheel_flush_scheduled = False
 
         self._snapshots = snapshots if snapshots else []
         self._duration = (
@@ -619,6 +627,7 @@ class TimelineWidget(QWidget):
         return max(0.0, float(self._duration))
 
     def get_pixels_per_second(self):
+        """Current px/sec: ``pps = zoom * base_pps`` (Z1 invariant)."""
         if self._total_frames <= 0:
             return 50.0
         duration = self.get_total_duration()
@@ -679,45 +688,18 @@ class TimelineWidget(QWidget):
             delta = event.angleDelta().y()
             if delta == 0:
                 return
-
-            scroll_area = timeline_viewport.get_scroll_area(self)
-
-            factor = 1.15
-            new_zoom = self._zoom_level * factor if delta > 0 else self._zoom_level / factor
-            min_zoom = timeline_viewport.calculate_min_zoom(self)
-            max_zoom = 1.0
-            clamped = max(min_zoom, min(new_zoom, max_zoom))
-
-            if math.isclose(clamped, min_zoom, rel_tol=0.01):
-                clamped = min_zoom
-
-            # Single source: the zoom mutation commits through _commitState,
-            # which owns the zoomChanged/viewportChanged/viewportChangedState
-            # (+ deprecated shim) emit sequence. Two deliberate deltas vs the
-            # old manual emits: a real zoom change now also notifies the
-            # typed viewportChangedState channel, and a wheel tick that
-            # changes nothing (already at min/max) stays silent instead of
-            # re-emitting the unchanged zoom.
             try:
-                nxt = self._current_state().with_zoom(float(clamped))
+                cursor_x = float(event.position().x())
             except Exception:
-                nxt = None
-            if nxt is not None:
-                self._commitState(nxt, source="wheelZoom")
-            else:  # pragma: no cover - defensive; _current_state is total
-                self._zoom_level = float(clamped)
-                self._last_min_zoom = float(min_zoom)
-
-            timeline_viewport.update_fixed_width(self)
-
-            if scroll_area:
-                scrollbar = scroll_area.horizontalScrollBar()
-                viewport_width = scroll_area.viewport().width()
-                head_x = timeline_viewport.visual_pos_from_index(self, self._visual_index)
-                target_scroll = int(round(head_x - (viewport_width / 2.0)))
-                target_scroll = max(scrollbar.minimum(), min(target_scroll, scrollbar.maximum()))
-                QTimer.singleShot(0, lambda: scrollbar.setValue(target_scroll))
-
+                cursor_x = float(self.LEFT_GUTTER)
+            # Coalesce: accumulate ticks, flush once per frame window (Z2).
+            # Never touches _needs_fit_view — settle owns fit_view (Z1).
+            self._wheel_pending_y += float(delta)
+            self._wheel_pending_x = cursor_x
+            self._wheel_pending_ticks += 1
+            if not self._wheel_flush_scheduled:
+                self._wheel_flush_scheduled = True
+                QTimer.singleShot(0, self._flush_wheel_zoom)
             event.accept()
         else:
             delta = event.angleDelta().y()
@@ -744,6 +726,74 @@ class TimelineWidget(QWidget):
                         self._onViewportGeometryChanged("wheelHorizontal")
                 except Exception:
                     pass
+
+    def _flush_wheel_zoom(self) -> None:
+        """Apply accumulated Ctrl+wheel ticks as one cursor-anchored step.
+
+        Z2/Z3: exactly one ``_commitState`` (hence one
+        ``updateGeometry``+``update``) per frame window, no scrollbar
+        ping-pong — the scrollbar is set synchronously from the anchor
+        math. No-change windows (already at min/max) stay silent. The emit
+        contract is unchanged: ``_commitState`` remains the only emit path
+        for ``zoomChanged`` / ``viewportChanged`` /
+        ``viewportChangedState``. Source is ``"wheelZoom"`` for a lone
+        tick, ``"wheelZoomCoalesced"`` for a coalesced window.
+        """
+        self._wheel_flush_scheduled = False
+        pending_y = float(self._wheel_pending_y)
+        cursor_x = self._wheel_pending_x
+        ticks = int(self._wheel_pending_ticks)
+        self._wheel_pending_y = 0.0
+        self._wheel_pending_x = None
+        self._wheel_pending_ticks = 0
+        if pending_y == 0.0 or cursor_x is None:
+            return
+        if not self.has_snapshots():
+            return
+        old_zoom = float(self._zoom_level)
+        steps = pending_y / 120.0
+        new_zoom = timeline_viewport.clamp_zoom(
+            self, old_zoom * (timeline_viewport.WHEEL_ZOOM_FACTOR**steps)
+        )
+        if abs(new_zoom - old_zoom) <= 1e-4:
+            return
+        new_pps = timeline_viewport.pixels_per_second_for_zoom(self, new_zoom)
+        scroll_area = timeline_viewport.get_scroll_area(self)
+        scrollbar = None
+        scroll_old = 0
+        if scroll_area is not None:
+            scrollbar = scroll_area.horizontalScrollBar()
+            try:
+                scroll_old = int(scrollbar.value())
+            except Exception:
+                scroll_old = 0
+        # event.position() is in widget (content) coords; viewport coords
+        # subtract the pre-zoom scroll offset (the mouse never moves here).
+        cursor_time = timeline_viewport.cursor_time_at_x(self, float(cursor_x))
+        cursor_viewport_x = float(cursor_x) - float(scroll_old)
+        target = timeline_viewport.anchor_scroll_for_zoom(
+            self, cursor_viewport_x, cursor_time, new_pps
+        )
+        self._zoom_level = float(new_zoom)
+        timeline_viewport.update_fixed_width(self)
+        if scrollbar is not None:
+            try:
+                lo = int(scrollbar.minimum())
+                hi = int(scrollbar.maximum())
+            except Exception:
+                lo, hi = 0, int(target)
+            target = max(lo, min(int(target), hi))
+            scrollbar.blockSignals(True)
+            try:
+                scrollbar.setValue(int(target))
+            finally:
+                scrollbar.blockSignals(False)
+        source = "wheelZoomCoalesced" if ticks > 1 else "wheelZoom"
+        try:
+            nxt = self._current_state()
+        except Exception:
+            return
+        self._commitState(nxt, source=source)
 
     def keyPressEvent(self, event):
         key = event.key()
