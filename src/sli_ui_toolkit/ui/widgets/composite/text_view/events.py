@@ -12,8 +12,9 @@ methods.
 from __future__ import annotations
 
 import logging
-import os
 import time
+
+from sli_ui_toolkit.core.debug_flags import any_flag
 
 from PySide6.QtCore import QEvent, QRect, Qt
 from PySide6.QtGui import QKeySequence
@@ -23,6 +24,15 @@ from .editing import Position
 from .selection import TextSelection
 
 _logger = logging.getLogger(__name__)
+
+# Same TextCanvas trace stream as canvas.py (SLI_TEXTVIEW_DEBUG, IMGSLI_TRACE
+# legacy alias) — call-time check, off by default even under host --debug.
+_TEXTVIEW_DEBUG_VARS = ("SLI_TEXTVIEW_DEBUG", "IMGSLI_TRACE")
+
+
+def _textview_debug_enabled() -> bool:
+    """True when TextCanvas tracing was opted in via env."""
+    return any_flag(*_TEXTVIEW_DEBUG_VARS)
 
 
 class _CanvasEventsApi:
@@ -132,7 +142,7 @@ class _CanvasEventsApi:
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         # Single debug check per move — logger only, no file IO (hot path)
-        dbg = os.getenv("SLI_TEXTVIEW_DEBUG") == "1"
+        dbg = _textview_debug_enabled()
         if dbg and event.buttons() & Qt.MouseButton.LeftButton:
             _logger.warning(
                 "drag raw editing=%s anchor=%s buttons=%s pos=%s",

@@ -9,8 +9,9 @@ override wins, same trick as ``base_flyout``.
 from __future__ import annotations
 
 import logging
-import os
 import time
+
+from sli_ui_toolkit.core.debug_flags import any_flag
 
 from PySide6.QtCore import QRect
 from PySide6.QtGui import QColor, QPainter
@@ -24,9 +25,14 @@ from .painter import _cached_advance, draw_text_line
 
 _logger = logging.getLogger(__name__)
 
-# Single getenv per paint, not per line. Cached check to avoid 25× getenv per frame.
+# Call-time env check per paint (not per line) to avoid 25× getenv per frame.
+# Same TextCanvas trace stream as canvas.py (SLI_TEXTVIEW_DEBUG, IMGSLI_TRACE
+# legacy alias), permissive any_flag semantics.
+_TEXTVIEW_DEBUG_VARS = ("SLI_TEXTVIEW_DEBUG", "IMGSLI_TRACE")
+
+
 def _debug_enabled() -> bool:
-    return os.getenv("SLI_TEXTVIEW_DEBUG") == "1" or os.getenv("IMGSLI_TRACE") == "1"
+    return any_flag(*_TEXTVIEW_DEBUG_VARS)
 
 _DEBUG_PAINT_EVERY = 1  # log every paint while debugging — zero useful info means throttle hid the storm
 _paint_counter = 0

@@ -15,10 +15,10 @@ from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen, QPixma
 from PySide6.QtWidgets import QFrame, QScrollArea, QSizePolicy, QWidget
 
 import logging
-import os
 import time
 import traceback
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec  # noqa: E402
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
@@ -27,6 +27,16 @@ from sli_ui_toolkit.ui.widgets.composite.help_document.image_lightbox import (
 )
 
 _tv_logger = logging.getLogger(__name__)
+
+# Same TextCanvas trace stream as canvas.py (SLI_TEXTVIEW_DEBUG, IMGSLI_TRACE
+# legacy alias) — call-time check, off by default even under host --debug.
+_TEXTVIEW_DEBUG_VARS = ("SLI_TEXTVIEW_DEBUG", "IMGSLI_TRACE")
+
+
+def _textview_debug_enabled() -> bool:
+    """True when TextCanvas tracing was opted in via env."""
+    return any_flag(*_TEXTVIEW_DEBUG_VARS)
+
 _last_scroll_log = 0.0
 
 from . import constants
@@ -92,7 +102,7 @@ class TextView(QScrollArea):
         self._canvas.setAutoFillBackground(False)
         self._canvas.setStyleSheet("background: transparent;")
         # Debug: who scrolls the view (wheel / bar drag / HoverCoordinator)
-        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1":
+        if _textview_debug_enabled():
             try:
                 self.verticalScrollBar().valueChanged.connect(self._dbg_scroll_value)
                 self._canvas.installEventFilter(self)
@@ -219,7 +229,7 @@ class TextView(QScrollArea):
         self._canvas.set_editing(False)
 
     def _dbg_scroll_value(self, value: int) -> None:
-        if os.getenv("SLI_TEXTVIEW_DEBUG") != "1":
+        if not _textview_debug_enabled():
             return
         global _last_scroll_log
         now = time.perf_counter()
@@ -231,7 +241,7 @@ class TextView(QScrollArea):
         _tv_logger.warning(msg)
 
     def wheelEvent(self, event) -> None:  # noqa: N802
-        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1":
+        if _textview_debug_enabled():
             stack = "".join(traceback.format_stack()[-6:-2])
             msg = f"TextView wheel delta={event.angleDelta().y()} pixel={event.pixelDelta().y() if not event.pixelDelta().isNull() else 'null'} mods={event.modifiers()} stack:\n{stack}"
             _tv_logger.warning(msg)
@@ -268,7 +278,7 @@ class TextView(QScrollArea):
         bar.setValue(bar.value() - delta_px)
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:  # noqa: N802
-        if os.getenv("SLI_TEXTVIEW_DEBUG") == "1" and dy != 0:
+        if _textview_debug_enabled() and dy != 0:
             stack = "".join(traceback.format_stack()[-7:-3])
             msg = f"TextView scrollContentsBy dy={dy} stack:\n{stack}"
             _tv_logger.warning(msg)
