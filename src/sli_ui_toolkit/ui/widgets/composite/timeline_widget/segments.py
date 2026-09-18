@@ -103,7 +103,7 @@ def _draw_color_track_segments(
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawLine(QPointF(x1, y), QPointF(x2, y))
 
-    painter.setPen(QPen(QColor(40, 40, 46), 1))
+    painter.setPen(QPen(timeline_theme.keyframe_outline_color(widget), 1))
     for x1, x2, y, color, start_keyframe_ref, end_keyframe_ref in segments:
         painter.setBrush(QBrush(color))
         if left_bound <= x1 <= right_bound:
@@ -197,7 +197,7 @@ def _draw_enum_track_segments(
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawLine(QPointF(x1, y), QPointF(x2, y))
 
-    painter.setPen(QPen(QColor(40, 40, 46), 1))
+    painter.setPen(QPen(timeline_theme.keyframe_outline_color(widget), 1))
     point_positions: set[tuple[float, float]] = set()
     for x1, x2, y, start_ref, end_ref in segments:
         if left_bound <= x1 <= right_bound:
@@ -319,7 +319,7 @@ def _draw_keyframe_segments(widget, painter: QPainter, *, group, track, channel,
         if key in drawn_points:
             return
         drawn_points.add(key)
-        painter.setPen(QPen(QColor(40, 40, 46), 1))
+        painter.setPen(QPen(timeline_theme.keyframe_outline_color(widget), 1))
         painter.setBrush(QBrush(color))
         painter.drawEllipse(QPointF(x, y), point_radius, point_radius)
         widget._hover_points.append((QRectF(x - 6, y - 6, 12, 12), tooltip))

@@ -4,44 +4,140 @@ from typing import Any
 
 from PySide6.QtGui import QColor
 
+# Timeline token defaults: ``token -> (light, dark)`` fallback QColors.
+#
+# Every color the timeline paints is resolved through ``ThemeManager`` first
+# (``try_get_color`` on the ``timeline.*`` token, then on the legacy shared
+# token where one exists) and falls back to this table. Hosts override any
+# entry by registering a palette containing the ``timeline.*`` key — no
+# per-theme ``if is_dark`` hardcoded branches remain in the paint path.
+_TIMELINE_TOKEN_DEFAULTS: dict[str, tuple[QColor, QColor]] = {
+    "timeline.gutter.background": (QColor(244, 244, 246), QColor(42, 42, 46)),
+    "timeline.group.background": (QColor(250, 250, 252), QColor(46, 46, 50)),
+    "timeline.track.background": (QColor(242, 243, 246), QColor(80, 80, 80)),
+    "timeline.lane.background": (QColor(248, 248, 250), QColor(50, 50, 55)),
+    "timeline.grid.color": (QColor(220, 220, 225), QColor(79, 79, 79)),
+    "timeline.footer.background": (QColor(236, 238, 242), QColor(38, 38, 42)),
+    "timeline.separator.strong": (QColor(188, 192, 200), QColor(85, 85, 85)),
+    "timeline.separator.soft": (QColor(218, 220, 226), QColor(55, 55, 60)),
+    "timeline.separator.row": (QColor(210, 210, 214), QColor(210, 210, 214)),
+    "timeline.center.line": (QColor(190, 190, 196), QColor(190, 190, 196)),
+    "timeline.scrollbar.idle": (QColor(0, 0, 0, 65), QColor(255, 255, 255, 55)),
+    "timeline.scrollbar.hover": (QColor(0, 0, 0, 95), QColor(255, 255, 255, 85)),
+    "timeline.track.bool": (QColor(0, 140, 198), QColor(0, 140, 198)),
+    "timeline.track.enum": (QColor(180, 88, 28), QColor(180, 88, 28)),
+    "timeline.track.state": (QColor(100, 100, 116), QColor(100, 100, 116)),
+    "timeline.track.vec2": (QColor(34, 140, 94), QColor(34, 140, 94)),
+    "timeline.keyframe.outline": (QColor(40, 40, 46), QColor(40, 40, 46)),
+    "timeline.playhead.outline": (QColor(0, 0, 0, 90), QColor(0, 0, 0, 90)),
+}
+
+# Tokens that already have a shared-palette equivalent: the timeline token
+# wins, the shared token is the middle of the fallback chain, the table
+# above is the last resort.
+_TIMELINE_TOKEN_FALLBACKS: dict[str, str] = {
+    "timeline.track.background": "AlternateBase",
+    "timeline.grid.color": "separator.color",
+    "timeline.separator.strong": "dialog.border",
+}
+
+# Accent-wash alphas: ``token -> (light, dark)``. A host overrides one by
+# registering the token as a QColor whose alpha channel carries the value;
+# otherwise the per-theme default below applies. This keeps the paint call
+# sites free of ``is_dark`` branches while preserving the tuned per-theme
+# translucency.
+_TIMELINE_ALPHA_DEFAULTS: dict[str, tuple[int, int]] = {
+    "timeline.gutter.wash.top.alpha": (18, 26),
+    "timeline.gutter.wash.bottom.alpha": (4, 8),
+    "timeline.gutter.edge.alpha": (14, 22),
+    "timeline.group.header.start.alpha": (52, 70),
+    "timeline.group.header.end.alpha": (18, 12),
+    "timeline.scrollbar.track.alpha": (235, 190),
+}
+
+#: All ``timeline.*`` color tokens introduced here (handoff reference for
+#: render.py / viewport.py call sites owned by the parallel Phase A work,
+#: and for the inspector ``token_family`` extension in widget.py).
+TIMELINE_TOKENS: tuple[str, ...] = tuple(_TIMELINE_TOKEN_DEFAULTS) + tuple(
+    _TIMELINE_ALPHA_DEFAULTS
+)
+
+
+def _timeline_color(tm, token: str) -> QColor:
+    """Resolve *token* via ``try_get_color`` with palette fallback.
+
+    Chain: ``timeline.*`` token → legacy shared token (where mapped) →
+    per-theme hardcoded default from ``_TIMELINE_TOKEN_DEFAULTS``.
+    """
+    hit = tm.try_get_color(token)
+    if hit is not None:
+        return QColor(hit)
+    fallback_token = _TIMELINE_TOKEN_FALLBACKS.get(token)
+    if fallback_token is not None:
+        hit = tm.try_get_color(fallback_token)
+        if hit is not None:
+            return QColor(hit)
+    light, dark = _TIMELINE_TOKEN_DEFAULTS[token]
+    return QColor(dark) if tm.is_dark() else QColor(light)
+
+
+def timeline_alpha(tm, token: str) -> int:
+    """Resolve an accent-wash alpha token (see ``_TIMELINE_ALPHA_DEFAULTS``)."""
+    light, dark = _TIMELINE_ALPHA_DEFAULTS[token]
+    hit = tm.try_get_color(token)
+    if hit is not None:
+        return max(0, min(255, hit.alpha()))
+    return dark if tm.is_dark() else light
+
+
+def keyframe_outline_color(widget) -> QColor:
+    """Outline for keyframe dots (handoff helper for segments.py)."""
+    return _timeline_color(widget.theme_manager, "timeline.keyframe.outline")
+
+
+def playhead_outline_color(widget) -> QColor:
+    """Dark halo under the playhead line (handoff helper for primitives.py)."""
+    return _timeline_color(widget.theme_manager, "timeline.playhead.outline")
+
+
+def row_separator_color(widget) -> QColor:
+    """Row bottom rule (integration helper for render.py draw_rows)."""
+    return _timeline_color(widget.theme_manager, "timeline.separator.row")
+
+
+def row_center_line_color(widget) -> QColor:
+    """Lane center line (integration helper for render.py draw_rows)."""
+    return _timeline_color(widget.theme_manager, "timeline.center.line")
+
+
+def scrollbar_idle_color(widget) -> QColor:
+    """Scrollbar handle idle fill (integration helper for viewport.py)."""
+    return _timeline_color(widget.theme_manager, "timeline.scrollbar.idle")
+
+
+def scrollbar_hover_color(widget) -> QColor:
+    """Scrollbar handle hover fill (integration helper for viewport.py)."""
+    return _timeline_color(widget.theme_manager, "timeline.scrollbar.hover")
+
+
 def build_theme_colors(widget) -> dict[str, Any]:
     tm = widget.theme_manager
-    is_dark = tm.is_dark()
-    text_col = tm.get_color("WindowText")
-    if is_dark:
-        colors = {
-            "is_dark": is_dark,
-            "accent": tm.get_color("accent"),
-            "text_col": text_col,
-            "canvas_bg": tm.get_color("Window"),
-            "gutter_bg": QColor(42, 42, 46),
-            "group_bg": QColor(46, 46, 50),
-            "track_bg": tm.get_color("AlternateBase"),
-            "lane_bg": QColor(50, 50, 55),
-            "grid_col": tm.get_color("separator.color"),
-            "footer_bg": QColor(38, 38, 42),
-            "sep_strong": tm.get_color("dialog.border"),
-            "sep_soft": QColor(55, 55, 60),
-            "sb_idle": QColor(255, 255, 255, 55),
-            "sb_hover": QColor(255, 255, 255, 85),
-        }
-    else:
-        colors = {
-            "is_dark": is_dark,
-            "accent": tm.get_color("accent"),
-            "text_col": text_col,
-            "canvas_bg": tm.get_color("Window"),
-            "gutter_bg": QColor(244, 244, 246),
-            "group_bg": QColor(250, 250, 252),
-            "track_bg": QColor(242, 243, 246),
-            "lane_bg": QColor(248, 248, 250),
-            "grid_col": QColor(220, 220, 225),
-            "footer_bg": QColor(236, 238, 242),
-            "sep_strong": QColor(188, 192, 200),
-            "sep_soft": QColor(218, 220, 226),
-            "sb_idle": QColor(0, 0, 0, 65),
-            "sb_hover": QColor(0, 0, 0, 95),
-        }
+    colors = {
+        "is_dark": tm.is_dark(),
+        "accent": tm.get_color("accent"),
+        "text_col": tm.get_color("WindowText"),
+        "canvas_bg": tm.get_color("Window"),
+        "gutter_bg": _timeline_color(tm, "timeline.gutter.background"),
+        "group_bg": _timeline_color(tm, "timeline.group.background"),
+        "track_bg": _timeline_color(tm, "timeline.track.background"),
+        "lane_bg": _timeline_color(tm, "timeline.lane.background"),
+        "grid_col": _timeline_color(tm, "timeline.grid.color"),
+        "footer_bg": _timeline_color(tm, "timeline.footer.background"),
+        "sep_strong": _timeline_color(tm, "timeline.separator.strong"),
+        "sep_soft": _timeline_color(tm, "timeline.separator.soft"),
+        "sb_idle": _timeline_color(tm, "timeline.scrollbar.idle"),
+        "sb_hover": _timeline_color(tm, "timeline.scrollbar.hover"),
+    }
     overrides = getattr(widget, "_color_overrides", None)
     if overrides:
         colors.update(overrides)
@@ -64,6 +160,13 @@ def _explicit_accent_color(*candidates) -> QColor | None:
             return color
     return None
 
+_TRACK_KIND_TOKENS: dict[str, str] = {
+    "bool": "timeline.track.bool",
+    "enum": "timeline.track.enum",
+    "state": "timeline.track.state",
+    "vec2": "timeline.track.vec2",
+}
+
 def track_color(
     widget,
     track_kind: str,
@@ -75,16 +178,11 @@ def track_color(
     explicit = _explicit_accent_color(channel_accent_color, track_accent_color)
     if explicit is not None:
         return explicit
-    accent = resolve_accent_color(widget)
-    if channel_kind == "bool" or track_kind == "bool":
-        return QColor(0, 140, 198)
-    if channel_kind == "enum" or track_kind == "enum":
-        return QColor(180, 88, 28)
-    if channel_kind == "state" or track_kind == "state":
-        return QColor(100, 100, 116)
-    if channel_kind == "vec2" or track_kind == "vec2":
-        return QColor(34, 140, 94)
-    return accent
+    kind = channel_kind if channel_kind in _TRACK_KIND_TOKENS else track_kind
+    token = _TRACK_KIND_TOKENS.get(kind) if isinstance(kind, str) else None
+    if token is not None:
+        return _timeline_color(widget.theme_manager, token)
+    return resolve_accent_color(widget)
 
 def track_line_color(
     widget,

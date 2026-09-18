@@ -456,6 +456,57 @@
   gem facet is an independent `ButtonRegion` with its own `path_fn`, `override_bg_color`,
   and per-facet hover/ripple via the toolkit pipeline.
 
+- `TimelineWidget` colors are now `timeline.*` theme tokens — every
+  previously hardcoded `QColor` in the timeline paint path resolves through
+  `ThemeManager.try_get_color` with a per-theme fallback, and the
+  per-`is_dark` hardcoded branches are gone from `theme.py` /
+  `primitives.py` / `segments.py`: gutter/group/lane/footer/track
+  backgrounds (`timeline.gutter.background`, `timeline.group.background`,
+  `timeline.lane.background`, `timeline.footer.background`,
+  `timeline.track.background` → `AlternateBase`), grid/separator colors
+  (`timeline.grid.color` → `separator.color`,
+  `timeline.separator.strong` → `dialog.border`,
+  `timeline.separator.soft`), scrollbar fills
+  (`timeline.scrollbar.idle/hover`), track kind colors
+  (`timeline.track.bool/enum/state/vec2`), the keyframe dot outline
+  (`timeline.keyframe.outline`) and the playhead halo
+  (`timeline.playhead.outline`). The accent-wash translucencies are
+  alpha tokens too (`timeline.gutter.wash.top/bottom.alpha`,
+  `timeline.gutter.edge.alpha`, `timeline.group.header.start/end.alpha`,
+  `timeline.scrollbar.track.alpha`) — a host overrides one by registering
+  a `QColor` whose alpha carries the value. Hosts can restyle any of these
+  via `register_palettes` without touching the widget; defaults render byte-
+  identical to the old hardcodes in both light and dark. New helpers
+  `keyframe_outline_color()` / `playhead_outline_color()` /
+  `timeline_alpha()` (plus the `TIMELINE_TOKENS` tuple) are the handoff API
+  for the `render.py` / `viewport.py` call sites owned by the parallel paint-
+  contract work, which still hold their own hardcoded fallbacks. Public API
+  unchanged (`track_line_color`, `group_content_bg` signatures intact).
+  Guarded by `tests/test_timeline_tokens.py` (light+dark resolution, token
+  override wins, no-`is_dark`-branch source scan, real-widget light/dark
+  render smoke test).
+- Timeline token handoff closed on integration: `render.py` row rules /
+  center lines (`timeline.separator.row`, `timeline.center.line`, defaults
+  byte-identical to the old hardcodes) and   `viewport.py` scrollbar fallbacks
+  (`timeline.scrollbar.idle/hover`) now resolve through the new helpers
+  (`row_separator_color()`, `row_center_line_color()`,
+  `scrollbar_idle_color()`, `scrollbar_hover_color()`). No hardcoded
+  `QColor` remains in the timeline paint path; `inspect_spec`
+  `token_family` extension deferred to the timer/state phase (owns
+  `widget.py`).
+- Timeline timer/state cleanup: the playhead lerp `QTimer` is a
+  `QPropertyAnimation` (150 ms OutCubic — same smoothing, `headMoved`
+  still fires synchronously), the two `singleShot(0, fit_view)` calls are
+  coalesced through the layout settle gate, `TimelineViewportState` is the
+  single mutation source (zoom commits go through `_commitState` with
+  identical emit semantics; silent write-through keeps readers fresh), and
+  localization hooks are per-widget (`bind_widget`, process-global
+  callbacks kept as fallback for handle-less paint paths).
+  `inspect_spec.token_family` now references `theme.TIMELINE_TOKENS`.
+  Guarded by `tests/test_timeline_state.py`. Host note: the private
+  `timeline._lerp_timer` poked by old host cleanup code is gone — guarded
+  `hasattr` call sites simply skip.
+
 ### Removed
 
 - **PyPI and AUR publishing workflows** — `.github/workflows/publish.yml` and
@@ -939,6 +990,28 @@
     widget (source view, config view, Edit/Revert/Save, dirty tracking);
     the pane keeps thin compatibility properties for the old private
     attribute names.
+
+- **`TimelineWidget` paint contract + row virtualization (Phase A)** —
+  `render.paint_timeline` no longer mutates geometry: the
+  `update_vertical_scrollbar` call (which did `setVisible`/`setGeometry`/
+  `widget.update`) moved out of the paint path — scrollbar sync lives only
+  in the resize/settle/scroll paths (`resizeEvent`,
+  `_onViewportGeometryChanged`, `_on_layout_settle`, `_on_scale_changed`,
+  `_on_host_scroll`); the pure desired state is queryable via the new
+  `viewport.vertical_scrollbar_state()`. Damage handling is formalized:
+  `event.rect()` → `start_x`/`end_x` drives the strip frame range, ruler
+  ticks, lane fills (now clipped to the damage instead of full-width),
+  selection fill/handles, playhead, and the sticky-gutter vertical damage
+  band. Rows paint through the new cached `layout.visible_row_window()`
+  slice (offsets cached per `_row_layout` identity, O(visible) paint —
+  both paint passes previously iterated the whole layout) with per-row
+  horizontal culling via the new `layout.row_time_x_range()` (segment
+  computation skipped when a row's keyframe content sits fully outside
+  the damage). `widget._hover_points` is still rebuilt per paint but is
+  hit-test scratch, not geometry, and is now damage-scoped. Signals,
+  slots, and all public methods are unchanged. Covered by the new
+  `tests/test_timeline_paint_contract.py` (no-geometry-mutation spies,
+  narrow-damage subset, window-vs-brute-force, public-surface checks).
 
 ### Fixed
 

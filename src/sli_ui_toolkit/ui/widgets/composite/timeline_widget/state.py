@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +23,16 @@ class TimelineViewportState:
 
     def is_fitted(self, eps: float = 0.05) -> bool:
         return math.isclose(self.zoom, self.min_zoom, rel_tol=eps) or self.zoom < self.min_zoom
+
+    def with_zoom(self, zoom: float) -> TimelineViewportState:
+        """Copy with a new zoom (geometry slots untouched).
+
+        Single-source funnel for zoom mutations: callers build the next
+        state via this helper and hand it to ``_commitState``, which owns
+        the diff/emit decision — nobody writes ``widget._zoom_level``
+        directly anymore.
+        """
+        return replace(self, zoom=float(zoom))
 
     def has_zoom_changed(self, other: TimelineViewportState | None, eps: float = 1e-4) -> bool:
         if other is None:

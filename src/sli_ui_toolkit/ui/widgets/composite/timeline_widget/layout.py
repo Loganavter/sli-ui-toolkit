@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import bisect
 import logging
 import math
 from typing import Any
@@ -319,6 +320,132 @@ def rows_height(widget) -> int:
         else:
             height += widget.CHANNEL_ROW_HEIGHT
     return height
+
+
+def _row_window_cache_key(widget, layout: list) -> tuple:
+    """Cheap structural key for the cached row offsets.
+
+    ``rebuild_row_layout`` always allocates a fresh list, so the list
+    identity is the primary invalidation signal; kinds + metric constants
+    guard against in-place reuse without a rebuild.
+    """
+    return (
+        id(layout),
+        len(layout),
+        tuple(item[0] for item in layout),
+        (
+            widget.GROUP_HEADER_HEIGHT,
+            widget.TRACK_ROW_HEIGHT,
+            widget.CHANNEL_ROW_HEIGHT,
+        ),
+    )
+
+
+def _cached_row_bottoms(widget, layout: list) -> tuple[float, ...]:
+    """Cumulative row-bottom offsets (relative to the rows origin), cached.
+
+    Recomputed only when :func:`_row_window_cache_key` changes; paint then
+    pays O(log n) window lookup + O(visible) painting instead of O(rows).
+    """
+    key = _row_window_cache_key(widget, layout)
+    cache = getattr(widget, "_row_window_cache", None)
+    if cache is not None and cache[0] == key:
+        return cache[1]
+    bottoms: list[float] = []
+    total = 0.0
+    kinds = key[2]
+    constants = key[3]
+    for kind in kinds:
+        if kind == "group":
+            total += constants[0]
+        elif kind == "track_single":
+            total += constants[1]
+        else:
+            total += constants[2]
+        bottoms.append(total)
+    result = tuple(bottoms)
+    widget._row_window_cache = (key, result)
+    return result
+
+
+def visible_row_window(
+    widget,
+    rows_top: float,
+    rows_bottom: float,
+    *,
+    content_top: float = 0.0,
+) -> tuple[int, int, float]:
+    """Row-window virtualization over ``widget._row_layout``.
+
+    Returns ``(start, end, y_at_start)``: the slice
+    ``widget._row_layout[start:end]`` holds exactly the rows intersecting
+    ``[content_top, rows_bottom)`` in widget-space y, and ``y_at_start`` is
+    the widget-space y of row ``start`` (``rows_top`` plus its cached
+    offset). Rows above/below the window are never visited by paint —
+    previously both paint passes iterated the whole layout with a break.
+
+    ``rows_top`` is the widget-space y of the rows origin
+    (``STRIP_HEIGHT - vertical_scroll``); it may be negative when scrolled.
+    """
+    layout = widget._row_layout
+    if not layout or rows_bottom <= content_top:
+        return 0, 0, float(rows_top)
+    bottoms = _cached_row_bottoms(widget, layout)
+    # First row whose bottom edge clears content_top.
+    start = bisect.bisect_right(bottoms, content_top - rows_top)
+    if start >= len(layout):
+        return len(layout), len(layout), float(rows_top + bottoms[-1])
+    tops_start = bottoms[start - 1] if start > 0 else 0.0
+    # End: first row whose top edge reaches rows_bottom. The scan below
+    # visits exactly the visible rows plus one, so windowing stays
+    # O(visible) — rows outside the window are never visited by paint.
+    limit = rows_bottom - rows_top
+    if limit <= tops_start:
+        return start, start, float(rows_top + tops_start)
+    end = len(layout)
+    for i in range(start, len(layout)):
+        top_i = bottoms[i - 1] if i > 0 else 0.0
+        if top_i >= limit:
+            end = i
+            break
+    y_at_start = rows_top + tops_start
+    return start, end, float(y_at_start)
+
+
+def row_time_x_range(
+    widget,
+    track,
+    channel,
+    duration: float,
+    logical_width: float,
+    *,
+    pad_px: float = 12.0,
+) -> tuple[float, float] | None:
+    """Widget-space x-range of a row's keyframe content, or ``None`` if empty.
+
+    Per-row horizontal cull for the paint path: when this range lies fully
+    outside the damage interval ``[start_x, end_x]`` the row paints only its
+    (damage-clipped) background fills and skips segment computation entirely.
+    The padding matches the ``±12px`` bound margin the segment passes use,
+    so culling here never drops a point the unclipped pass would draw.
+    """
+    if track.kind == "color":
+        stamps = [
+            float(keyframe.timestamp)
+            for ch in track.channels.values()
+            for keyframe in ch.keyframes
+        ]
+    elif channel is None:
+        return None
+    else:
+        stamps = [float(keyframe.timestamp) for keyframe in channel.keyframes]
+    if not stamps or duration <= 0 or logical_width <= 0:
+        return None
+    x0 = time_to_x(widget, min(stamps), duration, logical_width)
+    x1 = time_to_x(widget, max(stamps), duration, logical_width)
+    lo = min(x0, x1) - pad_px
+    hi = max(x0, x1) + pad_px
+    return lo, hi
 
 def ensure_preferred_height(widget) -> None:
     final_height = max(

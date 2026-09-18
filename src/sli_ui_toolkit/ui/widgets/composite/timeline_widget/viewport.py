@@ -13,6 +13,7 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
 )
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from . import layout as timeline_layout
+from . import theme as timeline_theme
 from .i18n import localize_token, localize_value
 from .theme import resolve_accent_color
 
@@ -44,32 +45,57 @@ def content_viewport_bounds(widget) -> tuple[int, int]:
 def vertical_scroll_value(widget) -> int:
     return widget._v_scrollbar.value() if widget._v_scrollbar.isVisible() else 0
 
-def update_vertical_scrollbar(widget) -> None:
-    old_geometry = widget._v_scrollbar.geometry()
-    was_visible = widget._v_scrollbar.isVisible()
+def vertical_scrollbar_state(widget) -> tuple[bool, QRect | None, int, int]:
+    """Pure scrollbar sync computation — reads widget state, mutates nothing.
+
+    Returns ``(should_be_visible, geometry_or_None, max_scroll, viewport_h)``.
+    This is the paint-safe half of :func:`update_vertical_scrollbar`: the
+    paint path (``render.paint_timeline``) must never apply scrollbar
+    geometry — see the paint contract there — but tests and non-paint
+    callers can query the desired state through this function without
+    touching ``setVisible``/``setGeometry``.
+    """
     content_top, content_bottom = content_viewport_bounds(widget)
     viewport_h = max(0, content_bottom - content_top)
     content_h = max(0, widget.STRIP_HEIGHT + timeline_layout.rows_height(widget))
     max_scroll = max(0, content_h - viewport_h)
+    if max_scroll <= 0:
+        return False, None, max_scroll, viewport_h
+    width = vertical_scrollbar_width(widget)
+    gutter_width = vertical_scrollbar_gutter_width(widget)
+    scroll_area = get_scroll_area(widget)
+    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
+    viewport_width = get_viewport_width(widget)
+    geometry = QRect(
+        max(0, scroll_offset + viewport_width - gutter_width + (gutter_width - width) // 2),
+        content_top,
+        width,
+        viewport_h,
+    )
+    return True, geometry, max_scroll, viewport_h
+
+
+def update_vertical_scrollbar(widget) -> None:
+    """Sync the vertical scrollbar to content height (non-paint paths only).
+
+    Applies :func:`vertical_scrollbar_state`: range/steps/value, visibility,
+    and geometry. Must never be called from the paint path — scrollbar sync
+    lives in ``resizeEvent``/``_onViewportGeometryChanged``/``_on_layout_settle``/
+    ``_on_scale_changed``/``_on_host_scroll`` (``widget.py``); the paint
+    contract in ``render.paint_timeline`` forbids geometry mutation.
+    """
+    old_geometry = widget._v_scrollbar.geometry()
+    was_visible = widget._v_scrollbar.isVisible()
+    should_be_visible, geometry, max_scroll, viewport_h = vertical_scrollbar_state(widget)
     widget._v_scrollbar.blockSignals(True)
     widget._v_scrollbar.setRange(0, max_scroll)
     widget._v_scrollbar.setPageStep(max(1, viewport_h))
     widget._v_scrollbar.setSingleStep(max(scaled_px(12), widget.CHANNEL_ROW_HEIGHT))
     widget._v_scrollbar.setValue(min(widget._v_scrollbar.value(), max_scroll))
     widget._v_scrollbar.blockSignals(False)
-    widget._v_scrollbar.setVisible(max_scroll > 0)
-    if max_scroll > 0:
-        width = vertical_scrollbar_width(widget)
-        gutter_width = vertical_scrollbar_gutter_width(widget)
-        scroll_area = get_scroll_area(widget)
-        scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-        viewport_width = get_viewport_width(widget)
-        widget._v_scrollbar.setGeometry(
-            max(0, scroll_offset + viewport_width - gutter_width + (gutter_width - width) // 2),
-            content_top,
-            width,
-            viewport_h,
-        )
+    widget._v_scrollbar.setVisible(should_be_visible)
+    if should_be_visible and geometry is not None:
+        widget._v_scrollbar.setGeometry(geometry)
         widget._v_scrollbar.raise_()
     new_geometry = widget._v_scrollbar.geometry()
     if was_visible or widget._v_scrollbar.isVisible():
@@ -338,9 +364,9 @@ def draw_inner_scrollbar(
     if handle_rect.isEmpty():
         return
     if idle_color is None:
-        idle_color = QColor(0, 0, 0, 65)
+        idle_color = timeline_theme.scrollbar_idle_color(widget)
     if hover_color is None:
-        hover_color = QColor(0, 0, 0, 95)
+        hover_color = timeline_theme.scrollbar_hover_color(widget)
     if widget._sb_dragging:
         color = resolve_accent_color(widget)
     elif sb_rect.contains(QPointF(widget.mapFromGlobal(widget.cursor().pos()))):
