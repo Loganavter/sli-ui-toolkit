@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
@@ -12,10 +13,28 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QSizePolicy, QTabBar, QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 
+logger = logging.getLogger(__name__)
+
+# Canonical toolkit var for adaptive tab-strip key traces. Call-time check,
+# ``[TAB-BAR]`` prefix on every line, off by default even under host
+# ``--debug``. Never mutates logger levels at import time.
+_TABSTRIP_DEBUG_VARS = ("SLI_TABSTRIP_DEBUG",)
+
+
+def _tabstrip_debug_enabled() -> bool:
+    """True when tab-strip tracing was opted in via env."""
+    return any_flag(*_TABSTRIP_DEBUG_VARS)
+
+
+def _tabstrip_debug(message: str, *args) -> None:
+    """Env-gated tab-strip trace line (already carries its ``[TAB-BAR]`` prefix)."""
+    if _tabstrip_debug_enabled():
+        logger.debug(message, *args)
 
 
 class _AdaptiveTabBar(QWidget):
@@ -326,10 +345,8 @@ class _AdaptiveTabBar(QWidget):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
-        import logging
-        _log = logging.getLogger(__name__)
         key = event.key()
-        _log.debug("[TAB-BAR] key=%s count=%s current=%s", key, len(self._tabs), self._current_index)
+        _tabstrip_debug("[TAB-BAR] key=%s count=%s current=%s", key, len(self._tabs), self._current_index)
         count = len(self._tabs)
         if count == 0:
             return super().keyPressEvent(event)
