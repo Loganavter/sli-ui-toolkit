@@ -27,6 +27,16 @@ def vertical_scrollbar_gutter_width(widget) -> int:
     # the bar is centered inside this lane, content leaves it clear.
     return overlay_scrollbar_max_inset()
 
+# Zoom model (Z1): ``widget._zoom_level`` is the single zoom scalar and
+# pixels-per-second (pps) derives from it as ``pps = zoom * base_pps``
+# where ``base_pps = frame_span * base_tile_width / duration`` (the pps at
+# zoom 1.0). Every zoom path must go through ``_commitState``; the wheel
+# path commits coalesced steps (see ``TimelineWidget._flush_wheel_zoom``)
+# with a cursor anchor so the time under the cursor stays fixed:
+# ``scroll = cursor_time * new_pps + LEFT_GUTTER - cursor_viewport_x``.
+WHEEL_ZOOM_FACTOR = 1.25
+"""Per-tick Ctrl+wheel zoom multiplier (single site; pinned by test)."""
+
 # Metrics for the timeline's own drawn footer scrollbar. The values mirror
 # the MinimalistScrollBar's visual language (track padding / hover thumb
 # thickness) but are this widget's own, so they stay local.
@@ -103,6 +113,55 @@ def get_slot_width(widget) -> float:
     if widget._total_frames <= 1:
         return 1.0
     return get_logical_width(widget) / frame_span(widget)
+
+def get_base_pixels_per_second(widget) -> float:
+    """pps at zoom 1.0 — the ``base_pps`` of the ``pps = zoom * base_pps`` invariant."""
+    duration = widget.get_total_duration()
+    if duration <= 0 or widget._total_frames <= 1:
+        return 50.0
+    return (float(frame_span(widget)) * get_base_tile_width(widget)) / float(duration)
+
+def pixels_per_second_for_zoom(widget, zoom: float) -> float:
+    """pps for an arbitrary zoom without touching widget state."""
+    return float(zoom) * get_base_pixels_per_second(widget)
+
+def clamp_zoom(widget, zoom: float) -> float:
+    """Clamp *zoom* to ``[min_zoom, 1.0]``, snapping to min within 1%.
+
+    Single clamping site for the wheel path so the range can never drift
+    between call sites (mirrors the pre-coalescing wheel clamp).
+    """
+    min_zoom = calculate_min_zoom(widget)
+    clamped = max(min_zoom, min(float(zoom), 1.0))
+    if math.isclose(clamped, min_zoom, rel_tol=0.01):
+        clamped = min_zoom
+    return clamped
+
+def cursor_time_at_x(widget, content_x: float) -> float:
+    """Time under a content-x cursor via the ``pos_to_float_index`` mapping.
+
+    *content_x* is in widget (content) coordinates, e.g.
+    ``event.position().x()`` of a wheel event delivered to the widget.
+    """
+    if widget._total_frames <= 0:
+        return 0.0
+    fps = max(1, int(getattr(widget, "_fps", 60)))
+    return float(pos_to_float_index(widget, float(content_x))) / float(fps)
+
+def anchor_scroll_for_zoom(
+    widget,
+    cursor_viewport_x: float,
+    cursor_time: float,
+    new_pps: float,
+) -> int:
+    """Scrollbar value keeping *cursor_time* under the cursor after zoom.
+
+    Anchor math: ``scroll = cursor_time * new_pps + LEFT_GUTTER -
+    cursor_viewport_x``. Lower-clamped at 0; the caller clamps the upper
+    end to the live scrollbar range.
+    """
+    target = float(cursor_time) * float(new_pps) + float(widget.LEFT_GUTTER) - float(cursor_viewport_x)
+    return max(0, int(round(target)))
 
 def get_visible_thumbnail_frame_indices(
     widget,

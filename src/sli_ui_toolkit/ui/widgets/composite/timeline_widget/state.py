@@ -12,6 +12,14 @@ class TimelineViewportState:
     geometry via ``==`` for px values. Mirrors the plan's
     ``zoom/min_zoom/left_gutter/content_width/viewport_width/scroll_x``
     slots.
+
+    Zoom contract (Z1): ``zoom`` is the single zoom scalar; px/sec is
+    derived as ``pps = zoom * base_pps`` (see ``viewport`` helpers — never
+    stored here). ``zoom`` stays in ``[min_zoom, 1.0]``. Every zoom change
+    (including coalesced Ctrl+wheel steps, sources ``"wheelZoom"`` for a
+    lone tick / ``"wheelZoomCoalesced"`` for a coalesced window) commits
+    through ``_commitState``, the only emit path for ``zoomChanged`` /
+    ``viewportChanged`` / ``viewportChangedState``.
     """
 
     zoom: float
