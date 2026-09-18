@@ -130,6 +130,50 @@ def get_slot_width(widget) -> float:
         return 1.0
     return get_logical_width(widget) / frame_span(widget)
 
+def strip_block_layout(
+    widget,
+    *,
+    content_start_x: float,
+    start_x: float,
+    end_x: float,
+    overscan_blocks: int = 0,
+) -> list[tuple[float, float, int]]:
+    """Fixed-width thumbnail block layout — one source of truth for paint
+    (``render.draw_thumbnail_strip``) and generation priority
+    (``get_visible_thumbnail_frame_indices``).
+
+    Returns ``[(block_x, draw_w, rep_frame)]`` for blocks intersecting
+    ``[start_x, end_x)``. ``draw_w`` is CONSTANT (NLE-style): ``base_tile``
+    while collapsed (``slot_width < base_tile``), else ``slot_width``
+    (zoomed-in 1:1, one frame per block) — zoom changes frames-per-block,
+    never block width. ``rep_frame`` is the block's representative frame
+    (floor of its start position), clamped to ``[0, total-1]``; thumbnail
+    lookup stays nearest-available via ``bisect`` on the widget side.
+    """
+    total = widget._total_frames
+    if total <= 0:
+        return []
+    logical_width = get_logical_width(widget)
+    slot_width = get_slot_width(widget)
+    base_tile = get_base_tile_width(widget)
+    if logical_width <= 0 or slot_width <= 0 or base_tile <= 0:
+        return []
+    draw_w = base_tile if slot_width < base_tile else slot_width
+    frames_per_block = draw_w / slot_width  # >= 1 by construction
+    overscan_w = max(0, int(overscan_blocks)) * draw_w
+    start_x = max(content_start_x, start_x - overscan_w)
+    end_x = min(content_start_x + logical_width, end_x + overscan_w)
+    if end_x <= start_x:
+        return []
+    first_block = max(0, int((start_x - content_start_x) / draw_w))
+    last_block_excl = int(math.ceil((end_x - content_start_x) / draw_w))
+    blocks: list[tuple[float, float, int]] = []
+    for i in range(first_block, last_block_excl):
+        rep = min(total - 1, int(i * frames_per_block))
+        blocks.append((content_start_x + i * draw_w, draw_w, rep))
+    return blocks
+
+
 def get_visible_thumbnail_frame_indices(
     widget,
     *,
@@ -155,21 +199,20 @@ def get_visible_thumbnail_frame_indices(
     if end_x <= start_x:
         return []
 
-    frame_step = 1 if slot_width >= base_tile else math.ceil(base_tile / slot_width)
-    draw_w = frame_step * slot_width
-    overscan_w = max(0, int(overscan_blocks)) * draw_w
-    start_x = max(content_start_x, start_x - overscan_w)
-    end_x = min(content_start_x + logical_width, end_x + overscan_w)
-
-    first_frame = max(
-        0,
-        int((start_x - content_start_x) / draw_w) * frame_step,
+    blocks = strip_block_layout(
+        widget,
+        content_start_x=content_start_x,
+        start_x=start_x,
+        end_x=end_x,
+        overscan_blocks=overscan_blocks,
     )
-    last_frame = min(
-        widget._total_frames,
-        int((end_x - content_start_x) / draw_w + 1) * frame_step + frame_step,
-    )
-    return list(range(first_frame, last_frame, frame_step))
+    seen: set[int] = set()
+    out: list[int] = []
+    for _, _, rep in blocks:
+        if rep not in seen:
+            seen.add(rep)
+            out.append(rep)
+    return out
 
 def compute_total_frames(widget) -> int:
     duration = widget.get_total_duration()

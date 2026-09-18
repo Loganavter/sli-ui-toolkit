@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QPaintEvent
 
@@ -295,3 +296,67 @@ def test_public_surface_unchanged(qtbot):
         assert callable(getattr(tl, method, None)), method
     assert tl.focusPolicy() == Qt.FocusPolicy.StrongFocus
     assert isinstance(tl.get_visible_thumbnail_frame_indices(), list)
+
+
+def _strip_blocks_full(tl):
+    """All strip blocks over the full content range at current zoom."""
+    base = timeline_viewport.get_base_tile_width(tl)
+    logical = timeline_viewport.get_logical_width(tl)
+    csx = float(tl.LEFT_GUTTER)
+    blocks = timeline_viewport.strip_block_layout(
+        tl, content_start_x=csx, start_x=csx, end_x=csx + logical
+    )
+    return base, logical, csx, blocks
+
+
+def test_strip_block_width_constant_across_zooms(qtbot):
+    """NLE-style fixed tiles: zoom changes frames-per-block, never width.
+
+    Regression for the collapse-quantum sawtooth (draw_w oscillated
+    ~base..base+slot as slot moved between ceil() steps). While collapsed
+    every block is exactly base_tile wide; zoomed past 1:1 each block is
+    exactly one slot wide.
+    """
+    tl = _make_widget(qtbot)
+    base = timeline_viewport.get_base_tile_width(tl)
+    assert base == 72 * 16 / 9, base
+    for zoom in (tl._zoom_level, tl._zoom_level * 2, 0.5, 1.0, 2.0):
+        tl._zoom_level = float(zoom)
+        _base, _logical, _csx, blocks = _strip_blocks_full(tl)
+        assert blocks, zoom
+        slot = timeline_viewport.get_slot_width(tl)
+        expected = base if slot < base else slot
+        widths = {round(w, 6) for _, w, _ in blocks}
+        assert widths == {round(expected, 6)}, (zoom, slot, widths)
+
+
+def test_strip_blocks_tile_without_gaps(qtbot):
+    """Consecutive blocks abut exactly; every frame sits inside a block
+    whose rep frame does not overshoot it."""
+    tl = _make_widget(qtbot)
+    for zoom in (tl._zoom_level, 1.0):
+        tl._zoom_level = float(zoom)
+        _base, logical, csx, blocks = _strip_blocks_full(tl)
+        slot = timeline_viewport.get_slot_width(tl)
+        fpb = blocks[0][1] / slot
+        for (x0, w0, _), (x1, _w1, _) in zip(blocks, blocks[1:]):
+            assert x1 == pytest.approx(x0 + w0), (zoom, x0, w0, x1)
+        assert blocks[0][0] == pytest.approx(csx), (zoom, blocks[0])
+        assert blocks[-1][0] + blocks[-1][1] + 1e-6 >= csx + logical
+        for f in range(0, tl._total_frames, 37):
+            fx = csx + f * slot
+            owner = [b for b in blocks if b[0] <= fx < b[0] + b[1]]
+            assert owner, (zoom, f)
+            assert owner[0][2] <= f <= owner[0][2] + fpb, (zoom, f, owner[0])
+
+
+def test_visible_indices_match_strip_reps(qtbot):
+    """Generation priority and paint draw from one layout: every visible
+    index is a rep frame of the full-range strip layout."""
+    tl = _make_widget(qtbot)
+    _base, _logical, _csx, blocks = _strip_blocks_full(tl)
+    reps = {r for _, _, r in blocks}
+    idx = tl.get_visible_thumbnail_frame_indices(overscan_blocks=0)
+    assert idx, "fit view must report visible frames"
+    assert set(idx) <= reps, (idx, sorted(reps))
+    assert idx == sorted(set(idx)), idx
