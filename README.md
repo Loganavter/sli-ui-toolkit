@@ -1,6 +1,5 @@
 # SLI UI Toolkit
 
-[![PyPI](https://img.shields.io/pypi/v/sli-ui-toolkit)](https://pypi.org/project/sli-ui-toolkit/)
 [![CI](https://github.com/Loganavter/sli-ui-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/Loganavter/sli-ui-toolkit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -152,7 +151,7 @@ inside toolkit internals, or only when no public export exists yet.
 - Resolve colors and sizes through `ThemeManager`, widget properties, or
   documented tokens.
 - Update docs when changing public widget behavior or public API.
-- Run `pytest tests/` before publishing or tagging a release.
+- Run `pytest tests/` before tagging a release.
 
 ## Caveats
 

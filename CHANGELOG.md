@@ -456,6 +456,17 @@
   gem facet is an independent `ButtonRegion` with its own `path_fn`, `override_bg_color`,
   and per-facet hover/ripple via the toolkit pipeline.
 
+### Removed
+
+- **PyPI and AUR publishing workflows** — `.github/workflows/publish.yml` and
+  `.github/workflows/aur-publish.yml` removed; the toolkit is consumed from
+  source by host apps, not published as a distribution.
+- **Release-metadata CI gate** — the `Validate release metadata` step and
+  `build/ci/validate_release_metadata.py` are gone, along with the stale
+  `build/AUR-template/PKGBUILD` they checked. CI no longer requires the AUR
+  `pkgver` to match `pyproject.toml` / `_version.py`; version bumps still keep
+  those two plus `CHANGELOG.md` in sync (see `AGENTS.md`).
+
 ### Changed
 
 - **`ColorSettingsButton` uses `bind_auto_preview`** — `bind_flyout(..., side="above")` → `bind_auto_preview(..., side="above")` (with fallback). Hover/focus preview + Enter interactive + Esc/focusOut wiring now via `_AutoPreviewController` event filter, not per-anchor `enterEvent/leaveEvent/focusIn/keyPress/focusOut` duplication. Business signals (`elementHovered`, underline colors) kept.
