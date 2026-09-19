@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Timeline single geometry + gutter unification (structural refactor waves A+B)** — lane centers now go through one `layout.row_center_y()` contract and paint through a single `primitives.draw_center_line()` QRectF primitive (no `int()` truncation of `.5` centers); cull uses one `layout.DAMAGE_PAD`; `group_toggle_hit` rebuilt on `visible_row_window` (signature frozen); gutter exposes `viewport.visible_row_gutter_window()` + `hover_points_for_rows()` + `clamp_gutter_width()` with drag traveling the frozen `TimelineViewportState` shape (commit cutover marked CUTOVER-C for the lifecycle wave); `viewport.tooltip_for_keyframe` is fail-open on missing color comps (no-alpha tracks no longer crash live paint). Tests: new `test_timeline_center_line.py`, `test_timeline_gutter.py`; timeline suites 85 passed, full suite only the 2 pre-existing `inspector_colors` fails.
+
 ### Breaking
 
 - **`NavigationSection.focus_first/last` now require `reason: Qt.FocusReason`** — `focus_first(self, ref_x=None, *, reason: Qt.FocusReason)` / `focus_last(..., *, reason)`. All sections (`ToolbarRowsSection`, `IconListNavSection`, `SessionPickerSection`, `TabStripSection`) and every `NavigationManager` call site (`register` bootstrap, `focus_section_for_owner`, `_neighbor` handoff, `eventFilter` bootstrap) now pass `NavigationManager.current_focus_reason()` / `nav_graph.focus_reason()`. Old `spec.focus_first()` without `reason` raises `TypeError`.

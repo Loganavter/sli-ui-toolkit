@@ -672,10 +672,12 @@ def hover_points_for_rows(
 
 def tooltip_for_keyframe(widget, group, track, channel, keyframe) -> str:
     if track.kind == "color":
-        r = timeline_layout._evaluate_channel_at_timestamp(track.channels.get("r"), keyframe.timestamp)
-        g = timeline_layout._evaluate_channel_at_timestamp(track.channels.get("g"), keyframe.timestamp)
-        b = timeline_layout._evaluate_channel_at_timestamp(track.channels.get("b"), keyframe.timestamp)
-        a = timeline_layout._evaluate_channel_at_timestamp(track.channels.get("a"), keyframe.timestamp)
+        # Fail-open: missing comps (e.g. no alpha "a") evaluate to None via
+        # the guarded helper instead of crashing on .get() misses.
+        r = timeline_layout._channel_value_at_timestamp(track.channels.get("r"), keyframe.timestamp)
+        g = timeline_layout._channel_value_at_timestamp(track.channels.get("g"), keyframe.timestamp)
+        b = timeline_layout._channel_value_at_timestamp(track.channels.get("b"), keyframe.timestamp)
+        a = timeline_layout._channel_value_at_timestamp(track.channels.get("a"), keyframe.timestamp)
         if None not in {r, g, b}:
             value_text = f"rgba({int(r)}, {int(g)}, {int(b)}, {int(a if a is not None else 255)})"
             return (
