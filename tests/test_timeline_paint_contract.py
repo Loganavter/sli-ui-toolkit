@@ -39,6 +39,9 @@ from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
     segments as timeline_segments,
 )
 from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+    theme as timeline_theme,
+)
+from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
     viewport as timeline_viewport,
 )
 from sli_ui_toolkit.widgets import TimelineWidget
@@ -869,7 +872,12 @@ def test_wash_alpha_resolves_tokens_and_defaults(_themed, qapp):
 
 
 def _strip_probe(tl):
-    """A thumbnail-strip pixel with no thumbs/segments/playhead: canvas fill."""
+    """A thumbnail-strip pixel with no thumbs/segments/playhead.
+
+    Phase 1 T-paint: a rep absent from the store paints the fail-closed
+    placeholder (``timeline.track.background`` token), never raw canvas and
+    never a neighbor pixmap.
+    """
     return tl.grab().toImage().pixelColor(int(tl.LEFT_GUTTER) + 100, 10)
 
 
@@ -882,12 +890,12 @@ def test_light_dark_paint_diverges_through_tokens(qtbot, qapp, _themed):
     tm.set_theme("light", qapp, await_ripples=False)
     qapp.processEvents()
     light_px = _strip_probe(tl)
-    assert light_px.rgb() == tm.get_color("Window").rgb()
+    assert light_px.rgb() == timeline_theme.build_theme_colors(tl)["track_bg"].rgb()
 
     tm.set_theme("dark", qapp, await_ripples=False)
     qapp.processEvents()
     dark_px = _strip_probe(tl)
-    assert dark_px.rgb() == tm.get_color("Window").rgb()
+    assert dark_px.rgb() == timeline_theme.build_theme_colors(tl)["track_bg"].rgb()
     assert dark_px.rgb() != light_px.rgb()
 
     # Override the wash token: two alphas must paint two different gutters.
