@@ -29,7 +29,10 @@ from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
 from sli_ui_toolkit.ui.widgets.composite.timeline_widget.state import (
     TimelineViewportState,
 )
-from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import TimelineWidget
+from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+    TimelineWidget,
+    gutter_band_rect_for_scroll,
+)
 
 DURATION = 100.0
 
@@ -263,3 +266,139 @@ def test_no_change_ticks_stay_silent(qapp):
     # wheel input (verified with a no-tick baseline), so paints cannot
     # prove wheel silence — the commit/emit counters above do.
     assert not widget._wheel_flush_scheduled
+
+
+# --- Gutter sync correction -------------------------------------------------
+#
+# The sticky gutter is painted in content coords at gx=scroll_offset while
+# every horizontal setValue moves the content widget window synchronously
+# (Qt scrollContentsBy) and all correction paints are async update() — ~1
+# frame of displaced gutter per step. The fix adds a synchronous band
+# repaint after the programmatic setValue plus a band union in the
+# signals-live scroll path. No timing asserts: synchronicity is proven by
+# calling _flush_wheel_zoom directly (no processEvents) and observing the
+# paint before return.
+
+
+def test_gutter_band_rect_geometry(qapp):
+    widget, area = _make_hosted(qapp)
+    bar = area.horizontalScrollBar()
+    scroll = int(bar.value())
+    rect = gutter_band_rect_for_scroll(widget, scroll)
+    assert rect.x() == scroll
+    assert rect.y() == 0
+    assert rect.width() == int(widget.LEFT_GUTTER) + 2
+    assert rect.height() == max(
+        0, int(widget.height() - timeline_viewport.footer_height(widget))
+    )
+
+
+def test_flush_wheel_zoom_repaints_gutter_band_synchronously(qapp):
+    """One direct _flush_wheel_zoom call: 1 commit + 1 sync band repaint."""
+    widget, area = _make_hosted(qapp)
+    bar = area.horizontalScrollBar()
+    _ctrl_wheel(widget, 120, x=400.0)  # warm-up: scrollbar live, layout settled
+    qapp.processEvents()
+    qapp.processEvents()
+    _reset_probe(widget)
+    qapp.processEvents()
+    _reset_probe(widget)  # clear stale setup paints delivered above
+
+    repaint_rects: list = []
+    orig_repaint = widget.repaint
+
+    def _spy_repaint(*args, **kwargs):
+        repaint_rects.append(args[0] if args else None)
+        return orig_repaint(*args, **kwargs)
+
+    widget.repaint = _spy_repaint  # type: ignore[method-assign]
+    try:
+        # Prime one coalesced window and flush synchronously — no event
+        # loop: any paint observed afterwards happened before return.
+        widget._wheel_pending_y = 120.0
+        widget._wheel_pending_x = 400.0
+        widget._wheel_pending_ticks = 1
+        widget._wheel_flush_scheduled = True
+        paints_before = widget.paint_calls
+        widget._flush_wheel_zoom()
+    finally:
+        widget.repaint = orig_repaint  # type: ignore[method-assign]
+
+    # Coalesced budget unchanged: still exactly one commit per window.
+    assert widget.commit_calls == 1
+    assert widget.commit_sources == ["wheelZoom"]
+    # Synchronous: the band repaint ran inside the flush call, so the
+    # paint it triggers is already counted with no processEvents.
+    assert len(repaint_rects) == 1
+    expected = gutter_band_rect_for_scroll(widget, int(bar.value()))
+    assert repaint_rects[0] == expected
+    assert widget.paint_calls > paints_before
+
+
+def test_coalesced_burst_keeps_one_commit_plus_one_sync_repaint(qapp):
+    """10-tick burst: still 1 _commitState, plus exactly 1 sync repaint."""
+    widget, area = _make_hosted(qapp)
+    bar = area.horizontalScrollBar()
+    _ctrl_wheel(widget, 120, x=400.0)  # warm-up: scrollbar present, layout settled
+    qapp.processEvents()
+    qapp.processEvents()
+    _reset_probe(widget)
+    qapp.processEvents()
+    _reset_probe(widget)  # clear stale setup paints delivered above
+
+    repaint_rects: list = []
+    orig_repaint = widget.repaint
+
+    def _spy_repaint(*args, **kwargs):
+        repaint_rects.append(args[0] if args else None)
+        return orig_repaint(*args, **kwargs)
+
+    widget.repaint = _spy_repaint  # type: ignore[method-assign]
+    try:
+        for _ in range(10):
+            _ctrl_wheel(widget, 120, x=400.0)
+        assert widget._wheel_flush_scheduled
+        # Drain the singleShot(0) window; the flush (commit + sync band
+        # repaint) runs inside processEvents.
+        qapp.processEvents()
+        qapp.processEvents()
+    finally:
+        widget.repaint = orig_repaint  # type: ignore[method-assign]
+
+    assert widget.commit_calls == 1
+    assert widget.commit_sources == ["wheelZoomCoalesced"]
+    assert len(repaint_rects) == 1
+    assert repaint_rects[0] == gutter_band_rect_for_scroll(widget, int(bar.value()))
+    assert widget._wheel_pending_ticks == 0
+    assert not widget._wheel_flush_scheduled
+
+
+def test_host_scroll_unions_gutter_band_synchronously(qapp):
+    """Signals-live setValue: gutter band damage registered before return."""
+    widget, area = _make_hosted(qapp)
+    bar = area.horizontalScrollBar()
+    for _ in range(3):  # warm-up: zoom in so the scrollbar range is live
+        _ctrl_wheel(widget, 120, x=500.0)
+    qapp.processEvents()
+    qapp.processEvents()
+    assert bar.maximum() > bar.minimum()
+
+    update_rects: list = []
+    orig_update = widget.update
+
+    def _spy_update(*args, **kwargs):
+        update_rects.append(args[0] if args else None)
+        return orig_update(*args, **kwargs)
+
+    widget.update = _spy_update  # type: ignore[method-assign]
+    try:
+        target = min(int(bar.maximum()), int(bar.value()) + 50)
+        if target == int(bar.value()):
+            target = max(int(bar.minimum()), int(bar.value()) - 50)
+        assert target != int(bar.value())
+        bar.setValue(target)  # signals live: slot runs synchronously
+    finally:
+        widget.update = orig_update  # type: ignore[method-assign]
+
+    band = gutter_band_rect_for_scroll(widget, int(bar.value()))
+    assert any(r == band for r in update_rects if r is not None)

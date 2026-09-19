@@ -7,7 +7,7 @@ import warnings
 from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QEasingCurve, QMetaMethod, QEvent, QPropertyAnimation, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QMetaMethod, QEvent, QPropertyAnimation, QRect, QRectF, Qt, QTimer, Signal
 
 from .state import TimelineViewportState
 from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
@@ -29,6 +29,31 @@ from . import viewport as timeline_viewport
 from . import i18n as timeline_i18n
 
 logger = logging.getLogger(__name__)
+
+
+def gutter_band_rect_for_scroll(widget, scroll: int) -> QRect:
+    """Gutter band in content coords for a scrollbar value (correction paint).
+
+    Returns ``[scroll, scroll + LEFT_GUTTER + 2] x [0, footer_top]`` — the
+    region :func:`render.draw_sticky_gutter_overlay` paints the sticky
+    gutter into (``gx = scroll_offset``, ``LEFT_GUTTER + 2`` wide clip).
+    Correction-only helper: computes a damage rect, changes no state,
+    emits nothing.
+    """
+    try:
+        footer_top = int(widget.height() - timeline_viewport.footer_height(widget))
+    except Exception:
+        try:
+            footer_top = int(widget.height())
+        except Exception:
+            footer_top = 0
+    footer_top = max(0, footer_top)
+    try:
+        gutter_w = int(widget.LEFT_GUTTER) + 2
+    except Exception:
+        gutter_w = 2
+    return QRect(int(scroll), 0, max(0, gutter_w), footer_top)
+
 
 class TimelineWidget(QWidget):
     """Generic keyframe timeline with thumbnail strip, grouped tracks, and playhead.
@@ -459,6 +484,15 @@ class TimelineWidget(QWidget):
             self._update_vertical_scrollbar()
             self.update()
             return
+        # Signals-live scroll step: the content widget window already moved
+        # synchronously (Qt scrollContentsBy) while the geometry-changed
+        # cycle below only posts async paints. Union the gutter band into
+        # the damage synchronously so the next paint pass already covers
+        # the sticky gutter at the new offset.
+        try:
+            self.update(gutter_band_rect_for_scroll(self, cur_x))
+        except Exception:
+            pass
         self._onViewportGeometryChanged("hostScroll")
 
     def _rebuild_row_layout(self):
@@ -786,6 +820,23 @@ class TimelineWidget(QWidget):
                 scrollbar.setValue(int(target))
             finally:
                 scrollbar.blockSignals(False)
+            try:
+                _sync_scroll = int(scrollbar.value())
+            except Exception:
+                _sync_scroll = int(target)
+        else:
+            _sync_scroll = int(target)
+        # Synchronous correction paint: setValue moved the content widget
+        # window synchronously while every correction paint below
+        # (_commitState -> update, update_fixed_width -> update) is async,
+        # leaving ~1 frame of gutter displaced per step. repaint() paints
+        # the gutter band now, in the same call stack. Band-only (not a
+        # full repaint) to keep the coalesced budget: one commit + one
+        # sync band repaint per window. Correction-only: no state change.
+        try:
+            self.repaint(gutter_band_rect_for_scroll(self, _sync_scroll))
+        except Exception:
+            pass
         source = "wheelZoomCoalesced" if ticks > 1 else "wheelZoom"
         try:
             nxt = self._current_state()
