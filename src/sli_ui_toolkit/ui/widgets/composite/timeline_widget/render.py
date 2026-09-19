@@ -29,16 +29,11 @@ def _wash_alpha(tm, token: str) -> int:
 def _lookup_thumbnail(widget, rep_frame: int) -> QPixmap | None:
     """Exact-match thumbnail lookup for a strip rep frame (I2 consumer).
 
-    IDENTITY-SHIM (temporary, supervisor removes at merge): prefers
-    ``viewport.thumbnail_for_rep`` when the sibling wave T-state has landed
-    it, and falls back to a local exact ``dict`` lookup otherwise. Exact
-    match only — ``None`` when the rep is absent, never a neighbor pixmap,
-    never ``idx[0]``.
+    Thin alias over the canonical ``viewport.thumbnail_for_rep`` (single
+    seam implementation): exact match only — ``None`` when the rep is
+    absent, never a neighbor pixmap, never ``idx[0]``.
     """
-    lookup = getattr(timeline_viewport, "thumbnail_for_rep", None)
-    if callable(lookup):
-        return lookup(widget, rep_frame)
-    return widget._thumbnails.get(rep_frame)
+    return timeline_viewport.thumbnail_for_rep(widget, rep_frame)
 
 
 def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, content_start_x: float, strip_top: float, width: int, start_x: float, end_x: float, logical_width: float, slot_width: float) -> None:
