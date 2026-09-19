@@ -20,7 +20,7 @@ from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 
 from .debug import _timeline_debug
-from .models import TimelineCallbacks
+from .models import TimelineCallbacks, TimelineDataSource
 from . import interaction as timeline_interaction
 from . import layout as timeline_layout
 from . import primitives as timeline_primitives
@@ -653,11 +653,30 @@ class TimelineWidget(QWidget):
 
     def set_data(
         self,
-        snapshots,
+        snapshots=None,
         fps: int | None = None,
         timeline_model=None,
         duration: float | None = None,
+        *,
+        source=None,
     ):
+        """Feed timeline content. Legacy positional inputs unchanged.
+
+        ``source`` (a ``TimelineDataSource``) is the typed alternative:
+        each ``None``/missing member falls back to the explicit argument,
+        then to the legacy default. Explicit non-``None`` arguments win
+        over ``source``. Non-matching ``source`` objects are ignored
+        (fail-open: legacy path). Tkonverter behavior unchanged.
+        """
+        if source is not None and self._is_datasource(source):
+            if snapshots is None:
+                snapshots = getattr(source, "snapshots", None)
+            if fps is None:
+                fps = getattr(source, "fps", None)
+            if timeline_model is None:
+                timeline_model = getattr(source, "timeline_model", None)
+            if duration is None:
+                duration = getattr(source, "duration", None)
         self._bind_host_scrollbar()
         self._snapshots = list(snapshots or [])
         self._duration = (
@@ -801,6 +820,109 @@ class TimelineWidget(QWidget):
         if duration <= 0:
             return 50.0
         return timeline_viewport.get_logical_width(self) / duration
+
+    @staticmethod
+    def _is_datasource(source) -> bool:
+        """Fail-open ``TimelineDataSource`` shape check for ``set_data``."""
+        try:
+            return isinstance(source, TimelineDataSource)
+        except TypeError:
+            return False
+
+    def set_zoom(self, zoom: float, *, anchor: str = "cursor") -> None:
+        """Public zoom setter. Additive API (Phase 4D); wheel path untouched.
+
+        Clamps via ``viewport.clamp_zoom`` (``[min_zoom, 1.0]``, 1% snap),
+        anchors the viewport-center time (``anchor`` accepts ``"cursor"``
+        or ``"center"`` — without an event position both hold the center
+        stable), then commits exactly once via ``_commitState`` with
+        ``source="apiSetZoom"``. No-change (``<=1e-4`` eps) stays silent;
+        never arms ``_needs_fit_view``; no-op after close. Emits only
+        through ``_commitState`` (``zoomChanged`` + viewport family).
+        """
+        if getattr(self, "_destroyed", False) or not sip.isValid(self):  # type: ignore[attr-defined]
+            return
+        try:
+            new_zoom = timeline_viewport.clamp_zoom(self, zoom)
+        except Exception:
+            return
+        if abs(float(new_zoom) - float(self._zoom_level)) <= 1e-4:
+            return
+        try:
+            self._apply_api_zoom(float(new_zoom))
+        except Exception:
+            return
+
+    def set_pps(self, pps: float, *, anchor: str = "cursor") -> None:
+        """Public px/sec setter: ``zoom = pps / base_pps``, then ``set_zoom``.
+
+        Degenerate ``base_pps`` (``<=0``) is a fail-open no-op.
+        """
+        try:
+            base = float(timeline_viewport.get_base_pixels_per_second(self))
+        except Exception:
+            return
+        if base <= 0:
+            return
+        self.set_zoom(float(pps) / base, anchor=anchor)
+
+    def _apply_api_zoom(self, new_zoom: float) -> None:
+        """Shared commit body for ``set_zoom`` (mirrors ``_flush_wheel_zoom``).
+
+        Anchor math holds the viewport-center time fixed; the scrollbar is
+        set synchronously from it (signals blocked); one band repaint
+        covers the gutter correction; a single ``_commitState`` emits.
+        """
+        new_pps = timeline_viewport.pixels_per_second_for_zoom(self, new_zoom)
+        scroll_area = timeline_viewport.get_scroll_area(self)
+        scrollbar = None
+        scroll_old = 0
+        if scroll_area is not None:
+            scrollbar = scroll_area.horizontalScrollBar()
+            try:
+                scroll_old = int(scrollbar.value())
+            except Exception:
+                scroll_old = 0
+        try:
+            viewport_width = int(timeline_viewport.get_viewport_width(self))
+        except Exception:
+            viewport_width = 0
+        anchor_viewport_x = float(viewport_width) / 2.0
+        cursor_time = timeline_viewport.cursor_time_at_x(
+            self, float(scroll_old) + anchor_viewport_x
+        )
+        target = timeline_viewport.anchor_scroll_for_zoom(
+            self, anchor_viewport_x, cursor_time, new_pps
+        )
+        self._zoom_level = float(new_zoom)
+        timeline_viewport.update_fixed_width(self)
+        if scrollbar is not None:
+            try:
+                lo = int(scrollbar.minimum())
+                hi = int(scrollbar.maximum())
+            except Exception:
+                lo, hi = 0, int(target)
+            target = max(lo, min(int(target), hi))
+            scrollbar.blockSignals(True)
+            try:
+                scrollbar.setValue(int(target))
+            finally:
+                scrollbar.blockSignals(False)
+            try:
+                _sync_scroll = int(scrollbar.value())
+            except Exception:
+                _sync_scroll = int(target)
+        else:
+            _sync_scroll = int(target)
+        try:
+            self.repaint(gutter_band_rect_for_scroll(self, _sync_scroll))
+        except Exception:
+            pass
+        try:
+            nxt = self._current_state()
+        except Exception:
+            return
+        self._commitState(nxt, source="apiSetZoom")
 
     def get_visible_thumbnail_frame_indices(self, overscan_blocks: int = 1) -> list[int]:
         return timeline_viewport.get_visible_thumbnail_frame_indices(

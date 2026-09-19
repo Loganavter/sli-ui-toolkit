@@ -216,3 +216,105 @@ def test_prefit_bulk_thumbnails_do_not_break_window(qapp):
         assert all(0 <= i < w._total_frames for i in visible)
     finally:
         w.close()
+
+
+# --- public zoom/pps API + DataSource adoption (supervisor seam, Phase 4D) --
+
+
+def _committed(w):
+    w._commitState(w._current_state(), source="test")
+
+
+def test_set_zoom_clamps_emits_once_then_silent(qapp):
+    w = _make_widget(qapp, n=120)
+    try:
+        zoom_got: list[float] = []
+        viewport_got: list[int] = []
+        w.zoomChanged.connect(lambda z: zoom_got.append(z))
+        w.viewportChanged.connect(lambda: viewport_got.append(1))
+        w.set_zoom(100.0)
+        assert w._zoom_level == 1.0
+        assert len(zoom_got) == 1 and zoom_got[0] == 1.0
+        assert len(viewport_got) == 1
+        w.set_zoom(100.0)
+        assert len(zoom_got) == 1 and len(viewport_got) == 1
+    finally:
+        w.close()
+
+
+def test_set_zoom_holds_center_time(qapp):
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w = _make_widget(qapp, n=120)
+    try:
+        w.set_zoom(0.2)
+        qapp.processEvents()
+
+        def center_time():
+            area = timeline_viewport.get_scroll_area(w)
+            scroll = area.horizontalScrollBar().value() if area else 0
+            vpw = timeline_viewport.get_viewport_width(w)
+            return timeline_viewport.cursor_time_at_x(w, float(scroll) + float(vpw) / 2.0)
+
+        before = center_time()
+        w.set_zoom(0.6)
+        qapp.processEvents()
+        after = center_time()
+        assert abs(before - after) < 1.0
+    finally:
+        w.close()
+
+
+def test_set_pps_roundtrip_and_fail_open(qapp):
+    w = _make_widget(qapp, n=120)
+    try:
+        w.set_zoom(1.0)
+        pps = w.get_pixels_per_second()
+        zoom_got: list[float] = []
+        w.zoomChanged.connect(lambda z: zoom_got.append(z))
+        w.set_pps(pps)
+        assert zoom_got == []
+        w.set_pps(pps * 0.5)
+        assert w.get_pixels_per_second() < pps
+        assert len(zoom_got) == 1
+    finally:
+        w.close()
+    empty = _make_widget(qapp, n=0)
+    try:
+        empty.set_pps(10.0)
+        empty.set_zoom(0.5)
+    finally:
+        empty.close()
+
+
+def test_set_data_source_adoption_and_precedence(qapp):
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    snaps = _snaps(20)
+    source = SimpleNamespace(
+        snapshots=snaps, fps=30, duration=19.0, timeline_model=None
+    )
+    w = TimelineWidget()
+    w.resize(800, 240)
+    w.show()
+    qapp.processEvents()
+    w._layout_settle.cancel()
+    try:
+        w.set_data(source=source)
+        assert w._duration == 19.0
+        assert w._fps == 30
+        assert list(w._snapshots) == list(snaps)
+        # Explicit args win over the source.
+        w.set_data(snaps, fps=10, source=source)
+        assert w._fps == 10
+        assert w._duration == 19.0
+        # Non-matching source objects fall back to the legacy path.
+        w.set_data(snaps, fps=15, duration=7.0, source=object())
+        assert w._fps == 15
+        assert w._duration == 7.0
+    finally:
+        w.close()
