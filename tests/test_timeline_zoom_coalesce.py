@@ -402,3 +402,68 @@ def test_host_scroll_unions_gutter_band_synchronously(qapp):
 
     band = gutter_band_rect_for_scroll(widget, int(bar.value()))
     assert any(r == band for r in update_rects if r is not None)
+
+
+def test_gutter_drag_leaves_coalesced_zoom_accounting_quiet(qapp):
+    """Gutter drag (Phase 2B refresh path) commits nothing, emits nothing.
+
+    The drag travels the frozen ``TimelineViewportState`` shape via
+    ``with_left_gutter`` but still applies through the silent
+    ``_refresh_viewport_state`` path until CUTOVER-C — so the Z2
+    counters (commits / zoomChanged / viewportChanged) stay at zero and
+    the zoom scalar is untouched.
+    """
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+
+    widget, _area = _make_hosted(qapp)
+    _ctrl_wheel(widget, 120, x=400.0)  # warm-up: scrollbar live, layout settled
+    qapp.processEvents()
+    qapp.processEvents()
+    zoom_before = widget._zoom_level
+    zoom_got: list[float] = []
+    viewport_got: list[int] = []
+    widget.zoomChanged.connect(lambda z: zoom_got.append(z))
+    widget.viewportChanged.connect(lambda: viewport_got.append(1))
+    _reset_probe(widget)
+    qapp.processEvents()
+    _reset_probe(widget)  # clear stale setup paints delivered above
+
+    scroll_now = float(_area.horizontalScrollBar().value())
+    gutter_x = scroll_now + float(widget.LEFT_GUTTER)
+    widget.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(gutter_x, 100.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert widget._is_resizing_gutter
+    mid = (float(widget.MIN_LEFT_GUTTER) + float(widget.MAX_LEFT_GUTTER)) / 2.0
+    widget.mouseMoveEvent(
+        QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(scroll_now + mid, 100.0),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert widget.LEFT_GUTTER == mid
+    widget.mouseReleaseEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(scroll_now + mid, 100.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    qapp.processEvents()
+
+    assert widget.commit_calls == 0
+    assert widget.commit_emitted == 0
+    assert zoom_got == [] and viewport_got == []
+    assert widget._zoom_level == zoom_before
