@@ -25,7 +25,7 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     last_rep = blocks[-1][2] if blocks else 0
     if _timeline_debug_enabled():
         # Check if strip is actually visible in widget
-        _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s fpb=%.2f draw_w=%.2f blocks=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frames_per_block, draw_w, first_rep, last_rep, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
+        _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s fpb=%.2f draw_w=%.2f blocks=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frames_per_block, draw_w, len(blocks), first_rep, last_rep, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
         # Log per-block pixmap validity
         for _bx, _bw, _rep in blocks[:3]:
             _ti = -1
