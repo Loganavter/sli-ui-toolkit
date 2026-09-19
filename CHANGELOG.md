@@ -1419,6 +1419,10 @@
   visual output. QSS templates (`register_qss_path`, `@token` sheets)
   remain a host-facing path for native/stock Qt widgets only.
 
+### Fixed
+
+- **Timeline sticky gutter no longer slides a frame behind on scroll sets** — the gutter is painted in content coords at `gx=scroll_offset` while every horizontal `setValue` moves the content widget window synchronously (Qt `scrollContentsBy`) and all correction paints were async `update()`. `_flush_wheel_zoom` now issues one synchronous band-only `repaint()` (`[scroll, scroll+LEFT_GUTTER+2] x [0, footer_top]` via the new `gutter_band_rect_for_scroll(widget, scroll)` helper in `timeline_widget/widget.py`) right after the programmatic scrollbar set, and `_on_host_scroll`'s scroll-changed path unions the same band into the damage for signals-live paths. Budget unchanged (one commit + one sync band repaint per coalesced window), emit contract / `fit_view` / strip layout untouched.
+
 ## 3.1.6-1.1.11
 
 ### Fixed
