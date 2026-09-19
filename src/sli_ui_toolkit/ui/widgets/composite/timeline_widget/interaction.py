@@ -12,7 +12,7 @@ from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from . import layout as timeline_layout
 from . import viewport as timeline_viewport
-from .debug import _timeline_debug
+from .debug import _timeline_debug, _timeline_debug_enabled, _next_tick, gutter_debug
 
 # --- named interaction tuning (Phase 2 T-life) --------------------------------
 # Former hardcodes, one definition site each (i18n/timings/sizes/slop live
@@ -272,6 +272,11 @@ def mouse_move_event(widget, event):
             widget, event.pos().x() - scroll_offset
         )
         widget.LEFT_GUTTER = int(clamped)
+        if _timeline_debug_enabled():
+            gutter_debug(
+                "tick=%s gutter-drag width=%s scroll=%s",
+                _next_tick(), int(widget.LEFT_GUTTER), int(scroll_offset),
+            )
         widget._last_min_zoom = timeline_viewport.calculate_min_zoom(widget)
         timeline_viewport.update_fixed_width(widget)
         # No commit and no silent refresh mid-gesture: ``_current_state()``
@@ -734,6 +739,15 @@ def host_scroll(widget, *args) -> None:
     # synchronously while the geometry-changed cycle below only posts async
     # paints. Union the gutter band into the damage synchronously so the
     # next paint pass already covers the sticky gutter at the new offset.
+    if _timeline_debug_enabled():
+        try:
+            _band = timeline_viewport.gutter_band_rect(widget, cur_x)
+        except Exception:
+            _band = None
+        gutter_debug(
+            "tick=%s host-scroll cur=%s prev=%s band=%s",
+            _next_tick(), cur_x, prev_x, _band,
+        )
     try:
         widget.update(timeline_viewport.gutter_band_rect(widget, cur_x))
     except Exception:
