@@ -4,6 +4,17 @@ import math
 from dataclasses import dataclass, replace
 
 
+ZOOM_DIFF_EPS = 1e-4
+"""Single zoom/min-zoom diff epsilon (T-state unification).
+
+Every zoom-diff call site shares this value:
+``TimelineViewportState.has_zoom_changed`` (default), ``viewport.commit_state``
+and ``viewport.recompute_fitted_state``. Deliberately NOT the predicate
+tolerances, which have different semantics: ``is_fitted``'s ``rel_tol``
+(fitted predicate) and ``viewport.clamp_zoom``'s 1% snap.
+"""
+
+
 @dataclass(frozen=True, slots=True)
 class TimelineViewportState:
     """Immutable snapshot of timeline viewport geometry and zoom.
@@ -54,7 +65,7 @@ class TimelineViewportState:
         """
         return replace(self, left_gutter=int(left_gutter))
 
-    def has_zoom_changed(self, other: TimelineViewportState | None, eps: float = 1e-4) -> bool:
+    def has_zoom_changed(self, other: TimelineViewportState | None, eps: float = ZOOM_DIFF_EPS) -> bool:
         if other is None:
             return True
         return abs(self.zoom - other.zoom) > eps

@@ -665,6 +665,196 @@ def test_flush_function_commits_once_with_wheel_source(qapp, monkeypatch):
     w.close()
 
 
+# --- Phase 1 T-state: frozen base_tile (I1) --------------------------------------
+
+
+def _tstate_widget(qapp, n=60, fps=30):
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w = TimelineWidget()
+    w.set_data(_snaps(n), fps=fps)
+    w._layout_settle.cancel()
+    return w, timeline_viewport
+
+
+def _geometry_snapshot(w, vp):
+    return (
+        vp.get_base_tile_width(w),
+        vp.get_logical_width(w),
+        w.get_pixels_per_second(),
+        vp.calculate_min_zoom(w),
+    )
+
+
+def test_base_tile_frozen_under_thumbnail_arrivals(qapp):
+    """Geometry never depends on thumbnail data or arrival order (I1).
+
+    Arrivals with distinct pixmap aspects — including at index 0, which the
+    old first-pixmap sizing read — must not move base_tile, logical_width,
+    pps, or min_zoom.
+    """
+    w, vp = _tstate_widget(qapp)
+    try:
+        before = _geometry_snapshot(w, vp)
+        assert before[0] == w.STRIP_HEIGHT * 16 / 9
+        w.add_thumbnail(0, QPixmap(18, 64))
+        assert _geometry_snapshot(w, vp) == before
+        w.add_thumbnail(7, QPixmap(64, 18))
+        w.add_thumbnail(23, QPixmap(200, 200))
+        assert _geometry_snapshot(w, vp) == before
+        w.set_thumbnails({3: QPixmap(32, 32), 41: QPixmap(96, 24)})
+        assert _geometry_snapshot(w, vp) == before
+    finally:
+        w.close()
+
+
+def test_base_tile_frozen_under_eviction_and_clear(qapp):
+    """Evictions (prune) and clear_thumbnails keep geometry frozen (I1)."""
+    w, vp = _tstate_widget(qapp, n=101)
+    try:
+        w.resize(800, 240)
+        w.show()
+        qapp.processEvents()
+        w._layout_settle.cancel()
+        w.fit_view()
+        w._commitState(w._current_state(), source="test")
+        w._commitState(w._current_state().with_zoom(1.0), source="test")
+        before = _geometry_snapshot(w, vp)
+        px = QPixmap(16, 9)
+        for i in list(range(0, w._total_frames, 37)) + [0]:
+            w.add_thumbnail(i, px)
+        # Prune ran on every insert (committed state); far frames evicted.
+        assert _geometry_snapshot(w, vp) == before
+        w.clear_thumbnails()
+        assert w._thumbnails == {}
+        assert _geometry_snapshot(w, vp) == before
+    finally:
+        w.close()
+
+
+def test_thumbnail_for_rep_exact_hit_and_miss(qapp):
+    """I2: exact match only — hit returns the pixmap, any miss is None."""
+    w, vp = _tstate_widget(qapp)
+    try:
+        assert vp.thumbnail_for_rep(w, 2) is None
+        px_a = QPixmap(16, 9)
+        px_b = QPixmap(16, 9)
+        w.set_thumbnails({2: px_a, 5: px_b})
+        assert vp.thumbnail_for_rep(w, 2) is px_a
+        assert vp.thumbnail_for_rep(w, 5) is px_b
+        # Neighbors exist but the rep itself is absent: no bisect, no idx[0].
+        assert vp.thumbnail_for_rep(w, 3) is None
+        assert vp.thumbnail_for_rep(w, 4) is None
+        assert vp.thumbnail_for_rep(w, 0) is None
+        assert vp.thumbnail_for_rep(w, 10**9) is None
+    finally:
+        w.close()
+
+
+def test_min_zoom_equals_fitted_frame_span(qapp):
+    """min_zoom uses frame_span (total-1) like get_logical_width: precisely fitted."""
+    w, vp = _tstate_widget(qapp)
+    try:
+        assert vp.right_inset(w) == 0
+        available = 800 - w.LEFT_GUTTER
+        base = vp.get_base_tile_width(w)
+        expected = available / ((w._total_frames - 1) * base)
+        assert vp.calculate_min_zoom(w) == expected
+        w._zoom_level = float(expected)
+        assert vp.get_logical_width(w) == available
+    finally:
+        w.close()
+
+
+def test_rep_set_stable_across_thumbnail_churn(qapp):
+    """At fixed (total_frames, base_tile, zoom) the rep set is identical
+    before and after arbitrary thumbnail arrivals/evictions (I1)."""
+    w, vp = _tstate_widget(qapp)
+    try:
+        w.resize(800, 240)
+        w.show()
+        qapp.processEvents()
+        w._layout_settle.cancel()
+        w.fit_view()
+        w._commitState(w._current_state(), source="test")
+        w._commitState(w._current_state().with_zoom(1.0), source="test")
+        csx = float(w.LEFT_GUTTER)
+        logical = vp.get_logical_width(w)
+
+        def reps():
+            return [
+                rep
+                for _, _, rep in vp.strip_block_layout(
+                    w, content_start_x=csx, start_x=csx, end_x=csx + logical
+                )
+            ]
+
+        before = reps()
+        assert before
+        w.add_thumbnail(0, QPixmap(18, 64))
+        for i in range(0, w._total_frames, 13):
+            w.add_thumbnail(i, QPixmap(64, 18))
+        w.clear_thumbnails()
+        w.set_thumbnails({i: QPixmap(16, 9) for i in range(0, w._total_frames, 7)})
+        assert reps() == before
+    finally:
+        w.close()
+
+
+def test_snapshot_size_metadata_freezes_aspect(qapp):
+    """Snapshots carrying frame size freeze the aspect; pixmaps never override."""
+    from types import SimpleNamespace
+
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    snaps = [SimpleNamespace(timestamp=float(i), width=640, height=480) for i in range(5)]
+    w = TimelineWidget()
+    try:
+        w.set_data(snaps, fps=30)
+        w._layout_settle.cancel()
+        assert timeline_viewport.frozen_thumb_aspect(w) == 640 / 480
+        assert timeline_viewport.get_base_tile_width(w) == w.STRIP_HEIGHT * 640 / 480
+        w.add_thumbnail(0, QPixmap(18, 64))
+        assert timeline_viewport.frozen_thumb_aspect(w) == 640 / 480
+        assert timeline_viewport.get_base_tile_width(w) == w.STRIP_HEIGHT * 640 / 480
+    finally:
+        w.close()
+
+
+def test_snapshot_without_size_falls_back_to_16_9(qapp):
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w, _vp = _tstate_widget(qapp)
+    try:
+        assert timeline_viewport.frozen_thumb_aspect(w) == 16 / 9
+        # Second dataset re-freezes (fresh ingest key), same fallback value.
+        w.set_data(_snaps(9), fps=30)
+        w._layout_settle.cancel()
+        assert timeline_viewport.frozen_thumb_aspect(w) == 16 / 9
+    finally:
+        w.close()
+
+
+def test_zoom_diff_eps_single_source(qapp):
+    """ZOOM_DIFF_EPS is the one diff epsilon (1e-4) for state + viewport."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        state as timeline_state,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    assert timeline_state.ZOOM_DIFF_EPS == 1e-4
+    assert timeline_viewport.ZOOM_DIFF_EPS == 1e-4
+    assert _state().has_zoom_changed(_state(), eps=timeline_state.ZOOM_DIFF_EPS) is False
+
+
 # --- Phase 3C lifecycle: deprecated signals deleted -------------------------------
 
 

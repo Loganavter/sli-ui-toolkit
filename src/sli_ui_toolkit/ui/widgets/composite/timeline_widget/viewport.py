@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPixmap
 from PySide6.QtWidgets import QScrollArea, QWidget
 
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
@@ -17,7 +17,7 @@ from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from .debug import _timeline_debug
 from . import theme as timeline_theme
 from .i18n import localize_token_for, localize_value_for
-from .state import TimelineViewportState
+from .state import TimelineViewportState, ZOOM_DIFF_EPS
 from .theme import resolve_accent_color
 
 def footer_height(widget) -> int:
@@ -122,13 +122,161 @@ def update_vertical_scrollbar(widget) -> None:
         if not dirty.isNull():
             widget.update(dirty.adjusted(-4, -4, 4, 4))
 
+THUMB_ASPECT_FALLBACK = 16.0 / 9.0
+"""Frozen tile aspect when snapshots carry no size metadata (I1).
+
+The ONLY aspect used for geometry. Thumbnail pixmaps never size the
+grid — arrival order and pixmap dimensions cannot move it.
+"""
+
+_SNAPSHOT_SIZE_PROBE_COUNT = 8
+"""Leading snapshots scanned for frame-size metadata by the freeze."""
+
+# Attribute pairs probed (in order) for per-snapshot frame dimensions.
+_SNAPSHOT_SIZE_ATTR_PAIRS = (
+    ("width", "height"),
+    ("w", "h"),
+    ("frame_width", "frame_height"),
+    ("thumb_width", "thumb_height"),
+    ("image_width", "image_height"),
+    ("video_width", "video_height"),
+)
+
+
+def _snapshot_thumb_aspect(widget) -> float:
+    """Probe snapshot metadata for the frame aspect; fallback ``16/9``.
+
+    Data-independent by construction: reads ``widget._snapshots`` only,
+    never ``widget._thumbnails``. Accepts attribute pairs (``width`` /
+    ``height`` et al.), mapping keys, a ``size`` tuple, or a QSize-like
+    ``size`` object. First positive finite aspect wins; anything missing
+    or degenerate falls back to :data:`THUMB_ASPECT_FALLBACK`.
+    """
+    snaps = getattr(widget, "_snapshots", None) or []
+    try:
+        candidates = list(snaps)[:_SNAPSHOT_SIZE_PROBE_COUNT]
+    except TypeError:
+        return THUMB_ASPECT_FALLBACK
+    for snap in candidates:
+        width: Any = None
+        height: Any = None
+        for w_attr, h_attr in _SNAPSHOT_SIZE_ATTR_PAIRS:
+            try:
+                width, height = getattr(snap, w_attr, None), getattr(snap, h_attr, None)
+            except Exception:
+                width, height = None, None
+            if width is not None and height is not None:
+                break
+        if (width is None or height is None) and isinstance(snap, dict):
+            width, height = snap.get("width"), snap.get("height")
+        if width is None or height is None:
+            try:
+                size = getattr(snap, "size", None)
+            except Exception:
+                size = None
+            if size is not None:
+                try:
+                    if hasattr(size, "width") and hasattr(size, "height"):
+                        width, height = size.width(), size.height()
+                    else:
+                        width, height = size[0], size[1]
+                except Exception:
+                    width, height = None, None
+        try:
+            w = float(width) if width is not None else 0.0
+            h = float(height) if height is not None else 0.0
+        except (TypeError, ValueError):
+            continue
+        if w > 0.0 and h > 0.0 and math.isfinite(w) and math.isfinite(h):
+            return w / h
+    return THUMB_ASPECT_FALLBACK
+
+
+def _frozen_aspect_key(widget) -> tuple:
+    """Data-independent freeze key: snapshot store identity + ingest inputs.
+
+    ``widget._snapshots`` is re-listed on every ``set_data`` (fresh
+    ``id``), so any ingest invalidates; in-place length changes and new
+    ``_total_frames`` / ``_duration`` / ``_fps`` invalidate too. Never
+    contains thumbnail state — arrivals, evictions, and clears keep the
+    key (and the frozen aspect) stable.
+    """
+    snaps = getattr(widget, "_snapshots", None) or []
+    try:
+        count = len(snaps)
+    except TypeError:
+        count = 0
+    return (
+        id(snaps),
+        count,
+        getattr(widget, "_total_frames", 0),
+        getattr(widget, "_duration", 0.0),
+        getattr(widget, "_fps", 0),
+    )
+
+
+def frozen_thumb_aspect(widget) -> float:
+    """Ingest-frozen tile aspect (I1 stability anchor).
+
+    First-computed-wins per :func:`_frozen_aspect_key`: the first geometry
+    read after a ``set_data`` probes snapshot metadata once and caches it
+    on ``widget._frozen_thumb_aspect``; later reads reuse it until ingest
+    inputs change. Best-effort seam inside ``viewport.py`` — the ideal seam
+    is an explicit freeze in ``interaction.ingest_data`` / ``widget.set_data``
+    (T-life wave; reported as HANDOFF). ``STRIP_HEIGHT`` stays live (a
+    metric, not data), so :func:`get_base_tile_width` still tracks UiScale.
+    """
+    try:
+        key = _frozen_aspect_key(widget)
+    except Exception:
+        return THUMB_ASPECT_FALLBACK
+    try:
+        cached = getattr(widget, "_frozen_thumb_aspect", None)
+    except Exception:
+        cached = None
+    if (
+        isinstance(cached, tuple)
+        and len(cached) == 2
+        and cached[0] == key
+        and isinstance(cached[1], float)
+        and math.isfinite(cached[1])
+        and cached[1] > 0.0
+    ):
+        return cached[1]
+    aspect = _snapshot_thumb_aspect(widget)
+    try:
+        widget._frozen_thumb_aspect = (key, aspect)
+    except Exception:
+        pass
+    return aspect
+
+
 def get_thumb_aspect_ratio(widget) -> float:
-    if widget._thumb_indices:
-        first = widget._thumb_indices[0]
-        pm = widget._thumbnails.get(first)
-        if pm and pm.height() > 0:
-            return pm.width() / pm.height()
-    return 16 / 9
+    """Frozen tile aspect — geometry entry kept for callers.
+
+    Never reads ``widget._thumbnails`` / ``widget._thumb_indices`` (I1):
+    thumbnail arrivals, evictions, and clears cannot move the grid.
+    """
+    return frozen_thumb_aspect(widget)
+
+
+def thumbnail_for_rep(widget, rep_frame: int) -> QPixmap | None:
+    """Exact-match thumbnail lookup for a rep frame (I2, canonical).
+
+    Returns ``widget._thumbnails[int(rep_frame)]`` or ``None`` when the rep
+    is absent. No ``bisect``, no ``idx[0]`` fallback: render draws a
+    placeholder on ``None`` and never a neighbor. This is the ONLY
+    ``_thumbnails`` content reader in the geometry/viewport layer.
+    """
+    try:
+        store = widget._thumbnails
+    except AttributeError:
+        return None
+    try:
+        return store.get(int(rep_frame))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
 
 def get_base_tile_width(widget) -> float:
     return max(1.0, widget.STRIP_HEIGHT * get_thumb_aspect_ratio(widget))
@@ -163,7 +311,8 @@ def strip_block_layout(
     (zoomed-in 1:1, one frame per block) — zoom changes frames-per-block,
     never block width. ``rep_frame`` is the block's representative frame
     (floor of its start position), clamped to ``[0, total-1]``; thumbnail
-    lookup stays nearest-available via ``bisect`` on the widget side.
+    lookup is exact-match only via :func:`thumbnail_for_rep` (I2) — render
+    draws a placeholder on ``None``, never a neighbor.
     """
     total = widget._total_frames
     if total <= 0:
@@ -290,7 +439,7 @@ def current_state(widget) -> TimelineViewportState:
 def recompute_fitted_state(widget) -> TimelineViewportState:
     """Return current state with zoom clamped to min_zoom if fitted."""
     cur = current_state(widget)
-    if cur.is_fitted() and abs(cur.zoom - cur.min_zoom) > 1e-4:
+    if cur.is_fitted() and abs(cur.zoom - cur.min_zoom) > ZOOM_DIFF_EPS:
         return _snapshot_with_zoom(widget, cur.min_zoom)
     return cur
 
@@ -298,7 +447,7 @@ def recompute_fitted_state(widget) -> TimelineViewportState:
 def commit_state(widget, nxt: TimelineViewportState, source: str = "") -> bool:
     """Diff ``nxt`` against ``widget._state`` and emit typed signals.
 
-    ``eps 1e-4`` for zoom/min_zoom, ``==`` for px geometry. Calls
+    ``ZOOM_DIFF_EPS`` for zoom/min_zoom, ``==`` for px geometry. Calls
     ``updateGeometry`` + ``update`` and emits ``zoomChanged(float)`` only
     when zoom changed, ``viewportChanged`` /
     ``viewportChangedState(object)`` when zoom or geometry changed
@@ -308,7 +457,7 @@ def commit_state(widget, nxt: TimelineViewportState, source: str = "") -> bool:
     ``widget._zoom_level`` write site besides ``__init__``.
     """
     old: TimelineViewportState | None = getattr(widget, "_state", None)
-    eps = 1e-4
+    eps = ZOOM_DIFF_EPS
     has_zoom = nxt.has_zoom_changed(old, eps=eps)
     has_geometry = nxt.has_geometry_changed(old)
     min_zoom_changed = old is not None and abs(nxt.min_zoom - old.min_zoom) > eps
@@ -386,7 +535,7 @@ def commit_zoom(
     plus the only emit), ``update_fixed_width`` at the new zoom, one
     synchronous gutter-band repaint covering the scroll correction.
     Callers own clamping (``clamp_zoom``) and the silent no-change
-    early-out (``<=1e-4`` eps); coalescing (tick accumulation, one flush
+    early-out (``<= ZOOM_DIFF_EPS``); coalescing (tick accumulation, one flush
     per window, ``"wheelZoom"`` vs ``"wheelZoomCoalesced"`` source) stays
     in the wheel path.
     """
@@ -452,20 +601,23 @@ def commit_zoom(
         pass
 
 
-def get_visible_thumbnail_frame_indices(
-    widget,
-    *,
-    overscan_blocks: int = 1,
-) -> list[int]:
-    if widget._total_frames <= 0:
-        return []
+def _strip_visible_span(widget) -> tuple[float, float, float] | None:
+    """Visible strip span — single source for the block-window helpers.
 
+    Returns ``(content_start_x, start_x, end_x)``: the damage-independent
+    visible content interval both :func:`get_visible_thumbnail_frame_indices`
+    and :func:`visible_strip_block_range` feed into the SAME
+    :func:`strip_block_layout`, so prune/fetch windows can never disagree
+    about "which blocks are on screen". ``None`` when empty/degenerate
+    (fail-open: callers return ``[]`` / ``(0, 0)``, never raise).
+    """
+    if widget._total_frames <= 0:
+        return None
     logical_width = get_logical_width(widget)
     slot_width = get_slot_width(widget)
     base_tile = get_base_tile_width(widget)
     if logical_width <= 0 or slot_width <= 0 or base_tile <= 0:
-        return []
-
+        return None
     content_start_x = float(widget.LEFT_GUTTER)
     scroll_area = get_scroll_area(widget)
     scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
@@ -475,8 +627,19 @@ def get_visible_thumbnail_frame_indices(
     start_x = max(content_start_x, float(scroll_offset))
     end_x = min(float(content_right), content_start_x + logical_width)
     if end_x <= start_x:
-        return []
+        return None
+    return (content_start_x, start_x, end_x)
 
+
+def get_visible_thumbnail_frame_indices(
+    widget,
+    *,
+    overscan_blocks: int = 1,
+) -> list[int]:
+    span = _strip_visible_span(widget)
+    if span is None:
+        return []
+    content_start_x, start_x, end_x = span
     blocks = strip_block_layout(
         widget,
         content_start_x=content_start_x,
@@ -491,6 +654,43 @@ def get_visible_thumbnail_frame_indices(
             seen.add(rep)
             out.append(rep)
     return out
+
+
+def visible_strip_block_range(
+    widget,
+    *,
+    overscan_blocks: int = 1,
+) -> tuple[int, int]:
+    """Block-unit visible window shared by prune and fetch (I3).
+
+    Returns ``(first_block, last_block_excl)``: the
+    :func:`strip_block_layout` block indices covering the visible strip
+    span plus ``overscan_blocks`` on each side. Derived FROM the same
+    layout call (block indices recovered from the returned ``block_x``
+    positions), never recomputed in frames — margins in frames are
+    forbidden, so prune/fetch express keep-margins in blocks against this
+    range. ``(0, 0)`` when empty/degenerate. Negative overscan clamps to
+    zero via ``strip_block_layout``.
+    """
+    span = _strip_visible_span(widget)
+    if span is None:
+        return (0, 0)
+    content_start_x, start_x, end_x = span
+    blocks = strip_block_layout(
+        widget,
+        content_start_x=content_start_x,
+        start_x=start_x,
+        end_x=end_x,
+        overscan_blocks=overscan_blocks,
+    )
+    if not blocks:
+        return (0, 0)
+    draw_w = blocks[0][1]
+    if draw_w <= 0:
+        return (0, 0)
+    first = int(round((blocks[0][0] - content_start_x) / draw_w))
+    first = max(0, first)
+    return (first, first + len(blocks))
 
 def compute_total_frames(widget) -> int:
     duration = widget.get_total_duration()
@@ -513,13 +713,19 @@ def get_viewport_width(widget) -> int:
     return viewport_width
 
 def calculate_min_zoom(widget) -> float:
+    """Min zoom: the precisely-fitted zoom (content == available width).
+
+    Uses ``frame_span`` (``total - 1``) exactly like
+    :func:`get_logical_width`, so ``get_logical_width`` at min zoom equals
+    the available viewport width — never off by one tile.
+    """
     if widget._total_frames <= 0:
         return 0.1
     viewport_width = max(
         1,
         get_viewport_width(widget) - widget.LEFT_GUTTER - right_inset(widget),
     )
-    content_at_zoom1 = widget._total_frames * get_base_tile_width(widget)
+    content_at_zoom1 = frame_span(widget) * get_base_tile_width(widget)
     if content_at_zoom1 <= 0:
         return 1.0
     return viewport_width / content_at_zoom1

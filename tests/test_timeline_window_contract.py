@@ -341,6 +341,97 @@ def test_set_zoom_invalid_anchor_raises(qapp):
         w.close()
 
 
+def test_block_range_matches_layout_blocks(qapp):
+    """``visible_strip_block_range`` is the SAME layout in block units (I3).
+
+    The ``(first, last_excl)`` range covers exactly the
+    ``strip_block_layout`` blocks over the shared visible span, and the
+    fetch window (``get_visible_thumbnail_frame_indices``) holds exactly
+    the deduped reps of those blocks — one source, two views.
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w = _make_widget(qapp, n=90)
+    try:
+        w._commitState(w._current_state().with_zoom(1.0), source="test")
+        for overscan in (0, 1, 2):
+            first, last_excl = timeline_viewport.visible_strip_block_range(
+                w, overscan_blocks=overscan
+            )
+            assert last_excl > first >= 0
+            content_start_x = float(w.LEFT_GUTTER)
+            logical = timeline_viewport.get_logical_width(w)
+            slot = timeline_viewport.get_slot_width(w)
+            base = timeline_viewport.get_base_tile_width(w)
+            draw_w = base if slot < base else slot
+            scroll_area = timeline_viewport.get_scroll_area(w)
+            scroll_offset = (
+                scroll_area.horizontalScrollBar().value() if scroll_area else 0
+            )
+            viewport_width = timeline_viewport.get_viewport_width(w)
+            content_right = (
+                scroll_offset + viewport_width - timeline_viewport.right_inset(w)
+            )
+            start_x = max(content_start_x, float(scroll_offset))
+            end_x = min(float(content_right), content_start_x + logical)
+            blocks = timeline_viewport.strip_block_layout(
+                w,
+                content_start_x=content_start_x,
+                start_x=start_x,
+                end_x=end_x,
+                overscan_blocks=overscan,
+            )
+            assert last_excl - first == len(blocks)
+            for offset, (block_x, _w, _rep) in enumerate(blocks):
+                assert block_x == content_start_x + (first + offset) * draw_w
+            reps = list(dict.fromkeys(rep for _, _, rep in blocks))
+            assert w.get_visible_thumbnail_frame_indices(
+                overscan_blocks=overscan
+            ) == reps
+    finally:
+        w.close()
+
+
+def test_block_range_overscan_monotonic_and_clamped(qapp):
+    """Block ranges grow monotonically with overscan; negative clamps to 0."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w = _make_widget(qapp, n=120)
+    try:
+        w._commitState(w._current_state().with_zoom(1.0), source="test")
+        base = timeline_viewport.visible_strip_block_range(w, overscan_blocks=0)
+        mid = timeline_viewport.visible_strip_block_range(w, overscan_blocks=1)
+        wide = timeline_viewport.visible_strip_block_range(w, overscan_blocks=2)
+        assert base[0] >= mid[0] >= wide[0]
+        assert base[1] <= mid[1] <= wide[1]
+        assert (
+            timeline_viewport.visible_strip_block_range(w, overscan_blocks=-5)
+            == base
+        )
+    finally:
+        w.close()
+
+
+def test_block_range_empty_store_fail_open(qapp):
+    """Empty store returns ``(0, 0)`` for any overscan (fail-open)."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w = _make_widget(qapp, n=0)
+    try:
+        for overscan in (-1, 0, 1, 10):
+            assert timeline_viewport.visible_strip_block_range(
+                w, overscan_blocks=overscan
+            ) == (0, 0)
+    finally:
+        w.close()
+
+
 def test_set_data_source_adoption_and_precedence(qapp):
     from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
         TimelineWidget,

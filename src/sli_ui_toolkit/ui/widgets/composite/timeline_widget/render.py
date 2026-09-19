@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import bisect
 import math
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 
 from . import layout as timeline_layout
 from . import primitives as timeline_primitives
@@ -27,6 +26,16 @@ def _wash_alpha(tm, token: str) -> int:
     return timeline_theme.timeline_alpha(tm, token)
 
 
+def _lookup_thumbnail(widget, rep_frame: int) -> QPixmap | None:
+    """Exact-match thumbnail lookup for a strip rep frame (I2 consumer).
+
+    Thin alias over the canonical ``viewport.thumbnail_for_rep`` (single
+    seam implementation): exact match only — ``None`` when the rep is
+    absent, never a neighbor pixmap, never ``idx[0]``.
+    """
+    return timeline_viewport.thumbnail_for_rep(widget, rep_frame)
+
+
 def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, content_start_x: float, strip_top: float, width: int, start_x: float, end_x: float, logical_width: float, slot_width: float) -> None:
     painter.fillRect(QRectF(content_start_x, strip_top, width - content_start_x, widget.STRIP_HEIGHT), canvas_bg)
     blocks = timeline_viewport.strip_block_layout(
@@ -37,26 +46,34 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     frames_per_block = draw_w / slot_width if slot_width > 0 else 1.0
     first_rep = blocks[0][2] if blocks else 0
     last_rep = blocks[-1][2] if blocks else 0
+    # Seam overdraw applies ONLY while collapsed (several frames share one
+    # fixed-width block): at 1:1 (draw_w == slot_width) each block owns
+    # exactly one frame and the +1.0px would overwrite the next frame.
+    collapsed = slot_width < base_tile
+    overdraw = 1.0 if collapsed else 0.0
+    # Fail-closed placeholder: a theme-token fill, never a neighbor pixmap.
+    placeholder = timeline_theme.build_theme_colors(widget)["track_bg"]
     if _timeline_debug_enabled():
         # Check if strip is actually visible in widget
         _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s fpb=%.2f draw_w=%.2f blocks=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frames_per_block, draw_w, len(blocks), first_rep, last_rep, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
-        # Coverage audit: which blocks actually get a pixmap (same verdict
-        # as the draw loop below) and whether their rects tile the visible
-        # span without gaps. A gap here is background showing between
-        # thumbs — distinguishable from content (dark scene) because it
-        # reports geometry, not pixels.
+        # Coverage audit: per-block exact-match verdict (rep, hit_exact,
+        # missing) plus geometry tiling of the visible span. A gap here is
+        # background showing between thumbs — distinguishable from content
+        # (dark scene) because it reports geometry, not pixels.
         _cov_lo = max(float(content_start_x), float(start_x))
         _cov_hi = min(float(end_x), float(content_start_x) + float(logical_width))
         _drawn_spans: list[tuple[float, float]] = []
+        _exact = 0
+        _missing = 0
         for _bx, _bw, _rep in blocks:
-            _ti = -1
-            if widget._thumb_indices:
-                _pos = bisect.bisect_right(widget._thumb_indices, _rep)
-                _ti = widget._thumb_indices[_pos-1] if _pos>0 else widget._thumb_indices[0]
-            _pix = widget._thumbnails.get(_ti) if _ti!=-1 else None
-            _drawn = bool(_pix is not None and _pix.height() > 0)
-            _timeline_paint_debug("block x=%.3f w=%.3f rep=%s thumb_idx=%s pix_null=%s pix_size=%s drawn=%s", _bx, _bw, _rep, _ti, _pix.isNull() if _pix else True, (_pix.width(), _pix.height()) if _pix and not _pix.isNull() else None, _drawn)
-            if _drawn:
+            _pix = _lookup_thumbnail(widget, _rep)
+            _hit = bool(_pix is not None and _pix.height() > 0)
+            if _hit:
+                _exact += 1
+            else:
+                _missing += 1
+            _timeline_paint_debug("block x=%.3f w=%.3f rep=%s hit_exact=%s missing=%s pix_null=%s pix_size=%s", _bx, _bw, _rep, _hit, not _hit, _pix.isNull() if _pix else True, (_pix.width(), _pix.height()) if _pix and not _pix.isNull() else None)
+            if _hit:
                 _drawn_spans.append((float(_bx), float(_bx) + float(_bw)))
         _gaps: list[str] = []
         _cursor = _cov_lo
@@ -66,25 +83,22 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
             _cursor = max(_cursor, _s1)
         if _cursor < _cov_hi - 1e-6:
             _gaps.append("[%.2f,%.2f]=%.2fpx" % (_cursor, _cov_hi, _cov_hi - _cursor))
-        _timeline_paint_debug("strip_coverage id=%s span=[%.2f,%.2f] drawn=%d gaps=%s", id(widget), _cov_lo, _cov_hi, len(_drawn_spans), ",".join(_gaps) if _gaps else "none")
+        _timeline_paint_debug("strip_coverage id=%s span=[%.2f,%.2f] exact=%d missing=%d drawn=%d gaps=%s", id(widget), _cov_lo, _cov_hi, _exact, _missing, len(_drawn_spans), ",".join(_gaps) if _gaps else "none")
 
     for block_x, block_w, rep_frame in blocks:
         if block_w <= 0:
-            break
-        thumb_idx = -1
-        if widget._thumb_indices:
-            pos = bisect.bisect_right(widget._thumb_indices, rep_frame)
-            thumb_idx = widget._thumb_indices[pos - 1] if pos > 0 else widget._thumb_indices[0]
-        if thumb_idx != -1:
-            pix = widget._thumbnails.get(thumb_idx)
-            if pix and pix.height() > 0:
-                # +1px overlap: adjacent opaque draws must overlap by at
-                # least a pixel, otherwise DPR rounding / smoothing fringes
-                # leave a background sliver at the seam (static 1-2px lines
-                # that do not scale with zoom). The neighbor overdraws the
-                # shared pixel with its own content — invisible at 128px
-                # blocks. Layout (strip_block_layout) stays exactly tiled.
-                painter.drawPixmap(QRectF(block_x, strip_top, block_w + 1.0, float(widget.STRIP_HEIGHT)), pix, QRectF(pix.rect()))
+            continue
+        pix = _lookup_thumbnail(widget, rep_frame)
+        if pix is not None and pix.height() > 0:
+            # +1px overlap (collapsed only): adjacent opaque draws must
+            # overlap by at least a pixel, otherwise DPR rounding /
+            # smoothing fringes leave a background sliver at the seam
+            # (static 1-2px lines that do not scale with zoom). The neighbor
+            # overdraws the shared pixel with its own content — invisible at
+            # 128px blocks. Layout (strip_block_layout) stays exactly tiled.
+            painter.drawPixmap(QRectF(block_x, strip_top, block_w + overdraw, float(widget.STRIP_HEIGHT)), pix, QRectF(pix.rect()))
+        else:
+            painter.fillRect(QRectF(block_x, strip_top, block_w, float(widget.STRIP_HEIGHT)), placeholder)
 
 def _row_segments_culled(widget, *, track, channel, duration: float, logical_width: float, start_x: float, end_x: float) -> bool:
     """Per-row horizontal cull: True when the row has no keyframe content
