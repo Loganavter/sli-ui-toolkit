@@ -64,7 +64,13 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
         if thumb_idx != -1:
             pix = widget._thumbnails.get(thumb_idx)
             if pix and pix.height() > 0:
-                painter.drawPixmap(QRectF(block_x, strip_top, block_w, float(widget.STRIP_HEIGHT)), pix, QRectF(pix.rect()))
+                # +1px overlap: adjacent opaque draws must overlap by at
+                # least a pixel, otherwise DPR rounding / smoothing fringes
+                # leave a background sliver at the seam (static 1-2px lines
+                # that do not scale with zoom). The neighbor overdraws the
+                # shared pixel with its own content — invisible at 128px
+                # blocks. Layout (strip_block_layout) stays exactly tiled.
+                painter.drawPixmap(QRectF(block_x, strip_top, block_w + 1.0, float(widget.STRIP_HEIGHT)), pix, QRectF(pix.rect()))
 
 def _row_segments_culled(widget, *, track, channel, duration: float, logical_width: float, start_x: float, end_x: float) -> bool:
     """Per-row horizontal cull: True when the row has no keyframe content
