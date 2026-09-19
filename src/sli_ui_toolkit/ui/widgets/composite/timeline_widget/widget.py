@@ -117,10 +117,10 @@ class TimelineWidget(QWidget):
 
         # Per-widget scope only (no process-global writes): binding the
         # widget's own hooks here must never overwrite the process-global
-        # ``set_localize_*`` fallback — the last-constructed dialog winning
-        # the globals was a MED leak-class bug. Paths without a widget
-        # handle (viewport/primitives tooltips) read the globals, which the
-        # host sets explicitly at app level when it needs them.
+        # Per-instance i18n (Phase 4D routing): paint/tooltip paths resolve
+        # through ``localize_*_for(widget, ...)``, so the bound callbacks
+        # below are what the user sees. The process globals stay untouched
+        # (widget-less helpers keep them as legacy fallback only).
         timeline_i18n.bind_widget(
             self,
             token_fn=self._callbacks.localize_token,
@@ -773,7 +773,11 @@ class TimelineWidget(QWidget):
         if getattr(self, "_state", None) is None or self._total_frames <= 0:
             return
         try:
-            visible = self.get_visible_thumbnail_frame_indices(overscan_blocks=1)
+            # Keep-window matches the coordinator fetch window
+            # (presenter_parts/thumbnails get_visible_frame_indices margin=2):
+            # pruning narrower than the fetch set caused perpetual
+            # edge-block refetch. The frame margin below stays as backstop.
+            visible = self.get_visible_thumbnail_frame_indices(overscan_blocks=2)
         except Exception:
             return
         if not visible:

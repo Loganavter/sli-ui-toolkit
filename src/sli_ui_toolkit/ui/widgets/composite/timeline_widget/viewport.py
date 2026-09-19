@@ -16,7 +16,7 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from . import layout as timeline_layout
 from . import theme as timeline_theme
-from .i18n import localize_token, localize_value
+from .i18n import localize_token_for, localize_value_for
 from .theme import resolve_accent_color
 
 def footer_height(widget) -> int:
@@ -688,8 +688,5 @@ def tooltip_for_keyframe(widget, group, track, channel, keyframe) -> str:
     return (
         f"{group.label} / {track.label}"
         f"\nTime: {format_time(keyframe.timestamp)}"
-        f"\n{localize_token(channel.label)}: {format_value(keyframe.value)}"
+        f"\n{localize_token_for(widget, channel.label)}: {localize_value_for(widget, keyframe.value)}"
     )
-
-def format_value(value) -> str:
-    return localize_value(value)

@@ -4,7 +4,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QLinearGradient, QPainter, QPen, QPolygonF
 
 from sli_ui_toolkit.managers import scaled_px
-from .i18n import localize_token
+from .i18n import localize_token_for
 from .theme import playhead_outline_color, resolve_accent_color, timeline_alpha
 
 def draw_gutter_background(widget, painter: QPainter, rect: QRectF, gutter_bg: QColor, sep_soft: QColor) -> None:
@@ -134,7 +134,7 @@ def draw_channel_label(widget, painter: QPainter, rect: QRectF, label: str, text
     painter.drawText(
         text_rect,
         Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-        painter.fontMetrics().elidedText(localize_token(label), Qt.TextElideMode.ElideRight, int(text_rect.width())),
+        painter.fontMetrics().elidedText(localize_token_for(widget, label), Qt.TextElideMode.ElideRight, int(text_rect.width())),
     )
     painter.restore()
 
