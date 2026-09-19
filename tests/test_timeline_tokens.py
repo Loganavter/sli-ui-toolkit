@@ -1073,3 +1073,72 @@ def test_track_stubs_diverged_per_theme(themed, qapp):
     # darkened same-hue variants (contrast-checked in the theme module).
     assert dark_values["timeline.track.bool"] == QColor(0, 140, 198)
     assert dark_values["timeline.separator.row"] == QColor(120, 120, 128)
+
+
+# --- Phase 3 polish: strip-chrome split tokens + contrast ----------------------
+#
+# (d): every strip/gutter/separator/playhead chrome token resolves
+# per-theme (no unjustified light==dark stub remains — the split
+# center-line token stays pinned by the tests above). Contrast follows
+# DESIGN_LANGUAGE: component chrome is pairwise distinct per theme and
+# the playhead accent keeps >= 3.0:1 against the lane surface.
+
+_STRIP_CHROME_TOKENS = (
+    "timeline.gutter.background",
+    "timeline.group.background",
+    "timeline.track.background",
+    "timeline.lane.background",
+    "timeline.grid.color",
+    "timeline.footer.background",
+    "timeline.separator.strong",
+    "timeline.separator.soft",
+    "timeline.scrollbar.idle",
+    "timeline.scrollbar.hover",
+    "timeline.playhead.outline",
+)
+
+
+@pytest.mark.parametrize("token", _STRIP_CHROME_TOKENS)
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+def test_strip_chrome_token_resolves_valid(themed, qapp, token, theme_name):
+    themed.set_theme(theme_name, qapp, await_ripples=False)
+    color = timeline_theme._timeline_color(themed, token)
+    assert color.isValid(), (token, theme_name)
+
+
+@pytest.mark.parametrize("token", _STRIP_CHROME_TOKENS)
+def test_strip_chrome_token_split_per_theme(themed, qapp, token):
+    """No unjustified light==dark chrome stub remains (center line aside,
+    pinned separately and untouched by this wave)."""
+    themed.set_theme("light", qapp, await_ripples=False)
+    light = timeline_theme._timeline_color(themed, token)
+    themed.set_theme("dark", qapp, await_ripples=False)
+    dark = timeline_theme._timeline_color(themed, token)
+    assert light != dark, token
+
+
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+def test_strip_surfaces_pairwise_distinct(themed, qapp, theme_name):
+    """Gutter / track / lane / footer surfaces differ within each theme."""
+    themed.set_theme(theme_name, qapp, await_ripples=False)
+    surfaces = {
+        token: timeline_theme._timeline_color(themed, token)
+        for token in (
+            "timeline.gutter.background",
+            "timeline.track.background",
+            "timeline.lane.background",
+            "timeline.footer.background",
+        )
+    }
+    rgbs = [color.rgb() for color in surfaces.values()]
+    assert len(set(rgbs)) == len(rgbs), (theme_name, surfaces)
+
+
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+def test_playhead_accent_contrast_on_lane(themed, qapp, theme_name):
+    """The playhead accent keeps >= 3.0:1 (component AA) against the lane."""
+    themed.set_theme(theme_name, qapp, await_ripples=False)
+    accent = themed.get_color("accent")
+    lane = timeline_theme._timeline_color(themed, "timeline.lane.background")
+    assert accent.isValid() and lane.isValid()
+    assert _contrast_ratio(accent, lane) >= 3.0, (theme_name, accent, lane)

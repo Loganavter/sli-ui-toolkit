@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap  # QColor: annotations only (no construction in paint code)
 
 from . import layout as timeline_layout
 from . import primitives as timeline_primitives
@@ -11,6 +11,12 @@ from . import theme as timeline_theme
 from . import viewport as timeline_viewport
 from .debug import _timeline_debug_enabled, _timeline_paint_debug
 from .segments import _draw_keyframe_segments
+
+# Major-tick label overhang (px): the ruler label rect is
+# ``QRectF(x + 4, ..., 52, ...)`` below, so a label reaches ~56px right
+# of its tick. Added to DAMAGE_PAD for the major-tick cull — derived
+# from the label geometry, never a second magic margin.
+_RULER_LABEL_EXTENT = 56.0
 
 # Accent-wash alphas for the row paint path: ``token -> (light, dark)``.
 #
@@ -137,6 +143,11 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
     track_wash = _wash_alpha(tm, "timeline.group.wash.track.alpha")
     first_wash = _wash_alpha(tm, "timeline.group.wash.first.alpha")
     channel_wash = _wash_alpha(tm, "timeline.group.wash.channel.alpha")
+    # Per-paint hoist: pens / alpha colors are built once here, never per
+    # row inside the loop below (hot-path allocation polish).
+    sep_pen = timeline_primitives._pen_for(sep_row, 1)
+    channel_col_first = timeline_primitives._alpha_color(text_col, 215)
+    channel_col_second = timeline_primitives._alpha_color(text_col, 195)
     for kind, key, rect in timeline_layout.iter_row_rects(widget, rows_top, rows_bottom):
         y = rect.top()
         row_h = rect.height()
@@ -159,7 +170,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             painter.fillRect(QRectF(0, y, content_start_x, row_h), gutter_track_bg)
             if lane_has_damage:
                 painter.fillRect(QRectF(lane_x0, y, lane_x1 - lane_x0, row_h), lane_bg)
-            painter.setPen(QPen(sep_row, 1))
+            painter.setPen(sep_pen)
             painter.drawLine(0, y + row_h, width, y + row_h)
             timeline_primitives.draw_track_title_label(widget, painter, QRectF(18, y, max(40, widget.LEFT_GUTTER - 30), row_h), track.label, text_col)
             if lane_has_damage:
@@ -186,12 +197,11 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             painter.fillRect(QRectF(0, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, gutter_bg, group, channel_wash))
         if lane_has_damage:
             painter.fillRect(QRectF(lane_x0, y, lane_x1 - lane_x0, row_h), lane_bg)
-        painter.setPen(QPen(sep_row, 1))
+        painter.setPen(sep_pen)
         painter.drawLine(0, y + row_h, width, y + row_h)
         if is_first_channel:
             timeline_primitives.draw_track_title_label(widget, painter, QRectF(18, y, max(40, widget.LEFT_GUTTER * 0.44 - 22), row_h), track.label, text_col)
-        channel_col = QColor(text_col)
-        channel_col.setAlpha(215 if is_first_channel else 195)
+        channel_col = channel_col_first if is_first_channel else channel_col_second
         timeline_primitives.draw_channel_label(
             widget,
             painter,
@@ -212,16 +222,16 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
     foot_x1 = min(float(width), end_x)
     if foot_x1 > foot_x0:
         painter.fillRect(QRectF(foot_x0, footer_top, foot_x1 - foot_x0, footer_height), footer_bg)
-    painter.setPen(QPen(sep_strong, 1))
+    painter.setPen(timeline_primitives._pen_for(sep_strong, 1))
     painter.drawLine(0, int(footer_top), width, int(footer_top))
     timeline_primitives.draw_vertical_scrollbar_track(widget, painter, footer_bg)
     sb_rect = QRectF(scroll_offset + content_start_x, scrollbar_strip_top, max(0.0, viewport_width - content_start_x), widget.SCROLLBAR_STRIP_HEIGHT)
     timeline_viewport.draw_inner_scrollbar(widget, painter, sb_rect, sb_idle, sb_hover)
-    painter.setPen(QPen(sep_soft, 1))
+    painter.setPen(timeline_primitives._pen_for(sep_soft, 1))
     painter.drawLine(0, int(ruler_top) - 1, width, int(ruler_top) - 1)
-    painter.setPen(QPen(grid_col, 1))
+    painter.setPen(timeline_primitives._pen_for(grid_col, 1))
     painter.drawLine(int(content_start_x), ruler_bottom - 1, width, ruler_bottom - 1)
-    painter.setPen(QPen(sep_strong, 1))
+    painter.setPen(timeline_primitives._pen_for(sep_strong, 1))
     painter.drawLine(0, widget.height() - 1, width, widget.height() - 1)
     if duration <= 0:
         return
@@ -237,18 +247,23 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
     ruler_font = ui_font(point_size=max(8, painter.font().pointSize() - 2))
     painter.save()
     painter.setFont(ruler_font)
+    # Per-paint hoist: tick/label pens built once, never per tick below.
+    minor_tick_col = timeline_primitives._alpha_color(
+        grid_col, _wash_alpha(widget.theme_manager, "timeline.ruler.minor.tick.alpha")
+    )
+    minor_tick_pen = timeline_primitives._pen_for(minor_tick_col, 1)
+    text_pen = timeline_primitives._pen_for(text_col, 1)
+    pad = timeline_layout.DAMAGE_PAD
     if minor_divisions > 1:
         minor_step = step_sec / minor_divisions
-        minor_tick_col = QColor(grid_col)
-        minor_tick_col.setAlpha(_wash_alpha(widget.theme_manager, "timeline.ruler.minor.tick.alpha"))
-        painter.setPen(QPen(minor_tick_col, 1))
+        painter.setPen(minor_tick_pen)
         minor_steps_count = int(math.floor(duration / minor_step + 1e-9))
         for minor_index in range(minor_steps_count + 1):
             if minor_index % minor_divisions == 0:
                 continue
             t_minor = minor_index * minor_step
             x = content_start_x + (t_minor / duration) * logical_width
-            if x >= start_x - 20 and x <= end_x + 20:
+            if x >= start_x - pad and x <= end_x + pad:
                 is_mid_tick = minor_divisions % 2 == 0 and minor_index % (minor_divisions // 2) == 0
                 tick_bottom = ruler_top + (7 if is_mid_tick else 5)
                 painter.drawLine(int(x), ruler_top, int(x), tick_bottom)
@@ -256,9 +271,9 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
     for major_index in range(major_steps_count + 1):
         t = major_index * step_sec
         x = content_start_x + (t / duration) * logical_width
-        if x >= start_x - 50 and x <= end_x + 50:
+        if x >= start_x - pad and x <= end_x + pad + _RULER_LABEL_EXTENT:
             label_text = timeline_viewport.format_time(t, step_sec)
-            painter.setPen(QPen(text_col, 1))
+            painter.setPen(text_pen)
             painter.drawLine(int(x), ruler_top, int(x), ruler_top + 10)
             text_rect = QRectF(x + 4, ruler_top + 11, 52, max(18, ruler_bottom - ruler_top - 11 - 4))
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label_text)
@@ -275,17 +290,24 @@ def draw_sticky_gutter_overlay(widget, painter: QPainter, *, scroll_offset: int,
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
     painter.save()
     painter.setClipRect(QRectF(gx, clip_top, widget.LEFT_GUTTER + 2, max(0.0, clip_bottom - clip_top)))
-    timeline_primitives.draw_gutter_background(widget, painter, QRectF(gx, 0, widget.LEFT_GUTTER, widget.height()), gutter_bg, sep_soft if sep_soft is not None else QColor(text_col))
+    # Per-paint hoist: the sep_soft fallback color is built once, never
+    # per gutter row below.
+    soft_fallback = sep_soft if sep_soft is not None else timeline_primitives._alpha_color(text_col, text_col.alpha())
+    timeline_primitives.draw_gutter_background(widget, painter, QRectF(gx, 0, widget.LEFT_GUTTER, widget.height()), gutter_bg, soft_fallback)
     tm = widget.theme_manager
     track_wash = _wash_alpha(tm, "timeline.group.wash.track.alpha")
     first_wash = _wash_alpha(tm, "timeline.group.wash.first.alpha")
     channel_wash = _wash_alpha(tm, "timeline.group.wash.channel.alpha")
+    # Per-paint hoist (same as draw_rows): channel alpha colors built
+    # once, never per gutter row below.
+    channel_col_first = timeline_primitives._alpha_color(text_col, 215)
+    channel_col_second = timeline_primitives._alpha_color(text_col, 195)
     for kind, key, rect in timeline_layout.iter_row_rects(widget, rows_top, rows_bottom):
         y = rect.top()
         row_h = rect.height()
         if kind == "group":
             group = key[1]
-            timeline_primitives.draw_group_header_label(widget, painter, QRectF(gx, y, widget.LEFT_GUTTER, row_h), group, group.label, text_col, sep_soft if sep_soft is not None else QColor(text_col))
+            timeline_primitives.draw_group_header_label(widget, painter, QRectF(gx, y, widget.LEFT_GUTTER, row_h), group, group.label, text_col, soft_fallback)
         elif kind == "track_single":
             _kind, group, track, _channel = key
             painter.fillRect(QRectF(gx, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, track_bg, group, track_wash))
@@ -304,12 +326,11 @@ def draw_sticky_gutter_overlay(widget, painter: QPainter, *, scroll_offset: int,
                 timeline_primitives.draw_track_title_label(widget, painter, QRectF(gx + 18, y, max(40.0, widget.LEFT_GUTTER * 0.44 - 22), row_h), track.label, text_col)
             else:
                 painter.fillRect(QRectF(gx, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, gutter_bg, group, channel_wash))
-            channel_col = QColor(text_col)
-            channel_col.setAlpha(215 if is_first_channel else 195)
+            channel_col = channel_col_first if is_first_channel else channel_col_second
             ch_x = gx + max(42.0, widget.LEFT_GUTTER * 0.50)
             timeline_primitives.draw_channel_label(widget, painter, QRectF(ch_x, y, widget.LEFT_GUTTER - (ch_x - gx) - 12, row_h), channel.label, channel_col, line_col)
     line_color = sep_color if sep_color is not None else text_col
-    painter.setPen(QPen(line_color, 1))
+    painter.setPen(timeline_primitives._pen_for(line_color, 1))
     painter.drawLine(int(gx + widget.LEFT_GUTTER), 0, int(gx + widget.LEFT_GUTTER), widget.height())
     painter.restore()
 
@@ -407,9 +428,9 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
     painter.setClipRect(QRectF(0, 0, content_right, footer_top))
     draw_thumbnail_strip(widget, painter, canvas_bg=canvas_bg, content_start_x=content_start_x, strip_top=strip_top, width=content_right, start_x=start_x, end_x=end_x, logical_width=logical_width, slot_width=slot_width)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    painter.setPen(QPen(text_col, 1))
+    painter.setPen(timeline_primitives._pen_for(text_col, 1))
     duration = timeline_layout.content_duration(widget)
-    painter.setPen(QPen(sep_strong, 1))
+    painter.setPen(timeline_primitives._pen_for(sep_strong, 1))
     painter.drawLine(widget.LEFT_GUTTER, 0, widget.LEFT_GUTTER, widget.height())
     _content_top, rows_bottom = timeline_viewport.content_viewport_bounds(widget)
     rows_top = widget.STRIP_HEIGHT - content_scroll_y
@@ -423,27 +444,32 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
         sel_x0 = max(x_start, start_x)
         sel_x1 = min(x_end, content_right, end_x)
         if sel_x1 > sel_x0:
-            fill = QColor(accent)
-            fill.setAlpha(45)
+            # Selection culls against the single DAMAGE_PAD (a superset of
+            # the 2px edge / 6px grip widths, so nothing visible is ever
+            # dropped); the handle widths below stay exact for drawing.
+            sel_pad = timeline_layout.DAMAGE_PAD
+            fill = timeline_primitives._alpha_color(accent, 45)
             painter.fillRect(QRectF(sel_x0, 0, sel_x1 - sel_x0, footer_top), fill)
             # Edge handles so the range can be resized / moved after Shift+drag.
-            handle = QColor(accent)
-            handle.setAlpha(220)
+            handle = timeline_primitives._alpha_color(accent, 220)
             edge_w = 2.0
             for x_edge in (x_start, x_end):
-                if x_edge < start_x - edge_w or x_edge > end_x + edge_w:
+                if x_edge < start_x - sel_pad or x_edge > end_x + sel_pad:
                     continue
                 painter.fillRect(QRectF(x_edge - edge_w * 0.5, 0, edge_w, footer_top), handle)
             grip_h = 10.0
             grip_w = 6.0
             grip_y = max(2.0, (widget.STRIP_HEIGHT - grip_h) * 0.5)
             for x_edge in (x_start, x_end):
-                if x_edge < start_x - grip_w or x_edge > end_x + grip_w:
+                if x_edge < start_x - sel_pad or x_edge > end_x + sel_pad:
                     continue
                 painter.fillRect(QRectF(x_edge - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
     draw_footer_and_ruler(widget, painter, width=content_right, content_start_x=content_start_x, footer_height=footer_height_val, footer_top=footer_top, scrollbar_strip_top=scrollbar_strip_top, ruler_top=ruler_top, ruler_bottom=ruler_bottom, scroll_offset=scroll_offset, viewport_width=content_viewport_width, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x, footer_bg=footer_bg, sep_strong=sep_strong, sep_soft=sep_soft, grid_col=grid_col, text_col=text_col, sb_idle=sb_idle, sb_hover=sb_hover)
     x_head = timeline_viewport.visual_pos_from_index(widget, widget._scrub_visual_index if widget._scrub_visual_index is not None else widget._visual_index)
-    if start_x - widget.HANDLE_WIDTH <= x_head <= end_x + widget.HANDLE_WIDTH:
+    # Playhead cull: the handle geometry (HANDLE_WIDTH) plus the single
+    # DAMAGE_PAD — derived from the shared constant, never a literal.
+    head_pad = widget.HANDLE_WIDTH + timeline_layout.DAMAGE_PAD
+    if start_x - head_pad <= x_head <= end_x + head_pad:
         timeline_primitives.draw_playhead(widget, painter, x_head=x_head, footer_top=footer_top, width=content_right)
     draw_sticky_gutter_overlay(widget, painter, scroll_offset=scroll_offset, rows_top=rows_top, rows_bottom=rows_bottom, footer_top=footer_top, gutter_bg=gutter_bg, track_bg=track_bg, text_col=text_col, sep_color=sep_strong, sep_soft=sep_soft, damage_top=float(clip_rect.top()), damage_bottom=float(clip_rect.bottom()))
     draw_sticky_right_gutter_overlay(
