@@ -264,7 +264,9 @@ def test_gutter_band_matches_widget_helper_and_covers_chevron(qapp):
 
 def test_hover_points_for_rows_ignores_damage_cull(qtbot):
     tl = _make_rows_widget(qtbot)
-    item = next(i for i in tl._row_layout if i[0] == "track_single")
+    item = next(
+        i for i in tl._row_layout if i[0] == "track_single" and i[2].id == "full"
+    )
     _kind, group, track, channel = item
     duration = timeline_layout.content_duration(tl)
     logical = timeline_viewport.get_logical_width(tl)

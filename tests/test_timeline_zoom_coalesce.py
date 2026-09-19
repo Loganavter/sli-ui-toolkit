@@ -429,7 +429,8 @@ def test_gutter_drag_leaves_coalesced_zoom_accounting_quiet(qapp):
     qapp.processEvents()
     _reset_probe(widget)  # clear stale setup paints delivered above
 
-    gutter_x = float(widget.LEFT_GUTTER)
+    scroll_now = float(_area.horizontalScrollBar().value())
+    gutter_x = scroll_now + float(widget.LEFT_GUTTER)
     widget.mousePressEvent(
         QMouseEvent(
             QEvent.Type.MouseButtonPress,
@@ -444,7 +445,7 @@ def test_gutter_drag_leaves_coalesced_zoom_accounting_quiet(qapp):
     widget.mouseMoveEvent(
         QMouseEvent(
             QEvent.Type.MouseMove,
-            QPointF(mid, 100.0),
+            QPointF(scroll_now + mid, 100.0),
             Qt.MouseButton.NoButton,
             Qt.MouseButton.LeftButton,
             Qt.KeyboardModifier.NoModifier,
@@ -454,7 +455,7 @@ def test_gutter_drag_leaves_coalesced_zoom_accounting_quiet(qapp):
     widget.mouseReleaseEvent(
         QMouseEvent(
             QEvent.Type.MouseButtonRelease,
-            QPointF(mid, 100.0),
+            QPointF(scroll_now + mid, 100.0),
             Qt.MouseButton.LeftButton,
             Qt.MouseButton.NoButton,
             Qt.KeyboardModifier.NoModifier,
