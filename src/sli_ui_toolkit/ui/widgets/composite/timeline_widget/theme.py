@@ -15,7 +15,7 @@ _TIMELINE_TOKEN_DEFAULTS: dict[str, tuple[QColor, QColor]] = {
     "timeline.gutter.background": (QColor(244, 244, 246), QColor(42, 42, 46)),
     "timeline.group.background": (QColor(250, 250, 252), QColor(46, 46, 50)),
     "timeline.track.background": (QColor(242, 243, 246), QColor(80, 80, 80)),
-    "timeline.lane.background": (QColor(248, 248, 250), QColor(50, 50, 55)),
+    "timeline.lane.background": (QColor(232, 233, 238), QColor(50, 50, 55)),
     "timeline.grid.color": (QColor(220, 220, 225), QColor(79, 79, 79)),
     "timeline.footer.background": (QColor(236, 238, 242), QColor(38, 38, 42)),
     "timeline.separator.strong": (QColor(188, 192, 200), QColor(85, 85, 85)),
