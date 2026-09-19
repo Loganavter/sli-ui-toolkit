@@ -384,3 +384,186 @@ def test_tooltip_resolves_per_widget_callbacks_not_globals(qapp, qtbot):
     finally:
         plain.close()
         hooked.close()
+
+
+def _make_data_widget(qapp, qtbot):
+    """Real widget with duration>0 and frames>0 for zoom/pps edge tests."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    widget = TimelineWidget()
+    qtbot.addWidget(widget)
+    widget.resize(800, 240)
+    widget.show()
+    widget.set_data(
+        [SimpleNamespace(timestamp=0.0), SimpleNamespace(timestamp=10.0)],
+        fps=30,
+        duration=10.0,
+    )
+    qapp.processEvents()
+    qapp.processEvents()
+    widget._layout_settle.cancel()
+    widget.fit_view()
+    qapp.processEvents()
+    return widget
+
+
+def test_color_override_setters(themed, qapp, qtbot):
+    """The five public color setters route through ``_set_color_override``.
+
+    Each setter overrides its ``build_theme_colors`` key; ``None`` reverts
+    to the theme value. Calls the setters (widget.py is read-only here —
+    no widget edits, coverage only).
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    widget = TimelineWidget()
+    qtbot.addWidget(widget)
+    try:
+        cases = [
+            ("set_accent_color", "accent"),
+            ("set_canvas_background_color", "canvas_bg"),
+            ("set_track_background_color", "track_bg"),
+            ("set_grid_color", "grid_col"),
+            ("set_text_color", "text_col"),
+        ]
+        for method_name, key in cases:
+            themed.set_theme("light", qapp, await_ripples=False)
+            baseline = timeline_theme.build_theme_colors(widget)[key]
+            assert baseline.isValid()
+            getattr(widget, method_name)("#112233")
+            assert widget._color_overrides[key] == QColor("#112233")
+            assert timeline_theme.build_theme_colors(widget)[key] == QColor(
+                "#112233"
+            )
+            getattr(widget, method_name)(None)
+            assert key not in widget._color_overrides
+            assert timeline_theme.build_theme_colors(widget)[key] == baseline
+        # Direct ``_set_color_override`` path (the setters delegate here).
+        widget._set_color_override("accent", QColor("#445566"))
+        assert timeline_theme.build_theme_colors(widget)["accent"] == QColor(
+            "#445566"
+        )
+        widget._set_color_override("accent", None)
+        assert "accent" not in widget._color_overrides
+    finally:
+        widget.close()
+
+
+def test_set_pps_edge_values_clamp_to_min_zoom(themed, qapp, qtbot):
+    """``set_pps(0 | negative | NaN)`` never crashes and lands on min zoom."""
+    import math
+
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    themed.set_theme("light", qapp, await_ripples=False)
+    widget = _make_data_widget(qapp, qtbot)
+    try:
+        base = timeline_viewport.get_base_pixels_per_second(widget)
+        assert base > 0
+        min_zoom = timeline_viewport.calculate_min_zoom(widget)
+        for bad_pps in (0.0, -50.0, float("nan")):
+            widget.set_zoom(1.0)
+            widget.set_pps(bad_pps)
+            assert math.isfinite(widget._zoom_level), bad_pps
+            assert widget._zoom_level == pytest.approx(min_zoom)
+            assert widget.get_pixels_per_second() == pytest.approx(
+                min_zoom * base
+            )
+    finally:
+        widget.close()
+
+
+def test_set_zoom_clamp_boundaries(themed, qapp, qtbot):
+    """Below-min zooms clamp to min zoom; above-max clamps to 1.0."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    themed.set_theme("light", qapp, await_ripples=False)
+    widget = _make_data_widget(qapp, qtbot)
+    try:
+        min_zoom = timeline_viewport.calculate_min_zoom(widget)
+        assert 0 < min_zoom < 1.0
+        widget.set_zoom(5.0)
+        assert widget._zoom_level == pytest.approx(1.0)
+        for tiny in (1e-6, min_zoom / 2.0, 0.0):
+            widget.set_zoom(1.0)
+            widget.set_zoom(tiny)
+            assert widget._zoom_level == pytest.approx(min_zoom)
+    finally:
+        widget.close()
+
+
+WASH_ALPHA_DEFAULTS = {
+    "timeline.group.wash.track.alpha": (22, 46),
+    "timeline.group.wash.first.alpha": (18, 42),
+    "timeline.group.wash.channel.alpha": (10, 24),
+    "timeline.ruler.minor.tick.alpha": (180, 150),
+}
+
+
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+@pytest.mark.parametrize("token", sorted(WASH_ALPHA_DEFAULTS))
+def test_wash_alpha_token_defaults_and_override(themed, qapp, token, theme_name):
+    """Promoted wash tokens resolve per-theme defaults; host override wins.
+
+    Defaults are the exact pre-refactor per-theme strengths (paints stay
+    pixel-identical); a host-registered token alpha wins in both themes.
+    Cross-checks ``render._wash_alpha`` (read-only import) against the
+    canonical ``theme.timeline_alpha`` on both paths.
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        render as timeline_render,
+    )
+
+    themed.set_theme(theme_name, qapp, await_ripples=False)
+    light_default, dark_default = WASH_ALPHA_DEFAULTS[token]
+    expected = dark_default if theme_name == "dark" else light_default
+    assert timeline_theme.timeline_alpha(themed, token) == expected
+    assert timeline_render._wash_alpha(themed, token) == expected
+    themed.set_color(token, QColor(0, 0, 0, 77))
+    assert timeline_theme.timeline_alpha(themed, token) == 77
+    assert timeline_render._wash_alpha(themed, token) == 77
+
+
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+def test_wash_strengths_compose_valid_colors(themed, qapp, theme_name):
+    """Wash alphas are strengths, not colors: no WCAG pair applies.
+
+    The applicable assertion is that every promoted strength composes a
+    valid, base-distinct accent wash in both themes (fail-closed on a
+    transparent/degenerate wash), and the ruler minor-tick alpha composes
+    a valid tick color from the grid token.
+    """
+    from PySide6.QtGui import QColor
+
+    themed.set_theme(theme_name, qapp, await_ripples=False)
+    host = _host(themed)
+    track_bg = timeline_theme._timeline_color(themed, "timeline.track.background")
+    gutter_bg = timeline_theme._timeline_color(themed, "timeline.gutter.background")
+    grid_col = timeline_theme._timeline_color(themed, "timeline.grid.color")
+    assert track_bg.isValid() and gutter_bg.isValid() and grid_col.isValid()
+    group = SimpleNamespace(accent_color=None, tracks={})
+    for token, base in (
+        ("timeline.group.wash.track.alpha", track_bg),
+        ("timeline.group.wash.first.alpha", track_bg),
+        ("timeline.group.wash.channel.alpha", gutter_bg),
+    ):
+        strength = timeline_theme.timeline_alpha(themed, token)
+        assert 0 < strength < 255, (token, strength)
+        washed = timeline_theme.group_content_bg(host, base, group, strength)
+        assert isinstance(washed, QColor) and washed.isValid()
+        assert washed != base, (token, theme_name)
+    tick_strength = timeline_theme.timeline_alpha(
+        themed, "timeline.ruler.minor.tick.alpha"
+    )
+    assert 0 < tick_strength < 255
+    tick_col = QColor(grid_col)
+    tick_col.setAlpha(tick_strength)
+    assert tick_col.isValid() and tick_col.alpha() == tick_strength
