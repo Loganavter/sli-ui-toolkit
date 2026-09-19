@@ -81,6 +81,7 @@ class TimelineWidget(QWidget):
     headMoved = Signal(int)
     deletePressed = Signal()
     zoomChanged = Signal(float)
+    playPauseRequested = Signal()
     viewportChanged = Signal()
     viewportChangedState = Signal(object)
 
@@ -134,6 +135,11 @@ class TimelineWidget(QWidget):
         )
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName("Timeline")
+        self.setAccessibleDescription(
+            "Keyframe timeline. Left and right arrows step frames. "
+            "Space toggles playback."
+        )
 
         # Playhead display state (triple, deliberately not collapsed):
         # _current_index is the logical head (what headMoved reports),
@@ -1124,6 +1130,15 @@ class TimelineWidget(QWidget):
         key = event.key()
         mods = event.modifiers()
 
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            # Up/Down are reserved for routing between controls (row/panel
+            # navigation, see NavigationManager/ToolbarRowsSection) -- never
+            # frame-stepping here. Leave the event unaccepted (don't call
+            # super().keyPressEvent(), which is what would consume it) so it
+            # stays available for routing (Slider precedent, NAVIGATION.md).
+            event.ignore()
+            return
+
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self.deletePressed.emit()
             event.accept()
@@ -1156,6 +1171,50 @@ class TimelineWidget(QWidget):
                 return
             self.set_current_frame(self._total_frames - 1)
             self.headMoved.emit(self._current_index)
+            event.accept()
+            return
+
+        if key in (Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
+            # SpinBox precedent: PageUp/PageDown step where Left/Right must
+            # stay untouched -- here they step 10 frames (nothing else claims
+            # them). set_current_frame clamps at the store edges.
+            if self._total_frames <= 0:
+                event.ignore()
+                return
+            step = -10 if key == Qt.Key.Key_PageUp else 10
+            self.set_current_frame(self._current_index + step)
+            self.headMoved.emit(self._current_index)
+            event.accept()
+            return
+
+        if key == Qt.Key.Key_Space:
+            # Bare Space toggles playback via playPauseRequested (the host
+            # wires it to toggle_playback); any modifier falls through to
+            # the base class so host shortcuts keep working.
+            if mods != Qt.KeyboardModifier.NoModifier:
+                super().keyPressEvent(event)
+                return
+            self.playPauseRequested.emit()
+            event.accept()
+            return
+
+        if key in (Qt.Key.Key_Plus, Qt.Key.Key_Minus):
+            # Keyboard zoom: Plus zooms in, Minus zooms out by one wheel-tick
+            # factor (1.25) around the viewport center (no cursor position on
+            # a key event). Only bare and keypad-modified keys zoom -- other
+            # modifiers fall through so host shortcuts keep working.
+            # Clamping/silence comes from set_zoom itself.
+            if mods not in (
+                Qt.KeyboardModifier.NoModifier,
+                Qt.KeyboardModifier.KeypadModifier,
+            ):
+                super().keyPressEvent(event)
+                return
+            current = float(self._zoom_level)
+            if key == Qt.Key.Key_Plus:
+                self.set_zoom(current * 1.25, anchor="center")
+            else:
+                self.set_zoom(current / 1.25, anchor="center")
             event.accept()
             return
 
