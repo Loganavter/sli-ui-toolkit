@@ -415,7 +415,7 @@ def test_thumbnails_pruned_to_visible_window_plus_margin(qapp):
         viewport as timeline_viewport,
     )
     from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
-        widget as timeline_widget_mod,
+        interaction as timeline_interaction,
     )
 
     w = TimelineWidget(snapshots=_long_snaps())
@@ -438,7 +438,7 @@ def test_thumbnails_pruned_to_visible_window_plus_margin(qapp):
     slot = timeline_viewport.get_slot_width(w)
     base = timeline_viewport.get_base_tile_width(w)
     draw_w = base if slot < base else slot
-    margin = int(math.ceil(max(1.0, draw_w / slot) * timeline_widget_mod._THUMBNAIL_KEEP_MARGIN_BLOCKS))
+    margin = int(math.ceil(max(1.0, draw_w / slot) * timeline_interaction._THUMBNAIL_KEEP_MARGIN_BLOCKS))
     lo = max(0, min(visible) - margin)
     hi = min(w._total_frames - 1, max(visible) + margin)
     assert set(w._thumbnails) == {i for i in inserted if lo <= i <= hi}
@@ -449,7 +449,7 @@ def test_thumbnails_pruned_to_visible_window_plus_margin(qapp):
     far = [i for i in inserted if i > max(visible) + 100]
     assert far, "need off-window inserts for the eviction probe"
     assert all(i not in w._thumbnails for i in far)
-    assert len(w._thumbnails) <= timeline_widget_mod._THUMBNAIL_HARD_CAP
+    assert len(w._thumbnails) <= timeline_interaction._THUMBNAIL_HARD_CAP
     w.close()
 
 
@@ -487,6 +487,181 @@ def test_commit_gutter_drag_emits_viewport_family_not_zoom(qapp):
     assert len(states) == 1
     assert states[0].left_gutter == nxt.left_gutter
     assert w.LEFT_GUTTER == nxt.left_gutter
+    w.close()
+
+
+# --- Wave T thin-facade: delegator paths -----------------------------------------
+
+
+def _group(id="g1", **overrides):
+    import types
+
+    ns = {"id": id, "tracks": {}, "accent_color": None}
+    ns.update(overrides)
+    return types.SimpleNamespace(**ns)
+
+
+def test_group_delegators_match_layout_functions(qapp):
+    """Widget group methods are thin delegators over ``layout`` (same names)."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        layout as timeline_layout,
+    )
+
+    w = TimelineWidget()
+    g = _group()
+    assert w._group_key(g) == timeline_layout.group_key(g) == "g1"
+    assert w._group_key(_group()) == timeline_layout.group_key(_group())
+    assert w._is_group_collapsed(g) == timeline_layout.is_group_collapsed(w, g) is False
+    assert w._group_header_rect(10.0, 20.0) == timeline_layout.group_header_rect(w, 10.0, 20.0)
+    header = w._group_header_rect(10.0, 20.0)
+    assert w._group_chevron_rect(header) == timeline_layout.group_chevron_rect(header)
+    assert w._group_accent_color(g) == timeline_layout.group_accent_color(w, g)
+    w.close()
+
+
+def test_toggle_group_collapsed_delegates_and_flips(qapp):
+    """``_toggle_group_collapsed`` flips the collapsed set via ``layout``."""
+    w = TimelineWidget()
+    g = _group()
+    w._toggle_group_collapsed(g)
+    assert w._group_key(g) in w._collapsed_group_ids
+    assert w._is_group_collapsed(g) is True
+    w._toggle_group_collapsed(g)
+    assert w._group_key(g) not in w._collapsed_group_ids
+    assert w._is_group_collapsed(g) is False
+    w.close()
+
+
+def test_gutter_alias_matches_viewport_canonical(qapp):
+    """``widget.gutter_band_rect_for_scroll`` is the viewport canonical rect."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        gutter_band_rect_for_scroll,
+    )
+
+    w = TimelineWidget(snapshots=_snaps())
+    for scroll in (0, 137):
+        assert gutter_band_rect_for_scroll(w, scroll) == timeline_viewport.gutter_band_rect(w, scroll)
+    w.close()
+
+
+def test_ingest_data_matches_set_data(qapp):
+    """``interaction.ingest_data`` is the real ``set_data`` path (same outcome)."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+
+    snaps = _snaps(6)
+    a = TimelineWidget()
+    a.set_data(snaps, fps=30)
+    b = TimelineWidget()
+    timeline_interaction.ingest_data(b, snaps, fps=30)
+    assert [s.timestamp for s in b._snapshots] == [s.timestamp for s in a._snapshots]
+    assert b._duration == a._duration
+    assert b._fps == a._fps == 30
+    assert b._total_frames == a._total_frames
+    assert b._row_layout == a._row_layout
+    assert b._needs_fit_view is True
+    a.close()
+    b.close()
+
+
+def test_ingest_data_source_precedence(qapp):
+    """Explicit args win over ``source`` through the ingest function too."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+
+    snaps = _snaps(4)
+    source = SimpleNamespace(snapshots=_snaps(9), fps=12, timeline_model=None, duration=9.0)
+    w = TimelineWidget()
+    timeline_interaction.ingest_data(w, snaps, fps=10, source=source)
+    # Explicit non-None args win; None duration falls back to the source.
+    assert len(w._snapshots) == 4
+    assert w._fps == 10
+    assert w._duration == 9.0
+    timeline_interaction.ingest_data(w, snaps, fps=10, duration=5.0, source=source)
+    assert w._duration == 5.0
+    w.close()
+
+
+def test_prune_thumbnails_function_matches_method(qapp):
+    """``interaction.prune_thumbnails`` is the real ``_prune_thumbnails`` path."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+
+    px = QPixmap(16, 9)
+    w = TimelineWidget(snapshots=_long_snaps())
+    w.resize(800, 240)
+    w.show()
+    qapp.processEvents()
+    w._layout_settle.cancel()
+    w.fit_view()
+    w._commitState(w._current_state(), source="test")
+    w._commitState(w._current_state().with_zoom(1.0), source="test")
+    visible = w.get_visible_thumbnail_frame_indices(overscan_blocks=2)
+    assert visible
+    for i in list(range(0, w._total_frames, 5)) + [v for v in visible]:
+        w._thumbnails[i] = px
+    w._thumb_indices = sorted(w._thumbnails.keys())
+    timeline_interaction.prune_thumbnails(w)
+    assert w._thumb_indices == sorted(w._thumbnails.keys())
+    visible = w.get_visible_thumbnail_frame_indices(overscan_blocks=2)
+    for v in visible:
+        assert v in w._thumbnails
+    w.close()
+
+
+def test_playhead_function_matches_method(qapp):
+    """``interaction.set_current_frame`` eases steps and snaps jumps like the method."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+
+    w = TimelineWidget()
+    w._total_frames = 50
+    w._visual_index = 5.0
+    w._current_index = 5
+    timeline_interaction.set_current_frame(w, 6)
+    assert w._current_index == 6
+    assert w._playhead_anim.state() == QVariantAnimation.State.Running
+    timeline_interaction.playhead_frame(w, 5.5)
+    assert abs(w._visual_index - 5.5) < 1e-9
+    timeline_interaction.set_current_frame(w, 40)
+    assert w._current_index == 40
+    assert w._visual_index == 40.0
+    w.close()
+
+
+def test_flush_function_commits_once_with_wheel_source(qapp, monkeypatch):
+    """``interaction.flush_wheel_zoom`` commits one step with the wheel source."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+
+    w = TimelineWidget()
+    w._total_frames = 50
+    w._commitState(w._current_state(), source="test")
+    w._commitState(w._current_state().with_zoom(0.5), source="test")
+    sources: list = []
+    orig_commit = TimelineWidget._commitState
+
+    def spy(self, nxt, source=""):
+        sources.append(source)
+        return orig_commit(self, nxt, source)
+
+    monkeypatch.setattr(TimelineWidget, "_commitState", spy)
+    w._wheel_pending_y = 120.0
+    w._wheel_pending_x = 400.0
+    w._wheel_pending_ticks = 1
+    w._wheel_flush_scheduled = True
+    timeline_interaction.flush_wheel_zoom(w)
+    assert sources == ["wheelZoom"]
+    assert w._wheel_flush_scheduled is False
+    assert w._zoom_level > 0.5
     w.close()
 
 
