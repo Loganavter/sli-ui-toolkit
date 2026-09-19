@@ -360,3 +360,47 @@ def test_visible_indices_match_strip_reps(qtbot):
     assert idx, "fit view must report visible frames"
     assert set(idx) <= reps, (idx, sorted(reps))
     assert idx == sorted(set(idx)), idx
+
+
+def test_timeline_debug_lines_format_cleanly(qtbot, monkeypatch):
+    """Every ``[timeline-debug]`` / ``[timeline-paint]`` format string must
+    match its args (a ``blocks=%s`` field without the arg once crashed
+    *every* paint's logging handler with ``TypeError: not enough
+    arguments``). Forces all strip debug lines with thumbs present and
+    formats each captured record — any mismatch raises here, not in
+    production logs."""
+    import logging
+
+    from PySide6.QtGui import QPixmap
+
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import debug as timeline_debug
+
+    monkeypatch.setenv("SLI_TIMELINE_DEBUG", "1")
+    assert timeline_debug._timeline_debug_enabled()
+    records: list = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    logger = logging.getLogger("sli_ui_toolkit.timeline")
+    handler = _Capture()
+    old_level = logger.level
+    # The level gate (SLI_TOOLKIT_DEBUG in host setup_logging) is env
+    # behavior, not under test here — force records through so the
+    # *format* parity below is what fails on mismatch.
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+    try:
+        tl = _make_widget(qtbot)
+        for i in range(0, tl._total_frames, 7):
+            px = QPixmap(160, 90)
+            px.fill(0x4488CC)
+            tl.add_thumbnail(i, px)
+        _paint(tl, QRect(0, 0, tl.width(), tl.height()))
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(old_level)
+    assert records, "expected timeline debug records with the gate open"
+    for record in records:
+        record.getMessage()

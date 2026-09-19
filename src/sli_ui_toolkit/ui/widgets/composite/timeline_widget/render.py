@@ -25,15 +25,34 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     last_rep = blocks[-1][2] if blocks else 0
     if _timeline_debug_enabled():
         # Check if strip is actually visible in widget
-        _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s fpb=%.2f draw_w=%.2f blocks=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frames_per_block, draw_w, first_rep, last_rep, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
-        # Log per-block pixmap validity
-        for _bx, _bw, _rep in blocks[:3]:
+        _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s fpb=%.2f draw_w=%.2f blocks=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frames_per_block, draw_w, len(blocks), first_rep, last_rep, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
+        # Coverage audit: which blocks actually get a pixmap (same verdict
+        # as the draw loop below) and whether their rects tile the visible
+        # span without gaps. A gap here is background showing between
+        # thumbs — distinguishable from content (dark scene) because it
+        # reports geometry, not pixels.
+        _cov_lo = max(float(content_start_x), float(start_x))
+        _cov_hi = min(float(end_x), float(content_start_x) + float(logical_width))
+        _drawn_spans: list[tuple[float, float]] = []
+        for _bx, _bw, _rep in blocks:
             _ti = -1
             if widget._thumb_indices:
                 _pos = bisect.bisect_right(widget._thumb_indices, _rep)
                 _ti = widget._thumb_indices[_pos-1] if _pos>0 else widget._thumb_indices[0]
             _pix = widget._thumbnails.get(_ti) if _ti!=-1 else None
-            _timeline_paint_debug("block x=%.1f rep=%s thumb_idx=%s pix_null=%s pix_size=%s", _bx, _rep, _ti, _pix.isNull() if _pix else True, (_pix.width(), _pix.height()) if _pix and not _pix.isNull() else None)
+            _drawn = bool(_pix is not None and _pix.height() > 0)
+            _timeline_paint_debug("block x=%.3f w=%.3f rep=%s thumb_idx=%s pix_null=%s pix_size=%s drawn=%s", _bx, _bw, _rep, _ti, _pix.isNull() if _pix else True, (_pix.width(), _pix.height()) if _pix and not _pix.isNull() else None, _drawn)
+            if _drawn:
+                _drawn_spans.append((float(_bx), float(_bx) + float(_bw)))
+        _gaps: list[str] = []
+        _cursor = _cov_lo
+        for _s0, _s1 in _drawn_spans:
+            if _s0 > _cursor + 1e-6:
+                _gaps.append("[%.2f,%.2f]=%.2fpx" % (_cursor, _s0, _s0 - _cursor))
+            _cursor = max(_cursor, _s1)
+        if _cursor < _cov_hi - 1e-6:
+            _gaps.append("[%.2f,%.2f]=%.2fpx" % (_cursor, _cov_hi, _cov_hi - _cursor))
+        _timeline_paint_debug("strip_coverage id=%s span=[%.2f,%.2f] drawn=%d gaps=%s", id(widget), _cov_lo, _cov_hi, len(_drawn_spans), ",".join(_gaps) if _gaps else "none")
 
     for block_x, block_w, rep_frame in blocks:
         if block_w <= 0:
