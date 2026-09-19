@@ -139,3 +139,83 @@ def test_center_line_tokens_only():
     assert "setStyleSheet" not in source
     params = inspect.signature(timeline_primitives.draw_center_line).parameters
     assert list(params) == ["painter", "x0", "x1", "center_y", "color"]
+
+
+def _rows_widget(qtbot):
+    """Two grouped single-channel tracks (group + lane rows)."""
+    from types import SimpleNamespace
+
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+    from sli_ui_toolkit.widgets import TimelineWidget
+
+    def _kf(t, v):
+        return SimpleNamespace(timestamp=float(t), value=float(v), interpolation="linear")
+
+    def _track(track_id, label):
+        return SimpleNamespace(
+            id=track_id,
+            kind="scalar",
+            label=label,
+            channels={
+                "v": SimpleNamespace(
+                    kind="scalar",
+                    label="v",
+                    keyframes=[_kf(0, 0.0), _kf(10, 1.0)],
+                    interpolate_values=True,
+                )
+            },
+        )
+
+    model = SimpleNamespace(
+        groups={
+            "g1": SimpleNamespace(label="G1", tracks={"t1": _track("t1", "T1")}),
+            "g2": SimpleNamespace(label="G2", tracks={"t2": _track("t2", "T2")}),
+        },
+        sample_timestamps=[0.0, 100.0],
+        get_duration=lambda: 100.0,
+    )
+    tl = TimelineWidget()
+    tl._fps = 10
+    tl._duration = 100.0
+    tl._total_frames = 1001
+    tl._timeline_model = model
+    tl._rebuild_row_layout()
+    qtbot.addWidget(tl)
+    tl.resize(800, 400)
+    tl.show()
+    qtbot.waitExposed(tl)
+    tl.fit_view()
+    qtbot.wait(10)
+    return tl, timeline_viewport
+
+
+def test_iter_row_rects_bands_tile_and_centers_hold(qtbot):
+    """Row bands tile contiguously from the gutter edge; centers hold.
+
+    Ties the single geometry source to the center contract: every band
+    starts at x == 0 with the gutter width, bands abut without gaps, and
+    ``row_center_y`` of each band is its exact vertical midpoint (so the
+    1px ``draw_center_line`` fill lands on the painted center).
+    """
+    tl, timeline_viewport = _rows_widget(qtbot)
+    _, rows_bottom = timeline_viewport.content_viewport_bounds(tl)
+    rows_top = tl.STRIP_HEIGHT
+    bands = list(timeline_layout.iter_row_rects(tl, rows_top, rows_bottom))
+    kinds = [kind for kind, _, _ in bands]
+    assert kinds == ["group", "track_single", "group", "track_single"], kinds
+    y = float(rows_top)
+    for kind, _key, rect in bands:
+        assert rect.left() == 0.0, rect
+        assert rect.width() == float(tl.LEFT_GUTTER), rect
+        assert rect.top() == y, (rect, y)
+        expected_h = {
+            "group": float(tl.GROUP_HEADER_HEIGHT),
+            "track_single": float(tl.TRACK_ROW_HEIGHT),
+        }[kind]
+        assert rect.height() == expected_h, rect
+        center = timeline_layout.row_center_y(rect.top(), rect.height())
+        assert center == rect.top() + rect.height() / 2.0, (kind, rect)
+        assert center == y + expected_h / 2.0, (kind, rect)
+        y += expected_h

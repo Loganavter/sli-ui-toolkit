@@ -21,8 +21,10 @@ import inspect
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QRect, Qt
-from PySide6.QtGui import QPaintEvent
+from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt
+from PySide6.QtGui import QColor, QPaintEvent
+
+from sli_ui_toolkit import FLUENT_DARK, FLUENT_LIGHT, ThemeManager
 
 from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
     layout as timeline_layout,
@@ -670,3 +672,230 @@ def test_group_toggle_hit_chevron_click(qtbot):
         assert hit is item[1], (center, hit)
         yy += tl.GROUP_HEADER_HEIGHT
     assert timeline_layout.group_toggle_hit(tl, QPoint(700, 5)) is None
+
+
+# --- Wave G: single geometry source + token-only paint ------------------------
+
+
+def _row_height_of(tl, kind: str) -> float:
+    if kind == "group":
+        return float(tl.GROUP_HEADER_HEIGHT)
+    if kind == "track_single":
+        return float(tl.TRACK_ROW_HEIGHT)
+    return float(tl.CHANNEL_ROW_HEIGHT)
+
+
+def _brute_row_rects(tl, rows_top: float, rows_bottom: float):
+    """Independent oracle: full accumulation, visibility filter, no helpers."""
+    out = []
+    y = float(rows_top)
+    for item in tl._row_layout:
+        kind = item[0]
+        h = _row_height_of(tl, kind)
+        if y + h > 0.0 and y < rows_bottom:
+            out.append((kind, item, QRectF(0.0, y, float(tl.LEFT_GUTTER), h)))
+        y += h
+    return out
+
+
+def _tall_widget(qtbot):
+    tracks = {}
+    for i in range(30):
+        tracks[f"t{i}"] = _track(
+            f"t{i}",
+            f"T{i}",
+            {"v": _channel("v", [_keyframe(0, 0.0), _keyframe(10, 1.0)])},
+        )
+    groups = {f"g{i}": _group(f"G{i}", {f"t{i}": tracks[f"t{i}"]}) for i in range(10)}
+    return _make_widget(qtbot, model=_model(groups))
+
+
+def test_iter_row_rects_matches_brute_force_scrolled(qtbot):
+    """``iter_row_rects`` agrees with brute force at several scrolls."""
+    tl = _tall_widget(qtbot)
+    _, rows_bottom = timeline_viewport.content_viewport_bounds(tl)
+    for scroll in (0, 40, 200, 900, 5000):
+        rows_top = tl.STRIP_HEIGHT - scroll
+        got = list(timeline_layout.iter_row_rects(tl, rows_top, rows_bottom))
+        expected = _brute_row_rects(tl, rows_top, rows_bottom)
+        assert [k for k, _, _ in got] == [k for k, _, _ in expected], scroll
+        assert len(got) == len(expected), scroll
+        for (kind, key, rect), (exp_kind, exp_item, exp_rect) in zip(got, expected):
+            assert kind == exp_kind, scroll
+            assert key is exp_item, scroll
+            assert rect == exp_rect, (scroll, rect, exp_rect)
+        # y_at_start consistency with the window helper.
+        start, end, y0 = timeline_layout.visible_row_window(tl, rows_top, rows_bottom)
+        assert (len(got) == 0) == (start == end), scroll
+        if got:
+            assert got[0][2].top() == y0, (scroll, got[0][2].top(), y0)
+
+
+def _id_group(group_id: str, label: str, tracks):
+    grp = _group(label, tracks)
+    grp.id = group_id
+    return grp
+
+
+def test_iter_row_rects_collapsed_state(qtbot):
+    """Collapsed groups hide their children from ``iter_row_rects``."""
+    early = _track(
+        "early", "Early", {"v": _channel("v", [_keyframe(t, float(t % 2)) for t in range(6)])}
+    )
+    full = _track(
+        "full",
+        "Full",
+        {"v": _channel("v", [_keyframe(t, float((t // 5) % 2)) for t in range(0, 101, 5)])},
+    )
+    model = _model(
+        {
+            "g1": _id_group("g1", "G1", {"early": early}),
+            "g2": _id_group("g2", "G2", {"full": full}),
+        }
+    )
+    tl = _make_widget(qtbot, model=model)
+    _, rows_bottom = timeline_viewport.content_viewport_bounds(tl)
+    rows_top = tl.STRIP_HEIGHT
+    full_kinds = [k for k, _, _ in timeline_layout.iter_row_rects(tl, rows_top, rows_bottom)]
+    assert full_kinds == ["group", "track_single", "group", "track_single"], full_kinds
+
+    g1 = model.groups["g1"]
+    assert not timeline_layout.is_group_collapsed(tl, g1)
+    timeline_layout.toggle_group_collapsed(tl, g1)
+    try:
+        assert timeline_layout.is_group_collapsed(tl, g1)
+        assert tl._is_group_collapsed(g1)
+        got = list(timeline_layout.iter_row_rects(tl, rows_top, rows_bottom))
+        assert [k for k, _, _ in got] == ["group", "group", "track_single"], got
+        # Collapsed children are gone from the layout itself, so the brute
+        # oracle over the rebuilt layout agrees too.
+        expected = _brute_row_rects(tl, rows_top, rows_bottom)
+        assert [k for k, _, _ in got] == [k for k, _, _ in expected]
+        assert [r for _, _, r in got] == [r for _, _, r in expected]
+    finally:
+        timeline_layout.toggle_group_collapsed(tl, g1)
+    assert not timeline_layout.is_group_collapsed(tl, g1)
+    restored = [k for k, _, _ in timeline_layout.iter_row_rects(tl, rows_top, rows_bottom)]
+    assert restored == full_kinds, restored
+
+
+def test_group_key_prefers_id_then_label():
+    assert timeline_layout.group_key(SimpleNamespace(id="abc", label="L")) == "abc"
+    assert timeline_layout.group_key(SimpleNamespace(label="L")) == "L"
+    assert timeline_layout.group_key(SimpleNamespace()) == ""
+
+
+def test_group_functions_match_widget_methods(qtbot):
+    """Layout group functions equal the widget methods wave T delegates."""
+    tl = _make_widget(qtbot)
+    groups = [item[1] for item in tl._row_layout if item[0] == "group"]
+    assert groups, "expected group rows"
+    for group in groups:
+        assert timeline_layout.group_key(group) == tl._group_key(group)
+        assert timeline_layout.is_group_collapsed(tl, group) == tl._is_group_collapsed(group)
+        assert timeline_layout.group_accent_color(tl, group) == tl._group_accent_color(group)
+        for left, top in ((0.0, 72.0), (137.0, 200.5)):
+            header = timeline_layout.group_header_rect(tl, left, top)
+            assert header == tl._group_header_rect(left, top), (left, top)
+            assert timeline_layout.group_chevron_rect(header) == tl._group_chevron_rect(header)
+
+
+def test_group_header_chevron_geometry(qtbot):
+    """Exact header/chevron numbers (chevron must sit inside the gutter band)."""
+    tl = _make_widget(qtbot)
+    header = timeline_layout.group_header_rect(tl, 137.0, 72.0)
+    assert header == QRectF(137.0, 72.0, float(tl.LEFT_GUTTER), float(tl.GROUP_HEADER_HEIGHT))
+    chevron = timeline_layout.group_chevron_rect(header)
+    assert chevron == QRectF(137.0 + 8, 72.0 + 2, 18, float(tl.GROUP_HEADER_HEIGHT) - 4)
+    band = timeline_viewport.gutter_band_rect(tl, 137)
+    assert band.contains(int(chevron.left()), int(chevron.center().y()))
+    assert band.contains(int(chevron.right()), int(chevron.center().y()))
+
+
+def test_toggle_group_collapsed_roundtrip(qtbot):
+    """Toggle twice restores the layout; the key tracks membership."""
+    tl = _tall_widget(qtbot)
+    before = list(tl._row_layout)
+    group = next(item[1] for item in before if item[0] == "group")
+    key = timeline_layout.group_key(group)
+    timeline_layout.toggle_group_collapsed(tl, group)
+    assert key in tl._collapsed_group_ids
+    assert len(tl._row_layout) < len(before)
+    timeline_layout.toggle_group_collapsed(tl, group)
+    assert key not in tl._collapsed_group_ids
+    assert [i[0] for i in tl._row_layout] == [i[0] for i in before]
+
+
+def test_no_is_dark_in_owned_paint_paths():
+    """Plan I8 guard: render/primitives/segments paint without theme ternaries."""
+    from pathlib import Path
+
+    base = Path(timeline_render.__file__).resolve().parent
+    for name in ("render.py", "primitives.py", "segments.py"):
+        source = (base / name).read_text()
+        assert "is_dark" not in source, name
+
+
+@pytest.fixture()
+def _themed(qapp):
+    tm = ThemeManager.get_instance()
+    tm.register_palettes(FLUENT_LIGHT, FLUENT_DARK)
+    tm.set_theme("light", qapp, await_ripples=False)
+    try:
+        yield tm
+    finally:
+        tm.register_palettes(FLUENT_LIGHT, FLUENT_DARK)
+        tm.set_theme("light", qapp, await_ripples=False)
+
+
+def test_wash_alpha_resolves_tokens_and_defaults(_themed, qapp):
+    """Wash strengths: per-theme defaults, host token override wins in both."""
+    tm = _themed
+    assert timeline_render._wash_alpha(tm, "timeline.group.wash.track.alpha") == 22
+    assert timeline_render._wash_alpha(tm, "timeline.group.wash.first.alpha") == 18
+    assert timeline_render._wash_alpha(tm, "timeline.group.wash.channel.alpha") == 10
+    assert timeline_render._wash_alpha(tm, "timeline.ruler.minor.tick.alpha") == 180
+    tm.set_theme("dark", qapp, await_ripples=False)
+    try:
+        assert timeline_render._wash_alpha(tm, "timeline.group.wash.track.alpha") == 46
+        assert timeline_render._wash_alpha(tm, "timeline.group.wash.first.alpha") == 42
+        assert timeline_render._wash_alpha(tm, "timeline.group.wash.channel.alpha") == 24
+        assert timeline_render._wash_alpha(tm, "timeline.ruler.minor.tick.alpha") == 150
+        tm.set_color("timeline.group.wash.track.alpha", QColor(0, 0, 0, 99))
+        assert timeline_render._wash_alpha(tm, "timeline.group.wash.track.alpha") == 99
+    finally:
+        tm.register_palettes(FLUENT_LIGHT, FLUENT_DARK)
+        tm.set_theme("light", qapp, await_ripples=False)
+
+
+def _strip_probe(tl):
+    """A thumbnail-strip pixel with no thumbs/segments/playhead: canvas fill."""
+    return tl.grab().toImage().pixelColor(int(tl.LEFT_GUTTER) + 100, 10)
+
+
+def test_light_dark_paint_diverges_through_tokens(qtbot, qapp, _themed):
+    """Light/dark paints differ, and a token override reaches the pixels."""
+    tm = _themed
+    tl = _make_widget(qtbot)
+    qapp.processEvents()
+
+    tm.set_theme("light", qapp, await_ripples=False)
+    qapp.processEvents()
+    light_px = _strip_probe(tl)
+    assert light_px.rgb() == tm.get_color("Window").rgb()
+
+    tm.set_theme("dark", qapp, await_ripples=False)
+    qapp.processEvents()
+    dark_px = _strip_probe(tl)
+    assert dark_px.rgb() == tm.get_color("Window").rgb()
+    assert dark_px.rgb() != light_px.rgb()
+
+    # Override the wash token: two alphas must paint two different gutters.
+    tm.set_theme("light", qapp, await_ripples=False)
+    tm.set_color("timeline.group.wash.track.alpha", QColor(0, 0, 0, 255))
+    qapp.processEvents()
+    opaque = tl.grab().toImage()
+    tm.set_color("timeline.group.wash.track.alpha", QColor(0, 0, 0, 0))
+    qapp.processEvents()
+    clear = tl.grab().toImage()
+    assert bytes(opaque.bits()) != bytes(clear.bits())

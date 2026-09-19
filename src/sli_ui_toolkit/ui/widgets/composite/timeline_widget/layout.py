@@ -216,6 +216,95 @@ def _curve_y_for_keyframe(
         return row_center_y + base_direction * stagger_px
     return row_center_y + base_direction * stagger_px * 0.35
 
+
+def group_key(group) -> str:
+    """Stable collapse key for a group (thin-owner function).
+
+    Mirrors ``TimelineWidget._group_key``: the ``id`` when present, else
+    the ``label``. Wave T turns the widget method into a delegator over
+    this function with the same name kept.
+    """
+    return str(getattr(group, "id", getattr(group, "label", "")))
+
+
+def is_group_collapsed(widget, group) -> bool:
+    """True when *group* is collapsed on *widget* (thin-owner function)."""
+    return group_key(group) in widget._collapsed_group_ids
+
+
+def toggle_group_collapsed(widget, group) -> None:
+    """Toggle *group*'s collapsed state on *widget* (thin-owner function).
+
+    Same sequence as ``TimelineWidget._toggle_group_collapsed``: flip the
+    key in ``_collapsed_group_ids``, rebuild the row layout, refresh the
+    preferred height, repaint.
+    """
+    collapsed_ids = widget._collapsed_group_ids
+    key = group_key(group)
+    if key in collapsed_ids:
+        collapsed_ids.remove(key)
+    else:
+        collapsed_ids.add(key)
+    rebuild_row_layout(widget)
+    ensure_preferred_height(widget)
+    widget.update()
+
+
+def group_header_rect(widget, left: float, top: float) -> QRectF:
+    """Group header rect at ``(left, top)`` (thin-owner function).
+
+    Takes the widget for the live ``LEFT_GUTTER`` / ``GROUP_HEADER_HEIGHT``
+    constants — identical to ``TimelineWidget._group_header_rect``.
+    """
+    return QRectF(
+        float(left),
+        float(top),
+        float(widget.LEFT_GUTTER),
+        float(widget.GROUP_HEADER_HEIGHT),
+    )
+
+
+def group_chevron_rect(header_rect: QRectF) -> QRectF:
+    """Chevron hit rect inside a group header rect (thin-owner function).
+
+    Pure geometry — identical to ``TimelineWidget._group_chevron_rect``:
+    ``[left + 8, left + 26]`` horizontally, 2px inset vertically.
+    """
+    return QRectF(
+        header_rect.left() + 8,
+        header_rect.top() + 2,
+        18,
+        header_rect.height() - 4,
+    )
+
+
+def group_accent_color(widget, group) -> QColor:
+    """Accent color for a group header (thin-owner function).
+
+    Same resolution as ``TimelineWidget._group_accent_color``: the group's
+    explicit ``accent_color`` when valid, else the first visible track's
+    kind color, else the widget accent. Theme helpers come from
+    ``theme.py`` via a function-level import (layout keeps its single
+    top-level ``viewport`` edge per the cycle rule).
+    """
+    from . import theme as timeline_theme
+
+    explicit = QColor(getattr(group, "accent_color", None) or "")
+    if explicit.isValid():
+        return explicit
+    for track in group.tracks.values():
+        visible_chs = visible_channels(widget, track)
+        if visible_chs:
+            return timeline_theme.track_color(
+                widget,
+                track.kind,
+                visible_chs[0].kind,
+                track_accent_color=getattr(track, "accent_color", None),
+                channel_accent_color=getattr(visible_chs[0], "accent_color", None),
+            )
+    return timeline_theme.resolve_accent_color(widget)
+
+
 def rebuild_row_layout(widget) -> None:
     widget._row_layout = []
     if widget._timeline_model is None:
@@ -237,15 +326,12 @@ def rebuild_row_layout(widget) -> None:
 
         if group_items:
             widget._row_layout.append(("group", group))
-            if getattr(widget, "_is_group_collapsed")(group):
+            if is_group_collapsed(widget, group):
                 continue
             else:
                 widget._row_layout.extend(group_items)
 
 def group_toggle_hit(widget, pos) -> Any | None:
-    if not widget._row_layout:
-        return None
-
     scroll_area = timeline_viewport.get_scroll_area(widget)
     scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
     _content_top, rows_bottom = timeline_viewport.content_viewport_bounds(widget)
@@ -254,23 +340,17 @@ def group_toggle_hit(widget, pos) -> Any | None:
     # Same row window the paint passes visit (no private y-loop): rows
     # outside [content_top, rows_bottom) can never contain a painted
     # chevron, so skipping them keeps hit-testing and painting in sync
-    # under scroll/collapse. y values are identical to the old
-    # accumulation (y_at_start == rows_top + cached offset of start).
-    start, end, y = visible_row_window(widget, rows_top, rows_bottom)
+    # under scroll/collapse. Rects come from iter_row_rects — the single
+    # y-accumulation site — so hit-testing and painting share one geometry.
     point = QPointF(pos)
-    for item in widget._row_layout[start:end]:
-        if item[0] == "group":
-            group = item[1]
-            rect = widget._group_chevron_rect(
-                widget._group_header_rect(scroll_offset, y)
-            )
-            if rect.contains(point):
-                return group
-            y += widget.GROUP_HEADER_HEIGHT
-        elif item[0] == "track_single":
-            y += widget.TRACK_ROW_HEIGHT
-        else:
-            y += widget.CHANNEL_ROW_HEIGHT
+    for kind, key, rect in iter_row_rects(widget, rows_top, rows_bottom):
+        if kind != "group":
+            continue
+        group = key[1]
+        if group_chevron_rect(
+            group_header_rect(widget, scroll_offset, rect.top())
+        ).contains(point):
+            return group
 
     return None
 
@@ -439,6 +519,49 @@ def visible_row_window(
             break
     y_at_start = rows_top + tops_start
     return start, end, float(y_at_start)
+
+
+def iter_row_rects(widget, rows_top=None, rows_bottom=None, *, content_top: float = 0.0):
+    """Yield ``(kind, key, rect)`` for each visible row — the single row-geometry source.
+
+    ``kind`` is ``"group"`` | ``"track_single"`` | ``"channel"``; ``key``
+    is the raw ``widget._row_layout`` entry (``key[0] == kind``,
+    ``key[1]`` is the group; track rows additionally carry track/channel);
+    ``rect`` is the widget-space ``QRectF(0, y, LEFT_GUTTER, row_h)`` band
+    for the row. Only rows intersecting ``[content_top, rows_bottom)``
+    are yielded, with ``y`` accumulated from the ``visible_row_window``
+    ``y_at_start`` using the widget's own row-height constants.
+
+    This generator holds the ONLY y-accumulation loop: ``render.draw_rows``,
+    ``render.draw_sticky_gutter_overlay``, and ``group_toggle_hit`` consume
+    it instead of stepping ``y`` themselves, so lane paint, gutter paint,
+    and hit-testing share identical rects under scroll/collapse.
+
+    ``rows_top`` defaults to the rows origin (``STRIP_HEIGHT`` minus the
+    vertical scroll); ``rows_bottom`` defaults to the content viewport
+    bottom. Both may be passed explicitly by callers that already computed
+    them for the current paint (avoids a second scrollbar read).
+    """
+    if rows_top is None:
+        rows_top = widget.STRIP_HEIGHT - timeline_viewport.vertical_scroll_value(widget)
+    if rows_bottom is None:
+        _, rows_bottom = timeline_viewport.content_viewport_bounds(widget)
+    start, end, y = visible_row_window(
+        widget, rows_top, rows_bottom, content_top=content_top
+    )
+    layout = widget._row_layout
+    gutter_w = float(widget.LEFT_GUTTER)
+    for index in range(start, end):
+        item = layout[index]
+        kind = item[0]
+        if kind == "group":
+            row_h = float(widget.GROUP_HEADER_HEIGHT)
+        elif kind == "track_single":
+            row_h = float(widget.TRACK_ROW_HEIGHT)
+        else:
+            row_h = float(widget.CHANNEL_ROW_HEIGHT)
+        yield kind, item, QRectF(0.0, y, gutter_w, row_h)
+        y += row_h
 
 
 def row_time_x_range(
