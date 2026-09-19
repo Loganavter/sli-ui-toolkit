@@ -402,3 +402,68 @@ def test_host_scroll_unions_gutter_band_synchronously(qapp):
 
     band = gutter_band_rect_for_scroll(widget, int(bar.value()))
     assert any(r == band for r in update_rects if r is not None)
+
+
+def test_gutter_drag_leaves_coalesced_zoom_accounting_quiet(qapp):
+    """Gutter drag commits via _commitState (CUTOVER-C): exactly one
+    viewport-family emit, zero zoomChanged, zoom scalar untouched.
+
+    The drag travels the frozen ``TimelineViewportState`` shape via
+    ``with_left_gutter`` — so the Z2 zoom counters stay quiet while the
+    viewport counters record the single geometry commit.
+    """
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QMouseEvent
+
+    widget, _area = _make_hosted(qapp)
+    _ctrl_wheel(widget, 120, x=400.0)  # warm-up: scrollbar live, layout settled
+    qapp.processEvents()
+    qapp.processEvents()
+    zoom_before = widget._zoom_level
+    zoom_got: list[float] = []
+    viewport_got: list[int] = []
+    widget.zoomChanged.connect(lambda z: zoom_got.append(z))
+    widget.viewportChanged.connect(lambda: viewport_got.append(1))
+    _reset_probe(widget)
+    qapp.processEvents()
+    _reset_probe(widget)  # clear stale setup paints delivered above
+
+    scroll_now = float(_area.horizontalScrollBar().value())
+    gutter_x = scroll_now + float(widget.LEFT_GUTTER)
+    widget.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(gutter_x, 100.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert widget._is_resizing_gutter
+    mid = (float(widget.MIN_LEFT_GUTTER) + float(widget.MAX_LEFT_GUTTER)) / 2.0
+    widget.mouseMoveEvent(
+        QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(scroll_now + mid, 100.0),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    assert widget.LEFT_GUTTER == mid
+    widget.mouseReleaseEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonRelease,
+            QPointF(scroll_now + mid, 100.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+    )
+    qapp.processEvents()
+
+    assert widget.commit_calls == 1
+    assert widget.commit_sources == ["gutterDrag"]
+    assert widget.commit_emitted == 1
+    assert zoom_got == [] and len(viewport_got) == 1
+    assert widget._zoom_level == zoom_before

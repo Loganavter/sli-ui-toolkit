@@ -148,3 +148,67 @@ def test_timeline_home_end_jump_to_bounds(qtbot):
     assert tl._current_index == 0
 
 
+def test_timeline_up_down_yield_to_navigation():
+    """Trial-dispatch contract (docs/dev/NAVIGATION.md): Up/Down are never
+    consumed by the widget while idle — NavigationManager owns them."""
+    from tests._nav_contract import assert_yields_arrows_when_idle
+
+    assert_yields_arrows_when_idle(TimelineWidget)
+
+
+def test_timeline_up_down_leave_head_untouched(qtbot):
+    tl = _make_timeline(qtbot)
+    moves: list[int] = []
+    tl.headMoved.connect(moves.append)
+    before = tl._current_index
+    qtbot.keyClick(tl, Qt.Key.Key_Up)
+    qtbot.keyClick(tl, Qt.Key.Key_Down)
+    assert tl._current_index == before
+    assert moves == []
+
+
+def test_timeline_left_right_yield_to_navigation():
+    """Left/Right are free unless extra_keys (NAVIGATION.md): the widget may
+    step with them, but must not break the trial-dispatch probe shape —
+    direct keyPressEvent delivery stays functional for the manager probe."""
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    tl = TimelineWidget()
+    tl._total_frames = 50
+    tl._current_index = 5
+    for key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+        event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+        tl.keyPressEvent(event)
+        # Stepping accepts (widget owns Left/Right); the point is the call
+        # never crashes and the probe shape (direct keyPressEvent) works.
+        assert event.isAccepted()
+    tl.close()
+
+
+def test_timeline_empty_inputs_fail_open(qtbot):
+    """Empty/degenerate store: navigation keys are ignored, nothing emits."""
+    tl = TimelineWidget()
+    tl._total_frames = 0
+    tl._current_index = 0
+    _show(tl, qtbot)
+    tl.setFocus()
+    moves: list[int] = []
+    deletes: list[int] = []
+    tl.headMoved.connect(moves.append)
+    tl.deletePressed.connect(lambda: deletes.append(1))
+    for key in (
+        Qt.Key.Key_Left,
+        Qt.Key.Key_Right,
+        Qt.Key.Key_Home,
+        Qt.Key.Key_End,
+    ):
+        qtbot.keyClick(tl, key)
+    assert tl._current_index == 0
+    assert moves == []
+    # Delete is selection-independent and still emits (documents current
+    # behavior for the supervisor key-map spec).
+    qtbot.keyClick(tl, Qt.Key.Key_Delete)
+    assert deletes == [1]
+
+

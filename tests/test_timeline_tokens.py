@@ -170,6 +170,147 @@ def test_no_hardcoded_theme_branches_in_paint_path():
         assert bad == [], (name, bad)
 
 
+def _relative_luminance(color: QColor) -> float:
+    def channel(value: int) -> float:
+        c = value / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * channel(color.red())
+        + 0.7152 * channel(color.green())
+        + 0.0722 * channel(color.blue())
+    )
+
+
+def _contrast_ratio(first: QColor, second: QColor) -> float:
+    lighter = max(_relative_luminance(first), _relative_luminance(second))
+    darker = min(_relative_luminance(first), _relative_luminance(second))
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+def test_center_line_token_split_and_contrast(themed, qapp, theme_name):
+    """``timeline.center.line`` is split per theme and keeps >= 3.0:1
+    (component AA) against ``timeline.lane.background`` in both themes."""
+    themed.set_theme(theme_name, qapp, await_ripples=False)
+    host = _host(themed)
+    center = timeline_theme.row_center_line_color(host)
+    lane = timeline_theme._timeline_color(themed, "timeline.lane.background")
+    assert center.isValid() and lane.isValid()
+    assert _contrast_ratio(center, lane) >= 3.0, (theme_name, center, lane)
+
+
+def test_center_line_light_dark_differ(themed, qapp):
+    themed.set_theme("light", qapp, await_ripples=False)
+    light = timeline_theme.row_center_line_color(_host(themed))
+    themed.set_theme("dark", qapp, await_ripples=False)
+    dark = timeline_theme.row_center_line_color(_host(themed))
+    assert light != dark
+    assert (light.red(), light.green(), light.blue()) == (105, 107, 119)
+    assert (dark.red(), dark.green(), dark.blue()) == (190, 190, 196)
+
+
+@pytest.mark.parametrize("theme_name", ["light", "dark"])
+def test_center_line_override_wins(themed, qapp, theme_name):
+    themed.set_theme(theme_name, qapp, await_ripples=False)
+    host = _host(themed)
+    themed.set_color("timeline.center.line", QColor("#445566"))
+    assert timeline_theme.row_center_line_color(host) == QColor("#445566")
+
+
+def test_lane_delegate_hook_resolution_order(themed, qapp):
+    """Delegate sits between explicit accent args and kind-token fallback;
+    ``None``/invalid/exception fall through (fail-open), default ``None``
+    keeps legacy behavior."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.models import (
+        TimelineCallbacks,
+    )
+
+    themed.set_theme("dark", qapp, await_ripples=False)
+
+    def host_with(delegate):
+        return SimpleNamespace(
+            theme_manager=themed,
+            _callbacks=TimelineCallbacks(lane_value_color=delegate),
+        )
+
+    plain = host_with(None)
+    legacy = timeline_theme.track_value_color(
+        plain, track_id="t", track_kind="float", channel_kind=None, value=1.0
+    )
+    # Default delegate (None) == legacy fallback.
+    assert legacy == timeline_theme.track_color(plain, "float", None)
+
+    # Callable delegate wins over the token fallback.
+    hooked = host_with(
+        lambda *, track_id, track_kind, channel_kind, value: QColor("#112233")
+    )
+    assert timeline_theme.track_value_color(
+        hooked, track_id="t", track_kind="float", channel_kind=None, value=1.0
+    ) == QColor("#112233")
+
+    # Object delegate with a method works too.
+    class Delegate:
+        def lane_value_color(self, *, track_id, track_kind, channel_kind, value):
+            return QColor("#445566")
+
+    obj_host = host_with(Delegate())
+    assert timeline_theme.track_value_color(
+        obj_host, track_id="t", track_kind="float", channel_kind=None, value=1.0
+    ) == QColor("#445566")
+
+    # Explicit accent args win over the delegate.
+    assert timeline_theme.track_value_color(
+        hooked,
+        track_id="t",
+        track_kind="float",
+        channel_kind=None,
+        value=1.0,
+        track_accent_color="#ff0000",
+    ) == QColor("#ff0000")
+
+    # Fail-open: None / invalid / raising delegates fall back to legacy.
+    for bad in (
+        lambda **kw: None,
+        lambda **kw: "not-a-color!!###",
+        SimpleNamespace(),  # no lane_value_color method
+    ):
+        bad_host = host_with(bad)
+        assert timeline_theme.track_value_color(
+            bad_host, track_id="t", track_kind="float", channel_kind=None, value=1.0
+        ) == timeline_theme.track_color(bad_host, "float", None)
+
+    def _boom(**kw):
+        raise RuntimeError("delegate blew up")
+
+    boom_host = host_with(_boom)
+    assert timeline_theme.track_value_color(
+        boom_host, track_id="t", track_kind="float", channel_kind=None, value=1.0
+    ) == timeline_theme.track_color(boom_host, "float", None)
+
+
+def test_timeline_data_source_protocol_shape():
+    """The frozen member shape supervisors wire ``set_data(source=...)`` to."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.models import (
+        TimelineDataSource,
+    )
+
+    class StubSource:
+        snapshots = [1, 2]
+        fps = 30
+        duration = 2.5
+        timeline_model = None
+
+    assert isinstance(StubSource(), TimelineDataSource)
+
+    class MissingDuration:
+        snapshots = []
+        fps = 30
+        timeline_model = None
+
+    assert not isinstance(MissingDuration(), TimelineDataSource)
+
+
 def test_timeline_renders_light_and_dark(themed, qapp, qtbot):
     """A real widget paints without error under both palettes (smoke)."""
     from PySide6.QtGui import QImage

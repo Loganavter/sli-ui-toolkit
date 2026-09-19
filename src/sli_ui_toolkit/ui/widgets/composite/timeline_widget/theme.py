@@ -21,7 +21,12 @@ _TIMELINE_TOKEN_DEFAULTS: dict[str, tuple[QColor, QColor]] = {
     "timeline.separator.strong": (QColor(188, 192, 200), QColor(85, 85, 85)),
     "timeline.separator.soft": (QColor(218, 220, 226), QColor(55, 55, 60)),
     "timeline.separator.row": (QColor(210, 210, 214), QColor(210, 210, 214)),
-    "timeline.center.line": (QColor(190, 190, 196), QColor(190, 190, 196)),
+    # Center line is split per theme so it keeps >= 3.0:1 (component AA,
+    # DESIGN_LANGUAGE contrast targets) against lane_bg in BOTH themes:
+    # light (105,107,119) vs lane_bg (232,233,238) = 4.36:1;
+    # dark (190,190,196) vs lane_bg (50,50,55) = 6.89:1.
+    # (The old single value (190,190,196) was 1.53:1 on light — invisible.)
+    "timeline.center.line": (QColor(105, 107, 119), QColor(190, 190, 196)),
     "timeline.scrollbar.idle": (QColor(0, 0, 0, 65), QColor(255, 255, 255, 55)),
     "timeline.scrollbar.hover": (QColor(0, 0, 0, 95), QColor(255, 255, 255, 85)),
     "timeline.track.bool": (QColor(0, 140, 198), QColor(0, 140, 198)),
@@ -209,11 +214,87 @@ def track_value_color(
     channel_kind: str | None,
     value,
     fallback: QColor | None = None,
+    track_accent_color: str | None = None,
+    channel_accent_color: str | None = None,
 ) -> QColor:
+    """Per-lane value color with host delegate hook (Phase 4 D API).
+
+    Resolution order (additive — default behavior unchanged):
+
+    1. explicit ``channel_accent_color`` / ``track_accent_color`` args;
+    2. ``widget._callbacks.lane_value_color`` delegate — either a plain
+       callable ``(*, track_id, track_kind, channel_kind, value)`` or an
+       object with a ``lane_value_color`` method of that shape; a valid
+       ``QColor``/color string wins, ``None``/invalid/exception falls
+       through (fail-open);
+    3. kind token via :func:`track_color` (no explicit accent passed, so
+       the token → widget-accent fallbacks apply);
+    4. explicit ``fallback`` QColor when supplied (shapes the step-3 seed
+       exactly as before).
+
+    The widget-level accent override (``accent_color=`` /
+    ``set_accent_color()``) is honored through step 3's
+    :func:`resolve_accent_color` fallback — a delegate returning ``None``
+    never silences it.
+    """
+    explicit = _explicit_accent_color(channel_accent_color, track_accent_color)
+    if explicit is not None:
+        return explicit
+    delegate_hit = _lane_delegate_color(
+        widget,
+        track_id=track_id,
+        track_kind=track_kind,
+        channel_kind=channel_kind,
+        value=value,
+    )
+    if delegate_hit is not None:
+        return delegate_hit
     fallback_color = QColor(fallback) if fallback is not None else track_color(
         widget, track_kind, channel_kind
     )
     return fallback_color
+
+
+def _lane_delegate_color(
+    widget,
+    *,
+    track_id: str,
+    track_kind: str,
+    channel_kind: str | None,
+    value,
+) -> QColor | None:
+    """Try the ``lane_value_color`` delegate; ``None`` on fallthrough."""
+    callbacks = getattr(widget, "_callbacks", None)
+    delegate = getattr(callbacks, "lane_value_color", None)
+    if delegate is None:
+        return None
+    try:
+        if callable(delegate):
+            result = delegate(
+                track_id=track_id,
+                track_kind=track_kind,
+                channel_kind=channel_kind,
+                value=value,
+            )
+        else:
+            method = getattr(delegate, "lane_value_color", None)
+            if not callable(method):
+                return None
+            result = method(
+                track_id=track_id,
+                track_kind=track_kind,
+                channel_kind=channel_kind,
+                value=value,
+            )
+    except Exception:
+        return None
+    if result is None:
+        return None
+    try:
+        color = result if isinstance(result, QColor) else QColor(result)
+    except Exception:
+        return None
+    return color if color.isValid() else None
 
 def mix_colors(base: QColor, overlay: QColor, alpha: int) -> QColor:
     alpha_ratio = max(0.0, min(1.0, alpha / 255.0))

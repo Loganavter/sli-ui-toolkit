@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from types import SimpleNamespace
+from typing import Any
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
@@ -26,20 +27,19 @@ def _segment_color(widget, track, channel, timestamp: float, fallback: QColor) -
         fallback=fallback,
     )
 
-def _draw_color_track_segments(
+def _color_state_spans(
     widget,
-    painter: QPainter,
-    *,
-    group,
     track,
     duration: float,
     logical_width: float,
-    row_center_y: float,
-    start_x: float,
-    end_x: float,
-    point_radius: float,
-    stagger_px: float = 7.0,
-) -> None:
+) -> list[tuple[float, float, float, float, QColor]]:
+    """Pure x-span computation for color tracks, shared by paint and cull.
+
+    Returns ``(timestamp, end_timestamp, x1, x2, color)`` per distinct
+    color run — the same timestamp dedup and the same duration endpoint
+    the draw pass paints. ``content_x_range`` derives the cull interval
+    from these spans, so cull and paint can never disagree.
+    """
     timestamps = sorted(
         {
             float(keyframe.timestamp)
@@ -48,7 +48,7 @@ def _draw_color_track_segments(
         }
     )
     if not timestamps:
-        return
+        return []
 
     color_states: list[tuple[float, QColor]] = []
     for timestamp in timestamps:
@@ -68,13 +68,7 @@ def _draw_color_track_segments(
                 continue
         color_states.append((timestamp, color))
 
-    if not color_states:
-        return
-
-    left_bound = start_x - 12.0
-    right_bound = end_x + 12.0
-    segments: list[tuple[float, float, float, QColor, SimpleNamespace, SimpleNamespace]] = []
-
+    spans: list[tuple[float, float, float, float, QColor]] = []
     for index, (timestamp, color) in enumerate(color_states):
         end_timestamp = (
             color_states[index + 1][0]
@@ -83,6 +77,34 @@ def _draw_color_track_segments(
         )
         start_x_pos = timeline_layout.time_to_x(widget, timestamp, duration, logical_width)
         end_x_pos = timeline_layout.time_to_x(widget, end_timestamp, duration, logical_width)
+        spans.append((timestamp, end_timestamp, start_x_pos, end_x_pos, color))
+    return spans
+
+
+def _draw_color_track_segments(
+    widget,
+    painter: QPainter,
+    *,
+    group,
+    track,
+    duration: float,
+    logical_width: float,
+    row_center_y: float,
+    start_x: float,
+    end_x: float,
+    point_radius: float,
+    stagger_px: float = 7.0,
+) -> None:
+    spans = _color_state_spans(widget, track, duration, logical_width)
+    if not spans:
+        return
+
+    pad = timeline_layout.DAMAGE_PAD
+    left_bound = start_x - pad
+    right_bound = end_x + pad
+    segments: list[tuple[float, float, float, QColor, SimpleNamespace, SimpleNamespace]] = []
+
+    for index, (timestamp, end_timestamp, start_x_pos, end_x_pos, color) in enumerate(spans):
         direction = -1.0 if index % 2 == 0 else 1.0
         y = row_center_y + direction * stagger_px
         start_keyframe_ref = SimpleNamespace(timestamp=timestamp, value=color)
@@ -108,32 +130,61 @@ def _draw_color_track_segments(
         painter.setBrush(QBrush(color))
         if left_bound <= x1 <= right_bound:
             painter.drawEllipse(QPointF(x1, y), point_radius, point_radius)
-            widget._hover_points.append(
-                (
-                    QRectF(x1 - 6, y - 6, 12, 12),
-                    timeline_viewport.tooltip_for_keyframe(
-                        widget,
-                        group,
-                        track,
-                        next(iter(track.channels.values())),
-                        start_keyframe_ref,
-                    ),
-                )
-            )
         if left_bound <= x2 <= right_bound:
             painter.drawEllipse(QPointF(x2, y), point_radius, point_radius)
-            widget._hover_points.append(
-                (
-                    QRectF(x2 - 6, y - 6, 12, 12),
-                    timeline_viewport.tooltip_for_keyframe(
-                        widget,
-                        group,
-                        track,
-                        next(iter(track.channels.values())),
-                        end_keyframe_ref,
-                    ),
-                ),
+        # Hover stays damage-independent (wave B seam): dots draw gated,
+        # hit-points cover the full span via the shared helper.
+        widget._hover_points.extend(
+            timeline_viewport.hover_points_for_rows(
+                widget,
+                group,
+                track,
+                next(iter(track.channels.values())),
+                [
+                    (x1, y, start_keyframe_ref),
+                    (x2, y, end_keyframe_ref),
+                ],
             )
+        )
+
+def _enum_state_spans(
+    widget,
+    track,
+    channel,
+    duration: float,
+    logical_width: float,
+) -> list[tuple[float, float, float, float, Any]]:
+    """Pure x-span computation for enum tracks, shared by paint and cull.
+
+    Returns ``(timestamp, end_timestamp, x1, x2, value)`` per distinct
+    value run — the same value dedup, activity filter, and duration
+    endpoint the draw pass paints. ``content_x_range`` derives the cull
+    interval from these spans, so cull and paint can never disagree.
+    """
+    keyframes = channel.keyframes
+    if not keyframes:
+        return []
+
+    states: list[tuple[float, Any]] = []
+    for keyframe in keyframes:
+        timestamp = float(keyframe.timestamp)
+        value = keyframe.value
+        if states and states[-1][1] == value:
+            continue
+        states.append((timestamp, value))
+
+    spans: list[tuple[float, float, float, float, Any]] = []
+    for index, (timestamp, value) in enumerate(states):
+        end_timestamp = states[index + 1][0] if index + 1 < len(states) else float(duration)
+        if end_timestamp < timestamp:
+            continue
+        if not timeline_layout._is_track_active(widget, track, channel, timestamp):
+            continue
+        x1 = timeline_layout.time_to_x(widget, timestamp, duration, logical_width)
+        x2 = timeline_layout.time_to_x(widget, end_timestamp, duration, logical_width)
+        spans.append((timestamp, end_timestamp, x1, x2, value))
+    return spans
+
 
 def _draw_enum_track_segments(
     widget,
@@ -151,40 +202,21 @@ def _draw_enum_track_segments(
     line_col: QColor,
     stagger_px: float = 7.0,
 ) -> None:
-    keyframes = channel.keyframes
-    if not keyframes:
+    spans = _enum_state_spans(widget, track, channel, duration, logical_width)
+    if not spans:
         return
 
-    states: list[tuple[float, object]] = []
-    for keyframe in keyframes:
-        timestamp = float(keyframe.timestamp)
-        value = keyframe.value
-        if states and states[-1][1] == value:
-            continue
-        states.append((timestamp, value))
-
-    if not states:
-        return
-
-    left_bound = start_x - 12.0
-    right_bound = end_x + 12.0
+    pad = timeline_layout.DAMAGE_PAD
+    left_bound = start_x - pad
+    right_bound = end_x + pad
     segments: list[tuple[float, float, float, SimpleNamespace, SimpleNamespace]] = []
-    active_index = 0
 
-    for index, (timestamp, value) in enumerate(states):
-        end_timestamp = states[index + 1][0] if index + 1 < len(states) else float(duration)
-        if end_timestamp < timestamp:
-            continue
-        if not timeline_layout._is_track_active(widget, track, channel, timestamp):
-            continue
-        x1 = timeline_layout.time_to_x(widget, timestamp, duration, logical_width)
-        x2 = timeline_layout.time_to_x(widget, end_timestamp, duration, logical_width)
+    for active_index, (timestamp, end_timestamp, x1, x2, value) in enumerate(spans):
         direction = -1.0 if active_index % 2 == 0 else 1.0
         y = row_center_y + direction * stagger_px
         start_ref = SimpleNamespace(timestamp=timestamp, value=value)
         end_ref = SimpleNamespace(timestamp=end_timestamp, value=value)
         segments.append((x1, x2, y, start_ref, end_ref))
-        active_index += 1
 
     for x1, x2, y, _, _ in segments:
         if x2 < left_bound:
@@ -206,38 +238,88 @@ def _draw_enum_track_segments(
                 point_positions.add(point_key)
                 painter.setBrush(QBrush(line_col))
                 painter.drawEllipse(QPointF(x1, y), point_radius, point_radius)
-                widget._hover_points.append(
-                    (
-                        QRectF(x1 - 6, y - 6, 12, 12),
-                        timeline_viewport.tooltip_for_keyframe(
-                            widget,
-                            group,
-                            track,
-                            channel,
-                            start_ref,
-                        ),
-                    )
-                )
-        if left_bound <= x2 <= right_bound and not math.isclose(
+        end_is_duration = math.isclose(
             float(end_ref.timestamp), float(duration), abs_tol=1e-9
-        ):
+        )
+        if left_bound <= x2 <= right_bound and not end_is_duration:
             point_key = (round(x2, 4), round(y, 4))
             if point_key not in point_positions:
                 point_positions.add(point_key)
                 painter.setBrush(QBrush(line_col))
                 painter.drawEllipse(QPointF(x2, y), point_radius, point_radius)
-                widget._hover_points.append(
-                    (
-                        QRectF(x2 - 6, y - 6, 12, 12),
-                        timeline_viewport.tooltip_for_keyframe(
-                            widget,
-                            group,
-                            track,
-                            channel,
-                            end_ref,
-                        ),
-                    )
+        # Hover stays damage-independent (wave B seam): dots draw gated
+        # (duration endpoint excluded as before), hit-points cover the span.
+        hover_pts = [(x1, y, start_ref)]
+        if not end_is_duration:
+            hover_pts.append((x2, y, end_ref))
+        widget._hover_points.extend(
+            timeline_viewport.hover_points_for_rows(
+                widget, group, track, channel, hover_pts
+            )
+        )
+
+def content_x_range(
+    widget,
+    track,
+    channel,
+    duration: float,
+    logical_width: float,
+    *,
+    pad_px: float | None = None,
+) -> tuple[float, float] | None:
+    """Widget-space x-range of a row's keyframe content, or ``None`` if empty.
+
+    Cull-side twin of the draw passes: color/enum ranges come from the
+    same ``_color_state_spans`` / ``_enum_state_spans`` builders
+    ``_draw_keyframe_segments`` paints (same dedup, same activity filter,
+    same duration endpoint), scalar ranges from
+    ``layout.visible_keyframe_segments`` over an unbounded window — the
+    same function the scalar draw pass calls. Cull and paint therefore
+    compute x from one code path and can never disagree. Padded by
+    ``layout.DAMAGE_PAD``.
+    """
+    pad = timeline_layout.DAMAGE_PAD if pad_px is None else float(pad_px)
+    if duration <= 0 or logical_width <= 0:
+        return None
+    spans: list[tuple[float, float]] = []
+    if track.kind == "color":
+        spans = [
+            (min(x1, x2), max(x1, x2))
+            for (_, _, x1, x2, _) in _color_state_spans(
+                widget, track, duration, logical_width
+            )
+        ]
+    else:
+        if channel is None:
+            return None
+        if track.kind == "enum":
+            spans = [
+                (min(x1, x2), max(x1, x2))
+                for (_, _, x1, x2, _) in _enum_state_spans(
+                    widget, track, channel, duration, logical_width
                 )
+            ]
+        else:
+            segments = timeline_layout.visible_keyframe_segments(
+                widget,
+                track,
+                channel,
+                duration,
+                logical_width,
+                0.0,
+                float("-inf"),
+                float("inf"),
+            )
+            spans = [
+                (min(segment["x1"], segment["x2"]), max(segment["x1"], segment["x2"]))
+                for segment in segments
+            ]
+    if not spans:
+        return None
+    lo = min(span[0] for span in spans) - pad
+    hi = max(span[1] for span in spans) + pad
+    return lo, hi
+
 
 def _curve_path(points: list[tuple[float, float]]) -> QPainterPath:
     path = QPainterPath()

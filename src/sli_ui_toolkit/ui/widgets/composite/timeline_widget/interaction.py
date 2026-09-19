@@ -199,15 +199,24 @@ def mouse_move_event(widget, event):
     if widget._is_resizing_gutter:
         scroll_area = timeline_viewport.get_scroll_area(widget)
         scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-        widget.LEFT_GUTTER = max(
-            widget.MIN_LEFT_GUTTER,
-            min(event.pos().x() - scroll_offset, widget.MAX_LEFT_GUTTER),
+        clamped = timeline_viewport.clamp_gutter_width(
+            widget, event.pos().x() - scroll_offset
         )
+        nxt = widget._current_state().with_left_gutter(int(clamped))
+        # CUTOVER-C landed (Phase 3C): gutter drag commits through the
+        # single emit path — _commitState syncs LEFT_GUTTER itself.
+        widget._commitState(nxt, source="gutterDrag")
+        assert nxt.left_gutter == int(widget.LEFT_GUTTER)
         widget._last_min_zoom = timeline_viewport.calculate_min_zoom(widget)
         timeline_viewport.update_fixed_width(widget)
-        # Silent write-through (no viewport emit today): keep the committed
-        # TimelineViewportState authoritative for _on_host_scroll readers.
-        widget._refresh_viewport_state()
+        # Band repaint via existing entry points only (update with a damage
+        # rect; update_fixed_width above already issued the full update):
+        # the band covers chevron + wash/edge gradients + the 1px
+        # separator (see viewport.gutter_band_rect).
+        try:
+            widget.update(timeline_viewport.gutter_band_rect(widget, int(scroll_offset)))
+        except Exception:
+            pass
         widget.update()
         event.accept()
         return

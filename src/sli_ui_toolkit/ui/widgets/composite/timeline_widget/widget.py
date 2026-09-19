@@ -3,14 +3,15 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 
 import logging
 import math
-import warnings
 from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QEasingCurve, QMetaMethod, QEvent, QRect, QRectF, Qt, QTimer, Signal, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QEvent, QRect, QRectF, Qt, QTimer, Signal, QVariantAnimation
+
+import shiboken6 as sip
 
 from .state import TimelineViewportState
-from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
+from PySide6.QtGui import QCloseEvent, QColor, QHideEvent, QPainter, QPixmap, QResizeEvent
 from PySide6.QtWidgets import QScrollBar, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -19,7 +20,7 @@ from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 
 from .debug import _timeline_debug
-from .models import TimelineCallbacks
+from .models import TimelineCallbacks, TimelineDataSource
 from . import interaction as timeline_interaction
 from . import layout as timeline_layout
 from . import primitives as timeline_primitives
@@ -29,6 +30,22 @@ from . import viewport as timeline_viewport
 from . import i18n as timeline_i18n
 
 logger = logging.getLogger(__name__)
+
+#: Thumbnail store bound (Phase 3C lifecycle): ``_thumbnails`` stays
+#: index-addressed (``dict[int, QPixmap]`` + sorted ``_thumb_indices``), but
+#: every insert prunes entries outside the visible strip window
+#: (``get_visible_thumbnail_frame_indices``) plus
+#: ``_THUMBNAIL_KEEP_MARGIN_BLOCKS`` blocks of margin on each side — entries
+#: outside that range can never paint (``strip_block_layout`` only reads
+#: blocks intersecting the viewport), so they are pure memory on long
+#: recordings. ``_THUMBNAIL_HARD_CAP`` is the fail-stop backstop for fully
+#: fitted timelines where the whole recording is visible (farthest from the
+#: window midpoint evicted first). Pruning is fail-open: it runs only once
+#: viewport geometry has been committed (``_state is not None``) and a
+#: non-empty window is computable — pre-fit bulk loads and zero-size
+#: widgets keep everything.
+_THUMBNAIL_KEEP_MARGIN_BLOCKS = 2
+_THUMBNAIL_HARD_CAP = 512
 
 
 def gutter_band_rect_for_scroll(widget, scroll: int) -> QRect:
@@ -66,9 +83,6 @@ class TimelineWidget(QWidget):
     zoomChanged = Signal(float)
     viewportChanged = Signal()
     viewportChangedState = Signal(object)
-    # Deprecated shims — use viewportChanged / viewportChangedState instead
-    resized = Signal()
-    layoutSettled = Signal()
 
     def __init__(
         self,
@@ -85,6 +99,11 @@ class TimelineWidget(QWidget):
     ):
         super().__init__(parent)
         self._callbacks = callbacks or TimelineCallbacks()
+        # Teardown bookkeeping: _destroyed gates deferred callbacks
+        # (singleShot flush, settle fit) after close; _filter_targets tracks
+        # every installEventFilter so hide/close can remove them symmetrically.
+        self._destroyed = False
+        self._filter_targets: list[QWidget] = []
         self._color_overrides: dict[str, QColor] = {}
         for key, value in (
             ("accent", accent_color),
@@ -96,18 +115,17 @@ class TimelineWidget(QWidget):
             if value is not None:
                 self._color_overrides[key] = QColor(value)
 
-        # Per-widget scope first (no cross-widget poison); the process-global
-        # fallback is also refreshed so viewport/primitives paths that format
-        # without a widget handle keep today's behavior.
+        # Per-widget scope only (no process-global writes): binding the
+        # widget's own hooks here must never overwrite the process-global
+        # ``set_localize_*`` fallback — the last-constructed dialog winning
+        # the globals was a MED leak-class bug. Paths without a widget
+        # handle (viewport/primitives tooltips) read the globals, which the
+        # host sets explicitly at app level when it needs them.
         timeline_i18n.bind_widget(
             self,
             token_fn=self._callbacks.localize_token,
             value_fn=self._callbacks.localize_value,
         )
-        if self._callbacks.localize_token is not None:
-            timeline_i18n.set_localize_token(self._callbacks.localize_token)
-        if self._callbacks.localize_value is not None:
-            timeline_i18n.set_localize_value(self._callbacks.localize_value)
 
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
         self.setMinimumHeight(scaled_px(120))
@@ -271,16 +289,114 @@ class TimelineWidget(QWidget):
         self._bind_host_scrollbar()
         # Watch viewport and window for fullscreen resize where widget width stays fixed
         try:
-            win = self.window()
-            if win is not None:
-                win.installEventFilter(self)
+            self._install_filter_once(self.window())
             sa = timeline_viewport.get_scroll_area(self)
-            if sa is not None and sa.viewport() is not None:
-                sa.viewport().installEventFilter(self)
+            if sa is not None:
+                self._install_filter_once(sa.viewport())
         except Exception:
             pass
         self._needs_fit_view = True
         self._layout_settle.ping()
+
+    def hideEvent(self, event: QHideEvent) -> None:
+        super().hideEvent(event)
+        self._suspend_transient()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self._tear_down()
+        super().closeEvent(event)
+
+    def _install_filter_once(self, obj: QWidget | None) -> None:
+        """Install ``self`` as an event filter on *obj* exactly once."""
+        if obj is None:
+            return
+        if any(known is obj for known in self._filter_targets):
+            return
+        try:
+            obj.installEventFilter(self)
+        except (RuntimeError, AttributeError):
+            return
+        self._filter_targets.append(obj)
+
+    def _remove_installed_filters(self) -> None:
+        """Remove every event filter installed via :meth:`_install_filter_once`."""
+        targets, self._filter_targets = list(self._filter_targets), []
+        for obj in targets:
+            try:
+                obj.removeEventFilter(self)
+            except (RuntimeError, AttributeError):
+                pass
+
+    def _suspend_transient(self) -> None:
+        """Hide-time suspend: stop timers/animation, drop event filters.
+
+        Symmetric to ``showEvent``/``_bind_host_scrollbar`` installs —
+        ``showEvent`` reinstalls the filters. Idempotent; safe to call from
+        both ``hideEvent`` and ``closeEvent`` paths.
+        """
+        try:
+            self._tooltip_timer.stop()
+        except (RuntimeError, AttributeError):
+            pass
+        try:
+            self._playhead_anim.stop()
+        except (RuntimeError, AttributeError):
+            pass
+        self._remove_installed_filters()
+
+    def _unbind_host_scrollbar(self) -> None:
+        """Disconnect host scrollbar signals acquired by :meth:`_bind_host_scrollbar`."""
+        scrollbar = self._host_h_scrollbar
+        self._host_h_scrollbar = None
+        if scrollbar is None:
+            return
+        for signal in (scrollbar.valueChanged, scrollbar.rangeChanged):
+            try:
+                signal.disconnect(self._on_host_scroll)
+            except (TypeError, RuntimeError):
+                pass
+
+    def _tear_down(self) -> None:
+        """Close-time teardown: no singleton may retain the widget after this.
+
+        Disconnects the ``UiScale.scale_changed`` singleton connection and
+        the host scrollbar signals, drops the child signal connections whose
+        Qt-held callables would otherwise keep the Python wrapper alive
+        (tooltip timer, inner scrollbar lambda, playhead animation),
+        suspends transient state, cancels the settle gate, and raises the
+        ``_destroyed`` gate so deferred callbacks (``_flush_wheel_zoom``,
+        ``_on_layout_settle``) never commit or emit afterwards. Idempotent.
+
+        Terminal: a closed widget is not expected to be reshown (dialog
+        children are destroyed with their dialog); ``showEvent`` still
+        reinstalls event filters, but signal connections are not restored.
+        """
+        if self._destroyed:
+            return
+        self._destroyed = True
+        self._suspend_transient()
+        try:
+            UiScale.get_instance().scale_changed.disconnect(self._on_scale_changed)
+        except (TypeError, RuntimeError):
+            pass
+        self._unbind_host_scrollbar()
+        try:
+            self._layout_settle.cancel()
+        except (RuntimeError, AttributeError):
+            pass
+        for signal, slot in (
+            (self._tooltip_timer.timeout, self._show_hover_tooltip),
+            (self._playhead_anim.valueChanged, self._on_playhead_frame),
+        ):
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        try:
+            # Lambda receiver — disconnect all slots on this one signal.
+            self._v_scrollbar.valueChanged.disconnect()
+        except (TypeError, RuntimeError):
+            pass
 
     def eventFilter(self, obj, event):
         t = event.type()
@@ -356,9 +472,10 @@ class TimelineWidget(QWidget):
 
         ``eps 1e-4`` for zoom/min_zoom, ``==`` for px geometry. Calls
         ``updateGeometry`` + ``update`` and emits ``zoomChanged(float)`` only
-        when zoom changed, ``viewportChanged`` / ``viewportChangedState(object)``
-        when zoom or geometry changed, plus deprecated ``resized`` /
-        ``layoutSettled`` shims with ``warnings.warn`` when receivers exist.
+        when zoom changed, ``viewportChanged`` /
+        ``viewportChangedState(object)`` when zoom or geometry changed
+        (``"gutterDrag"`` included: a gutter-width change is pure geometry,
+        so it emits the viewport family and never ``zoomChanged``).
         Returns ``True`` if any emit happened.
         """
         old: TimelineViewportState | None = getattr(self, "_state", None)
@@ -400,28 +517,6 @@ class TimelineWidget(QWidget):
                 self.viewportChangedState.emit(nxt)
             except Exception:
                 pass
-            try:
-                if self.receivers("2resized()") > 0 or self.isSignalConnected(QMetaMethod.fromSignal(self.resized)):  # type: ignore[attr-defined]
-                    warnings.warn("TimelineWidget.resized is deprecated, use viewportChanged", DeprecationWarning, stacklevel=2)
-                    self.resized.emit()
-            except Exception:
-                try:
-                    if self.receivers("resized()") > 0:
-                        warnings.warn("TimelineWidget.resized is deprecated, use viewportChanged", DeprecationWarning, stacklevel=2)
-                        self.resized.emit()
-                except Exception:
-                    pass
-            try:
-                if self.receivers("2layoutSettled()") > 0 or self.isSignalConnected(QMetaMethod.fromSignal(self.layoutSettled)):  # type: ignore[attr-defined]
-                    warnings.warn("TimelineWidget.layoutSettled is deprecated, use viewportChanged", DeprecationWarning, stacklevel=2)
-                    self.layoutSettled.emit()
-            except Exception:
-                try:
-                    if self.receivers("layoutSettled()") > 0:
-                        warnings.warn("TimelineWidget.layoutSettled is deprecated, use viewportChanged", DeprecationWarning, stacklevel=2)
-                        self.layoutSettled.emit()
-                except Exception:
-                    pass
             emitted = True
         return emitted
 
@@ -454,23 +549,13 @@ class TimelineWidget(QWidget):
         if scroll_area is None:
             return
         scrollbar = scroll_area.horizontalScrollBar()
-        if scrollbar is None or scrollbar is self._host_h_scrollbar:
-            return
-        if self._host_h_scrollbar is not None:
-            try:
-                self._host_h_scrollbar.valueChanged.disconnect(self._on_host_scroll)
-                self._host_h_scrollbar.rangeChanged.disconnect(self._on_host_scroll)
-            except TypeError:
-                pass
-            except Exception:
-                pass
-        self._host_h_scrollbar = scrollbar
-        self._host_h_scrollbar.valueChanged.connect(self._on_host_scroll)
-        self._host_h_scrollbar.rangeChanged.connect(self._on_host_scroll)
+        if scrollbar is not None and scrollbar is not self._host_h_scrollbar:
+            self._unbind_host_scrollbar()
+            self._host_h_scrollbar = scrollbar
+            self._host_h_scrollbar.valueChanged.connect(self._on_host_scroll)
+            self._host_h_scrollbar.rangeChanged.connect(self._on_host_scroll)
         try:
-            vp = scroll_area.viewport()
-            if vp is not None:
-                vp.installEventFilter(self)
+            self._install_filter_once(scroll_area.viewport())
         except Exception:
             pass
 
@@ -568,11 +653,30 @@ class TimelineWidget(QWidget):
 
     def set_data(
         self,
-        snapshots,
+        snapshots=None,
         fps: int | None = None,
         timeline_model=None,
         duration: float | None = None,
+        *,
+        source=None,
     ):
+        """Feed timeline content. Legacy positional inputs unchanged.
+
+        ``source`` (a ``TimelineDataSource``) is the typed alternative:
+        each ``None``/missing member falls back to the explicit argument,
+        then to the legacy default. Explicit non-``None`` arguments win
+        over ``source``. Non-matching ``source`` objects are ignored
+        (fail-open: legacy path). Tkonverter behavior unchanged.
+        """
+        if source is not None and self._is_datasource(source):
+            if snapshots is None:
+                snapshots = getattr(source, "snapshots", None)
+            if fps is None:
+                fps = getattr(source, "fps", None)
+            if timeline_model is None:
+                timeline_model = getattr(source, "timeline_model", None)
+            if duration is None:
+                duration = getattr(source, "duration", None)
         self._bind_host_scrollbar()
         self._snapshots = list(snapshots or [])
         self._duration = (
@@ -633,6 +737,7 @@ class TimelineWidget(QWidget):
     def set_thumbnails(self, thumbnails: dict):
         self._thumbnails.update(thumbnails)
         self._thumb_indices = sorted(self._thumbnails.keys())
+        self._prune_thumbnails()
         if self.has_snapshots():
             self._last_min_zoom = timeline_viewport.calculate_min_zoom(self)
             self._refresh_viewport_state()
@@ -646,10 +751,54 @@ class TimelineWidget(QWidget):
         elif index not in self._thumb_indices:
             self._thumb_indices.append(index)
             self._thumb_indices.sort()
+        self._prune_thumbnails()
         if self.has_snapshots():
             self._last_min_zoom = timeline_viewport.calculate_min_zoom(self)
             self._refresh_viewport_state()
         self.update()
+
+    def _prune_thumbnails(self) -> None:
+        """Enforce the thumbnail store bound (see module constants).
+
+        Keeps entries whose index falls inside the visible strip window
+        plus margin (frame-space ``[lo, hi]`` around the visible rep
+        indices) and evicts the rest, then applies the hard-cap backstop
+        (farthest from the window midpoint first). Index-addressed shape
+        (``_thumbnails`` + sorted ``_thumb_indices``) is preserved.
+        Fail-open: anything uncomputable (no committed state yet, no
+        frames, empty window, bad metrics) keeps everything.
+        """
+        if not self._thumbnails:
+            return
+        if getattr(self, "_state", None) is None or self._total_frames <= 0:
+            return
+        try:
+            visible = self.get_visible_thumbnail_frame_indices(overscan_blocks=1)
+        except Exception:
+            return
+        if not visible:
+            return
+        try:
+            slot = timeline_viewport.get_slot_width(self)
+            base = timeline_viewport.get_base_tile_width(self)
+        except Exception:
+            return
+        if slot <= 0 or base <= 0:
+            return
+        draw_w = base if slot < base else slot
+        frames_per_block = max(1.0, draw_w / slot)
+        margin = int(math.ceil(frames_per_block * _THUMBNAIL_KEEP_MARGIN_BLOCKS))
+        last = max(0, self._total_frames - 1)
+        lo = max(0, min(visible) - margin)
+        hi = min(last, max(visible) + margin)
+        for idx in [i for i in self._thumbnails if i < lo or i > hi]:
+            del self._thumbnails[idx]
+        if len(self._thumbnails) > _THUMBNAIL_HARD_CAP:
+            mid = (lo + hi) / 2.0
+            ordered = sorted(self._thumbnails, key=lambda i: (abs(i - mid), i))
+            for idx in ordered[_THUMBNAIL_HARD_CAP:]:
+                del self._thumbnails[idx]
+        self._thumb_indices = sorted(self._thumbnails.keys())
 
     def clear_thumbnails(self):
         _timeline_debug("clear_thumbnails count=%s", len(self._thumbnails))
@@ -671,6 +820,109 @@ class TimelineWidget(QWidget):
         if duration <= 0:
             return 50.0
         return timeline_viewport.get_logical_width(self) / duration
+
+    @staticmethod
+    def _is_datasource(source) -> bool:
+        """Fail-open ``TimelineDataSource`` shape check for ``set_data``."""
+        try:
+            return isinstance(source, TimelineDataSource)
+        except TypeError:
+            return False
+
+    def set_zoom(self, zoom: float, *, anchor: str = "cursor") -> None:
+        """Public zoom setter. Additive API (Phase 4D); wheel path untouched.
+
+        Clamps via ``viewport.clamp_zoom`` (``[min_zoom, 1.0]``, 1% snap),
+        anchors the viewport-center time (``anchor`` accepts ``"cursor"``
+        or ``"center"`` — without an event position both hold the center
+        stable), then commits exactly once via ``_commitState`` with
+        ``source="apiSetZoom"``. No-change (``<=1e-4`` eps) stays silent;
+        never arms ``_needs_fit_view``; no-op after close. Emits only
+        through ``_commitState`` (``zoomChanged`` + viewport family).
+        """
+        if getattr(self, "_destroyed", False) or not sip.isValid(self):  # type: ignore[attr-defined]
+            return
+        try:
+            new_zoom = timeline_viewport.clamp_zoom(self, zoom)
+        except Exception:
+            return
+        if abs(float(new_zoom) - float(self._zoom_level)) <= 1e-4:
+            return
+        try:
+            self._apply_api_zoom(float(new_zoom))
+        except Exception:
+            return
+
+    def set_pps(self, pps: float, *, anchor: str = "cursor") -> None:
+        """Public px/sec setter: ``zoom = pps / base_pps``, then ``set_zoom``.
+
+        Degenerate ``base_pps`` (``<=0``) is a fail-open no-op.
+        """
+        try:
+            base = float(timeline_viewport.get_base_pixels_per_second(self))
+        except Exception:
+            return
+        if base <= 0:
+            return
+        self.set_zoom(float(pps) / base, anchor=anchor)
+
+    def _apply_api_zoom(self, new_zoom: float) -> None:
+        """Shared commit body for ``set_zoom`` (mirrors ``_flush_wheel_zoom``).
+
+        Anchor math holds the viewport-center time fixed; the scrollbar is
+        set synchronously from it (signals blocked); one band repaint
+        covers the gutter correction; a single ``_commitState`` emits.
+        """
+        new_pps = timeline_viewport.pixels_per_second_for_zoom(self, new_zoom)
+        scroll_area = timeline_viewport.get_scroll_area(self)
+        scrollbar = None
+        scroll_old = 0
+        if scroll_area is not None:
+            scrollbar = scroll_area.horizontalScrollBar()
+            try:
+                scroll_old = int(scrollbar.value())
+            except Exception:
+                scroll_old = 0
+        try:
+            viewport_width = int(timeline_viewport.get_viewport_width(self))
+        except Exception:
+            viewport_width = 0
+        anchor_viewport_x = float(viewport_width) / 2.0
+        cursor_time = timeline_viewport.cursor_time_at_x(
+            self, float(scroll_old) + anchor_viewport_x
+        )
+        target = timeline_viewport.anchor_scroll_for_zoom(
+            self, anchor_viewport_x, cursor_time, new_pps
+        )
+        self._zoom_level = float(new_zoom)
+        timeline_viewport.update_fixed_width(self)
+        if scrollbar is not None:
+            try:
+                lo = int(scrollbar.minimum())
+                hi = int(scrollbar.maximum())
+            except Exception:
+                lo, hi = 0, int(target)
+            target = max(lo, min(int(target), hi))
+            scrollbar.blockSignals(True)
+            try:
+                scrollbar.setValue(int(target))
+            finally:
+                scrollbar.blockSignals(False)
+            try:
+                _sync_scroll = int(scrollbar.value())
+            except Exception:
+                _sync_scroll = int(target)
+        else:
+            _sync_scroll = int(target)
+        try:
+            self.repaint(gutter_band_rect_for_scroll(self, _sync_scroll))
+        except Exception:
+            pass
+        try:
+            nxt = self._current_state()
+        except Exception:
+            return
+        self._commitState(nxt, source="apiSetZoom")
 
     def get_visible_thumbnail_frame_indices(self, overscan_blocks: int = 1) -> list[int]:
         return timeline_viewport.get_visible_thumbnail_frame_indices(
@@ -705,6 +957,14 @@ class TimelineWidget(QWidget):
         self.update()
 
     def _on_layout_settle(self):
+        # Deferred fit/commit must never run on a destroyed widget: the
+        # settle timer is parented to us, but a pending timeout can still
+        # fire between close() and C++ deletion.
+        if getattr(self, "_destroyed", False):
+            return
+        # PySide6-stubs lags shiboken6.isValid — narrow ignore per AGENTS.md.
+        if not sip.isValid(self):  # type: ignore[attr-defined]
+            return
         _timeline_debug("_on_layout_settle needs_fit=%s width=%s zoom=%s last_min=%s", getattr(self, "_needs_fit_view", False), self.width(), self._zoom_level, self._last_min_zoom)
         if getattr(self, "_needs_fit_view", False):
             self._needs_fit_view = False
@@ -774,8 +1034,17 @@ class TimelineWidget(QWidget):
         contract is unchanged: ``_commitState`` remains the only emit path
         for ``zoomChanged`` / ``viewportChanged`` /
         ``viewportChangedState``. Source is ``"wheelZoom"`` for a lone
-        tick, ``"wheelZoomCoalesced"`` for a coalesced window.
+        tick, ``"wheelZoomCoalesced"`` for a coalesced window. Never commits
+        or emits after close (``_destroyed`` gate + ``isValid`` check — the
+        ``singleShot(0)`` callback can outlive the widget into C++ teardown).
         """
+        # PySide6-stubs lags shiboken6.isValid — narrow ignore per AGENTS.md.
+        if getattr(self, "_destroyed", False) or not sip.isValid(self):  # type: ignore[attr-defined]
+            self._wheel_flush_scheduled = False
+            self._wheel_pending_y = 0.0
+            self._wheel_pending_x = None
+            self._wheel_pending_ticks = 0
+            return
         self._wheel_flush_scheduled = False
         pending_y = float(self._wheel_pending_y)
         cursor_x = self._wheel_pending_x

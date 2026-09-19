@@ -130,13 +130,12 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             painter.drawLine(0, y + row_h, width, y + row_h)
             timeline_primitives.draw_track_title_label(widget, painter, QRectF(18, y, max(40, widget.LEFT_GUTTER - 30), row_h), track.label, text_col)
             if lane_has_damage:
-                row_center_y = y + row_h / 2.0
+                row_center_y = timeline_layout.row_center_y(y, row_h)
                 if not _row_segments_culled(widget, track=track, channel=channel, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x):
                     _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=4.0)
                 # Center line last: the keyframe curve oscillates around it
                 # and would otherwise bury it under 1.5px segments + dots.
-                painter.setPen(QPen(center_line, 1))
-                painter.drawLine(int(lane_x0), int(row_center_y), int(lane_x1), int(row_center_y))
+                timeline_primitives.draw_center_line(painter, lane_x0, lane_x1, row_center_y, center_line)
             y += row_h
             continue
 
@@ -171,12 +170,11 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             line_col,
         )
         if lane_has_damage:
-            row_center_y = y + row_h / 2.0
+            row_center_y = timeline_layout.row_center_y(y, row_h)
             if not _row_segments_culled(widget, track=track, channel=channel, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x):
                 _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=3.5)
             # Center line last (see track_single branch above).
-            painter.setPen(QPen(center_line, 1))
-            painter.drawLine(int(lane_x0), int(row_center_y), int(lane_x1), int(row_center_y))
+            timeline_primitives.draw_center_line(painter, lane_x0, lane_x1, row_center_y, center_line)
             y += row_h
 
 def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_start_x: float, footer_height: int, footer_top: int, scrollbar_strip_top: int, ruler_top: int, ruler_bottom: int, scroll_offset: int, viewport_width: int, duration: float, logical_width: float, start_x: float, end_x: float, is_dark: bool, footer_bg: QColor, sep_strong: QColor, sep_soft: QColor, grid_col: QColor, text_col: QColor, sb_idle: QColor, sb_hover: QColor) -> None:
