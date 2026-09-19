@@ -9,8 +9,10 @@ Covers the tl-state-c cleanup in
   is silent, zoom change emits ``zoomChanged`` and syncs live fields);
 * ``set_data``/``__init__`` no longer ``singleShot(0, fit_view)`` — the fit
   is coalesced through ``_layout_settle`` (one fit per flush);
-* playhead smoothing is a 150 ms ``OutCubic`` ``QPropertyAnimation``
-  (snap on large jumps, ease on steps);
+* playhead smoothing is a 150 ms ``OutCubic`` ``QVariantAnimation``
+  (value interpolator, no target — a target-less ``QPropertyAnimation``
+  spams "Changing state of an animation without target"; snap on large
+  jumps, ease on steps);
 * ``inspect_spec.token_family`` references ``TIMELINE_TOKENS``;
 * per-widget i18n bindings are isolated (global fallback intact).
 """
@@ -19,7 +21,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation
+from PySide6.QtCore import QEasingCurve, QVariantAnimation
 from PySide6.QtWidgets import QApplication
 
 from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
@@ -151,7 +153,7 @@ def test_init_with_snapshots_coalesces_fit(qapp):
     w.close()
 
 
-# --- playhead animation (QPropertyAnimation 150 ms OutCubic) --------------------
+# --- playhead animation (QVariantAnimation 150 ms OutCubic) --------------------
 
 
 def test_playhead_step_eases_with_out_cubic(qapp):
@@ -160,12 +162,12 @@ def test_playhead_step_eases_with_out_cubic(qapp):
     w._visual_index = 5.0
     w._current_index = 5
     anim = w._playhead_anim
-    assert isinstance(anim, QPropertyAnimation)
+    assert isinstance(anim, QVariantAnimation)
     assert anim.duration() == 150
     assert anim.easingCurve().type() == QEasingCurve.Type.OutCubic
     w.set_current_frame(6)
     assert w._current_index == 6
-    assert anim.state() == QPropertyAnimation.State.Running
+    assert anim.state() == QVariantAnimation.State.Running
     assert float(anim.endValue()) == 6.0
     anim.setCurrentTime(anim.duration())
     QApplication.processEvents()
@@ -181,7 +183,7 @@ def test_playhead_large_jump_snaps_without_animation(qapp):
     w.set_current_frame(40)
     assert w._current_index == 40
     assert w._visual_index == 40.0
-    assert w._playhead_anim.state() != QPropertyAnimation.State.Running
+    assert w._playhead_anim.state() != QVariantAnimation.State.Running
     w.close()
 
 

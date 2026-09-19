@@ -7,7 +7,7 @@ import warnings
 from dataclasses import replace
 from typing import Any
 
-from PySide6.QtCore import QEasingCurve, QMetaMethod, QEvent, QPropertyAnimation, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QMetaMethod, QEvent, QRect, QRectF, Qt, QTimer, Signal, QVariantAnimation
 
 from .state import TimelineViewportState
 from PySide6.QtGui import QColor, QPainter, QPixmap, QResizeEvent
@@ -147,8 +147,11 @@ class TimelineWidget(QWidget):
         self._fps = max(1, int(fps))
         # Playhead smoothing: OutCubic ease over 150 ms (DESIGN_LANGUAGE
         # animation timing). headMoved still fires synchronously per input;
-        # only the painted position eases.
-        self._playhead_anim = QPropertyAnimation(self)
+        # only the painted position eases. QVariantAnimation (not
+        # QPropertyAnimation): pure value interpolator, no target object —
+        # a target-less QPropertyAnimation spams
+        # "Changing state of an animation without target" on every start/stop.
+        self._playhead_anim = QVariantAnimation(self)
         self._playhead_anim.setDuration(150)
         self._playhead_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._playhead_anim.valueChanged.connect(self._on_playhead_frame)
