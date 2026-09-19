@@ -18,6 +18,30 @@ MOTION_GAP_TOLERANCE = 0.0015
 MOTION_SESSION_MERGE_DISTANCE = 0.06
 MOTION_SESSION_GAP_DISTANCE = 0.08
 
+DAMAGE_PAD = 12.0
+"""Single cull/damage margin (px) for the timeline paint path.
+
+Every horizontal bound check — ``visible_keyframe_segments``,
+the color/enum segment passes in ``segments.py`` (which imports this
+name, never its own literal), and ``row_time_x_range`` — pads by this
+constant, so culling can never drop a point the unclipped pass draws.
+"""
+
+
+def row_center_y(row_y: float, row_h: float) -> float:
+    """Single rounding contract for lane-center geometry.
+
+    THE place that converts a row's ``(y, height)`` into its center:
+    ``row_y + row_h / 2.0`` in float, never truncated to int. Callers
+    (``render.draw_rows``) route both lane kinds through here so the
+    curve stagger in ``visible_keyframe_segments`` and the painted
+    center line share one center, including ``.5`` centers from odd
+    scaled heights. Integer snapping happens only at paint
+    (``primitives.draw_center_line`` fills a 1px ``QRectF``), never in
+    geometry.
+    """
+    return float(row_y) + float(row_h) / 2.0
+
 def _segment_payload(
     x1: float,
     y: float,
@@ -225,17 +249,22 @@ def group_toggle_hit(widget, pos) -> Any | None:
     scroll_area = timeline_viewport.get_scroll_area(widget)
     scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
     _content_top, rows_bottom = timeline_viewport.content_viewport_bounds(widget)
-    y = widget.STRIP_HEIGHT - timeline_viewport.vertical_scroll_value(widget)
+    rows_top = widget.STRIP_HEIGHT - timeline_viewport.vertical_scroll_value(widget)
 
-    for item in widget._row_layout:
-        if y >= rows_bottom:
-            break
+    # Same row window the paint passes visit (no private y-loop): rows
+    # outside [content_top, rows_bottom) can never contain a painted
+    # chevron, so skipping them keeps hit-testing and painting in sync
+    # under scroll/collapse. y values are identical to the old
+    # accumulation (y_at_start == rows_top + cached offset of start).
+    start, end, y = visible_row_window(widget, rows_top, rows_bottom)
+    point = QPointF(pos)
+    for item in widget._row_layout[start:end]:
         if item[0] == "group":
             group = item[1]
             rect = widget._group_chevron_rect(
                 widget._group_header_rect(scroll_offset, y)
             )
-            if rect.contains(QPointF(pos)):
+            if rect.contains(point):
                 return group
             y += widget.GROUP_HEADER_HEIGHT
         elif item[0] == "track_single":
@@ -419,33 +448,24 @@ def row_time_x_range(
     duration: float,
     logical_width: float,
     *,
-    pad_px: float = 12.0,
+    pad_px: float = DAMAGE_PAD,
 ) -> tuple[float, float] | None:
     """Widget-space x-range of a row's keyframe content, or ``None`` if empty.
 
     Per-row horizontal cull for the paint path: when this range lies fully
     outside the damage interval ``[start_x, end_x]`` the row paints only its
     (damage-clipped) background fills and skips segment computation entirely.
-    The padding matches the ``±12px`` bound margin the segment passes use,
-    so culling here never drops a point the unclipped pass would draw.
+
+    The range is computed by the same code path that draws
+    (``segments.content_x_range`` — one mapping per track kind, including
+    the duration endpoint color/enum tails extend to), so cull and paint
+    can never disagree. The padding is ``DAMAGE_PAD``.
     """
-    if track.kind == "color":
-        stamps = [
-            float(keyframe.timestamp)
-            for ch in track.channels.values()
-            for keyframe in ch.keyframes
-        ]
-    elif channel is None:
-        return None
-    else:
-        stamps = [float(keyframe.timestamp) for keyframe in channel.keyframes]
-    if not stamps or duration <= 0 or logical_width <= 0:
-        return None
-    x0 = time_to_x(widget, min(stamps), duration, logical_width)
-    x1 = time_to_x(widget, max(stamps), duration, logical_width)
-    lo = min(x0, x1) - pad_px
-    hi = max(x0, x1) + pad_px
-    return lo, hi
+    from . import segments as timeline_segments
+
+    return timeline_segments.content_x_range(
+        widget, track, channel, duration, logical_width, pad_px=pad_px
+    )
 
 def ensure_preferred_height(widget) -> None:
     final_height = max(
@@ -470,6 +490,13 @@ def time_to_frame_index(widget, timestamp: float) -> float:
     return max(0.0, min(frame_index, max(0.0, widget._total_frames - 1)))
 
 def time_to_x(widget, timestamp: float, duration: float, logical_width: float) -> float:
+    # Rounding contract (Phase 1): geometry stays float end-to-end.
+    # This maps timestamp -> float x via ``visual_pos_from_index`` with no
+    # int()/round() of its own; the single quantization site is
+    # ``viewport.pos_to_frame``'s int(round(...)), so a
+    # time_to_x -> pos_to_frame -> visual_pos_from_index round trip lands
+    # within half a slot — never a systematic 1px drift. Integer snapping
+    # happens only at paint (QRectF fills), never in geometry.
     if duration <= 0 or logical_width <= 0:
         return float(widget.LEFT_GUTTER)
     clamped = max(0.0, min(float(timestamp), duration))
@@ -597,14 +624,14 @@ def visible_keyframe_segments(
         if not _is_track_active(widget, track, channel, keyframe.timestamp):
             return []
         x = time_to_x(widget, keyframe.timestamp, duration, logical_width)
-        if x < start_x - 12.0 or x > end_x + 12.0:
+        if x < start_x - DAMAGE_PAD or x > end_x + DAMAGE_PAD:
             return []
         point_y = row_center_y if is_active_bool_channel else row_center_y - stagger_px
         return [_segment_payload(x, point_y, x, keyframe, keyframe)]
 
     segments: list[dict[str, Any]] = []
-    left_bound = start_x - 12.0
-    right_bound = end_x + 12.0
+    left_bound = start_x - DAMAGE_PAD
+    right_bound = end_x + DAMAGE_PAD
     active_segment_index = 0
 
     for idx in range(len(keyframes) - 1):

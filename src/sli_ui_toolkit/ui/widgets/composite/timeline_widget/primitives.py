@@ -163,6 +163,28 @@ def draw_right_gutter_background(widget, painter: QPainter, rect: QRectF, gutter
     painter.drawLine(int(rect.left()), int(rect.top()), int(rect.left()), int(rect.bottom()))
     painter.restore()
 
+def draw_center_line(
+    painter: QPainter, x0: float, x1: float, center_y: float, color: QColor
+) -> None:
+    """Paint a 1px lane center line spanning ``[x0, x1)`` at ``center_y``.
+
+    Single primitive for both lane kinds (``render.draw_rows`` calls it
+    after the keyframe curve, so the center stays visible — center-last
+    order). A ``QRectF`` fill, never ``int(drawLine)``: ``int()``
+    truncation floors fractional ``.5`` centers from odd scaled heights
+    and shrinks the span by up to 1px at the right edge. The fill is
+    exactly 1px tall, centered on ``center_y``.
+    """
+    if x1 <= x0:
+        return
+    painter.save()
+    painter.fillRect(
+        QRectF(float(x0), float(center_y) - 0.5, float(x1) - float(x0), 1.0),
+        color,
+    )
+    painter.restore()
+
+
 def draw_playhead(widget, painter: QPainter, *, x_head: float, footer_top: int, width: int) -> None:
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)

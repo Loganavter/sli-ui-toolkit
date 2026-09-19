@@ -17,17 +17,24 @@ Contract under test (see ``render.paint_timeline`` docstring):
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, Qt
 from PySide6.QtGui import QPaintEvent
 
 from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
     layout as timeline_layout,
 )
 from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+    primitives as timeline_primitives,
+)
+from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
     render as timeline_render,
+)
+from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+    segments as timeline_segments,
 )
 from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
     viewport as timeline_viewport,
@@ -404,3 +411,259 @@ def test_timeline_debug_lines_format_cleanly(qtbot, monkeypatch):
     assert records, "expected timeline debug records with the gate open"
     for record in records:
         record.getMessage()
+
+
+# --- Phase 1 single-geometry contracts ---------------------------------------
+
+
+def test_row_center_y_is_single_contract():
+    """``row_center_y`` is the one lane-center mapping (float, no int)."""
+    assert timeline_layout.row_center_y(100.0, 30.0) == 115.0
+    assert timeline_layout.row_center_y(72.0, 28.0) == 86.0
+    # Odd scaled heights land on .5 — the int() center used to floor these.
+    assert timeline_layout.row_center_y(0.0, 33.0) == 16.5
+    assert timeline_layout.row_center_y(10.0, 31.0) == 25.5
+    for y, h in ((0.0, 30.0), (72.0, 28.0), (-20.0, 33.0), (5.5, 27.0)):
+        assert timeline_layout.row_center_y(y, h) == y + h / 2.0
+
+
+def test_draw_rows_routes_centers_through_primitive(qtbot, monkeypatch):
+    """Both lane kinds paint centers via ``draw_center_line``, after curves."""
+    tl = _make_widget(qtbot)
+    order: list[tuple] = []
+    original_segments = timeline_render._draw_keyframe_segments
+    original_center = timeline_primitives.draw_center_line
+
+    def _counting_segments(widget, painter, **kwargs):
+        order.append(("segments", kwargs["track"].id))
+        return original_segments(widget, painter, **kwargs)
+
+    def _counting_center(painter, x0, x1, center_y, color):
+        order.append(("center", round(float(center_y), 4)))
+        return original_center(painter, x0, x1, center_y, color)
+
+    monkeypatch.setattr(
+        timeline_render, "_draw_keyframe_segments", _counting_segments
+    )
+    monkeypatch.setattr(
+        timeline_primitives, "draw_center_line", _counting_center
+    )
+    _paint(tl, QRect(0, 0, tl.width(), tl.height()))
+    kinds = [kind for kind, _ in order]
+    # Two lanes (early + full) each paint segments then their center line.
+    assert kinds == ["segments", "center", "segments", "center"], order
+    centers = [value for kind, value in order if kind == "center"]
+    # Centers equal the single-contract mapping for the painted rows.
+    start, end, y = timeline_layout.visible_row_window(
+        tl, tl.STRIP_HEIGHT, tl.height()
+    )
+    expected = []
+    yy = y
+    for item in tl._row_layout[start:end]:
+        if item[0] == "group":
+            yy += tl.GROUP_HEADER_HEIGHT
+        else:
+            row_h = (
+                tl.TRACK_ROW_HEIGHT
+                if item[0] == "track_single"
+                else tl.CHANNEL_ROW_HEIGHT
+            )
+            expected.append(timeline_layout.row_center_y(yy, row_h))
+            yy += row_h
+    assert centers == pytest.approx(expected), (centers, expected)
+
+
+def test_damage_pad_single_source():
+    """One ``DAMAGE_PAD`` in layout; segments imports it, no literals."""
+    assert timeline_layout.DAMAGE_PAD == 12.0
+    params = inspect.signature(timeline_layout.row_time_x_range).parameters
+    assert params["pad_px"].default == timeline_layout.DAMAGE_PAD
+    segments_source = inspect.getsource(timeline_segments)
+    assert "DAMAGE_PAD" in segments_source
+    assert "- 12.0" not in segments_source
+    assert "+ 12.0" not in segments_source
+    layout_source = inspect.getsource(timeline_layout)
+    assert layout_source.count("12.0") == 1, layout_source.count("12.0")
+
+
+def _color_track(track_id="col", label="Col"):
+    def _comp(name, values):
+        return _channel(
+            name,
+            [_keyframe(t, float(v)) for t, v in enumerate(values)],
+            kind="scalar",
+        )
+
+    return _track(
+        track_id,
+        label,
+        {
+            "r": _comp("r", [255, 10]),
+            "g": _comp("g", [0, 200]),
+            "b": _comp("b", [0, 30]),
+        },
+        kind="color",
+    )
+
+
+def _enum_track(track_id="mode", label="Mode"):
+    return _track(
+        track_id,
+        label,
+        {
+            "v": _channel(
+                "v",
+                [
+                    _keyframe(0, "a"),
+                    _keyframe(5, "b"),
+                    _keyframe(9, "b"),
+                ],
+                kind="enum",
+            )
+        },
+        kind="enum",
+    )
+
+
+def _make_mixed_widget(qtbot):
+    model = _model(
+        {
+            "g1": _group("G1", {"col": _color_track()}),
+            "g2": _group("G2", {"mode": _enum_track()}),
+        }
+    )
+    tl = TimelineWidget()
+    tl._fps = 10
+    tl._duration = _DURATION
+    tl._total_frames = 1001
+    tl._timeline_model = model
+    tl._rebuild_row_layout()
+    qtbot.addWidget(tl)
+    tl.resize(800, 400)
+    tl.show()
+    qtbot.waitExposed(tl)
+    tl.fit_view()
+    qtbot.wait(10)
+    return tl
+
+
+def test_color_enum_cull_matches_draw_path(qtbot):
+    """Cull x-ranges come from the draw builders, tail to duration included."""
+    tl = _make_mixed_widget(qtbot)
+    duration = timeline_layout.content_duration(tl)
+    logical = timeline_viewport.get_logical_width(tl)
+    rows = {}
+    for item in tl._row_layout:
+        if item[0] == "track_single":
+            _kind, _group, track, channel = item
+            rows[track.id] = (track, channel)
+    assert set(rows) == {"col", "mode"}, set(rows)
+    for track_id, (track, channel) in rows.items():
+        culled = timeline_layout.row_time_x_range(
+            tl, track, channel, duration, logical
+        )
+        direct = timeline_segments.content_x_range(
+            tl, track, channel, duration, logical
+        )
+        assert culled == direct, track_id
+        assert culled is not None, track_id
+        lo, hi = culled
+        # The painted tail runs to the duration endpoint even though the
+        # last keyframe sits earlier — the old min/max-stamp range missed it.
+        end_x = timeline_layout.time_to_x(tl, duration, duration, logical)
+        assert hi >= end_x - 1e-6, (track_id, culled, end_x)
+        assert lo <= end_x, (track_id, culled, end_x)
+        # Damage fully past the range culls; overlapping damage does not.
+        assert (
+            timeline_render._row_segments_culled(
+                tl,
+                track=track,
+                channel=channel,
+                duration=duration,
+                logical_width=logical,
+                start_x=hi + 100,
+                end_x=hi + 200,
+            )
+            is True
+        )
+        mid = (lo + hi) * 0.5
+        assert (
+            timeline_render._row_segments_culled(
+                tl,
+                track=track,
+                channel=channel,
+                duration=duration,
+                logical_width=logical,
+                start_x=mid - 10,
+                end_x=mid + 10,
+            )
+            is False
+        )
+
+
+def _brute_group_toggle_hit(tl, pos):
+    """Pre-Phase-1 private y-loop, kept as the equivalence oracle."""
+    if not tl._row_layout:
+        return None
+    scroll_area = timeline_viewport.get_scroll_area(tl)
+    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
+    _content_top, rows_bottom = timeline_viewport.content_viewport_bounds(tl)
+    y = tl.STRIP_HEIGHT - timeline_viewport.vertical_scroll_value(tl)
+    for item in tl._row_layout:
+        if y >= rows_bottom:
+            break
+        if item[0] == "group":
+            group = item[1]
+            rect = tl._group_chevron_rect(tl._group_header_rect(scroll_offset, y))
+            if rect.contains(QPointF(pos)):
+                return group
+            y += tl.GROUP_HEADER_HEIGHT
+        elif item[0] == "track_single":
+            y += tl.TRACK_ROW_HEIGHT
+        else:
+            y += tl.CHANNEL_ROW_HEIGHT
+    return None
+
+
+def test_group_toggle_hit_matches_visible_window(qtbot, monkeypatch):
+    """Rebuilt hit-test agrees with the old loop at several scrolls."""
+    tl = _make_widget(qtbot)
+    for scroll in (0, 50, 200, 2000):
+        monkeypatch.setattr(
+            timeline_viewport, "vertical_scroll_value", lambda _w, s=scroll: s
+        )
+        for y in range(0, tl.height(), 7):
+            for x in (5, 15, 100, 400):
+                pos = QPoint(x, y)
+                assert timeline_layout.group_toggle_hit(tl, pos) == (
+                    _brute_group_toggle_hit(tl, pos)
+                ), (scroll, x, y)
+    monkeypatch.undo()
+
+
+def test_group_toggle_hit_chevron_click(qtbot):
+    """Clicking a painted chevron toggles that group, elsewhere misses."""
+    tl = _make_widget(qtbot)
+    rows_top = tl.STRIP_HEIGHT - timeline_viewport.vertical_scroll_value(tl)
+    _content_top, rows_bottom = timeline_viewport.content_viewport_bounds(tl)
+    start, end, y = timeline_layout.visible_row_window(tl, rows_top, rows_bottom)
+    groups = [item[1] for item in tl._row_layout[start:end] if item[0] == "group"]
+    assert groups, "expected visible group rows"
+    yy = y
+    for item in tl._row_layout[start:end]:
+        if item[0] != "group":
+            yy += (
+                tl.TRACK_ROW_HEIGHT
+                if item[0] == "track_single"
+                else tl.CHANNEL_ROW_HEIGHT
+            )
+            continue
+        header = tl._group_header_rect(0, yy)
+        chevron = tl._group_chevron_rect(header)
+        center = chevron.center()
+        hit = timeline_layout.group_toggle_hit(
+            tl, QPoint(int(center.x()), int(center.y()))
+        )
+        assert hit is item[1], (center, hit)
+        yy += tl.GROUP_HEADER_HEIGHT
+    assert timeline_layout.group_toggle_hit(tl, QPoint(700, 5)) is None
