@@ -66,6 +66,16 @@ class TimelineWidget(QWidget):
         # every installEventFilter so hide/close can remove them symmetrically.
         self._destroyed = False
         self._filter_targets: list[QWidget] = []
+        # Show/teardown symmetry: _transient_bound tracks the four __init__
+        # signal connections (tooltip timer, inner scrollbar, playhead
+        # animation, UiScale) so show restores exactly what teardown drops;
+        # _host_viewport/_filter_window track the role filters so host
+        # changes forget dead viewports instead of accumulating them.
+        self._transient_bound = True
+        self._host_viewport: QWidget | None = None
+        self._filter_window: QWidget | None = None
+        # Prune keep-cache (interaction.prune_thumbnails): reset on ingest.
+        self._prune_keep_cache: tuple | None = None
         self._color_overrides: dict[str, QColor] = {}
         for key, value in (
             ("accent", accent_color),
@@ -114,7 +124,7 @@ class TimelineWidget(QWidget):
 
         self._tooltip_timer = QTimer(self)
         self._tooltip_timer.setSingleShot(True)
-        self._tooltip_timer.setInterval(350)
+        self._tooltip_timer.setInterval(timeline_interaction.TOOLTIP_DELAY_MS)
         self._tooltip_timer.timeout.connect(self._show_hover_tooltip)
         self._v_scrollbar = MinimalistScrollBar(Qt.Orientation.Vertical, self)
         self._v_scrollbar.setVisible(False)
@@ -129,7 +139,7 @@ class TimelineWidget(QWidget):
         # QVariantAnimation (not QPropertyAnimation): pure value
         # interpolator, no target object.
         self._playhead_anim = QVariantAnimation(self)
-        self._playhead_anim.setDuration(150)
+        self._playhead_anim.setDuration(timeline_interaction.PLAYHEAD_ANIM_MS)
         self._playhead_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._playhead_anim.valueChanged.connect(self._on_playhead_frame)
 
@@ -205,6 +215,9 @@ class TimelineWidget(QWidget):
 
         self._total_frames = timeline_viewport.compute_total_frames(self)
         self._current_index = 0
+        # Explicit ingest freeze (HANDOFF-1): the __init__ snapshot path
+        # freezes exactly like interaction.ingest_data does.
+        timeline_interaction.freeze_thumb_aspect(self)
 
         self._anchor_index = 0
         self._drag_index = 0
@@ -251,8 +264,11 @@ class TimelineWidget(QWidget):
         super().closeEvent(event)
 
     def eventFilter(self, obj, event):
+        # True when handled: stops fall-through reprocessing by other
+        # filters (interaction.event_filter never commits — it only pings
+        # the settle gate, so no re-entrant cascade can start here).
         if timeline_interaction.event_filter(self, obj, event):
-            return False
+            return True
         return super().eventFilter(obj, event)
 
     def _current_state(self) -> TimelineViewportState:
@@ -264,7 +280,15 @@ class TimelineWidget(QWidget):
         return timeline_viewport.recompute_fitted_state(self)
 
     def _commitState(self, nxt: TimelineViewportState, source: str = "") -> bool:
-        """Diff ``nxt`` against ``self._state`` and emit typed signals."""
+        """Diff ``nxt`` against ``self._state`` and emit typed signals.
+
+        Fail-closed after teardown: no ``updateGeometry``/``update``, no
+        emits once ``_destroyed`` or C++-deleted (same gate as
+        ``layout_settle``/``flush_wheel_zoom``).
+        """
+        # PySide6-stubs lags shiboken6.isValid — narrow ignore per AGENTS.md.
+        if getattr(self, "_destroyed", False) or not sip.isValid(self):  # type: ignore[attr-defined]
+            return False
         return timeline_viewport.commit_state(self, nxt, source)
 
     def resizeEvent(self, event: QResizeEvent):
@@ -349,6 +373,14 @@ class TimelineWidget(QWidget):
         self._set_color_override("text_col", color)
 
     def set_thumbnails(self, thumbnails: dict):
+        """Bulk generation replace: one store update, one prune, one paint.
+
+        The batch path — a single :func:`interaction.prune_thumbnails`
+        full pass over the merged store, never per-key work. No-op after
+        teardown (no ``update()`` on a dead widget).
+        """
+        if not timeline_interaction.is_alive(self):
+            return
         self._thumbnails.update(thumbnails)
         self._thumb_indices = sorted(self._thumbnails.keys())
         self._prune_thumbnails()
@@ -358,13 +390,22 @@ class TimelineWidget(QWidget):
         self.update()
 
     def add_thumbnail(self, index: int, pixmap: QPixmap):
+        """Single-index upsert: the prune fast path keeps streams linear.
+
+        Passes the index as the prune hint, so an unchanged keep-window
+        resolves keep-or-drop in O(1) with no store scan; any geometry
+        change transparently falls back to one full pass. No-op after
+        teardown.
+        """
+        if not timeline_interaction.is_alive(self):
+            return
         self._thumbnails[index] = pixmap
         if not self._thumb_indices or index > self._thumb_indices[-1]:
             self._thumb_indices.append(index)
         elif index not in self._thumb_indices:
             self._thumb_indices.append(index)
             self._thumb_indices.sort()
-        self._prune_thumbnails()
+        timeline_interaction.prune_thumbnails(self, _hint_index=int(index))
         if self.has_snapshots():
             self._last_min_zoom = timeline_viewport.calculate_min_zoom(self)
             self._refresh_viewport_state()
@@ -375,8 +416,16 @@ class TimelineWidget(QWidget):
         timeline_interaction.prune_thumbnails(self)
 
     def clear_thumbnails(self):
+        if not timeline_interaction.is_alive(self):
+            # Still drop the store (owns no paint), but never touch paint
+            # or the keep-cache of a torn-down widget beyond clearing.
+            self._thumbnails.clear()
+            self._thumb_indices.clear()
+            self._prune_keep_cache = None
+            return
         self._thumbnails.clear()
         self._thumb_indices.clear()
+        self._prune_keep_cache = None
         self.update()
 
     def has_snapshots(self) -> bool:
@@ -526,7 +575,11 @@ class TimelineWidget(QWidget):
             if self._total_frames <= 0:
                 event.ignore()
                 return
-            step = 10 if mods & Qt.KeyboardModifier.ShiftModifier else 1
+            step = (
+                timeline_interaction.KEY_SHIFT_STEP_FRAMES
+                if mods & Qt.KeyboardModifier.ShiftModifier
+                else timeline_interaction.KEY_STEP_FRAMES
+            )
             direction = -1 if key == Qt.Key.Key_Left else 1
             target = self._current_index + direction * step
             self.set_current_frame(target)
@@ -559,7 +612,8 @@ class TimelineWidget(QWidget):
             if self._total_frames <= 0:
                 event.ignore()
                 return
-            step = -10 if key == Qt.Key.Key_PageUp else 10
+            page = timeline_interaction.KEY_PAGE_STEP_FRAMES
+            step = -page if key == Qt.Key.Key_PageUp else page
             self.set_current_frame(self._current_index + step)
             self.headMoved.emit(self._current_index)
             event.accept()
@@ -589,10 +643,12 @@ class TimelineWidget(QWidget):
                 super().keyPressEvent(event)
                 return
             current = float(self._zoom_level)
+            # Keyboard zoom: one wheel-tick factor (canonical
+            # ``viewport.WHEEL_ZOOM_FACTOR``) around the viewport center.
             if key == Qt.Key.Key_Plus:
-                self.set_zoom(current * 1.25, anchor="center")
+                self.set_zoom(current * timeline_viewport.WHEEL_ZOOM_FACTOR, anchor="center")
             else:
-                self.set_zoom(current / 1.25, anchor="center")
+                self.set_zoom(current / timeline_viewport.WHEEL_ZOOM_FACTOR, anchor="center")
             event.accept()
             return
 
@@ -604,6 +660,9 @@ class TimelineWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         timeline_render.paint_timeline(self, painter, event)
         painter.end()
+        # Damage-independent hover: rebuild the hit-set over the full row
+        # window so partial repaints leave the same points as full ones.
+        timeline_interaction.rebuild_hover_points(self)
 
     def mousePressEvent(self, event):
         timeline_interaction.mouse_press_event(self, event)

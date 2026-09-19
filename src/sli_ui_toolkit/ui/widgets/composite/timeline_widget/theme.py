@@ -20,7 +20,6 @@ _TIMELINE_TOKEN_DEFAULTS: dict[str, tuple[QColor, QColor]] = {
     "timeline.footer.background": (QColor(236, 238, 242), QColor(38, 38, 42)),
     "timeline.separator.strong": (QColor(188, 192, 200), QColor(85, 85, 85)),
     "timeline.separator.soft": (QColor(218, 220, 226), QColor(55, 55, 60)),
-    "timeline.separator.row": (QColor(210, 210, 214), QColor(210, 210, 214)),
     # Center line is split per theme so it keeps >= 3.0:1 (component AA,
     # DESIGN_LANGUAGE contrast targets) against lane_bg in BOTH themes:
     # light (105,107,119) vs lane_bg (232,233,238) = 4.36:1;
@@ -29,12 +28,19 @@ _TIMELINE_TOKEN_DEFAULTS: dict[str, tuple[QColor, QColor]] = {
     "timeline.center.line": (QColor(105, 107, 119), QColor(190, 190, 196)),
     "timeline.scrollbar.idle": (QColor(0, 0, 0, 65), QColor(255, 255, 255, 55)),
     "timeline.scrollbar.hover": (QColor(0, 0, 0, 95), QColor(255, 255, 255, 85)),
-    "timeline.track.bool": (QColor(0, 140, 198), QColor(0, 140, 198)),
-    "timeline.track.enum": (QColor(180, 88, 28), QColor(180, 88, 28)),
-    "timeline.track.state": (QColor(100, 100, 116), QColor(100, 100, 116)),
-    "timeline.track.vec2": (QColor(34, 140, 94), QColor(34, 140, 94)),
-    "timeline.keyframe.outline": (QColor(40, 40, 46), QColor(40, 40, 46)),
-    "timeline.playhead.outline": (QColor(0, 0, 0, 90), QColor(0, 0, 0, 90)),
+    # Track-kind accents are split per theme (same hue family, darkened on
+    # light): every light value keeps >= 4.0:1 against the light lane_bg
+    # (232,233,238) — bool 4.21, enum 4.85, state 5.75, vec2 4.62 — while
+    # the dark values stay byte-identical (pinned by token tests).
+    "timeline.track.bool": (QColor(0, 117, 168), QColor(0, 140, 198)),
+    "timeline.track.enum": (QColor(164, 74, 20), QColor(180, 88, 28)),
+    "timeline.track.state": (QColor(88, 88, 105), QColor(100, 100, 116)),
+    "timeline.track.vec2": (QColor(27, 118, 79), QColor(34, 140, 94)),
+    "timeline.keyframe.outline": (QColor(58, 58, 70), QColor(40, 40, 46)),
+    "timeline.playhead.outline": (QColor(0, 0, 0, 100), QColor(0, 0, 0, 90)),
+    # Row rule: mid-gray on light, softened on dark (still ~3:1 against
+    # the dark lane_bg instead of the previous full-bright 210 line).
+    "timeline.separator.row": (QColor(210, 210, 214), QColor(120, 120, 128)),
 }
 
 # Tokens that already have a shared-palette equivalent: the timeline token
