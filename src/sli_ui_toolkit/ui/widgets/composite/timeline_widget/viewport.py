@@ -14,7 +14,7 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     overlay_scrollbar_max_inset,
 )
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
-from .debug import _timeline_debug
+from .debug import _timeline_debug, _timeline_debug_enabled, _next_tick, gutter_debug
 from . import theme as timeline_theme
 from .i18n import localize_token_for, localize_value_for
 from .state import TimelineViewportState
@@ -395,6 +395,16 @@ def commit_zoom(
     scroll_area = get_scroll_area(widget)
     scrollbar = None
     scroll_old = 0
+    if _timeline_debug_enabled():
+        try:
+            _old_zoom = float(getattr(widget, "_zoom_level", -1.0))
+        except Exception:
+            _old_zoom = -1.0
+        _ztick = _next_tick()
+        gutter_debug(
+            "tick=%s zoom-commit source=%s zoom %s->%s cursor_x=%s",
+            _ztick, source, _old_zoom, new_zoom, cursor_x,
+        )
     if scroll_area is not None:
         scrollbar = scroll_area.horizontalScrollBar()
         try:
@@ -428,6 +438,11 @@ def commit_zoom(
             sync_scroll = int(scrollbar.value())
         except Exception:
             sync_scroll = int(target)
+        if _timeline_debug_enabled():
+            gutter_debug(
+                "tick=%s zoom-scroll source=%s scroll_old=%s target=%s clamped=%s",
+                _next_tick(), source, scroll_old, target, sync_scroll,
+            )
     else:
         sync_scroll = int(target)
     try:
@@ -446,6 +461,20 @@ def commit_zoom(
     # the gutter band now, in the same call stack. Band-only (not a
     # full repaint) to keep the coalesced budget: one commit + one
     # sync band repaint per window. Correction-only: no state change.
+    if _timeline_debug_enabled():
+        try:
+            _band = gutter_band_rect(widget, sync_scroll)
+        except Exception:
+            _band = None
+        try:
+            _live = int(scrollbar.value()) if scrollbar is not None else sync_scroll
+        except Exception:
+            _live = sync_scroll
+        gutter_debug(
+            "tick=%s zoom-band source=%s scroll_old=%s target=%s live=%s drift=%s band=%s",
+            _next_tick(), source, scroll_old, sync_scroll, _live,
+            (_live != sync_scroll), _band,
+        )
     try:
         widget.repaint(gutter_band_rect(widget, sync_scroll))
     except Exception:
@@ -551,6 +580,12 @@ def update_fixed_width(widget) -> None:
     if widget.width() != final_width:
         widget._suppress_resize_recalc = True
         try:
+            if _timeline_debug_enabled():
+                gutter_debug(
+                    "tick=%s fixed-width %s->%s gutter=%s logical=%.1f",
+                    _next_tick(), widget.width(), final_width,
+                    widget.LEFT_GUTTER, get_logical_width(widget),
+                )
             widget.setFixedWidth(final_width)
         finally:
             widget._suppress_resize_recalc = False

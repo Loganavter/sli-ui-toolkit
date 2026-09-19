@@ -10,7 +10,7 @@ from . import layout as timeline_layout
 from . import primitives as timeline_primitives
 from . import theme as timeline_theme
 from . import viewport as timeline_viewport
-from .debug import _timeline_debug_enabled, _timeline_paint_debug
+from .debug import _timeline_debug_enabled, _timeline_paint_debug, _next_tick, gutter_debug
 from .segments import _draw_keyframe_segments
 
 # Accent-wash alphas for the row paint path: ``token -> (light, dark)``.
@@ -252,6 +252,19 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
 
 def draw_sticky_gutter_overlay(widget, painter: QPainter, *, scroll_offset: int, rows_top: int, rows_bottom: int, footer_top: int, gutter_bg: QColor, track_bg: QColor, text_col: QColor, sep_color: QColor | None = None, sep_soft: QColor | None = None, damage_top: float | None = None, damage_bottom: float | None = None) -> None:
     gx = scroll_offset
+    if _timeline_debug_enabled():
+        try:
+            _sa = timeline_viewport.get_scroll_area(widget)
+            _live = _sa.horizontalScrollBar().value() if _sa else scroll_offset
+        except Exception:
+            _live = scroll_offset
+        gutter_debug(
+            "tick=%s overlay gx_arg=%s live=%s skew=%s clip=[%.1f,%.1f] gutter=%s",
+            _next_tick(), scroll_offset, _live, (_live != scroll_offset),
+            max(0.0, damage_top) if damage_top is not None else 0.0,
+            min(float(footer_top), damage_bottom) if damage_bottom is not None else float(footer_top),
+            widget.LEFT_GUTTER,
+        )
     # Same row-window virtualization as draw_rows: only gutter labels
     # intersecting the viewport are visited. The clip is additionally
     # intersected with the vertical damage band so a partial repaint does
@@ -387,6 +400,18 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
     content_right = visible_right - timeline_viewport.right_inset(widget)
     content_viewport_width = max(0, viewport_width - timeline_viewport.right_inset(widget))
     clip_rect = event.rect()
+    if _timeline_debug_enabled():
+        try:
+            _band = timeline_viewport.gutter_band_rect(widget, int(scroll_offset))
+        except Exception:
+            _band = None
+        gutter_debug(
+            "tick=%s paint-gutter damage=%s band=%s hit=%s gutter=%s scroll=%s zoom=%s",
+            _next_tick(), clip_rect, _band,
+            (bool(clip_rect.intersects(_band)) if _band is not None else None),
+            widget.LEFT_GUTTER, scroll_offset,
+            getattr(widget, "_zoom_level", -1.0),
+        )
     start_x = max(content_start_x, clip_rect.left())
     end_x = min(clip_rect.right(), content_right)
     painter.save()

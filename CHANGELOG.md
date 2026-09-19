@@ -37,6 +37,7 @@
 
 ### Added
 
+- **Timeline gutter debug traces (`[timeline-gutter]`)** — `SLI_TIMELINE_DEBUG=1` now logs the gutter/zoom ordering: zoom-commit entry, post-`setValue` clamp, `update_fixed_width` width step, synchronous band repaint with live-scrollbar drift flag, per-paint damage-vs-band hit, sticky-overlay arg-vs-live skew, host-scroll band, gutter-drag width. Each line carries `tick=N` so a ~1-frame gutter lag reads off the log order. First observation: a `zoom-band scroll_old=0 target=106107 live=106107 drift=False` followed by a full-damage paint at `scroll=0` — an async geometry pass moves the scrollbar after the sync band repaint. Tests: `tests/test_timeline_gutter_debug.py` (gate-open fires + formats clean, gate-closed silent).
 - **`declare_toolbar_navigation(owner, rows, tag="toolbar")`** — declarative one-liner for toolbar/panel navigation (`ToolbarRowsSection` via `NavigationManager.register`). Alias to `declare_navigation_rows` with toolbar-specific naming (Phase 3 `plan_navigation_simplification.md`). Migrated `tabs/image_compare` and `tabs/multi_compare` from 15-line `_toolbar_rows` + `_register_nav_section` to one call.
 - **`HelpDialog` focus restore simplified** — `_restore_focus_after_window_change` (116 → ~30 lines) now delegates to `NavigationManager.focus_section_for_owner` / `AutoNavigationSection.focus_first` instead of manual `findChildren(StrongFocus)` + `global Y` sort duplicate. Behavior: keep focus if still inside dialog, else restore to same column via declarative sections. Matches `Settings` dialog pattern.
 
