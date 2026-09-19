@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtGui import QPixmap
 
 
@@ -287,6 +288,57 @@ def test_set_pps_roundtrip_and_fail_open(qapp):
         empty.set_zoom(0.5)
     finally:
         empty.close()
+
+
+def test_set_zoom_anchor_variants_hold_center(qapp):
+    """Both ``anchor`` spellings forward into the commit cursor policy.
+
+    The API path carries no event position, so ``"cursor"`` and
+    ``"center"`` both hold the viewport-center time through
+    ``viewport.commit_zoom`` (one emit each, never silent-dropped).
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    for anchor in ("cursor", "center"):
+        w = _make_widget(qapp, n=120)
+        try:
+            w.set_zoom(0.2)
+            qapp.processEvents()
+
+            def center_time():
+                area = timeline_viewport.get_scroll_area(w)
+                scroll = area.horizontalScrollBar().value() if area else 0
+                vpw = timeline_viewport.get_viewport_width(w)
+                return timeline_viewport.cursor_time_at_x(
+                    w, float(scroll) + float(vpw) / 2.0
+                )
+
+            before = center_time()
+            zoom_got: list[float] = []
+            w.zoomChanged.connect(lambda z: zoom_got.append(z))
+            w.set_zoom(0.6, anchor=anchor)
+            qapp.processEvents()
+            after = center_time()
+            assert abs(before - after) < 1.0
+            assert len(zoom_got) == 1
+        finally:
+            w.close()
+
+
+def test_set_zoom_invalid_anchor_raises(qapp):
+    w = _make_widget(qapp, n=120)
+    try:
+        before = w._zoom_level
+        with pytest.raises(ValueError):
+            w.set_zoom(0.5, anchor="bogus")
+        assert w._zoom_level == before
+        with pytest.raises(ValueError):
+            w.set_pps(100.0, anchor="bogus")
+        assert w._zoom_level == before
+    finally:
+        w.close()
 
 
 def test_set_data_source_adoption_and_precedence(qapp):

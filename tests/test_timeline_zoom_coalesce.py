@@ -69,6 +69,28 @@ def _snapshots():
     return [SimpleNamespace(timestamp=0.0), SimpleNamespace(timestamp=DURATION)]
 
 
+_OPEN: list = []
+
+
+@pytest.fixture(autouse=True)
+def _close_created_timelines(qapp):
+    """Teardown hygiene: helpers never close (they assert post-event state).
+
+    Unclosed widgets stay connected to the ``UiScale.scale_changed``
+    singleton and leak into later files in the same session (e.g. the
+    class-patched ``test_closed_widget_ignores_scale_changes``), so every
+    helper-created widget is closed here after its test's asserts ran.
+    """
+    yield
+    while _OPEN:
+        widget = _OPEN.pop()
+        try:
+            widget.close()
+        except Exception:
+            pass
+    qapp.processEvents()
+
+
 def _settle(qapp, widget) -> None:
     """Drain pending fit_view/settle singles and cancel the settle gate."""
     qapp.processEvents()
@@ -80,6 +102,7 @@ def _settle(qapp, widget) -> None:
 
 def _make_bare(qapp) -> ProbeTimeline:
     widget = ProbeTimeline(snapshots=_snapshots())
+    _OPEN.append(widget)
     widget.resize(800, 240)
     widget.show()
     _settle(qapp, widget)
@@ -88,6 +111,7 @@ def _make_bare(qapp) -> ProbeTimeline:
 
 def _make_hosted(qapp) -> tuple[ProbeTimeline, QScrollArea]:
     widget = ProbeTimeline(snapshots=_snapshots())
+    _OPEN.append(widget)
     area = QScrollArea()
     area.setWidget(widget)
     area.resize(800, 240)
@@ -266,6 +290,139 @@ def test_no_change_ticks_stay_silent(qapp):
     # wheel input (verified with a no-tick baseline), so paints cannot
     # prove wheel silence — the commit/emit counters above do.
     assert not widget._wheel_flush_scheduled
+
+
+# --- commit_zoom: unified zoom-commit sequence (wave Z) -----------------------
+
+
+def test_commit_zoom_center_policy_holds_center_time(qapp):
+    """Direct ``commit_zoom(cursor_x=None)``: center-anchored single commit."""
+    widget, area = _make_hosted(qapp)
+    bar = area.horizontalScrollBar()
+    _ctrl_wheel(widget, 120, x=500.0)  # warm-up: scrollbar live, layout settled
+    qapp.processEvents()
+    qapp.processEvents()
+
+    def center_time():
+        scroll = int(bar.value())
+        vpw = timeline_viewport.get_viewport_width(widget)
+        return timeline_viewport.cursor_time_at_x(widget, float(scroll) + float(vpw) / 2.0)
+
+    before = center_time()
+    _reset_probe(widget)
+    new_zoom = timeline_viewport.clamp_zoom(widget, widget._zoom_level * 1.5)
+    assert abs(new_zoom - widget._zoom_level) > 1e-4
+    timeline_viewport.commit_zoom(widget, new_zoom, cursor_x=None, source="probeCenter")
+    assert widget._zoom_level == pytest.approx(new_zoom)
+    assert widget.commit_calls == 1
+    assert widget.commit_sources == ["probeCenter"]
+    after = center_time()
+    new_pps = timeline_viewport.pixels_per_second_for_zoom(widget, new_zoom)
+    assert abs(after - before) <= 1.0 / new_pps + 1e-6
+    assert int(bar.value()) == widget._state.scroll_x
+
+
+def test_commit_zoom_cursor_policy_keeps_time_under_cursor(qapp):
+    """Direct ``commit_zoom(cursor_x=...)``: content-coords cursor anchor."""
+    widget, area = _make_hosted(qapp)
+    bar = area.horizontalScrollBar()
+    for _ in range(3):  # warm-up: zoom in so scrolling is live
+        _ctrl_wheel(widget, 120, x=500.0)
+    qapp.processEvents()
+    qapp.processEvents()
+    scroll_old = int(bar.value())
+    cursor_viewport_x = 500.0 - scroll_old
+    t0 = timeline_viewport.cursor_time_at_x(widget, 500.0)
+    _reset_probe(widget)
+    new_zoom = timeline_viewport.clamp_zoom(widget, widget._zoom_level * 1.25)
+    assert abs(new_zoom - widget._zoom_level) > 1e-4
+    timeline_viewport.commit_zoom(widget, new_zoom, cursor_x=500.0, source="probeCursor")
+    scroll_new = int(bar.value())
+    t1 = timeline_viewport.cursor_time_at_x(widget, cursor_viewport_x + scroll_new)
+    new_pps = timeline_viewport.pixels_per_second_for_zoom(widget, new_zoom)
+    assert abs(t1 - t0) <= 1.0 / new_pps + 1e-6
+    assert widget.commit_calls == 1
+    assert widget.commit_sources == ["probeCursor"]
+
+
+def test_commit_zoom_matches_api_zoom_body(qapp):
+    """``_apply_api_zoom`` is the center policy of ``commit_zoom``: twin
+    widgets starting from identical state land on identical zoom/scroll."""
+    first, area_a = _make_hosted(qapp)
+    second, area_b = _make_hosted(qapp)
+    for w in (first, second):
+        _ctrl_wheel(w, 120, x=500.0)
+    qapp.processEvents()
+    qapp.processEvents()
+    assert first._zoom_level == pytest.approx(second._zoom_level)
+    new_zoom = timeline_viewport.clamp_zoom(first, first._zoom_level * 1.5)
+    first._apply_api_zoom(new_zoom)
+    timeline_viewport.commit_zoom(second, new_zoom, cursor_x=None, source="apiSetZoom")
+    assert second._zoom_level == pytest.approx(first._zoom_level)
+    assert second._state == first._state
+
+
+def test_commit_zoom_band_matches_widget_helper(qapp):
+    """The sync band repaint covers the canonical gutter band geometry."""
+    widget, area = _make_hosted(qapp)
+    scroll = int(area.horizontalScrollBar().value())
+    assert timeline_viewport.gutter_band_rect(widget, scroll) == gutter_band_rect_for_scroll(
+        widget, scroll
+    )
+
+
+# --- state functions (wave Z): viewport-owned, methods delegate --------------
+
+
+def test_state_functions_agree_with_methods(qapp):
+    """``viewport.current_state/commit_state/refresh_viewport_state`` are
+    the bodies behind the same-named widget methods."""
+    widget = _make_bare(qapp)
+    assert timeline_viewport.current_state(widget) == widget._current_state()
+    assert timeline_viewport.recompute_fitted_state(widget) == widget._recomputeFittedState()
+    zoom_got: list[float] = []
+    widget.zoomChanged.connect(lambda z: zoom_got.append(z))
+    nxt = timeline_viewport.current_state(widget).with_zoom(1.0)
+    assert timeline_viewport.commit_state(widget, nxt, "probe") is True
+    assert widget._zoom_level == pytest.approx(1.0)
+    assert zoom_got == [pytest.approx(1.0)]
+    # Silent re-snapshot: no emits, same payload as the method path.
+    viewport_got: list[int] = []
+    widget.viewportChanged.connect(lambda: viewport_got.append(1))
+    before = widget._current_state()
+    timeline_viewport.refresh_viewport_state(widget)
+    assert viewport_got == []
+    assert widget._state == before
+
+
+def test_recompute_fitted_leaves_live_zoom_untouched(qapp):
+    """The fitted clamp is pure: no ``_zoom_level`` write outside commit."""
+    widget = _make_bare(qapp)
+    widget.fit_view()
+    qapp.processEvents()
+    drifted = widget._zoom_level * 0.5
+    widget._zoom_level = drifted  # simulate pre-commit drift below min
+    nxt = timeline_viewport.recompute_fitted_state(widget)
+    assert nxt.zoom == pytest.approx(nxt.min_zoom)
+    assert widget._zoom_level == pytest.approx(drifted)
+    assert nxt.min_zoom == pytest.approx(widget._state.min_zoom)
+    assert nxt.content_width == widget._state.content_width
+
+
+def test_pps_degenerate_inputs_fail_open(qapp):
+    """Unified pps guard: empty/one-frame widgets never raise; the
+    ``frame_span`` + ``duration > 0`` fail-open lives in the base helper."""
+    widget = _make_bare(qapp)
+    widget._total_frames = 0
+    widget._duration = 0.0
+    assert widget.get_pixels_per_second() == pytest.approx(
+        widget._zoom_level * timeline_viewport.get_base_pixels_per_second(widget)
+    )
+    widget._total_frames = 1
+    assert timeline_viewport.get_base_pixels_per_second(widget) == 50.0
+    assert widget.get_pixels_per_second() == pytest.approx(widget._zoom_level * 50.0)
+    widget.set_pps(10.0)  # fail-open path, must not raise
+    widget.set_zoom(0.5)
 
 
 # --- Gutter sync correction -------------------------------------------------

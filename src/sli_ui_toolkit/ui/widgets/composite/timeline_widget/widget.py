@@ -3,7 +3,6 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 
 import logging
 import math
-from dataclasses import replace
 from typing import Any
 
 from PySide6.QtCore import QEasingCurve, QEvent, QRect, QRectF, Qt, QTimer, Signal, QVariantAnimation
@@ -428,97 +427,21 @@ class TimelineWidget(QWidget):
         _timeline_debug("_onViewportGeometryChanged done source=%s width=%s zoom=%s last_min=%s", source, self.width(), self._zoom_level, self._last_min_zoom)
 
     def _current_state(self) -> TimelineViewportState:
-        """Snapshot current viewport state from widget fields and helpers."""
-        min_zoom = timeline_viewport.calculate_min_zoom(self)
-        logical = timeline_viewport.get_logical_width(self)
-        try:
-            right = timeline_viewport.right_inset(self)
-        except Exception:
-            right = 0
-        if self._total_frames > 0:
-            content_width = int(math.ceil(float(self.LEFT_GUTTER) + float(logical) + float(right)))
-        else:
-            content_width = 0
-        viewport_width = timeline_viewport.get_viewport_width(self)
-        scroll_area = timeline_viewport.get_scroll_area(self)
-        try:
-            scroll_x = int(scroll_area.horizontalScrollBar().value()) if scroll_area is not None and scroll_area.horizontalScrollBar() is not None else 0
-        except Exception:
-            scroll_x = 0
-        return TimelineViewportState(
-            zoom=float(self._zoom_level),
-            min_zoom=float(min_zoom),
-            left_gutter=int(self.LEFT_GUTTER),
-            content_width=int(content_width),
-            viewport_width=int(viewport_width),
-            scroll_x=int(scroll_x),
-        )
+        """Snapshot current viewport state (thin delegator; logic in viewport)."""
+        return timeline_viewport.current_state(self)
 
     def _recomputeFittedState(self) -> TimelineViewportState:
         """Return current state with zoom clamped to min_zoom if fitted."""
-        cur = self._current_state()
-        if cur.is_fitted() and abs(cur.zoom - cur.min_zoom) > 1e-4:
-            old_zoom = self._zoom_level
-            self._zoom_level = cur.min_zoom
-            try:
-                clamped = self._current_state()
-            finally:
-                self._zoom_level = old_zoom
-            return clamped
-        return cur
+        return timeline_viewport.recompute_fitted_state(self)
 
     def _commitState(self, nxt: TimelineViewportState, source: str = "") -> bool:
         """Diff ``nxt`` against ``self._state`` and emit typed signals.
 
-        ``eps 1e-4`` for zoom/min_zoom, ``==`` for px geometry. Calls
-        ``updateGeometry`` + ``update`` and emits ``zoomChanged(float)`` only
-        when zoom changed, ``viewportChanged`` /
-        ``viewportChangedState(object)`` when zoom or geometry changed
-        (``"gutterDrag"`` included: a gutter-width change is pure geometry,
-        so it emits the viewport family and never ``zoomChanged``).
-        Returns ``True`` if any emit happened.
+        Thin delegator (tests reach in by name); the diff/emit body lives
+        in ``viewport.commit_state``, the only ``_zoom_level`` write site
+        besides ``__init__``.
         """
-        old: TimelineViewportState | None = getattr(self, "_state", None)
-        eps = 1e-4
-        has_zoom = nxt.has_zoom_changed(old, eps=eps)
-        has_geometry = nxt.has_geometry_changed(old)
-        min_zoom_changed = old is not None and abs(nxt.min_zoom - old.min_zoom) > eps
-        if min_zoom_changed:
-            has_geometry = True
-        if old is not None and not has_zoom and not has_geometry:
-            self._state = nxt
-            self._zoom_level = float(nxt.zoom)
-            self._last_min_zoom = float(nxt.min_zoom)
-            return False
-        self._zoom_level = float(nxt.zoom)
-        self._last_min_zoom = float(nxt.min_zoom)
-        if int(self.LEFT_GUTTER) != int(nxt.left_gutter):
-            self.LEFT_GUTTER = int(nxt.left_gutter)
-        self._state = nxt
-        _timeline_debug("_commitState source=%s zoom %s->%s min %s eps %s has_zoom=%s has_geom=%s", source, getattr(old, "zoom", None), nxt.zoom, nxt.min_zoom, eps, has_zoom, has_geometry)
-        try:
-            self.updateGeometry()
-        except Exception:
-            pass
-        self.update()
-        emitted = False
-        if has_zoom:
-            try:
-                self.zoomChanged.emit(float(nxt.zoom))
-            except Exception:
-                pass
-            emitted = True
-        if has_zoom or has_geometry:
-            try:
-                self.viewportChanged.emit()
-            except Exception:
-                pass
-            try:
-                self.viewportChangedState.emit(nxt)
-            except Exception:
-                pass
-            emitted = True
-        return emitted
+        return timeline_viewport.commit_state(self, nxt, source)
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
@@ -817,13 +740,14 @@ class TimelineWidget(QWidget):
         return max(0.0, float(self._duration))
 
     def get_pixels_per_second(self):
-        """Current px/sec: ``pps = zoom * base_pps`` (Z1 invariant)."""
-        if self._total_frames <= 0:
-            return 50.0
-        duration = self.get_total_duration()
-        if duration <= 0:
-            return 50.0
-        return timeline_viewport.get_logical_width(self) / duration
+        """Current px/sec: ``pps = zoom * base_pps`` (Z1 invariant).
+
+        Thin delegator over ``viewport.pixels_per_second_for_zoom`` — the
+        single zoom→pps path (``frame_span = _total_frames - 1`` guard,
+        ``duration > 0`` fail-open to the 50.0 stub inside
+        ``get_base_pixels_per_second``).
+        """
+        return timeline_viewport.pixels_per_second_for_zoom(self, self._zoom_level)
 
     @staticmethod
     def _is_datasource(source) -> bool:
@@ -837,13 +761,17 @@ class TimelineWidget(QWidget):
         """Public zoom setter. Additive API (Phase 4D); wheel path untouched.
 
         Clamps via ``viewport.clamp_zoom`` (``[min_zoom, 1.0]``, 1% snap),
-        anchors the viewport-center time (``anchor`` accepts ``"cursor"``
-        or ``"center"`` — without an event position both hold the center
-        stable), then commits exactly once via ``_commitState`` with
-        ``source="apiSetZoom"``. No-change (``<=1e-4`` eps) stays silent;
+        then commits exactly once via ``_apply_api_zoom`` with
+        ``source="apiSetZoom"``. ``anchor`` selects the commit cursor
+        policy (``"cursor"`` or ``"center"`` — anything else raises
+        ``ValueError``): the API path carries no event position, so both
+        spellings hold the viewport-center time stable through
+        ``viewport.commit_zoom``. No-change (``<=1e-4`` eps) stays silent;
         never arms ``_needs_fit_view``; no-op after close. Emits only
         through ``_commitState`` (``zoomChanged`` + viewport family).
         """
+        if anchor not in ("cursor", "center"):
+            raise ValueError(f"anchor must be 'cursor' or 'center', got {anchor!r}")
         if getattr(self, "_destroyed", False) or not sip.isValid(self):  # type: ignore[attr-defined]
             return
         try:
@@ -853,7 +781,7 @@ class TimelineWidget(QWidget):
         if abs(float(new_zoom) - float(self._zoom_level)) <= 1e-4:
             return
         try:
-            self._apply_api_zoom(float(new_zoom))
+            self._apply_api_zoom(float(new_zoom), anchor=anchor)
         except Exception:
             return
 
@@ -870,63 +798,17 @@ class TimelineWidget(QWidget):
             return
         self.set_zoom(float(pps) / base, anchor=anchor)
 
-    def _apply_api_zoom(self, new_zoom: float) -> None:
-        """Shared commit body for ``set_zoom`` (mirrors ``_flush_wheel_zoom``).
+    def _apply_api_zoom(self, new_zoom: float, *, anchor: str = "cursor") -> None:
+        """API zoom commit through the unified ``viewport.commit_zoom``.
 
-        Anchor math holds the viewport-center time fixed; the scrollbar is
-        set synchronously from it (signals blocked); one band repaint
-        covers the gutter correction; a single ``_commitState`` emits.
+        ``anchor`` (``"cursor"``/``"center"``, else ``ValueError``) feeds
+        the commit cursor policy; without an event position both hold the
+        viewport-center time (``cursor_x=None`` center policy). One commit
+        with ``source="apiSetZoom"``.
         """
-        new_pps = timeline_viewport.pixels_per_second_for_zoom(self, new_zoom)
-        scroll_area = timeline_viewport.get_scroll_area(self)
-        scrollbar = None
-        scroll_old = 0
-        if scroll_area is not None:
-            scrollbar = scroll_area.horizontalScrollBar()
-            try:
-                scroll_old = int(scrollbar.value())
-            except Exception:
-                scroll_old = 0
-        try:
-            viewport_width = int(timeline_viewport.get_viewport_width(self))
-        except Exception:
-            viewport_width = 0
-        anchor_viewport_x = float(viewport_width) / 2.0
-        cursor_time = timeline_viewport.cursor_time_at_x(
-            self, float(scroll_old) + anchor_viewport_x
-        )
-        target = timeline_viewport.anchor_scroll_for_zoom(
-            self, anchor_viewport_x, cursor_time, new_pps
-        )
-        self._zoom_level = float(new_zoom)
-        timeline_viewport.update_fixed_width(self)
-        if scrollbar is not None:
-            try:
-                lo = int(scrollbar.minimum())
-                hi = int(scrollbar.maximum())
-            except Exception:
-                lo, hi = 0, int(target)
-            target = max(lo, min(int(target), hi))
-            scrollbar.blockSignals(True)
-            try:
-                scrollbar.setValue(int(target))
-            finally:
-                scrollbar.blockSignals(False)
-            try:
-                _sync_scroll = int(scrollbar.value())
-            except Exception:
-                _sync_scroll = int(target)
-        else:
-            _sync_scroll = int(target)
-        try:
-            self.repaint(gutter_band_rect_for_scroll(self, _sync_scroll))
-        except Exception:
-            pass
-        try:
-            nxt = self._current_state()
-        except Exception:
-            return
-        self._commitState(nxt, source="apiSetZoom")
+        if anchor not in ("cursor", "center"):
+            raise ValueError(f"anchor must be 'cursor' or 'center', got {anchor!r}")
+        timeline_viewport.commit_zoom(self, float(new_zoom), cursor_x=None, source="apiSetZoom")
 
     def get_visible_thumbnail_frame_indices(self, overscan_blocks: int = 1) -> list[int]:
         return timeline_viewport.get_visible_thumbnail_frame_indices(
@@ -1041,6 +923,8 @@ class TimelineWidget(QWidget):
         tick, ``"wheelZoomCoalesced"`` for a coalesced window. Never commits
         or emits after close (``_destroyed`` gate + ``isValid`` check — the
         ``singleShot(0)`` callback can outlive the widget into C++ teardown).
+        The commit itself runs through ``viewport.commit_zoom`` with the
+        event position as ``cursor_x`` (content-coords cursor policy).
         """
         # PySide6-stubs lags shiboken6.isValid — narrow ignore per AGENTS.md.
         if getattr(self, "_destroyed", False) or not sip.isValid(self):  # type: ignore[attr-defined]
@@ -1065,60 +949,10 @@ class TimelineWidget(QWidget):
         )
         if abs(new_zoom - old_zoom) <= 1e-4:
             return
-        new_pps = timeline_viewport.pixels_per_second_for_zoom(self, new_zoom)
-        scroll_area = timeline_viewport.get_scroll_area(self)
-        scrollbar = None
-        scroll_old = 0
-        if scroll_area is not None:
-            scrollbar = scroll_area.horizontalScrollBar()
-            try:
-                scroll_old = int(scrollbar.value())
-            except Exception:
-                scroll_old = 0
-        # event.position() is in widget (content) coords; viewport coords
-        # subtract the pre-zoom scroll offset (the mouse never moves here).
-        cursor_time = timeline_viewport.cursor_time_at_x(self, float(cursor_x))
-        cursor_viewport_x = float(cursor_x) - float(scroll_old)
-        target = timeline_viewport.anchor_scroll_for_zoom(
-            self, cursor_viewport_x, cursor_time, new_pps
-        )
-        self._zoom_level = float(new_zoom)
-        timeline_viewport.update_fixed_width(self)
-        if scrollbar is not None:
-            try:
-                lo = int(scrollbar.minimum())
-                hi = int(scrollbar.maximum())
-            except Exception:
-                lo, hi = 0, int(target)
-            target = max(lo, min(int(target), hi))
-            scrollbar.blockSignals(True)
-            try:
-                scrollbar.setValue(int(target))
-            finally:
-                scrollbar.blockSignals(False)
-            try:
-                _sync_scroll = int(scrollbar.value())
-            except Exception:
-                _sync_scroll = int(target)
-        else:
-            _sync_scroll = int(target)
-        # Synchronous correction paint: setValue moved the content widget
-        # window synchronously while every correction paint below
-        # (_commitState -> update, update_fixed_width -> update) is async,
-        # leaving ~1 frame of gutter displaced per step. repaint() paints
-        # the gutter band now, in the same call stack. Band-only (not a
-        # full repaint) to keep the coalesced budget: one commit + one
-        # sync band repaint per window. Correction-only: no state change.
-        try:
-            self.repaint(gutter_band_rect_for_scroll(self, _sync_scroll))
-        except Exception:
-            pass
         source = "wheelZoomCoalesced" if ticks > 1 else "wheelZoom"
-        try:
-            nxt = self._current_state()
-        except Exception:
-            return
-        self._commitState(nxt, source=source)
+        timeline_viewport.commit_zoom(
+            self, float(new_zoom), cursor_x=float(cursor_x), source=source
+        )
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -1216,21 +1050,10 @@ class TimelineWidget(QWidget):
     def _refresh_viewport_state(self) -> None:
         """Silently re-snapshot ``self._state`` from live fields (no emits).
 
-        Write-through cache for paths that mutate geometry without a
-        viewport notification today (gutter drag, thumbnail updates,
-        fit_view): keeps ``TimelineViewportState`` authoritative for readers
-        like ``_on_host_scroll`` while ``_commitState`` remains the only emit
-        path. Deliberately a no-op while ``_state`` is ``None`` so the first
-        ``_commitState(old=None)`` still emits.
+        Thin delegator; the write-through body lives in
+        ``viewport.refresh_viewport_state``.
         """
-        if self._state is None:
-            return
-        try:
-            nxt = self._current_state()
-        except Exception:
-            return
-        self._state = nxt
-        self._last_min_zoom = float(nxt.min_zoom)
+        timeline_viewport.refresh_viewport_state(self)
 
 TimelineWidget.inspect_spec = InspectSpec(
     family="TimelineWidget",
