@@ -613,13 +613,15 @@ def time_to_frame_index(widget, timestamp: float) -> float:
     return max(0.0, min(frame_index, max(0.0, widget._total_frames - 1)))
 
 def time_to_x(widget, timestamp: float, duration: float, logical_width: float) -> float:
-    # Rounding contract (Phase 1): geometry stays float end-to-end.
-    # This maps timestamp -> float x via ``visual_pos_from_index`` with no
-    # int()/round() of its own; the single quantization site is
-    # ``viewport.pos_to_frame``'s int(round(...)), so a
+    # Quantize contract (canonical rule lives on viewport.pos_to_frame):
+    # geometry stays float end-to-end. This maps timestamp -> float x via
+    # ``visual_pos_from_index`` with no int()/round() of its own; the
+    # single frame-quantization site is ``viewport.pos_to_frame`` /
+    # ``viewport.frame_to_pos`` int(round(...)), so a
     # time_to_x -> pos_to_frame -> visual_pos_from_index round trip lands
     # within half a slot — never a systematic 1px drift. Integer snapping
-    # happens only at paint (QRectF fills), never in geometry.
+    # happens only at paint (QRectF fills / hairline drawLine), never in
+    # geometry.
     if duration <= 0 or logical_width <= 0:
         return float(widget.LEFT_GUTTER)
     clamped = max(0.0, min(float(timestamp), duration))

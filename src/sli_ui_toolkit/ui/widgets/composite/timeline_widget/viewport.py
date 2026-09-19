@@ -829,6 +829,20 @@ def choose_ruler_subdivisions(
     return 1
 
 def pos_to_frame(widget, x: float) -> int:
+    """Map a content-x pixel to the nearest frame index (quantize contract).
+
+    QUANTIZE RULE (canonical — the single rounding contract for the
+    timeline geometry): geometry is float end-to-end
+    (``visual_pos_from_index`` / ``layout.time_to_x`` never truncate);
+    the ONLY frame quantization is nearest-frame ``int(round(...))``
+    here and in :func:`frame_to_pos`; strip block reps are
+    ``floor``-of-block-start by construction
+    (:func:`strip_block_layout`); integer pixel snapping happens only
+    at paint (``int()`` hairline ``drawLine`` calls in ``render.py`` /
+    ``primitives.py``), never in geometry. Consequence:
+    ``time_to_x -> pos_to_frame -> visual_pos_from_index`` round-trips
+    within half a slot (pinned by test).
+    """
     if widget._total_frames <= 0:
         return 0
     logical_width = get_logical_width(widget)
@@ -849,11 +863,25 @@ def pos_to_float_index(widget, x: float) -> float:
     return max(0.0, min(index, float(widget._total_frames - 1)))
 
 def frame_to_pos(widget, frame: int) -> int:
+    """Pixel x of *frame* via the quantize contract (nearest, not floor).
+
+    Same ``int(round(...))`` quantization as :func:`pos_to_frame` (see
+    the rule there): the float position
+    ``LEFT_GUTTER + frame * slot_width`` snaps to the nearest pixel.
+    ``pos_to_frame(frame_to_pos(f)) == f`` whenever a frame owns at
+    least one pixel (slot >= 1px); in the collapsed sub-pixel regime
+    the round trip holds within half a slot.
+    """
     if widget._total_frames <= 0:
         return widget.LEFT_GUTTER
-    return int(widget.LEFT_GUTTER + frame * get_slot_width(widget))
+    return int(round(widget.LEFT_GUTTER + frame * get_slot_width(widget)))
 
 def visual_pos_from_index(widget, float_index: float) -> float:
+    """Float content-x of a (possibly fractional) frame index.
+
+    Pure float mapping per the quantize contract — no ``int()`` of its
+    own; callers needing a frame snap go through :func:`pos_to_frame`.
+    """
     if widget._total_frames <= 0:
         return float(widget.LEFT_GUTTER)
     return widget.LEFT_GUTTER + float_index * get_slot_width(widget)

@@ -461,3 +461,41 @@ def test_set_data_source_adoption_and_precedence(qapp):
         assert w._duration == 7.0
     finally:
         w.close()
+
+
+# --- Phase 3 polish: block-rep floor rule --------------------------------------
+#
+# Quantize-contract companion: strip block reps are floor-of-block-start
+# (``min(total - 1, floor(i * frames_per_block))``) at a constant draw
+# width — the one documented exception to nearest-frame rounding, pinned
+# here so the polish never silently re-quantizes the rep grid.
+
+
+def test_strip_block_reps_follow_floor_rule(qapp):
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w = _make_widget(qapp, n=90)
+    try:
+        for zoom in (w._zoom_level, 1.0):
+            w._commitState(w._current_state().with_zoom(zoom), source="test")
+            csx = float(w.LEFT_GUTTER)
+            logical = timeline_viewport.get_logical_width(w)
+            slot = timeline_viewport.get_slot_width(w)
+            base = timeline_viewport.get_base_tile_width(w)
+            draw_w = base if slot < base else slot
+            blocks = timeline_viewport.strip_block_layout(
+                w, content_start_x=csx, start_x=csx, end_x=csx + logical
+            )
+            assert blocks, zoom
+            frames_per_block = draw_w / slot
+            for i, (block_x, block_w, rep) in enumerate(blocks):
+                assert block_w == draw_w, (zoom, i)
+                assert block_x == csx + i * draw_w, (zoom, i)
+                assert rep == min(w._total_frames - 1, int(i * frames_per_block)), (
+                    zoom,
+                    i,
+                )
+    finally:
+        w.close()

@@ -881,6 +881,83 @@ def _strip_probe(tl):
     return tl.grab().toImage().pixelColor(int(tl.LEFT_GUTTER) + 100, 10)
 
 
+# --- Phase 3 polish: single DAMAGE_PAD + allocation-free loops -----------------
+
+
+def test_damage_pad_singular_across_paint_passes():
+    """One ``DAMAGE_PAD`` in layout; render culls through it, no literals.
+
+    The old per-pass magic margins (ruler ``±20``/``±50``) are gone:
+    minor ticks cull against ``DAMAGE_PAD``, major ticks against
+    ``DAMAGE_PAD + _RULER_LABEL_EXTENT`` (label geometry, derived), and
+    the selection/playhead passes cull against ``DAMAGE_PAD``-derived
+    pads. ``viewport.damage_pad()`` resolves the same value.
+    """
+    from pathlib import Path
+
+    render_src = Path(timeline_render.__file__).read_text()
+    assert "DAMAGE_PAD" in render_src
+    assert timeline_viewport.damage_pad() == timeline_layout.DAMAGE_PAD == 12.0
+    for literal in ("start_x - 20", "end_x + 20", "start_x - 50", "end_x + 50"):
+        assert literal not in render_src, literal
+    layout_src = Path(timeline_layout.__file__).read_text()
+    assert layout_src.count("12.0") == 1, layout_src.count("12.0")
+    assert "_RULER_LABEL_EXTENT" in render_src
+
+
+def test_no_qt_allocations_inside_paint_loops():
+    """No ``QColor(``/``QPen(``/``QBrush(`` directly inside ``for``/``while``
+    bodies in the paint modules: per-row/per-tick/per-segment colors and
+    pens resolve through the per-paint locals and the private
+    ``primitives._alpha_color`` / ``primitives._pen_for`` caches (whose
+    definitions live outside any loop)."""
+    import ast
+    from pathlib import Path
+
+    for module in (timeline_render, timeline_primitives):
+        tree = ast.parse(Path(module.__file__).read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.For, ast.While)):
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Call):
+                        func = child.func
+                        name = (
+                            func.id
+                            if isinstance(func, ast.Name)
+                            else getattr(func, "attr", "")
+                        )
+                        assert name not in ("QColor", "QPen", "QBrush"), (
+                            module.__name__,
+                            ast.dump(child),
+                        )
+
+
+def test_double_paint_is_deterministic(qtbot):
+    """Two full repaints produce byte-identical images (cache-share proof).
+
+    The shared pen/color caches must not mutate between paints: any
+    aliasing mutation would show up here as pixel drift.
+    """
+    from PySide6.QtGui import QImage, QPixmap
+
+    tl = _make_widget(qtbot)
+    for i in range(0, tl._total_frames, 11):
+        px = QPixmap(64, 36)
+        px.fill(0x4488CC)
+        tl.add_thumbnail(i, px)
+
+    def _render_once():
+        image = QImage(tl.size(), QImage.Format.Format_ARGB32)
+        image.fill(0)
+        tl.render(image)
+        return image
+
+    first = _render_once()
+    second = _render_once()
+    assert not first.isNull() and not second.isNull()
+    assert bytes(first.bits()) == bytes(second.bits())
+
+
 def test_light_dark_paint_diverges_through_tokens(qtbot, qapp, _themed):
     """Light/dark paints differ, and a token override reaches the pixels."""
     tm = _themed

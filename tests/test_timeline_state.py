@@ -872,3 +872,82 @@ def test_deprecated_viewport_signals_removed(qapp):
         if "resized" in str(r.message) or "layoutSettled" in str(r.message)
     ] == []
     w.close()
+
+
+# --- Phase 3 polish: single quantize contract ----------------------------------
+
+
+def test_pos_to_frame_carries_quantize_rule(qapp):
+    """The rounding rule is documented once, on the canonical helper."""
+    import inspect
+
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    doc = inspect.getdoc(timeline_viewport.pos_to_frame)
+    assert doc is not None and "QUANTIZE RULE" in doc
+    assert "int(round" in doc
+
+
+def test_quantize_round_trip_stable_within_half_slot(qapp):
+    """``time_to_x -> pos_to_frame -> visual`` lands within half a slot.
+
+    The quantize contract: geometry is float end-to-end, the only frame
+    snap is nearest-frame ``int(round(...))`` — so re-projecting the
+    snapped frame never drifts more than half a slot from the source x.
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        layout as timeline_layout,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w, vp = _tstate_widget(qapp, n=61, fps=30)
+    try:
+        duration = w.get_total_duration()
+        assert duration > 0
+        for zoom in (vp.calculate_min_zoom(w), 0.5, 1.0):
+            w._zoom_level = float(zoom)
+            logical = vp.get_logical_width(w)
+            slot = vp.get_slot_width(w)
+            for k in range(0, 401):
+                t = duration * k / 400.0
+                x0 = timeline_layout.time_to_x(w, t, duration, logical)
+                frame = vp.pos_to_frame(w, x0)
+                x1 = vp.visual_pos_from_index(w, float(frame))
+                assert abs(x1 - x0) <= slot / 2.0 + 1e-6, (zoom, t, x0, frame, x1)
+    finally:
+        w.close()
+
+
+def test_frame_to_pos_matches_rounded_visual_and_inverts(qapp):
+    """``frame_to_pos`` is the rounded visual position and inverts cleanly.
+
+    Exact inversion holds when a frame owns at least one pixel
+    (slot >= 1px); in the collapsed sub-pixel regime several frames
+    share a pixel (the rep grid, not ``frame_to_pos``, is the identity
+    there), so the contract is the half-slot tolerance instead.
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    w, vp = _tstate_widget(qapp, n=61, fps=30)
+    try:
+        for zoom in (vp.calculate_min_zoom(w), 1.0):
+            w._zoom_level = float(zoom)
+            slot = vp.get_slot_width(w)
+            for frame in list(range(0, w._total_frames, 7)) + [w._total_frames - 1]:
+                visual = vp.visual_pos_from_index(w, float(frame))
+                snapped = timeline_viewport.frame_to_pos(w, frame)
+                assert snapped == int(round(visual))
+                assert vp.pos_to_frame(w, float(visual)) == frame
+                if slot >= 1.0:
+                    assert vp.pos_to_frame(w, float(snapped)) == frame
+                else:
+                    back = vp.pos_to_frame(w, float(snapped))
+                    assert abs(vp.visual_pos_from_index(w, float(back)) - snapped) <= slot / 2.0 + 1e-6
+    finally:
+        w.close()
