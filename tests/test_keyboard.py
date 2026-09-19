@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import pytest
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.widgets import (
@@ -210,5 +212,109 @@ def test_timeline_empty_inputs_fail_open(qtbot):
     # behavior for the supervisor key-map spec).
     qtbot.keyClick(tl, Qt.Key.Key_Delete)
     assert deletes == [1]
+
+
+def _key_event(key, modifier=Qt.KeyboardModifier.NoModifier):
+    return QKeyEvent(QEvent.Type.KeyPress, key, modifier)
+
+
+def test_timeline_pageup_pagedown_step_ten(qtbot):
+    tl = _make_timeline(qtbot)
+    moves: list[int] = []
+    tl.headMoved.connect(moves.append)
+    qtbot.keyClick(tl, Qt.Key.Key_PageDown)
+    assert tl._current_index == 15
+    qtbot.keyClick(tl, Qt.Key.Key_PageUp)
+    assert tl._current_index == 5
+    assert moves == [15, 5]
+
+
+def test_timeline_pageup_pagedown_clamp_at_edges(qtbot):
+    tl = _make_timeline(qtbot, total_frames=42)
+    tl._current_index = 40
+    qtbot.keyClick(tl, Qt.Key.Key_PageDown)
+    assert tl._current_index == 41
+    qtbot.keyClick(tl, Qt.Key.Key_PageDown)
+    assert tl._current_index == 41
+    tl._current_index = 1
+    qtbot.keyClick(tl, Qt.Key.Key_PageUp)
+    assert tl._current_index == 0
+    qtbot.keyClick(tl, Qt.Key.Key_PageUp)
+    assert tl._current_index == 0
+
+
+def test_timeline_pageup_pagedown_empty_store_ignored(qtbot):
+    tl = _make_timeline(qtbot, total_frames=0)
+    tl._current_index = 0
+    moves: list[int] = []
+    tl.headMoved.connect(moves.append)
+    for key in (Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
+        event = _key_event(key)
+        tl.keyPressEvent(event)
+        assert not event.isAccepted()
+    assert tl._current_index == 0
+    assert moves == []
+
+
+def test_timeline_space_emits_play_pause_requested(qtbot):
+    tl = _make_timeline(qtbot)
+    fired: list[int] = []
+    tl.playPauseRequested.connect(lambda: fired.append(1))
+    event = _key_event(Qt.Key.Key_Space)
+    tl.keyPressEvent(event)
+    assert fired == [1]
+    assert event.isAccepted()
+
+
+def test_timeline_space_with_modifier_not_emitted(qtbot):
+    tl = _make_timeline(qtbot)
+    fired: list[int] = []
+    tl.playPauseRequested.connect(lambda: fired.append(1))
+    for modifier in (
+        Qt.KeyboardModifier.ShiftModifier,
+        Qt.KeyboardModifier.ControlModifier,
+    ):
+        event = _key_event(Qt.Key.Key_Space, modifier)
+        tl.keyPressEvent(event)
+        assert fired == []
+
+
+def test_timeline_plus_minus_zoom_by_quarter_step(qtbot):
+    tl = _make_timeline(qtbot)
+    tl._zoom_level = 0.5
+    event = _key_event(Qt.Key.Key_Plus)
+    tl.keyPressEvent(event)
+    assert event.isAccepted()
+    assert tl._zoom_level == pytest.approx(0.5 * 1.25)
+    event = _key_event(Qt.Key.Key_Minus)
+    tl.keyPressEvent(event)
+    assert event.isAccepted()
+    assert tl._zoom_level == pytest.approx(0.5)
+
+
+def test_timeline_plus_keypad_modifier_zooms(qtbot):
+    tl = _make_timeline(qtbot)
+    tl._zoom_level = 0.5
+    event = _key_event(Qt.Key.Key_Plus, Qt.KeyboardModifier.KeypadModifier)
+    tl.keyPressEvent(event)
+    assert event.isAccepted()
+    assert tl._zoom_level == pytest.approx(0.5 * 1.25)
+
+
+def test_timeline_plus_with_other_modifiers_ignored(qtbot):
+    tl = _make_timeline(qtbot)
+    tl._zoom_level = 0.5
+    event = _key_event(Qt.Key.Key_Plus, Qt.KeyboardModifier.ControlModifier)
+    tl.keyPressEvent(event)
+    assert tl._zoom_level == pytest.approx(0.5)
+
+
+def test_timeline_accessible_name_and_description():
+    tl = TimelineWidget()
+    assert tl.accessibleName() == "Timeline"
+    assert tl.accessibleDescription() == (
+        "Keyframe timeline. Left and right arrows step frames. "
+        "Space toggles playback."
+    )
 
 
