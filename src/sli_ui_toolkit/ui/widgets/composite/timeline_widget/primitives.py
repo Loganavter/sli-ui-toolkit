@@ -33,8 +33,13 @@ def draw_gutter_background(widget, painter: QPainter, rect: QRectF, gutter_bg: Q
 
 def draw_group_header_label(widget, painter: QPainter, rect: QRectF, group, label: str, text_col: QColor, sep_soft: QColor) -> None:
     painter.save()
-    accent = widget._group_accent_color(group)
-    collapsed = widget._is_group_collapsed(group)
+    # Thin-owner geometry: the group helpers live in layout.py as plain
+    # functions-taking-widget (function-level import — no new top-level
+    # cross-module edge per the cycle rule).
+    from . import layout as timeline_layout
+
+    accent = timeline_layout.group_accent_color(widget, group)
+    collapsed = timeline_layout.is_group_collapsed(widget, group)
     gradient = QLinearGradient(rect.topLeft(), rect.topRight())
     start = QColor(accent)
     start.setAlpha(timeline_alpha(widget.theme_manager, "timeline.group.header.start.alpha"))
@@ -61,7 +66,7 @@ def draw_group_header_label(widget, painter: QPainter, rect: QRectF, group, labe
     font.setBold(True)
     painter.setFont(font)
 
-    chevron_rect = widget._group_chevron_rect(rect)
+    chevron_rect = timeline_layout.group_chevron_rect(rect)
     chevron_x = chevron_rect.left() + 5
     center_y = rect.center().y()
     if collapsed:
