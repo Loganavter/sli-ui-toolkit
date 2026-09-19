@@ -142,7 +142,11 @@ def test_gutter_clamp_bounds_are_140_320(qapp):
 
 
 def test_gutter_drag_keeps_state_shape_and_zoom_quiet(qapp):
-    """Drag travels the frozen state shape, emits nothing, keeps pps."""
+    """Drag travels the frozen state shape via _commitState, zoom stays quiet.
+
+    Post CUTOVER-C the move emits exactly one viewportChanged (+State) and
+    zero zoomChanged; pps untouched.
+    """
     widget = _make_bare(qapp)
     zoom_got: list[float] = []
     viewport_got: list[int] = []
@@ -159,7 +163,7 @@ def test_gutter_drag_keeps_state_shape_and_zoom_quiet(qapp):
     widget.mouseReleaseEvent(_release(mid))
     assert widget._zoom_level == zoom_before
     assert widget.get_pixels_per_second() == pps_before
-    assert zoom_got == [] and viewport_got == []
+    assert zoom_got == [] and len(viewport_got) == 1
     widget.close()
 
 

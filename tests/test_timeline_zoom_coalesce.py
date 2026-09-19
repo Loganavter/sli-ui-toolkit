@@ -405,13 +405,12 @@ def test_host_scroll_unions_gutter_band_synchronously(qapp):
 
 
 def test_gutter_drag_leaves_coalesced_zoom_accounting_quiet(qapp):
-    """Gutter drag (Phase 2B refresh path) commits nothing, emits nothing.
+    """Gutter drag commits via _commitState (CUTOVER-C): exactly one
+    viewport-family emit, zero zoomChanged, zoom scalar untouched.
 
     The drag travels the frozen ``TimelineViewportState`` shape via
-    ``with_left_gutter`` but still applies through the silent
-    ``_refresh_viewport_state`` path until CUTOVER-C — so the Z2
-    counters (commits / zoomChanged / viewportChanged) stay at zero and
-    the zoom scalar is untouched.
+    ``with_left_gutter`` — so the Z2 zoom counters stay quiet while the
+    viewport counters record the single geometry commit.
     """
     from PySide6.QtCore import QEvent
     from PySide6.QtGui import QMouseEvent
@@ -463,7 +462,8 @@ def test_gutter_drag_leaves_coalesced_zoom_accounting_quiet(qapp):
     )
     qapp.processEvents()
 
-    assert widget.commit_calls == 0
-    assert widget.commit_emitted == 0
-    assert zoom_got == [] and viewport_got == []
+    assert widget.commit_calls == 1
+    assert widget.commit_sources == ["gutterDrag"]
+    assert widget.commit_emitted == 1
+    assert zoom_got == [] and len(viewport_got) == 1
     assert widget._zoom_level == zoom_before

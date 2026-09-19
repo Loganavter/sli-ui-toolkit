@@ -130,32 +130,22 @@ def _draw_color_track_segments(
         painter.setBrush(QBrush(color))
         if left_bound <= x1 <= right_bound:
             painter.drawEllipse(QPointF(x1, y), point_radius, point_radius)
-            widget._hover_points.append(
-                (
-                    QRectF(x1 - 6, y - 6, 12, 12),
-                    timeline_viewport.tooltip_for_keyframe(
-                        widget,
-                        group,
-                        track,
-                        next(iter(track.channels.values())),
-                        start_keyframe_ref,
-                    ),
-                )
-            )
         if left_bound <= x2 <= right_bound:
             painter.drawEllipse(QPointF(x2, y), point_radius, point_radius)
-            widget._hover_points.append(
-                (
-                    QRectF(x2 - 6, y - 6, 12, 12),
-                    timeline_viewport.tooltip_for_keyframe(
-                        widget,
-                        group,
-                        track,
-                        next(iter(track.channels.values())),
-                        end_keyframe_ref,
-                    ),
-                ),
+        # Hover stays damage-independent (wave B seam): dots draw gated,
+        # hit-points cover the full span via the shared helper.
+        widget._hover_points.extend(
+            timeline_viewport.hover_points_for_rows(
+                widget,
+                group,
+                track,
+                next(iter(track.channels.values())),
+                [
+                    (x1, y, start_keyframe_ref),
+                    (x2, y, end_keyframe_ref),
+                ],
             )
+        )
 
 def _enum_state_spans(
     widget,
@@ -248,38 +238,25 @@ def _draw_enum_track_segments(
                 point_positions.add(point_key)
                 painter.setBrush(QBrush(line_col))
                 painter.drawEllipse(QPointF(x1, y), point_radius, point_radius)
-                widget._hover_points.append(
-                    (
-                        QRectF(x1 - 6, y - 6, 12, 12),
-                        timeline_viewport.tooltip_for_keyframe(
-                            widget,
-                            group,
-                            track,
-                            channel,
-                            start_ref,
-                        ),
-                    )
-                )
-        if left_bound <= x2 <= right_bound and not math.isclose(
+        end_is_duration = math.isclose(
             float(end_ref.timestamp), float(duration), abs_tol=1e-9
-        ):
+        )
+        if left_bound <= x2 <= right_bound and not end_is_duration:
             point_key = (round(x2, 4), round(y, 4))
             if point_key not in point_positions:
                 point_positions.add(point_key)
                 painter.setBrush(QBrush(line_col))
                 painter.drawEllipse(QPointF(x2, y), point_radius, point_radius)
-                widget._hover_points.append(
-                    (
-                        QRectF(x2 - 6, y - 6, 12, 12),
-                        timeline_viewport.tooltip_for_keyframe(
-                            widget,
-                            group,
-                            track,
-                            channel,
-                            end_ref,
-                        ),
-                    )
-                )
+        # Hover stays damage-independent (wave B seam): dots draw gated
+        # (duration endpoint excluded as before), hit-points cover the span.
+        hover_pts = [(x1, y, start_ref)]
+        if not end_is_duration:
+            hover_pts.append((x2, y, end_ref))
+        widget._hover_points.extend(
+            timeline_viewport.hover_points_for_rows(
+                widget, group, track, channel, hover_pts
+            )
+        )
 
 def content_x_range(
     widget,

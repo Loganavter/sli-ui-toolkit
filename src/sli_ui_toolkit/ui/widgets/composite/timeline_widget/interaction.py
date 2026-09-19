@@ -202,18 +202,13 @@ def mouse_move_event(widget, event):
         clamped = timeline_viewport.clamp_gutter_width(
             widget, event.pos().x() - scroll_offset
         )
-        widget.LEFT_GUTTER = clamped
+        nxt = widget._current_state().with_left_gutter(int(clamped))
+        # CUTOVER-C landed (Phase 3C): gutter drag commits through the
+        # single emit path — _commitState syncs LEFT_GUTTER itself.
+        widget._commitState(nxt, source="gutterDrag")
+        assert nxt.left_gutter == int(widget.LEFT_GUTTER)
         widget._last_min_zoom = timeline_viewport.calculate_min_zoom(widget)
         timeline_viewport.update_fixed_width(widget)
-        # State-shaped drag (Phase 2B): the next snapshot carries the new
-        # gutter through the frozen TimelineViewportState slots.
-        nxt = widget._current_state().with_left_gutter(int(clamped))
-        assert nxt.left_gutter == int(widget.LEFT_GUTTER)
-        # CUTOVER-C: wave C must convert the silent write-through below
-        # into an emit — widget._commitState(nxt, source="gutterDrag") —
-        # and drop the direct LEFT_GUTTER write above (commit syncs the
-        # field itself). widget.py is untouched by wave B on purpose.
-        widget._refresh_viewport_state()
         # Band repaint via existing entry points only (update with a damage
         # rect; update_fixed_width above already issued the full update):
         # the band covers chevron + wash/edge gradients + the 1px
