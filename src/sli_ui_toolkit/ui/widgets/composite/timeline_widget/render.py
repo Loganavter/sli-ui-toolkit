@@ -353,10 +353,10 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
       never call ``setGeometry``/``setVisible``/``setFixedWidth``/
       ``setMinimum*``/``updateGeometry``/``update``/``repaint`` on the
       widget or its scrollbars. Vertical-scrollbar sync lives outside paint
-      (``resizeEvent``/``_onViewportGeometryChanged``/``_on_layout_settle``/
-      ``_on_scale_changed``/``_on_host_scroll`` in ``widget.py``, via
-      ``viewport.update_vertical_scrollbar``); the pure desired state is
-      queryable through ``viewport.vertical_scrollbar_state``.
+      (``resizeEvent``/``viewport_geometry_changed`` (``interaction.py``)/
+      ``_on_layout_settle``/``_on_scale_changed``/``_on_host_scroll`` in
+      ``widget.py``, via ``viewport.update_vertical_scrollbar``); the pure
+      desired state is queryable through ``viewport.vertical_scrollbar_state``.
     - Scratch state: ``widget._hover_points`` is rebuilt every paint, but
       it is hit-test scratch, not geometry — and it is damage-scoped, since
       only the unculled segment passes append to it. All signals, slots,
