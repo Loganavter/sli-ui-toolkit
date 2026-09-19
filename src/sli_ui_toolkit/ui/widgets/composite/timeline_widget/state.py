@@ -42,6 +42,18 @@ class TimelineViewportState:
         """
         return replace(self, zoom=float(zoom))
 
+    def with_left_gutter(self, left_gutter: int) -> TimelineViewportState:
+        """Copy with a new left gutter (zoom slots untouched).
+
+        Single-source funnel for gutter-drag mutations (Phase 2B): the
+        drag path builds the next state via this helper so the snapshot
+        shape stays frozen; until the CUTOVER-C convert lands in
+        ``interaction.mouse_move_event`` the state is applied through the
+        silent ``_refresh_viewport_state`` path, and wave C swaps that
+        call for ``_commitState(nxt, source="gutterDrag")``.
+        """
+        return replace(self, left_gutter=int(left_gutter))
+
     def has_zoom_changed(self, other: TimelineViewportState | None, eps: float = 1e-4) -> bool:
         if other is None:
             return True
