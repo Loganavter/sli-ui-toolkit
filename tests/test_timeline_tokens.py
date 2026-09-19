@@ -567,3 +567,509 @@ def test_wash_strengths_compose_valid_colors(themed, qapp, theme_name):
     tick_col = QColor(grid_col)
     tick_col.setAlpha(tick_strength)
     assert tick_col.isValid() and tick_col.alpha() == tick_strength
+
+
+# --- Phase 2 T-life: show/teardown symmetry -----------------------------------
+#
+# Teardown drops every install/connect; show restores them, so a reopened
+# (or second) dialog keeps tooltips, easing, inner-scrollbar paints, and
+# scale response. Filter installs pair exactly with removes.
+
+
+def _life_snaps(n=8):
+    return [SimpleNamespace(timestamp=float(i)) for i in range(n)]
+
+
+def test_close_then_show_restores_transient_signals(qapp, qtbot, monkeypatch):
+    """Teardown disconnects the four __init__ connections; show rebinds them.
+
+    Behavioral proof (not flag inspection): after teardown each emit is
+    silent; after ``show_event`` each emit reaches the slot again.
+    """
+    from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+    from PySide6.QtCore import QVariantAnimation
+
+    tooltip_calls: list = []
+    playhead_calls: list = []
+    scale_calls: list = []
+    monkeypatch.setattr(
+        TimelineWidget, "_show_hover_tooltip", lambda self: tooltip_calls.append(1)
+    )
+    monkeypatch.setattr(
+        TimelineWidget, "_on_playhead_frame", lambda self, v: playhead_calls.append(v)
+    )
+    monkeypatch.setattr(
+        TimelineWidget, "_on_scale_changed", lambda self, f: scale_calls.append(f)
+    )
+    widget = TimelineWidget(snapshots=_life_snaps())
+    qtbot.addWidget(widget)
+    widget.resize(800, 240)
+    widget.show()
+    qtbot.waitExposed(widget)
+    try:
+        assert widget._transient_bound is True
+        timeline_interaction.teardown_widget(widget)
+        assert widget._transient_bound is False
+        widget._tooltip_timer.timeout.emit()
+        widget._playhead_anim.valueChanged.emit(5.5)
+        UiScale.get_instance().scale_changed.emit(1.0)
+        qapp.processEvents()
+        assert tooltip_calls == [] and playhead_calls == [] and scale_calls == []
+        # Reopen: the show half restores every dropped connection and
+        # revives the destroyed gate.
+        timeline_interaction.show_event(widget)
+        assert widget._transient_bound is True
+        assert widget._destroyed is False
+        widget._tooltip_timer.timeout.emit()
+        widget._playhead_anim.valueChanged.emit(5.5)
+        UiScale.get_instance().scale_changed.emit(1.0)
+        qapp.processEvents()
+        assert tooltip_calls == [1]
+        assert playhead_calls == [5.5]
+        assert scale_calls == [1.0]
+        # Live easing still starts post-restore (no dead animation).
+        widget._total_frames = 50
+        widget._visual_index = 5.0
+        widget._current_index = 5
+        widget.set_current_frame(6)
+        assert widget._playhead_anim.state() == QVariantAnimation.State.Running
+    finally:
+        widget.close()
+
+
+def test_second_dialog_alive_with_tooltips_easing_scale(qapp, qtbot, monkeypatch):
+    """A second dialog after close keeps tooltips/easing/scale (fresh wiring)."""
+    from PySide6.QtGui import QPixmap
+    from PySide6.QtCore import QVariantAnimation
+    from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    first = TimelineWidget(snapshots=_life_snaps())
+    qtbot.addWidget(first)
+    first.show()
+    qtbot.waitExposed(first)
+    first.close()
+    qapp.processEvents()
+
+    scale_calls: list = []
+    monkeypatch.setattr(
+        TimelineWidget, "_on_scale_changed", lambda self, f: scale_calls.append(f)
+    )
+    second = TimelineWidget(snapshots=_life_snaps())
+    qtbot.addWidget(second)
+    second.resize(800, 240)
+    second.show()
+    qtbot.waitExposed(second)
+    try:
+        # Scale singleton reaches the new dialog.
+        UiScale.get_instance().scale_changed.emit(1.0)
+        qapp.processEvents()
+        assert scale_calls == [1.0]
+        # Easing runs on the new dialog.
+        second._total_frames = 50
+        second._visual_index = 5.0
+        second._current_index = 5
+        second.set_current_frame(6)
+        assert second._playhead_anim.state() == QVariantAnimation.State.Running
+        # Tooltip timer wired: hover over a populated hit-set starts it.
+        px = QPixmap(16, 9)
+        second.set_thumbnails({i: px for i in range(0, 8)})
+        second._hover_tooltip_text = "probe"
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtCore import QEvent, QPointF
+        from PySide6.QtCore import Qt
+        second._tooltip_timer.stop()
+        event = QMouseEvent(
+            QEvent.Type.MouseMove,
+            QPointF(400.0, 100.0),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        second.mouseMoveEvent(event)
+        assert second._tooltip_timer.interval() == 350
+    finally:
+        second.close()
+
+
+def test_filter_install_remove_pairing(qapp, qtbot):
+    """Every install pairs with a remove; rebinds never accumulate."""
+    from PySide6.QtCore import QObject
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    widget = TimelineWidget()
+    qtbot.addWidget(widget)
+    try:
+        first, second = QObject(), QObject()
+        timeline_interaction.install_filter_once(widget, first)
+        timeline_interaction.install_filter_once(widget, first)
+        assert len([t for t in widget._filter_targets if t is first]) == 1
+        timeline_interaction.install_filter_once(widget, second)
+        assert len(widget._filter_targets) == 2
+        timeline_interaction.install_filter_once(widget, None)
+        assert len(widget._filter_targets) == 2
+        timeline_interaction.remove_installed_filters(widget)
+        assert widget._filter_targets == []
+        # Idempotent: second removal is a no-op, reinstall works.
+        timeline_interaction.remove_installed_filters(widget)
+        timeline_interaction.install_filter_once(widget, first)
+        assert widget._filter_targets == [first]
+        timeline_interaction.remove_installed_filters(widget)
+        assert widget._filter_targets == []
+    finally:
+        widget.close()
+
+
+def test_host_change_forgets_dead_viewport(qapp, qtbot):
+    """Reparenting onto a new scroll area drops the old viewport filter."""
+    from PySide6.QtWidgets import QScrollArea
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    area_a = QScrollArea()
+    area_b = QScrollArea()
+    qtbot.addWidget(area_a)
+    qtbot.addWidget(area_b)
+    widget = TimelineWidget(snapshots=_life_snaps())
+    try:
+        area_a.setWidget(widget)
+        area_a.resize(800, 240)
+        area_a.show()
+        qapp.processEvents()
+        qapp.processEvents()
+        timeline_interaction.bind_host_scrollbar(widget)
+        first_viewport = widget._host_viewport
+        assert first_viewport is not None
+        assert first_viewport in widget._filter_targets
+        # Reparent: the widget now lives under area_b.
+        widget.setParent(None)
+        area_b.setWidget(widget)
+        area_b.resize(800, 240)
+        area_b.show()
+        qapp.processEvents()
+        qapp.processEvents()
+        timeline_interaction.bind_host_scrollbar(widget)
+        assert widget._host_viewport is not None
+        assert widget._host_viewport is not first_viewport
+        assert first_viewport not in widget._filter_targets
+        # Exactly one viewport filter (no accumulation across hosts).
+        viewports = [t for t in widget._filter_targets if t is widget._host_viewport]
+        assert len(viewports) == 1
+    finally:
+        widget.close()
+        area_a.close()
+        area_b.close()
+
+
+def test_destroyed_gates_no_emit_no_update_no_anim(qapp, qtbot):
+    """commit/set_current/playhead/ingest/thumbs honor teardown like settle."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+    from PySide6.QtCore import QVariantAnimation
+
+    widget = TimelineWidget(snapshots=_life_snaps())
+    qtbot.addWidget(widget)
+    widget._total_frames = 50
+    widget._commitState(widget._current_state(), source="test")
+    widget.close()
+    qapp.processEvents()
+    fired: list = []
+    widget.zoomChanged.connect(lambda v: fired.append(v))
+    widget.viewportChanged.connect(lambda: fired.append(None))
+    widget.viewportChangedState.connect(fired.append)
+    # Commit gate: silent False, no state write.
+    zoom_before = widget._zoom_level
+    assert widget._commitState(widget._current_state(), source="probe") is False
+    assert fired == []
+    assert widget._zoom_level == zoom_before
+    # Playhead gate: index/visual frozen, animation never starts.
+    assert widget._current_index == 0
+    widget.set_current_frame(20)
+    assert widget._current_index == 0
+    assert widget._playhead_anim.state() != widget._playhead_anim.State.Running
+    visual_before = widget._visual_index
+    timeline_interaction.playhead_frame(widget, 42.0)
+    assert widget._visual_index == visual_before
+    # Ingest gate: snapshots/fps/frames untouched, no settle ping crash.
+    snaps_before = list(widget._snapshots)
+    fps_before = widget._fps
+    widget.set_data(_life_snaps(3), fps=24)
+    assert list(widget._snapshots) == snaps_before
+    assert widget._fps == fps_before
+    # Thumbnail gates: store untouched, no update() on a dead widget.
+    thumbs_before = dict(widget._thumbnails)
+    from PySide6.QtGui import QPixmap
+    widget.set_thumbnails({1: QPixmap(16, 9)})
+    widget.add_thumbnail(2, QPixmap(16, 9))
+    assert dict(widget._thumbnails) == thumbs_before
+
+
+def test_event_filter_true_without_commit(qapp, qtbot):
+    """Handled filter events return True and never commit synchronously."""
+    from PySide6.QtCore import QSize
+    from PySide6.QtGui import QResizeEvent
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    widget = TimelineWidget(snapshots=_life_snaps())
+    qtbot.addWidget(widget)
+    widget.resize(800, 240)
+    widget.show()
+    qtbot.waitExposed(widget)
+    try:
+        commits: list = []
+        original = TimelineWidget._commitState
+        widget._commitState = lambda nxt, source="": (
+            commits.append(source), False,
+        )[1]
+        try:
+            event = QResizeEvent(QSize(800, 240), QSize(700, 240))
+            assert timeline_interaction.event_filter(widget, widget.window(), event) is True
+            assert widget.eventFilter(widget.window(), event) is True
+            assert commits == []
+            # Unrelated objects/events fall through unhandled.
+            from PySide6.QtCore import QObject, QEvent
+            assert timeline_interaction.event_filter(widget, QObject(), QEvent(QEvent.Type.User)) is False
+        finally:
+            widget._commitState = original.__get__(widget, TimelineWidget)
+        # Destroyed widgets never handle.
+        widget.close()
+        assert timeline_interaction.event_filter(widget, widget.window(), event) is False
+    finally:
+        try:
+            widget.close()
+        except Exception:
+            pass
+
+
+def test_prune_then_placeholder(qapp, qtbot):
+    """Evicted reps miss exact-match (placeholder); visible reps hit."""
+    from PySide6.QtGui import QPixmap
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    snaps = [SimpleNamespace(timestamp=float(i)) for i in range(101)]
+    widget = TimelineWidget(snapshots=snaps)
+    qtbot.addWidget(widget)
+    widget.resize(800, 240)
+    widget.show()
+    qapp.processEvents()
+    widget._layout_settle.cancel()
+    widget.fit_view()
+    widget._commitState(widget._current_state(), source="test")
+    widget._commitState(widget._current_state().with_zoom(1.0), source="test")
+    try:
+        visible = widget.get_visible_thumbnail_frame_indices(overscan_blocks=1)
+        assert visible and len(visible) <= 12
+        px = QPixmap(16, 9)
+        far = [i for i in range(0, widget._total_frames, 37) if i not in visible]
+        assert far, "need off-window inserts for the eviction probe"
+        for i in far + [v for v in visible if v not in far]:
+            widget.add_thumbnail(i, px)
+        for v in visible:
+            assert timeline_viewport.thumbnail_for_rep(widget, v) is not None
+        for i in far:
+            if i not in widget._thumbnails:
+                # Evicted: exact-match misses → render draws the placeholder.
+                assert timeline_viewport.thumbnail_for_rep(widget, i) is None
+        assert len(widget._thumbnails) <= timeline_interaction._THUMBNAIL_HARD_CAP
+    finally:
+        widget.close()
+
+
+def test_prune_batch_stays_linear_and_exact(qapp, qtbot, monkeypatch):
+    """Bulk streams prune in O(1) amortized per insert with identical results."""
+    from PySide6.QtGui import QPixmap
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    snaps = [SimpleNamespace(timestamp=float(i)) for i in range(101)]
+    widget = TimelineWidget(snapshots=snaps)
+    qtbot.addWidget(widget)
+    widget.resize(800, 240)
+    widget.show()
+    qapp.processEvents()
+    widget._layout_settle.cancel()
+    widget.fit_view()
+    widget._commitState(widget._current_state(), source="test")
+    widget._commitState(widget._current_state().with_zoom(1.0), source="test")
+    try:
+        full_passes: list = []
+        original_interval = timeline_interaction._prune_keep_interval
+
+        def counting_interval(w):
+            full_passes.append(1)
+            return original_interval(w)
+
+        monkeypatch.setattr(
+            timeline_interaction, "_prune_keep_interval", counting_interval
+        )
+        px = QPixmap(16, 9)
+        for i in range(0, widget._total_frames):
+            widget.add_thumbnail(i, px)
+        # One full pass to establish the window; the stream resolves inline.
+        assert len(full_passes) <= 3, full_passes
+        assert widget._prune_keep_cache is not None
+        visible = widget.get_visible_thumbnail_frame_indices(overscan_blocks=1)
+        for v in visible:
+            assert v in widget._thumbnails
+        # Every survivor sits inside the keep-interval (no over-retention).
+        interval = original_interval(widget)
+        assert interval is not None
+        lo, hi = interval
+        assert all(lo <= i <= hi for i in widget._thumbnails)
+    finally:
+        widget.close()
+
+
+def test_scroll_round_trip_no_thrash(qapp, qtbot):
+    """Scrollbar forth/back lands on identical state with bounded commits."""
+    from PySide6.QtWidgets import QScrollArea
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    widget = TimelineWidget(snapshots=_life_snaps(20))
+    area = QScrollArea()
+    qtbot.addWidget(area)
+    area.setWidget(widget)
+    area.resize(800, 240)
+    area.show()
+    qapp.processEvents()
+    qapp.processEvents()
+    widget._layout_settle.cancel()
+    widget.fit_view()
+    widget.set_zoom(1.0)
+    qapp.processEvents()
+    bar = area.horizontalScrollBar()
+    try:
+        assert bar.maximum() > bar.minimum()
+        commits: list = []
+        original = TimelineWidget._commitState
+
+        def counting(self, nxt, source=""):
+            commits.append(source)
+            return original(self, nxt, source)
+
+        widget._commitState = counting.__get__(widget, TimelineWidget)
+        try:
+            widget._refresh_viewport_state()
+            home = widget._state.scroll_x
+            bar.setValue(bar.maximum())
+            qapp.processEvents()
+            assert widget._state.scroll_x == bar.value()
+            bar.setValue(bar.minimum())
+            qapp.processEvents()
+            assert widget._state.scroll_x == home
+            # Forth + back: at most one commit per real step, none for rest.
+            assert len(commits) <= 4, commits
+            settled = len(commits)
+            bar.setValue(bar.value())  # no-op step stays silent
+            qapp.processEvents()
+            assert len(commits) == settled
+        finally:
+            widget._commitState = original.__get__(widget, TimelineWidget)
+    finally:
+        widget.close()
+        area.close()
+
+
+def test_explicit_freeze_refreezes_in_place_swaps(qapp, qtbot):
+    """HANDOFF-1: same-length in-place snapshot swaps re-freeze the aspect."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    snaps = [SimpleNamespace(timestamp=float(i), width=640, height=480) for i in range(5)]
+    widget = TimelineWidget()
+    qtbot.addWidget(widget)
+    try:
+        widget.set_data(snaps, fps=30)
+        widget._layout_settle.cancel()
+        assert timeline_viewport.frozen_thumb_aspect(widget) == 640 / 480
+        # Same list object, same length, new content (in-place swap): the
+        # best-effort key is unchanged, but ingest re-freezes explicitly.
+        for snap in snaps:
+            snap.width, snap.height = 1920, 1080
+        widget.set_data(snaps, fps=30)
+        widget._layout_settle.cancel()
+        assert timeline_viewport.frozen_thumb_aspect(widget) == 1920 / 1080
+        frozen = widget._frozen_thumb_aspect
+        assert isinstance(frozen, tuple) and len(frozen) == 2
+        assert frozen[1] == 1920 / 1080
+    finally:
+        widget.close()
+
+
+def test_track_stubs_diverged_per_theme(themed, qapp):
+    """Former light==dark stubs now resolve per theme (center line as is)."""
+    light_values = {}
+    dark_values = {}
+    themed.set_theme("light", qapp, await_ripples=False)
+    for token in (
+        "timeline.track.bool",
+        "timeline.track.enum",
+        "timeline.track.state",
+        "timeline.track.vec2",
+        "timeline.keyframe.outline",
+        "timeline.playhead.outline",
+        "timeline.separator.row",
+    ):
+        light_values[token] = timeline_theme._timeline_color(themed, token)
+    themed.set_theme("dark", qapp, await_ripples=False)
+    for token in (
+        "timeline.track.bool",
+        "timeline.track.enum",
+        "timeline.track.state",
+        "timeline.track.vec2",
+        "timeline.keyframe.outline",
+        "timeline.playhead.outline",
+        "timeline.separator.row",
+    ):
+        dark_values[token] = timeline_theme._timeline_color(themed, token)
+    for token in light_values:
+        assert light_values[token].isValid() and dark_values[token].isValid()
+        assert light_values[token] != dark_values[token], token
+    # Dark values stay pinned (existing contract); light values are the
+    # darkened same-hue variants (contrast-checked in the theme module).
+    assert dark_values["timeline.track.bool"] == QColor(0, 140, 198)
+    assert dark_values["timeline.separator.row"] == QColor(120, 120, 128)

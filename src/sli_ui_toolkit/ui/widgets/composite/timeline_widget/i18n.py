@@ -3,17 +3,16 @@
 Widgets bind their ``TimelineCallbacks`` hooks via :func:`bind_widget`;
 scoped accessors (:func:`localize_token_for` / :func:`localize_value_for`)
 read the widget's own hooks first and only then fall back to the
-process-global ``set_localize_*`` callbacks.
+process-global ``set_localize_*`` callbacks. The widget instance state is
+authoritative: construction binds per-instance hooks only and never writes
+the process globals (the last-constructed dialog must not win them).
 
-The globals stay because ``viewport.py`` / ``primitives.py`` format tooltips
-and labels without a widget handle (out of scope for this change) — new code
-must prefer the ``*_for`` accessors. Threading the widget through those
-paint paths is a follow-up.
-
-Constructing a widget binds per-instance hooks only and never overwrites
-the process-global ``set_localize_*`` callbacks (the last-constructed
-dialog must not win the globals); the host sets the globals explicitly
-at app level when the widget-less paths need them.
+The globals stay SOLELY as a legacy fallback because ``viewport.py`` /
+``primitives.py`` format tooltips and labels without a widget handle —
+new code must prefer the ``*_for`` accessors, and hosts should move
+app-level localization into per-widget ``TimelineCallbacks``
+(``localize_token`` / ``localize_value``) instead of ``set_localize_*``.
+Threading the widget through those paint paths is a follow-up.
 """
 
 from __future__ import annotations

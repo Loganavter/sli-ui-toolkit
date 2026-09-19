@@ -318,3 +318,117 @@ def test_timeline_accessible_name_and_description():
     )
 
 
+def _cycle_first_dialog(qtbot):
+    """Close one dialog so the next proves reopen-safe wiring (T-life)."""
+    old = TimelineWidget()
+    qtbot.addWidget(old)
+    old.show()
+    qtbot.waitExposed(old)
+    old.close()
+
+
+def test_timeline_full_keymap_on_reopened_dialog(qtbot):
+    """Every key behavior holds on a dialog opened after a close cycle.
+
+    Guards the T-life show/teardown work: Up/Down yield, Left/Right (±Shift),
+    Home/End, PageUp/PageDown, bare Space, Plus/Minus (keypad ok, Ctrl
+    ignored), Delete, and the accessible name/description.
+    """
+    _cycle_first_dialog(qtbot)
+    tl = TimelineWidget()
+    tl._total_frames = 50
+    tl._current_index = 5
+    tl._zoom_level = 0.5
+    _show(tl, qtbot)
+    tl.setFocus()
+    try:
+        moves: list[int] = []
+        deletes: list[int] = []
+        plays: list[int] = []
+        tl.headMoved.connect(moves.append)
+        tl.deletePressed.connect(lambda: deletes.append(1))
+        tl.playPauseRequested.connect(lambda: plays.append(1))
+
+        # Up/Down yield: untouched head, no emits, event left open.
+        before = tl._current_index
+        qtbot.keyClick(tl, Qt.Key.Key_Up)
+        qtbot.keyClick(tl, Qt.Key.Key_Down)
+        assert tl._current_index == before
+
+        # Arrows step; Shift jumps ten.
+        qtbot.keyClick(tl, Qt.Key.Key_Right)
+        assert tl._current_index == 6
+        qtbot.keyClick(tl, Qt.Key.Key_Left)
+        assert tl._current_index == 5
+        qtbot.keyClick(tl, Qt.Key.Key_Right, modifier=Qt.KeyboardModifier.ShiftModifier)
+        assert tl._current_index == 15
+        assert moves == [6, 5, 15]
+
+        # Home/End bounds.
+        qtbot.keyClick(tl, Qt.Key.Key_End)
+        assert tl._current_index == 49
+        qtbot.keyClick(tl, Qt.Key.Key_Home)
+        assert tl._current_index == 0
+
+        # Page keys step ten and clamp.
+        tl._current_index = 5
+        moves.clear()
+        qtbot.keyClick(tl, Qt.Key.Key_PageDown)
+        assert tl._current_index == 15
+        qtbot.keyClick(tl, Qt.Key.Key_PageUp)
+        assert tl._current_index == 5
+        assert moves == [15, 5]
+
+        # Bare Space requests play/pause; modified Space does not.
+        qtbot.keyClick(tl, Qt.Key.Key_Space)
+        assert plays == [1]
+        qtbot.keyClick(tl, Qt.Key.Key_Space, modifier=Qt.KeyboardModifier.ShiftModifier)
+        assert plays == [1]
+
+        # Plus/Minus zoom by one wheel-tick factor; keypad counts, Ctrl out.
+        event = _key_event(Qt.Key.Key_Plus)
+        tl.keyPressEvent(event)
+        assert event.isAccepted()
+        assert tl._zoom_level == pytest.approx(0.5 * 1.25)
+        event = _key_event(Qt.Key.Key_Minus, Qt.KeyboardModifier.KeypadModifier)
+        tl.keyPressEvent(event)
+        assert event.isAccepted()
+        assert tl._zoom_level == pytest.approx(0.5)
+        event = _key_event(Qt.Key.Key_Plus, Qt.KeyboardModifier.ControlModifier)
+        tl.keyPressEvent(event)
+        assert tl._zoom_level == pytest.approx(0.5)
+
+        # Delete emits; a11y labels intact on the reopened dialog.
+        qtbot.keyClick(tl, Qt.Key.Key_Delete)
+        assert deletes == [1]
+        assert tl.accessibleName() == "Timeline"
+        assert "Space toggles playback" in tl.accessibleDescription()
+    finally:
+        tl.close()
+
+
+def test_timeline_interaction_tuning_constants_wired(qapp, qtbot):
+    """Named config constants reach the live objects (no stray hardcodes)."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        interaction as timeline_interaction,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    assert timeline_interaction.TOOLTIP_DELAY_MS == 350
+    assert timeline_interaction.PLAYHEAD_ANIM_MS == 150
+    assert timeline_interaction.KEY_STEP_FRAMES == 1
+    assert timeline_interaction.KEY_PAGE_STEP_FRAMES == 10
+    assert timeline_interaction.KEY_SHIFT_STEP_FRAMES == 10
+    assert timeline_viewport.WHEEL_ZOOM_FACTOR == 1.25
+    tl = TimelineWidget()
+    qtbot.addWidget(tl)
+    try:
+        assert tl._tooltip_timer.interval() == timeline_interaction.TOOLTIP_DELAY_MS
+        assert tl._playhead_anim.duration() == timeline_interaction.PLAYHEAD_ANIM_MS
+        assert tl._drag_threshold_px == 3
+    finally:
+        tl.close()
+
+

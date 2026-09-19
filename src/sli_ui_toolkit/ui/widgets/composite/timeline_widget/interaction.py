@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QEvent, QPointF, Qt
+from types import SimpleNamespace
+
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
 
 import shiboken6 as sip
 
@@ -11,6 +13,50 @@ from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from . import layout as timeline_layout
 from . import viewport as timeline_viewport
 from .debug import _timeline_debug
+
+# --- named interaction tuning (Phase 2 T-life) --------------------------------
+# Former hardcodes, one definition site each (i18n/timings/sizes/slop live
+# here; wheel factor stays canonical in ``viewport.WHEEL_ZOOM_FACTOR`` and
+# keyboard steps mirror it through the same import).
+
+#: Hover tooltip delay (ms): cursor must rest on a keyframe this long.
+TOOLTIP_DELAY_MS = 350
+
+#: Playhead ease duration (ms): matches the OutCubic ``QVariantAnimation``
+#: constructed in ``widget.__init__``.
+PLAYHEAD_ANIM_MS = 150
+
+#: Keyboard frame steps: plain arrows / PageUp-PageDown / Shift+arrows.
+KEY_STEP_FRAMES = 1
+KEY_PAGE_STEP_FRAMES = 10
+KEY_SHIFT_STEP_FRAMES = 10
+
+#: Inner footer-scrollbar track padding / minimum handle width (px).
+INNER_SB_TRACK_PADDING_PX = 8.0
+INNER_SB_HANDLE_MIN_W_PX = 20.0
+
+#: Prune keep-window: fetch-equivalent base overscan plus the margin, both
+#: in BLOCKS (frame margins are forbidden — I3). The total overscan below
+#: reproduces the pre-block keep set exactly at 1:1 zoom.
+_PRUNE_FETCH_OVERSCAN_BLOCKS = 2
+
+
+def is_alive(widget) -> bool:
+    """Teardown gate: ``False`` once closed or C++-deleted.
+
+    Every commit/emit/update/animation entry funnels through this —
+    ``commit_state`` (via ``widget._commitState``), ``set_current_frame``,
+    ``playhead_frame``, ``ingest_data`` — exactly like ``layout_settle``
+    and ``flush_wheel_zoom`` already do. No emits, no ``update()``, no
+    animation start after teardown.
+    """
+    if getattr(widget, "_destroyed", False):
+        return False
+    try:
+        # PySide6-stubs lags shiboken6.isValid — narrow ignore per AGENTS.md.
+        return bool(sip.isValid(widget))  # type: ignore[attr-defined]
+    except Exception:
+        return False
 
 
 def _clamp_frame(widget, frame: int) -> int:
@@ -114,10 +160,10 @@ def mouse_press_event(widget, event):
         if scroll_area is not None:
             h_bar = scroll_area.horizontalScrollBar()
             handle_rect = timeline_viewport.get_inner_sb_handle_rect(widget, sb_rect)
-            padding = 8.0
+            padding = INNER_SB_TRACK_PADDING_PX
             track_w = sb_rect.width() - padding * 2
             total = h_bar.maximum() - h_bar.minimum() + h_bar.pageStep()
-            handle_w = max(20.0, (h_bar.pageStep() / total) * track_w) if total > 0 else 20.0
+            handle_w = max(INNER_SB_HANDLE_MIN_W_PX, (h_bar.pageStep() / total) * track_w) if total > 0 else INNER_SB_HANDLE_MIN_W_PX
             if handle_rect.isEmpty() or not handle_rect.contains(QPointF(event.pos())):
                 scroll_range = h_bar.maximum() - h_bar.minimum()
                 viewport_x = event.pos().x() - h_bar.value()
@@ -142,10 +188,14 @@ def mouse_press_event(widget, event):
 
     shift_pressed = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
     edit_zone = None if shift_pressed else selection_hit_zone(widget, x)
+    # Documented invariant: a hit zone implies an active selection, so
+    # bounds cannot be None here — but the live mouse path fails open to
+    # the plain-press path below instead of asserting.
+    edit_bounds = _selection_bounds(widget) if edit_zone is not None else None
+    if edit_zone is not None and edit_bounds is None:
+        edit_zone = None
     if edit_zone is not None:
-        bounds = _selection_bounds(widget)
-        assert bounds is not None
-        lo, hi = bounds
+        lo, hi = edit_bounds
         widget._selection_edit_mode = edit_zone
         widget._selection_edit_origin_frame = frame
         widget._selection_edit_lo0 = lo
@@ -186,10 +236,10 @@ def mouse_move_event(widget, event):
         if scroll_area is not None:
             sb_rect = timeline_viewport.sb_strip_rect(widget)
             h_bar = scroll_area.horizontalScrollBar()
-            padding = 8.0
+            padding = INNER_SB_TRACK_PADDING_PX
             track_w = sb_rect.width() - padding * 2
             total = h_bar.maximum() - h_bar.minimum() + h_bar.pageStep()
-            handle_w = max(20.0, (h_bar.pageStep() / total) * track_w) if total > 0 else 20.0
+            handle_w = max(INNER_SB_HANDLE_MIN_W_PX, (h_bar.pageStep() / total) * track_w) if total > 0 else INNER_SB_HANDLE_MIN_W_PX
             scroll_range = h_bar.maximum() - h_bar.minimum()
             if track_w - handle_w > 0 and scroll_range > 0:
                 current_vp_x = event.pos().x() - h_bar.value()
@@ -203,27 +253,48 @@ def mouse_move_event(widget, event):
         return
 
     if widget._is_resizing_gutter:
+        # Live drag: direct width write + silent refresh + ONE synchronous
+        # band repaint per move segment — no commit and no emit mid-gesture.
+        # The single ``_commitState(source="gutterDrag")`` lands on mouse
+        # release, so a whole press→release gesture costs exactly one
+        # commit (one viewport-family emit, never zoomChanged).
         scroll_area = timeline_viewport.get_scroll_area(widget)
-        scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
+        try:
+            scroll_offset = (
+                int(scroll_area.horizontalScrollBar().value())
+                if scroll_area is not None
+                and scroll_area.horizontalScrollBar() is not None
+                else 0
+            )
+        except Exception:
+            scroll_offset = 0
         clamped = timeline_viewport.clamp_gutter_width(
             widget, event.pos().x() - scroll_offset
         )
-        nxt = widget._current_state().with_left_gutter(int(clamped))
-        # CUTOVER-C landed (Phase 3C): gutter drag commits through the
-        # single emit path — _commitState syncs LEFT_GUTTER itself.
-        widget._commitState(nxt, source="gutterDrag")
-        assert nxt.left_gutter == int(widget.LEFT_GUTTER)
+        widget.LEFT_GUTTER = int(clamped)
         widget._last_min_zoom = timeline_viewport.calculate_min_zoom(widget)
         timeline_viewport.update_fixed_width(widget)
-        # Band repaint via existing entry points only (update with a damage
-        # rect; update_fixed_width above already issued the full update):
-        # the band covers chevron + wash/edge gradients + the 1px
-        # separator (see viewport.gutter_band_rect).
+        # No commit and no silent refresh mid-gesture: ``_current_state()``
+        # is built from the live fields above, while ``_state`` stays at
+        # the pre-drag snapshot so the release commit diffs exactly the
+        # gesture's geometry delta (one emit, never zero, never N).
+        # Band covers chevron + wash/edge gradients + the 1px separator
+        # (see viewport.gutter_band_rect); synchronous so the sticky gutter
+        # never lags the cursor by a frame. The offset is read AFTER the
+        # width sync above (post-commit layout position).
         try:
-            widget.update(timeline_viewport.gutter_band_rect(widget, int(scroll_offset)))
+            area = timeline_viewport.get_scroll_area(widget)
+            post_offset = (
+                int(area.horizontalScrollBar().value())
+                if area is not None and area.horizontalScrollBar() is not None
+                else 0
+            )
+        except Exception:
+            post_offset = 0
+        try:
+            widget.repaint(timeline_viewport.gutter_band_rect(widget, post_offset))
         except Exception:
             pass
-        widget.update()
         event.accept()
         return
 
@@ -298,6 +369,10 @@ def mouse_release_event(widget, event):
         if widget._is_resizing_gutter:
             widget._is_resizing_gutter = False
             widget.unsetCursor()
+            # Gesture-final commit: pure geometry (viewport family emits,
+            # never zoomChanged); a silent no-op when press→release never
+            # moved. ``widget._commitState`` itself gates teardown.
+            widget._commitState(widget._current_state(), source="gutterDrag")
             event.accept()
             return
         widget._scrub_visual_index = None
@@ -360,11 +435,26 @@ def remove_installed_filters(widget) -> None:
             pass
 
 
+def _forget_filter_target(widget, obj) -> None:
+    """Drop one ``install_filter_once`` target (remove + untrack)."""
+    if obj is None:
+        return
+    try:
+        widget._filter_targets = [known for known in widget._filter_targets if known is not obj]
+    except AttributeError:
+        return
+    try:
+        obj.removeEventFilter(widget)
+    except (RuntimeError, AttributeError):
+        pass
+
+
 def suspend_transient(widget) -> None:
     """Hide-time suspend: stop timers/animation, drop event filters.
 
     Symmetric to the ``show_event``/``bind_host_scrollbar`` installs.
-    Idempotent; safe to call from both hide and close paths.
+    Signal connections are KEPT (hide is not teardown) so reshow needs no
+    rebind; idempotent; safe to call from both hide and close paths.
     """
     try:
         widget._tooltip_timer.stop()
@@ -375,45 +465,35 @@ def suspend_transient(widget) -> None:
     except (RuntimeError, AttributeError):
         pass
     remove_installed_filters(widget)
+    widget._host_viewport = None
+    widget._filter_window = None
 
 
 def unbind_host_scrollbar(widget) -> None:
-    """Disconnect host scrollbar signals acquired by :func:`bind_host_scrollbar`."""
+    """Disconnect host scrollbar signals acquired by :func:`bind_host_scrollbar`.
+
+    Also drops the stale host-viewport filter (a host change must not
+    accumulate dead viewports) and clears the tracked pair.
+    """
     scrollbar = widget._host_h_scrollbar
     widget._host_h_scrollbar = None
-    if scrollbar is None:
-        return
-    for signal in (scrollbar.valueChanged, scrollbar.rangeChanged):
-        try:
-            signal.disconnect(widget._on_host_scroll)
-        except (TypeError, RuntimeError):
-            pass
+    if scrollbar is not None:
+        for signal in (scrollbar.valueChanged, scrollbar.rangeChanged):
+            try:
+                signal.disconnect(widget._on_host_scroll)
+            except (TypeError, RuntimeError):
+                pass
+    _forget_filter_target(widget, getattr(widget, "_host_viewport", None))
+    widget._host_viewport = None
 
 
-def teardown_widget(widget) -> None:
-    """Close-time teardown: no singleton may retain the widget after this.
-
-    Disconnects the ``UiScale.scale_changed`` singleton connection and the
-    host scrollbar signals, drops the child signal connections whose
-    Qt-held callables would otherwise keep the Python wrapper alive
-    (tooltip timer, inner scrollbar lambda, playhead animation), suspends
-    transient state, cancels the settle gate, and raises the ``_destroyed``
-    gate so deferred callbacks never commit or emit afterwards. Idempotent.
-    """
+def _disconnect_transient_signals(widget) -> None:
+    """Drop the four ``__init__`` signal connections (teardown half)."""
     from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
-    if widget._destroyed:
-        return
-    widget._destroyed = True
-    suspend_transient(widget)
     try:
         UiScale.get_instance().scale_changed.disconnect(widget._on_scale_changed)
     except (TypeError, RuntimeError):
-        pass
-    unbind_host_scrollbar(widget)
-    try:
-        widget._layout_settle.cancel()
-    except (RuntimeError, AttributeError):
         pass
     for signal, slot in (
         (widget._tooltip_timer.timeout, widget._show_hover_tooltip),
@@ -428,12 +508,73 @@ def teardown_widget(widget) -> None:
         widget._v_scrollbar.valueChanged.disconnect()
     except (TypeError, RuntimeError):
         pass
+    widget._transient_bound = False
+
+
+def ensure_transient_signals(widget) -> None:
+    """Restore the four ``__init__`` signal connections (show half).
+
+    No-op unless a teardown dropped them (``_transient_bound`` flag), so
+    hide/show cycles never double-connect while close→reshow recovers
+    tooltips, easing, inner-scrollbar paints, and scale response.
+    """
+    if getattr(widget, "_transient_bound", True):
+        return
+    from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+
+    try:
+        UiScale.get_instance().scale_changed.connect(widget._on_scale_changed)
+    except (TypeError, RuntimeError):
+        pass
+    try:
+        widget._tooltip_timer.timeout.connect(widget._show_hover_tooltip)
+    except (TypeError, RuntimeError):
+        pass
+    try:
+        widget._playhead_anim.valueChanged.connect(widget._on_playhead_frame)
+    except (TypeError, RuntimeError):
+        pass
+    try:
+        widget._v_scrollbar.valueChanged.connect(lambda _value: widget.update())
+    except (TypeError, RuntimeError):
+        pass
+    widget._transient_bound = True
+
+
+def teardown_widget(widget) -> None:
+    """Close-time teardown: no singleton may retain the widget after this.
+
+    Disconnects the ``UiScale.scale_changed`` singleton connection and the
+    host scrollbar signals, drops the     child signal connections whose
+    Qt-held callables would otherwise keep the Python wrapper alive
+    (tooltip timer, inner scrollbar lambda, playhead animation), suspends
+    transient state, cancels the settle gate, and raises the ``_destroyed``
+    gate so deferred callbacks never commit or emit afterwards. Idempotent.
+    Reopening rebinds through ``show_event`` → ``ensure_transient_signals``.
+    """
+    if widget._destroyed:
+        return
+    widget._destroyed = True
+    suspend_transient(widget)
+    _disconnect_transient_signals(widget)
+    unbind_host_scrollbar(widget)
+    try:
+        widget._layout_settle.cancel()
+    except (RuntimeError, AttributeError):
+        pass
 
 
 def bind_host_scrollbar(widget) -> None:
-    """Bind the host scroll area's scrollbar signals (wiring; owner calls)."""
+    """Bind the host scroll area's scrollbar signals (wiring; owner calls).
+
+    Reparent-safe: when the host scroll area changed, the old scrollbar
+    signals disconnect AND the old viewport filter is forgotten before the
+    new pair installs — dead viewports never accumulate in
+    ``_filter_targets``.
+    """
     scroll_area = timeline_viewport.get_scroll_area(widget)
     if scroll_area is None:
+        unbind_host_scrollbar(widget)
         return
     scrollbar = scroll_area.horizontalScrollBar()
     if scrollbar is not None and scrollbar is not widget._host_h_scrollbar:
@@ -441,18 +582,42 @@ def bind_host_scrollbar(widget) -> None:
         widget._host_h_scrollbar = scrollbar
         widget._host_h_scrollbar.valueChanged.connect(widget._on_host_scroll)
         widget._host_h_scrollbar.rangeChanged.connect(widget._on_host_scroll)
+    viewport_obj = None
     try:
-        install_filter_once(widget, scroll_area.viewport())
+        viewport_obj = scroll_area.viewport()
+    except (RuntimeError, AttributeError):
+        viewport_obj = None
+    if viewport_obj is not getattr(widget, "_host_viewport", None):
+        _forget_filter_target(widget, getattr(widget, "_host_viewport", None))
+        widget._host_viewport = viewport_obj
+    try:
+        install_filter_once(widget, viewport_obj)
     except Exception:
         pass
 
 
 def show_event(widget) -> None:
-    """Show-time wiring: host scrollbar + window/viewport filters + settle ping."""
+    """Show-time wiring: host scrollbar + window/viewport filters + settle ping.
+
+    Restores every teardown-dropped signal connection first (tooltips,
+    easing, inner scrollbar, scale response) so a reopened widget behaves
+    like a fresh one; filter installs stay exactly-once; stale window
+    filters from a previous host are forgotten.
+
+    Reopen revives the ``_destroyed`` gate (a reshown widget is alive
+    again — deferred callbacks may commit); the next ``closeEvent``/
+    ``teardown_widget`` re-arms it.
+    """
+    widget._destroyed = False
+    ensure_transient_signals(widget)
     bind_host_scrollbar(widget)
     # Watch viewport and window for fullscreen resize where widget width stays fixed
     try:
-        install_filter_once(widget, widget.window())
+        window = widget.window()
+        if window is not getattr(widget, "_filter_window", None):
+            _forget_filter_target(widget, getattr(widget, "_filter_window", None))
+            widget._filter_window = window
+        install_filter_once(widget, window)
         sa = timeline_viewport.get_scroll_area(widget)
         if sa is not None:
             install_filter_once(widget, sa.viewport())
@@ -502,7 +667,17 @@ def resize_event(widget, event) -> None:
 
 
 def event_filter(widget, obj, event) -> bool:
-    """Event-filter body; True when the geometry change was handled."""
+    """Event-filter body; True when the geometry change was handled.
+
+    Never commits synchronously: a resize observed inside someone else's
+    event dispatch only pings the settle gate (the ``"settle"`` flush
+    recomputes + commits later), so no re-entrant commit cascade can run
+    through ``viewport_geometry_changed`` from inside the filter. The
+    widget's ``eventFilter`` must return this verdict verbatim (True stops
+    fall-through reprocessing).
+    """
+    if getattr(widget, "_destroyed", False):
+        return False
     t = event.type()
     if t in (QEvent.Type.Resize, QEvent.Type.WindowStateChange):
         try:
@@ -510,7 +685,10 @@ def event_filter(widget, obj, event) -> bool:
             is_viewport = sa is not None and sa.viewport() is not None and obj is sa.viewport()
             is_window = obj is widget.window()
             if is_viewport or is_window:
-                viewport_geometry_changed(widget, "eventFilter")
+                try:
+                    widget._layout_settle.ping()
+                except (RuntimeError, AttributeError):
+                    pass
                 return True
         except Exception:
             pass
@@ -599,6 +777,32 @@ def flush_wheel_zoom(widget) -> None:
     )
 
 
+def freeze_thumb_aspect(widget) -> float:
+    """Explicit ingest freeze for the tile aspect (HANDOFF-1, I1 anchor).
+
+    Probes snapshot metadata ONCE per ingest and writes the frozen
+    ``(key, aspect)`` tuple ``viewport.frozen_thumb_aspect`` reads — so a
+    same-length in-place snapshot swap (identical freeze key, new content)
+    still re-freezes instead of inheriting the stale best-effort cache.
+    Snapshot-free ingests freeze the ``16/9`` fallback. The lazy
+    first-computed-wins path in ``viewport`` only fills a MISSING entry;
+    it never overrides an explicit freeze.
+    """
+    try:
+        key = timeline_viewport._frozen_aspect_key(widget)
+    except Exception:
+        return timeline_viewport.THUMB_ASPECT_FALLBACK
+    try:
+        aspect = timeline_viewport._snapshot_thumb_aspect(widget)
+    except Exception:
+        aspect = timeline_viewport.THUMB_ASPECT_FALLBACK
+    try:
+        widget._frozen_thumb_aspect = (key, aspect)
+    except Exception:
+        pass
+    return aspect
+
+
 def ingest_data(
     widget,
     snapshots=None,
@@ -615,7 +819,13 @@ def ingest_data(
     member falls back to the explicit argument, then to the legacy default.
     Explicit non-``None`` arguments win over ``source``. Non-matching
     ``source`` objects are ignored (fail-open: legacy path).
+
+    No-op on a torn-down widget (same ``_destroyed``/``isValid`` gate as
+    ``layout_settle``/``flush_wheel_zoom``): post-close data must never
+    rebind, refit, or restart the playhead animation.
     """
+    if not is_alive(widget):
+        return
     from .models import TimelineDataSource
 
     try:
@@ -642,6 +852,11 @@ def ingest_data(
     if fps is not None:
         widget._fps = max(1, int(fps))
     widget._total_frames = timeline_viewport.compute_total_frames(widget)
+    # Explicit freeze (HANDOFF-1): aspect is fixed HERE, from ingest inputs
+    # only — never from thumbnail arrivals. Also resets the prune keep-cache
+    # (block layout moved with the new geometry).
+    freeze_thumb_aspect(widget)
+    widget._prune_keep_cache = None
     widget._rebuild_row_layout()
     timeline_layout.ensure_preferred_height(widget)
 
@@ -662,53 +877,133 @@ def ingest_data(
     widget._layout_settle.ping()
 
 
-def prune_thumbnails(widget) -> None:
+def _prune_keep_interval(widget) -> tuple[int, int] | None:
+    """Contiguous frame keep-interval from the block-unit window (I3).
+
+    ``visible_strip_block_range`` with the fetch-equivalent base overscan
+    PLUS the margin (both in blocks) selects the kept blocks; the interval
+    spans the kept blocks' rep frames. Exact-match lookup makes eviction
+    safe (a missing rep shows the theme placeholder, never a neighbor).
+    ``None`` when the window is degenerate (fail-open: keep everything).
+    """
+    try:
+        overscan = _PRUNE_FETCH_OVERSCAN_BLOCKS + _THUMBNAIL_KEEP_MARGIN_BLOCKS
+        first_blk, last_excl = timeline_viewport.visible_strip_block_range(
+            widget, overscan_blocks=overscan
+        )
+    except Exception:
+        return None
+    if last_excl <= first_blk:
+        return None
+    try:
+        reps = widget.get_visible_thumbnail_frame_indices(overscan_blocks=overscan)
+    except Exception:
+        return None
+    if not reps:
+        return None
+    return (min(reps), max(reps))
+
+
+def _prune_window_token(widget):
+    """O(1) identity for the keep-window inputs (value-based, not id-based).
+
+    ``refresh_viewport_state`` assigns a FRESH state object per thumbnail
+    insert, so ``id(_state)`` can never hit twice in a streaming loop — the
+    token instead hashes the values the block window derives from (committed
+    geometry + frame count + tile metrics). Any real geometry change
+    (scroll, zoom, gutter, scale, refreeze) retires the cache; a pure
+    insert stream keeps it. ``None`` when unreadable (fail-open: full pass).
+    """
+    try:
+        st = widget._state
+        return (
+            float(st.zoom),
+            float(st.min_zoom),
+            int(st.left_gutter),
+            int(st.content_width),
+            int(st.viewport_width),
+            int(st.scroll_x),
+            int(widget._total_frames),
+            float(widget.STRIP_HEIGHT),
+            float(timeline_viewport.frozen_thumb_aspect(widget)),
+        )
+    except Exception:
+        return None
+
+
+def _prune_enforce_hard_cap(widget, lo: int, hi: int) -> None:
+    """Fail-stop backstop: keep at most ``_THUMBNAIL_HARD_CAP`` entries."""
+    if len(widget._thumbnails) <= _THUMBNAIL_HARD_CAP:
+        return
+    mid = (lo + hi) / 2.0
+    ordered = sorted(widget._thumbnails, key=lambda i: (abs(i - mid), i))
+    for idx in ordered[_THUMBNAIL_HARD_CAP:]:
+        del widget._thumbnails[idx]
+
+
+def prune_thumbnails(widget, *, _hint_index: int | None = None) -> None:
     """Enforce the thumbnail store bound (fail-open; keeps pre-fit loads).
 
-    Keeps entries whose index falls inside the visible strip window plus
-    margin, evicts the rest, then applies the hard-cap backstop (farthest
-    from the window midpoint first). Index-addressed shape
+    Full pass: evict every entry outside the block-derived keep-interval,
+    then apply the hard-cap backstop. Index-addressed shape
     (``_thumbnails`` + sorted ``_thumb_indices``) is preserved.
+
+    Batched inserts stay linear: ``add_thumbnail`` passes its index as
+    ``_hint_index``; when the cached keep-interval is still valid (same
+    committed state + frame count — the common streaming case) the insert
+    is kept-or-dropped in O(1) with no store scan. Any geometry change
+    invalidates the cache and the next insert takes one full pass.
+    Bulk ``set_thumbnails`` replaces the store and prunes exactly once.
     """
     if not widget._thumbnails:
         return
     if getattr(widget, "_state", None) is None or widget._total_frames <= 0:
         return
-    try:
-        # Keep-window matches the coordinator fetch window
-        # (presenter_parts/thumbnails get_visible_frame_indices margin=2):
-        # pruning narrower than the fetch set caused perpetual
-        # edge-block refetch. The frame margin below stays as backstop.
-        visible = widget.get_visible_thumbnail_frame_indices(overscan_blocks=2)
-    except Exception:
+    cache = getattr(widget, "_prune_keep_cache", None)
+    token = _prune_window_token(widget)
+    if (
+        _hint_index is not None
+        and token is not None
+        and isinstance(cache, tuple)
+        and len(cache) == 3
+        and cache[0] == token
+    ):
+        _token, lo, hi = cache
+        idx = int(_hint_index)
+        if lo <= idx <= hi:
+            _prune_enforce_hard_cap(widget, lo, hi)
+            widget._thumb_indices = sorted(widget._thumbnails.keys())
+        else:
+            widget._thumbnails.pop(idx, None)
+            try:
+                widget._thumb_indices.remove(idx)
+            except ValueError:
+                pass
         return
-    if not visible:
+    interval = _prune_keep_interval(widget)
+    if interval is None:
         return
-    try:
-        slot = timeline_viewport.get_slot_width(widget)
-        base = timeline_viewport.get_base_tile_width(widget)
-    except Exception:
-        return
-    if slot <= 0 or base <= 0:
-        return
-    draw_w = base if slot < base else slot
-    frames_per_block = max(1.0, draw_w / slot)
-    margin = int(math.ceil(frames_per_block * _THUMBNAIL_KEEP_MARGIN_BLOCKS))
-    last = max(0, widget._total_frames - 1)
-    lo = max(0, min(visible) - margin)
-    hi = min(last, max(visible) + margin)
+    lo, hi = interval
     for idx in [i for i in widget._thumbnails if i < lo or i > hi]:
         del widget._thumbnails[idx]
-    if len(widget._thumbnails) > _THUMBNAIL_HARD_CAP:
-        mid = (lo + hi) / 2.0
-        ordered = sorted(widget._thumbnails, key=lambda i: (abs(i - mid), i))
-        for idx in ordered[_THUMBNAIL_HARD_CAP:]:
-            del widget._thumbnails[idx]
+    _prune_enforce_hard_cap(widget, lo, hi)
     widget._thumb_indices = sorted(widget._thumbnails.keys())
+    if token is None:
+        token = _prune_window_token(widget)
+    try:
+        widget._prune_keep_cache = (token, lo, hi)
+    except Exception:
+        pass
 
 
 def set_current_frame(widget, index) -> None:
-    """Move the playhead: snap on large jumps, ease on steps (150 ms OutCubic)."""
+    """Move the playhead: snap on large jumps, ease on steps (150 ms OutCubic).
+
+    No-op on a torn-down widget: never moves state, never starts the
+    animation, never repaints after close.
+    """
+    if not is_alive(widget):
+        return
     widget._current_index = max(0, min(index, widget._total_frames - 1))
     target = float(widget._current_index)
     start = float(widget._visual_index)
@@ -726,8 +1021,139 @@ def set_current_frame(widget, index) -> None:
     widget._playhead_anim.start()
 
 
+def rebuild_hover_points(widget) -> None:
+    """Damage-independent hover rebuild (post-paint pass).
+
+    ``render.paint_timeline`` resets ``_hover_points`` per paint and the
+    scalar segment pass appends only damage-visible dots, so a narrow
+    repaint starves tooltips while a full repaint populates them. The
+    widget calls this at the end of ``paintEvent`` (after paint returns):
+    the SAME points are rebuilt over the full visible row window, so full
+    and partial repaints leave identical hit-sets and color/enum/scalar
+    paths stay consistent (one builder, same 12 px shapes, same
+    ``tooltip_for_keyframe`` texts the paint passes use).
+    """
+    from . import segments as timeline_segments  # read-only: span builders only
+
+    points: list[tuple[QRectF, str]] = []
+    try:
+        if widget._total_frames <= 0:
+            widget._hover_points = points
+            return
+        duration = timeline_layout.content_duration(widget)
+        logical_width = timeline_viewport.get_logical_width(widget)
+        if duration <= 0 or logical_width <= 0:
+            widget._hover_points = points
+            return
+        _content_top, rows_bottom = timeline_viewport.content_viewport_bounds(widget)
+        rows_top = widget.STRIP_HEIGHT - timeline_viewport.vertical_scroll_value(widget)
+        row_items = list(timeline_layout.iter_row_rects(widget, rows_top, rows_bottom))
+    except Exception:
+        widget._hover_points = points
+        return
+    for kind, key, rect in row_items:
+        try:
+            if kind == "group":
+                continue
+            if kind == "track_single":
+                _kind, group, track, channel = key
+            else:
+                _kind, group, track, channel, _is_first = key
+            row_center_y = timeline_layout.row_center_y(rect.top(), rect.height())
+            if track.kind == "color":
+                try:
+                    first_channel = next(iter(track.channels.values()))
+                except StopIteration:
+                    continue
+                spans = timeline_segments._color_state_spans(
+                    widget, track, duration, logical_width
+                )
+                for index, (timestamp, end_timestamp, x1, x2, color) in enumerate(spans):
+                    direction = -1.0 if index % 2 == 0 else 1.0
+                    y = row_center_y + direction * 7.0
+                    start_ref = SimpleNamespace(timestamp=timestamp, value=color)
+                    end_ref = SimpleNamespace(timestamp=end_timestamp, value=color)
+                    points.extend(
+                        timeline_viewport.hover_points_for_rows(
+                            widget,
+                            group,
+                            track,
+                            first_channel,
+                            [(x1, y, start_ref), (x2, y, end_ref)],
+                        )
+                    )
+            elif track.kind == "enum":
+                spans = timeline_segments._enum_state_spans(
+                    widget, track, channel, duration, logical_width
+                )
+                for active_index, (timestamp, end_timestamp, x1, x2, value) in enumerate(
+                    spans
+                ):
+                    direction = -1.0 if active_index % 2 == 0 else 1.0
+                    y = row_center_y + direction * 7.0
+                    hover_pts = [(x1, y, SimpleNamespace(timestamp=timestamp, value=value))]
+                    if not math.isclose(
+                        float(end_timestamp), float(duration), abs_tol=1e-9
+                    ):
+                        hover_pts.append(
+                            (x2, y, SimpleNamespace(timestamp=end_timestamp, value=value))
+                        )
+                    points.extend(
+                        timeline_viewport.hover_points_for_rows(
+                            widget, group, track, channel, hover_pts
+                        )
+                    )
+            else:
+                # Unbounded window: ``visible_keyframe_segments`` only culls
+                # by bounds, so ``(-inf, +inf)`` yields every segment with
+                # the exact curve endpoints the bounded paint draws.
+                segments = timeline_layout.visible_keyframe_segments(
+                    widget,
+                    track,
+                    channel,
+                    duration,
+                    logical_width,
+                    row_center_y,
+                    float("-inf"),
+                    float("inf"),
+                )
+                seen: set[tuple[float, float]] = set()
+                for segment in segments:
+                    curve_points = segment.get("curve_points") or [
+                        (segment["x1"], segment["y"]),
+                        (segment["x2"], segment["y"]),
+                    ]
+                    x1, y1 = curve_points[0]
+                    x2, y2 = curve_points[-1]
+                    for x, y, keyframe in (
+                        (x1, y1, segment["start_kf"]),
+                        (x2, y2, segment["end_kf"]),
+                    ):
+                        dedup = (round(float(x), 2), round(float(y), 2))
+                        if dedup in seen:
+                            continue
+                        seen.add(dedup)
+                        points.append(
+                            (
+                                QRectF(float(x) - 6.0, float(y) - 6.0, 12.0, 12.0),
+                                timeline_viewport.tooltip_for_keyframe(
+                                    widget, group, track, channel, keyframe
+                                ),
+                            )
+                        )
+        except Exception:
+            continue
+    widget._hover_points = points
+
+
 def playhead_frame(widget, value) -> None:
-    """Animation tick: advance the eased on-screen position and repaint."""
+    """Animation tick: advance the eased on-screen position and repaint.
+
+    No-op on a torn-down widget: a stray tick after close neither moves
+    state nor repaints.
+    """
+    if not is_alive(widget):
+        return
     try:
         widget._visual_index = float(value)
     except (TypeError, ValueError):
