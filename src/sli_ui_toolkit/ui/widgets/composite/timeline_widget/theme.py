@@ -57,6 +57,10 @@ _TIMELINE_ALPHA_DEFAULTS: dict[str, tuple[int, int]] = {
     "timeline.gutter.edge.alpha": (14, 22),
     "timeline.group.header.start.alpha": (52, 70),
     "timeline.group.header.end.alpha": (18, 12),
+    "timeline.group.wash.track.alpha": (22, 46),
+    "timeline.group.wash.first.alpha": (18, 42),
+    "timeline.group.wash.channel.alpha": (10, 24),
+    "timeline.ruler.minor.tick.alpha": (180, 150),
     "timeline.scrollbar.track.alpha": (235, 190),
 }
 

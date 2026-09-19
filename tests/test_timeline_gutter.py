@@ -307,3 +307,36 @@ def test_damage_pad_is_single_source():
     assert timeline_viewport.damage_pad() == float(
         getattr(timeline_layout, "DAMAGE_PAD", 12.0)
     )
+
+
+# --- Wave G: layout-owned chevron + separator inside the canonical band ------
+
+
+def test_gutter_band_contains_layout_chevron_and_separator(qtbot):
+    """Chevron (via layout functions) and the separator sit inside the band.
+
+    The band ``[scroll, scroll + LEFT_GUTTER + 2]`` is canonical in
+    ``viewport.gutter_band_rect``; the chevron comes from
+    ``layout.group_chevron_rect`` and the separator is the 1px line the
+    sticky overlay draws at ``gx + LEFT_GUTTER``. Both must be covered so a
+    band repaint never clips them.
+    """
+    tl = _make_rows_widget(qtbot)
+    for scroll in (0, 137):
+        band = timeline_viewport.gutter_band_rect(tl, scroll)
+        assert band.x() == scroll
+        assert band.width() == int(tl.LEFT_GUTTER) + 2
+        header = timeline_layout.group_header_rect(tl, scroll, tl.STRIP_HEIGHT)
+        chevron = timeline_layout.group_chevron_rect(header)
+        # Layout chevron equals the widget-method chevron (wave T seam).
+        assert chevron == tl._group_chevron_rect(
+            tl._group_header_rect(scroll, tl.STRIP_HEIGHT)
+        )
+        assert band.contains(int(chevron.left()), int(chevron.center().y()))
+        assert band.contains(int(chevron.right()), int(chevron.center().y()))
+        assert band.contains(int(chevron.left()), int(chevron.top()))
+        assert band.contains(int(chevron.right()), int(chevron.bottom()))
+        # 1px separator at gx + LEFT_GUTTER: inside the +2-wide band.
+        sep_x = int(scroll + tl.LEFT_GUTTER)
+        assert band.contains(sep_x, 10)
+        assert sep_x <= band.right()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
@@ -14,9 +14,10 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     overlay_scrollbar_max_inset,
 )
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
-from . import layout as timeline_layout
+from .debug import _timeline_debug
 from . import theme as timeline_theme
 from .i18n import localize_token_for, localize_value_for
+from .state import TimelineViewportState
 from .theme import resolve_accent_color
 
 def footer_height(widget) -> int:
@@ -67,6 +68,8 @@ def vertical_scrollbar_state(widget) -> tuple[bool, QRect | None, int, int]:
     callers can query the desired state through this function without
     touching ``setVisible``/``setGeometry``.
     """
+    from . import layout as timeline_layout  # function-level: layout owns the top-level edge (I3)
+
     content_top, content_bottom = content_viewport_bounds(widget)
     viewport_h = max(0, content_bottom - content_top)
     content_h = max(0, widget.STRIP_HEIGHT + timeline_layout.rows_height(widget))
@@ -234,6 +237,221 @@ def anchor_scroll_for_zoom(
     target = float(cursor_time) * float(new_pps) + float(widget.LEFT_GUTTER) - float(cursor_viewport_x)
     return max(0, int(round(target)))
 
+
+def _snapshot_with_zoom(widget, zoom: float) -> TimelineViewportState:
+    """Pure viewport snapshot identical to :func:`current_state` but at *zoom*.
+
+    Single construction site for zoomed snapshots: ``current_state``,
+    ``recompute_fitted_state`` and ``commit_zoom`` all build through here,
+    so the zoomed geometry (``content_width`` at the new zoom) can never
+    drift between call sites. Reads the live scrollbar *after* any
+    programmatic ``setValue`` so the snapshot carries the post-commit
+    scroll position.
+    """
+    try:
+        right = right_inset(widget)
+    except Exception:
+        right = 0
+    if widget._total_frames > 0:
+        logical = max(
+            1.0,
+            float(frame_span(widget)) * float(get_base_tile_width(widget)) * float(zoom),
+        )
+        content_width = int(
+            math.ceil(float(widget.LEFT_GUTTER) + float(logical) + float(right))
+        )
+    else:
+        content_width = 0
+    viewport_width = get_viewport_width(widget)
+    scroll_area = get_scroll_area(widget)
+    try:
+        scroll_x = (
+            int(scroll_area.horizontalScrollBar().value())
+            if scroll_area is not None and scroll_area.horizontalScrollBar() is not None
+            else 0
+        )
+    except Exception:
+        scroll_x = 0
+    return TimelineViewportState(
+        zoom=float(zoom),
+        min_zoom=float(calculate_min_zoom(widget)),
+        left_gutter=int(widget.LEFT_GUTTER),
+        content_width=int(content_width),
+        viewport_width=int(viewport_width),
+        scroll_x=int(scroll_x),
+    )
+
+
+def current_state(widget) -> TimelineViewportState:
+    """Snapshot current viewport state from widget fields and helpers."""
+    return _snapshot_with_zoom(widget, float(widget._zoom_level))
+
+
+def recompute_fitted_state(widget) -> TimelineViewportState:
+    """Return current state with zoom clamped to min_zoom if fitted."""
+    cur = current_state(widget)
+    if cur.is_fitted() and abs(cur.zoom - cur.min_zoom) > 1e-4:
+        return _snapshot_with_zoom(widget, cur.min_zoom)
+    return cur
+
+
+def commit_state(widget, nxt: TimelineViewportState, source: str = "") -> bool:
+    """Diff ``nxt`` against ``widget._state`` and emit typed signals.
+
+    ``eps 1e-4`` for zoom/min_zoom, ``==`` for px geometry. Calls
+    ``updateGeometry`` + ``update`` and emits ``zoomChanged(float)`` only
+    when zoom changed, ``viewportChanged`` /
+    ``viewportChangedState(object)`` when zoom or geometry changed
+    (``"gutterDrag"`` included: a gutter-width change is pure geometry,
+    so it emits the viewport family and never ``zoomChanged``).
+    Returns ``True`` if any emit happened. This is the only
+    ``widget._zoom_level`` write site besides ``__init__``.
+    """
+    old: TimelineViewportState | None = getattr(widget, "_state", None)
+    eps = 1e-4
+    has_zoom = nxt.has_zoom_changed(old, eps=eps)
+    has_geometry = nxt.has_geometry_changed(old)
+    min_zoom_changed = old is not None and abs(nxt.min_zoom - old.min_zoom) > eps
+    if min_zoom_changed:
+        has_geometry = True
+    widget._zoom_level = float(nxt.zoom)
+    widget._last_min_zoom = float(nxt.min_zoom)
+    if old is not None and not has_zoom and not has_geometry:
+        widget._state = nxt
+        return False
+    if int(widget.LEFT_GUTTER) != int(nxt.left_gutter):
+        widget.LEFT_GUTTER = int(nxt.left_gutter)
+    widget._state = nxt
+    _timeline_debug("_commitState source=%s zoom %s->%s min %s eps %s has_zoom=%s has_geom=%s", source, getattr(old, "zoom", None), nxt.zoom, nxt.min_zoom, eps, has_zoom, has_geometry)
+    try:
+        widget.updateGeometry()
+    except Exception:
+        pass
+    widget.update()
+    emitted = False
+    if has_zoom:
+        try:
+            widget.zoomChanged.emit(float(nxt.zoom))
+        except Exception:
+            pass
+        emitted = True
+    if has_zoom or has_geometry:
+        try:
+            widget.viewportChanged.emit()
+        except Exception:
+            pass
+        try:
+            widget.viewportChangedState.emit(nxt)
+        except Exception:
+            pass
+        emitted = True
+    return emitted
+
+
+def refresh_viewport_state(widget) -> None:
+    """Silently re-snapshot ``widget._state`` from live fields (no emits).
+
+    Write-through cache for paths that mutate geometry without a
+    viewport notification today (gutter drag, thumbnail updates,
+    fit_view): keeps ``TimelineViewportState`` authoritative for readers
+    like ``_on_host_scroll`` while ``commit_state`` remains the only emit
+    path. Deliberately a no-op while ``_state`` is ``None`` so the first
+    ``commit_state(old=None)`` still emits.
+    """
+    if widget._state is None:
+        return
+    try:
+        nxt = current_state(widget)
+    except Exception:
+        return
+    widget._state = nxt
+    widget._last_min_zoom = float(nxt.min_zoom)
+
+
+def commit_zoom(
+    widget, new_zoom: float, *, cursor_x: float | None, source: str
+) -> None:
+    """Single zoom-commit sequence shared by the API and wheel paths.
+
+    ``cursor_x`` selects the cursor policy: a content-coords x (the wheel
+    path passes the event position) anchors the time under that x, while
+    ``None`` (the event-less API path) anchors the viewport-center time.
+    Either way the time under the anchor stays fixed via
+    :func:`anchor_scroll_for_zoom`.
+
+    Sequence (the unified E1 body): pps for the new zoom, live scrollbar
+    read, cursor-time at the anchor, anchor target, synchronous scrollbar
+    ``setValue`` (signals blocked, clamped to the live range), pure
+    zoomed snapshot, one :func:`commit_state` (the ``_zoom_level`` write
+    plus the only emit), ``update_fixed_width`` at the new zoom, one
+    synchronous gutter-band repaint covering the scroll correction.
+    Callers own clamping (``clamp_zoom``) and the silent no-change
+    early-out (``<=1e-4`` eps); coalescing (tick accumulation, one flush
+    per window, ``"wheelZoom"`` vs ``"wheelZoomCoalesced"`` source) stays
+    in the wheel path.
+    """
+    new_zoom = float(new_zoom)
+    new_pps = pixels_per_second_for_zoom(widget, new_zoom)
+    scroll_area = get_scroll_area(widget)
+    scrollbar = None
+    scroll_old = 0
+    if scroll_area is not None:
+        scrollbar = scroll_area.horizontalScrollBar()
+        try:
+            scroll_old = int(scrollbar.value())
+        except Exception:
+            scroll_old = 0
+    if cursor_x is None:
+        try:
+            viewport_width = int(get_viewport_width(widget))
+        except Exception:
+            viewport_width = 0
+        cursor_viewport_x = float(viewport_width) / 2.0
+        cursor_time = cursor_time_at_x(widget, float(scroll_old) + cursor_viewport_x)
+    else:
+        cursor_time = cursor_time_at_x(widget, float(cursor_x))
+        cursor_viewport_x = float(cursor_x) - float(scroll_old)
+    target = anchor_scroll_for_zoom(widget, cursor_viewport_x, cursor_time, new_pps)
+    if scrollbar is not None:
+        try:
+            lo = int(scrollbar.minimum())
+            hi = int(scrollbar.maximum())
+        except Exception:
+            lo, hi = 0, int(target)
+        target = max(lo, min(int(target), hi))
+        scrollbar.blockSignals(True)
+        try:
+            scrollbar.setValue(int(target))
+        finally:
+            scrollbar.blockSignals(False)
+        try:
+            sync_scroll = int(scrollbar.value())
+        except Exception:
+            sync_scroll = int(target)
+    else:
+        sync_scroll = int(target)
+    try:
+        nxt = _snapshot_with_zoom(widget, new_zoom)
+    except Exception:
+        return
+    # Through the widget's named entry (not commit_state directly): tests
+    # and subclasses reach into / override _commitState, and the method
+    # stays the single observable commit funnel.
+    widget._commitState(nxt, source)
+    update_fixed_width(widget)
+    # Synchronous correction paint: setValue moved the content widget
+    # window synchronously while every correction paint below
+    # (_commitState -> update, update_fixed_width -> update) is async,
+    # leaving ~1 frame of gutter displaced per step. repaint() paints
+    # the gutter band now, in the same call stack. Band-only (not a
+    # full repaint) to keep the coalesced budget: one commit + one
+    # sync band repaint per window. Correction-only: no state change.
+    try:
+        widget.repaint(gutter_band_rect(widget, sync_scroll))
+    except Exception:
+        pass
+
+
 def get_visible_thumbnail_frame_indices(
     widget,
     *,
@@ -307,8 +525,18 @@ def calculate_min_zoom(widget) -> float:
     return viewport_width / content_at_zoom1
 
 def fit_view(widget) -> None:
-    widget._zoom_level = calculate_min_zoom(widget)
-    widget._last_min_zoom = widget._zoom_level
+    """Fit the whole recording: commit min zoom, then sync width/paint.
+
+    The zoom write travels the single commit path (``commit_state`` owns
+    ``widget._zoom_level``) with ``source="fitView"``; callers that need
+    a silent follow-up (``widget.fit_view``'s write-through,
+    ``_on_layout_settle``'s ``"settleFit"`` commit) stay silent
+    no-change re-commits.
+    """
+    nxt = _snapshot_with_zoom(widget, calculate_min_zoom(widget))
+    # Through the widget's named entry (see commit_zoom): keeps
+    # _commitState overrides / spies observable.
+    widget._commitState(nxt, "fitView")
     update_fixed_width(widget)
     widget.update()
 
@@ -530,6 +758,8 @@ def damage_pad() -> float:
     until then falls back to the identical value 12.0 — never two live
     pads, never a second definition site.
     """
+    from . import layout as timeline_layout  # function-level: layout owns the top-level edge (I3)
+
     return float(getattr(timeline_layout, "DAMAGE_PAD", 12.0))
 
 
@@ -593,6 +823,8 @@ def visible_row_gutter_window(
     and sticky-gutter paint passes step with, so gutter rect ``i`` always
     covers lane row ``start + i``.
     """
+    from . import layout as timeline_layout  # function-level: layout owns the top-level edge (I3)
+
     start, end, y_at_start = timeline_layout.visible_row_window(
         widget, rows_top, rows_bottom, content_top=content_top
     )
@@ -671,6 +903,8 @@ def hover_points_for_rows(
     return out
 
 def tooltip_for_keyframe(widget, group, track, channel, keyframe) -> str:
+    from . import layout as timeline_layout  # function-level: layout owns the top-level edge (I3)
+
     if track.kind == "color":
         # Fail-open: missing comps (e.g. no alpha "a") evaluate to None via
         # the guarded helper instead of crashing on .get() misses.

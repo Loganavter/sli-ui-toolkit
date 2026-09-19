@@ -54,15 +54,16 @@ class TimelineModel(Protocol):
 class TimelineDataSource(Protocol):
     """Typed data-source shape decoupling the widget's snapshot store.
 
-    ADOPTION (supervisor wires in ``widget.py`` — models.py declares only):
-    ``TimelineWidget.set_data`` keeps accepting the legacy inputs
-    ``(snapshots, fps=None, timeline_model=None, duration=None)`` unchanged.
-    The follow-up adds an overload accepting ``source: TimelineDataSource``
-    and maps ``source.snapshots → snapshots``, ``source.fps → fps``,
-    ``source.duration → duration``,
+    ``TimelineWidget.set_data`` accepts the legacy inputs
+    ``(snapshots, fps=None, timeline_model=None, duration=None)`` unchanged,
+    plus a keyword ``source: TimelineDataSource`` overload (wired in
+    ``widget.set_data`` → ``interaction.ingest_data``): ``source.snapshots
+    → snapshots``, ``source.fps → fps``, ``source.duration → duration``,
     ``source.timeline_model → timeline_model`` (each ``None``/missing falls
-    back to the legacy default). No widget behavior changes until that
-    overload lands; this Protocol is the frozen member shape for it.
+    back to the explicit argument, then to the legacy default; explicit
+    non-``None`` arguments win over ``source``; non-matching ``source``
+    objects are ignored fail-open). This Protocol is the frozen member
+    shape for that overload.
     """
 
     @property

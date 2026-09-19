@@ -13,6 +13,20 @@ from . import viewport as timeline_viewport
 from .debug import _timeline_debug_enabled, _timeline_paint_debug
 from .segments import _draw_keyframe_segments
 
+# Accent-wash alphas for the row paint path: ``token -> (light, dark)``.
+#
+# Wave-G interim (flagged for wave A promotion into
+# ``theme._TIMELINE_ALPHA_DEFAULTS``): every wash strength the row painters
+def _wash_alpha(tm, token: str) -> int:
+    """Resolve a row-paint wash alpha through theme tokens.
+
+    Thin alias over ``theme.timeline_alpha`` (the four wash tokens live in
+    ``theme._TIMELINE_ALPHA_DEFAULTS`` since wave A with the exact
+    pre-refactor per-theme defaults).
+    """
+    return timeline_theme.timeline_alpha(tm, token)
+
+
 def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, content_start_x: float, strip_top: float, width: int, start_x: float, end_x: float, logical_width: float, slot_width: float) -> None:
     painter.fillRect(QRectF(content_start_x, strip_top, width - content_start_x, widget.STRIP_HEIGHT), canvas_bg)
     blocks = timeline_viewport.strip_block_layout(
@@ -88,32 +102,37 @@ def _row_segments_culled(widget, *, track, channel, duration: float, logical_wid
     return x_range[1] < start_x or x_range[0] > end_x
 
 
-def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bottom: int, content_start_x: float, start_x: float, end_x: float, duration: float, logical_width: float, is_dark: bool, gutter_bg: QColor, track_bg: QColor, lane_bg: QColor, text_col: QColor, sep_soft: QColor) -> None:
-    # Row-window virtualization: only rows intersecting the viewport are
-    # visited (cached offsets + O(visible) slice, see
-    # layout.visible_row_window). Damage clipping: lane backgrounds are
-    # filled only inside [start_x, end_x] — pixels outside the damage rect
-    # are never presented, so filling them was pure overdraw. Gutter fills
-    # stay full-gutter (narrow sticky region, repainted by the overlay pass).
-    # Per-row horizontal cull skips segment computation for rows whose
-    # keyframe content lies fully outside the damage interval.
-    start, end, y = timeline_layout.visible_row_window(widget, rows_top, rows_bottom)
+def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bottom: int, content_start_x: float, start_x: float, end_x: float, duration: float, logical_width: float, gutter_bg: QColor, track_bg: QColor, lane_bg: QColor, text_col: QColor, sep_soft: QColor) -> None:
+    # Row geometry comes from layout.iter_row_rects — the single
+    # y-accumulation site shared with the sticky-gutter overlay and the
+    # group hit-test — so lane paint, gutter paint, and hit-testing visit
+    # identical rects under scroll/collapse. Damage clipping: lane
+    # backgrounds are filled only inside [start_x, end_x] — pixels outside
+    # the damage rect are never presented, so filling them was pure
+    # overdraw. Gutter fills stay full-gutter (narrow sticky region,
+    # repainted by the overlay pass). Per-row horizontal cull skips segment
+    # computation for rows whose keyframe content lies fully outside the
+    # damage interval. Wash strengths resolve through theme tokens (see
+    # _wash_alpha), never per-theme branches.
     lane_x0 = max(content_start_x, start_x)
     lane_x1 = min(float(width), end_x)
     lane_has_damage = lane_x1 > lane_x0
     sep_row = timeline_theme.row_separator_color(widget)
     center_line = timeline_theme.row_center_line_color(widget)
-    for item in widget._row_layout[start:end]:
-        if item[0] == "group":
-            group = item[1]
-            row_h = widget.GROUP_HEADER_HEIGHT
+    tm = widget.theme_manager
+    track_wash = _wash_alpha(tm, "timeline.group.wash.track.alpha")
+    first_wash = _wash_alpha(tm, "timeline.group.wash.first.alpha")
+    channel_wash = _wash_alpha(tm, "timeline.group.wash.channel.alpha")
+    for kind, key, rect in timeline_layout.iter_row_rects(widget, rows_top, rows_bottom):
+        y = rect.top()
+        row_h = rect.height()
+        if kind == "group":
+            group = key[1]
             timeline_primitives.draw_group_header_label(widget, painter, QRectF(0, y, widget.LEFT_GUTTER, row_h), group, group.label, text_col, sep_soft)
-            y += row_h
             continue
 
-        if item[0] == "track_single":
-            _kind, group, track, channel = item
-            row_h = widget.TRACK_ROW_HEIGHT
+        if kind == "track_single":
+            _kind, group, track, channel = key
             line_col = timeline_theme.track_line_color(
                 widget,
                 track.id,
@@ -122,7 +141,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
                 track_accent_color=getattr(track, "accent_color", None),
                 channel_accent_color=getattr(channel, "accent_color", None),
             )
-            gutter_track_bg = timeline_theme.group_content_bg(widget, track_bg, group, 46 if is_dark else 22)
+            gutter_track_bg = timeline_theme.group_content_bg(widget, track_bg, group, track_wash)
             painter.fillRect(QRectF(0, y, content_start_x, row_h), gutter_track_bg)
             if lane_has_damage:
                 painter.fillRect(QRectF(lane_x0, y, lane_x1 - lane_x0, row_h), lane_bg)
@@ -136,11 +155,9 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
                 # Center line last: the keyframe curve oscillates around it
                 # and would otherwise bury it under 1.5px segments + dots.
                 timeline_primitives.draw_center_line(painter, lane_x0, lane_x1, row_center_y, center_line)
-            y += row_h
             continue
 
-        _kind, group, track, channel, is_first_channel = item
-        row_h = widget.CHANNEL_ROW_HEIGHT
+        _kind, group, track, channel, is_first_channel = key
         line_col = timeline_theme.track_line_color(
             widget,
             track.id,
@@ -150,9 +167,9 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             channel_accent_color=getattr(channel, "accent_color", None),
         )
         if is_first_channel:
-            painter.fillRect(QRectF(0, y, content_start_x, row_h), timeline_theme.group_content_bg(widget, track_bg, group, 42 if is_dark else 18))
+            painter.fillRect(QRectF(0, y, content_start_x, row_h), timeline_theme.group_content_bg(widget, track_bg, group, first_wash))
         else:
-            painter.fillRect(QRectF(0, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, gutter_bg, group, 24 if is_dark else 10))
+            painter.fillRect(QRectF(0, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, gutter_bg, group, channel_wash))
         if lane_has_damage:
             painter.fillRect(QRectF(lane_x0, y, lane_x1 - lane_x0, row_h), lane_bg)
         painter.setPen(QPen(sep_row, 1))
@@ -175,9 +192,8 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
                 _draw_keyframe_segments(widget, painter, group=group, track=track, channel=channel, duration=duration, logical_width=logical_width, row_center_y=row_center_y, start_x=start_x, end_x=end_x, line_col=line_col, point_radius=3.5)
             # Center line last (see track_single branch above).
             timeline_primitives.draw_center_line(painter, lane_x0, lane_x1, row_center_y, center_line)
-            y += row_h
 
-def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_start_x: float, footer_height: int, footer_top: int, scrollbar_strip_top: int, ruler_top: int, ruler_bottom: int, scroll_offset: int, viewport_width: int, duration: float, logical_width: float, start_x: float, end_x: float, is_dark: bool, footer_bg: QColor, sep_strong: QColor, sep_soft: QColor, grid_col: QColor, text_col: QColor, sb_idle: QColor, sb_hover: QColor) -> None:
+def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_start_x: float, footer_height: int, footer_top: int, scrollbar_strip_top: int, ruler_top: int, ruler_bottom: int, scroll_offset: int, viewport_width: int, duration: float, logical_width: float, start_x: float, end_x: float, footer_bg: QColor, sep_strong: QColor, sep_soft: QColor, grid_col: QColor, text_col: QColor, sb_idle: QColor, sb_hover: QColor) -> None:
     foot_x0 = max(content_start_x, start_x)
     foot_x1 = min(float(width), end_x)
     if foot_x1 > foot_x0:
@@ -210,7 +226,7 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
     if minor_divisions > 1:
         minor_step = step_sec / minor_divisions
         minor_tick_col = QColor(grid_col)
-        minor_tick_col.setAlpha(150 if is_dark else 180)
+        minor_tick_col.setAlpha(_wash_alpha(widget.theme_manager, "timeline.ruler.minor.tick.alpha"))
         painter.setPen(QPen(minor_tick_col, 1))
         minor_steps_count = int(math.floor(duration / minor_step + 1e-9))
         for minor_index in range(minor_steps_count + 1):
@@ -246,22 +262,22 @@ def draw_sticky_gutter_overlay(widget, painter: QPainter, *, scroll_offset: int,
     painter.save()
     painter.setClipRect(QRectF(gx, clip_top, widget.LEFT_GUTTER + 2, max(0.0, clip_bottom - clip_top)))
     timeline_primitives.draw_gutter_background(widget, painter, QRectF(gx, 0, widget.LEFT_GUTTER, widget.height()), gutter_bg, sep_soft if sep_soft is not None else QColor(text_col))
-    start, end, y = timeline_layout.visible_row_window(widget, rows_top, rows_bottom)
-    for item in widget._row_layout[start:end]:
-        if item[0] == "group":
-            group = item[1]
-            row_h = widget.GROUP_HEADER_HEIGHT
+    tm = widget.theme_manager
+    track_wash = _wash_alpha(tm, "timeline.group.wash.track.alpha")
+    first_wash = _wash_alpha(tm, "timeline.group.wash.first.alpha")
+    channel_wash = _wash_alpha(tm, "timeline.group.wash.channel.alpha")
+    for kind, key, rect in timeline_layout.iter_row_rects(widget, rows_top, rows_bottom):
+        y = rect.top()
+        row_h = rect.height()
+        if kind == "group":
+            group = key[1]
             timeline_primitives.draw_group_header_label(widget, painter, QRectF(gx, y, widget.LEFT_GUTTER, row_h), group, group.label, text_col, sep_soft if sep_soft is not None else QColor(text_col))
-            y += row_h
-        elif item[0] == "track_single":
-            _kind, group, track, _channel = item
-            row_h = widget.TRACK_ROW_HEIGHT
-            painter.fillRect(QRectF(gx, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, track_bg, group, 46 if widget.theme_manager.is_dark() else 22))
+        elif kind == "track_single":
+            _kind, group, track, _channel = key
+            painter.fillRect(QRectF(gx, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, track_bg, group, track_wash))
             timeline_primitives.draw_track_title_label(widget, painter, QRectF(gx + 18, y, max(40.0, widget.LEFT_GUTTER - 30), row_h), track.label, text_col)
-            y += row_h
         else:
-            _kind, group, track, channel, is_first_channel = item
-            row_h = widget.CHANNEL_ROW_HEIGHT
+            _kind, group, track, channel, is_first_channel = key
             line_col = timeline_theme.track_color(
                 widget,
                 track.kind,
@@ -270,15 +286,14 @@ def draw_sticky_gutter_overlay(widget, painter: QPainter, *, scroll_offset: int,
                 channel_accent_color=getattr(channel, "accent_color", None),
             )
             if is_first_channel:
-                painter.fillRect(QRectF(gx, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, track_bg, group, 42 if widget.theme_manager.is_dark() else 18))
+                painter.fillRect(QRectF(gx, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, track_bg, group, first_wash))
                 timeline_primitives.draw_track_title_label(widget, painter, QRectF(gx + 18, y, max(40.0, widget.LEFT_GUTTER * 0.44 - 22), row_h), track.label, text_col)
             else:
-                painter.fillRect(QRectF(gx, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, gutter_bg, group, 24 if widget.theme_manager.is_dark() else 10))
+                painter.fillRect(QRectF(gx, y, widget.LEFT_GUTTER, row_h), timeline_theme.group_content_bg(widget, gutter_bg, group, channel_wash))
             channel_col = QColor(text_col)
             channel_col.setAlpha(215 if is_first_channel else 195)
             ch_x = gx + max(42.0, widget.LEFT_GUTTER * 0.50)
             timeline_primitives.draw_channel_label(widget, painter, QRectF(ch_x, y, widget.LEFT_GUTTER - (ch_x - gx) - 12, row_h), channel.label, channel_col, line_col)
-            y += row_h
     line_color = sep_color if sep_color is not None else text_col
     painter.setPen(QPen(line_color, 1))
     painter.drawLine(int(gx + widget.LEFT_GUTTER), 0, int(gx + widget.LEFT_GUTTER), widget.height())
@@ -317,10 +332,10 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
       never call ``setGeometry``/``setVisible``/``setFixedWidth``/
       ``setMinimum*``/``updateGeometry``/``update``/``repaint`` on the
       widget or its scrollbars. Vertical-scrollbar sync lives outside paint
-      (``resizeEvent``/``_onViewportGeometryChanged``/``_on_layout_settle``/
-      ``_on_scale_changed``/``_on_host_scroll`` in ``widget.py``, via
-      ``viewport.update_vertical_scrollbar``); the pure desired state is
-      queryable through ``viewport.vertical_scrollbar_state``.
+      (``resizeEvent``/``viewport_geometry_changed`` (``interaction.py``)/
+      ``_on_layout_settle``/``_on_scale_changed``/``_on_host_scroll`` in
+      ``widget.py``, via ``viewport.update_vertical_scrollbar``); the pure
+      desired state is queryable through ``viewport.vertical_scrollbar_state``.
     - Scratch state: ``widget._hover_points`` is rebuilt every paint, but
       it is hit-test scratch, not geometry — and it is damage-scoped, since
       only the unculled segment passes append to it. All signals, slots,
@@ -336,7 +351,6 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
     # Paint contract: no geometry mutation here. Scrollbar sync happens in
     # the resize/settle/scroll paths (widget.py); see the docstring above.
     colors = timeline_theme.build_theme_colors(widget)
-    is_dark = colors["is_dark"]
     accent = colors["accent"]
     text_col = colors["text_col"]
     canvas_bg = colors["canvas_bg"]
@@ -385,7 +399,7 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
     painter.drawLine(widget.LEFT_GUTTER, 0, widget.LEFT_GUTTER, widget.height())
     _content_top, rows_bottom = timeline_viewport.content_viewport_bounds(widget)
     rows_top = widget.STRIP_HEIGHT - content_scroll_y
-    draw_rows(widget, painter, width=content_right, rows_top=rows_top, rows_bottom=rows_bottom, content_start_x=content_start_x, start_x=start_x, end_x=end_x, duration=duration, logical_width=logical_width, is_dark=is_dark, gutter_bg=gutter_bg, track_bg=track_bg, lane_bg=lane_bg, text_col=text_col, sep_soft=sep_soft)
+    draw_rows(widget, painter, width=content_right, rows_top=rows_top, rows_bottom=rows_bottom, content_start_x=content_start_x, start_x=start_x, end_x=end_x, duration=duration, logical_width=logical_width, gutter_bg=gutter_bg, track_bg=track_bg, lane_bg=lane_bg, text_col=text_col, sep_soft=sep_soft)
     painter.restore()
     if widget._has_selection:
         x_anchor = timeline_viewport.frame_to_pos(widget, widget._anchor_index)
@@ -413,7 +427,7 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
                 if x_edge < start_x - grip_w or x_edge > end_x + grip_w:
                     continue
                 painter.fillRect(QRectF(x_edge - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
-    draw_footer_and_ruler(widget, painter, width=content_right, content_start_x=content_start_x, footer_height=footer_height_val, footer_top=footer_top, scrollbar_strip_top=scrollbar_strip_top, ruler_top=ruler_top, ruler_bottom=ruler_bottom, scroll_offset=scroll_offset, viewport_width=content_viewport_width, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x, is_dark=is_dark, footer_bg=footer_bg, sep_strong=sep_strong, sep_soft=sep_soft, grid_col=grid_col, text_col=text_col, sb_idle=sb_idle, sb_hover=sb_hover)
+    draw_footer_and_ruler(widget, painter, width=content_right, content_start_x=content_start_x, footer_height=footer_height_val, footer_top=footer_top, scrollbar_strip_top=scrollbar_strip_top, ruler_top=ruler_top, ruler_bottom=ruler_bottom, scroll_offset=scroll_offset, viewport_width=content_viewport_width, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x, footer_bg=footer_bg, sep_strong=sep_strong, sep_soft=sep_soft, grid_col=grid_col, text_col=text_col, sb_idle=sb_idle, sb_hover=sb_hover)
     x_head = timeline_viewport.visual_pos_from_index(widget, widget._scrub_visual_index if widget._scrub_visual_index is not None else widget._visual_index)
     if start_x - widget.HANDLE_WIDTH <= x_head <= end_x + widget.HANDLE_WIDTH:
         timeline_primitives.draw_playhead(widget, painter, x_head=x_head, footer_top=footer_top, width=content_right)
