@@ -376,7 +376,7 @@ full dataclass fields and runtime setters: **[CHARTS_API.md](CHARTS_API.md)**.
 |--------|-------------|
 | `SunburstChartWidget` / `SunburstSegmentData` / `SunburstSegmentItem` | Sunburst/donut chart (`QGraphicsView`-based). |
 | `CalendarWidget` / `CalendarDayButton` / `CalendarViewModel` | Three-level calendar (days/months/years). |
-| `TimelineWidget` / `TimelineCallbacks` | Keyframe timeline with thumbnail strip, grouped tracks, zoom/scroll, range selection. Feed via `set_data()` (snapshots or `source: TimelineDataSource`); zoom via `set_zoom`/`set_pps`, frames via `get_visible_thumbnail_frame_indices`; signals `zoomChanged`/`viewportChanged`/`viewportChangedState`; callbacks include `lane_value_color`. Full reference: [CHARTS_API.md](CHARTS_API.md). |
+| `TimelineWidget` / `TimelineCallbacks` | Keyframe timeline with thumbnail strip, grouped tracks, zoom/scroll, range selection. Feed via `set_data()` (snapshots or `source: TimelineDataSource`); zoom via `set_zoom`/`set_pps`, frames via `get_visible_thumbnail_frame_indices`; signals `zoomChanged`/`viewportChanged`/`viewportChangedState`/`playPauseRequested` (bare Space; host connects it to its playback toggle); callbacks include `lane_value_color`. Full reference: [CHARTS_API.md](CHARTS_API.md). |
 | `TimelineDataSource` | Typed `set_data(source=...)` shape (`snapshots`/`fps`/`duration`/`timeline_model`). Import: `sli_ui_toolkit.ui.widgets.composite.timeline_widget.models`. |
 | `TIMELINE_TOKENS` | Every `timeline.*` color/alpha token (incl. `timeline.group.wash.*.alpha`, `timeline.ruler.minor.tick.alpha`). Import: `sli_ui_toolkit.ui.widgets.composite.timeline_widget`. |
 
