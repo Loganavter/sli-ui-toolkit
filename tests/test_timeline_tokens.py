@@ -335,3 +335,52 @@ def test_timeline_renders_light_and_dark(themed, qapp, qtbot):
         images.append(image)
     assert images[0] != images[1]
     assert isinstance(widget.parent(), (QWidget, type(None)))
+
+
+def test_tooltip_resolves_per_widget_callbacks_not_globals(qapp, qtbot):
+    """Paint/tooltip i18n must honor the widget's own callbacks.
+
+    Regression: post-C-T construction stopped mirroring callbacks into the
+    process globals, but paint still read the globals — tooltips fell back
+    to raw keys. Now every paint path goes through ``localize_*_for``.
+    """
+    from types import SimpleNamespace
+
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.models import (
+        TimelineCallbacks,
+    )
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
+        TimelineWidget,
+    )
+
+    group = SimpleNamespace(label="G")
+    track = SimpleNamespace(id="t", label="T", kind="scalar")
+    channel = SimpleNamespace(label="ch", kind="scalar")
+    keyframe = SimpleNamespace(timestamp=3.0, value=1.0)
+
+    plain = TimelineWidget()
+    qtbot.addWidget(plain)
+    hooked = TimelineWidget(
+        callbacks=TimelineCallbacks(
+            localize_token=lambda token: "TR:" + str(token),
+            localize_value=lambda value: "V:" + str(value),
+        )
+    )
+    qtbot.addWidget(hooked)
+    try:
+        raw = timeline_viewport.tooltip_for_keyframe(
+            plain, group, track, channel, keyframe
+        )
+        assert "TR:" not in raw
+        assert "ch" in raw
+        routed = timeline_viewport.tooltip_for_keyframe(
+            hooked, group, track, channel, keyframe
+        )
+        assert "TR:ch" in routed
+        assert "V:1.0" in routed
+    finally:
+        plain.close()
+        hooked.close()
