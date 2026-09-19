@@ -83,6 +83,11 @@ Current streams (canonical name first, legacy aliases after):
 | Canonical var | Legacy aliases | Prefix | Site |
 |---|---|---|---|
 | `SLI_TOOLKIT_DEBUG` | — | (toolkit-wide `DEBUG` gate, not a prefix stream) | `core/logging.py:setup_logging` |
+
+> Two gates to see a stream: the stream var (e.g. `SLI_TIMELINE_DEBUG=1`)
+> opens the call-site gate, **and** `SLI_TOOLKIT_DEBUG=1` is required for
+> the `sli_ui_toolkit.*` logger *level* — without it the records are
+> dropped before any handler and the stream looks deaf.
 | `SLI_FLYOUT_DEBUG` | `IMGSLI_FLYOUT_DEBUG`, `FLYOUT_DEBUG` | `[flyout-nav]` / `[flyout-fade]` / `[flyout-placement]` | `ui/widgets/composite/base_flyout/debug.py` (`FLYOUT_DEBUG_VARS`) |
 | `SLI_NAV_DEBUG` | `UI_NAV_DEBUG` | `[nav-*]` | `ui/managers/navigation_debug.py` (`NAV_DEBUG_VARS`), `ui/widgets/buttons/events.py`, `ui/widgets/buttons/layers/focus.py`, `ui/widgets/composite/help_document/canvas.py` |
 | `SLI_UI_NAVLIST_DEBUG` | — | `[navlist]` | `ui/widgets/composite/sidebar_nav_list/debug.py` |
