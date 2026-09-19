@@ -44,9 +44,11 @@ from sli_ui_toolkit.widgets import TimelineWidget
 _DURATION = 100.0
 
 
-def _keyframe(timestamp: float, value: float):
+def _keyframe(timestamp, value):
     return SimpleNamespace(
-        timestamp=float(timestamp), value=float(value), interpolation="linear"
+        timestamp=float(timestamp),
+        value=value if isinstance(value, str) else float(value),
+        interpolation="linear",
     )
 
 
@@ -501,6 +503,7 @@ def _color_track(track_id="col", label="Col"):
             "r": _comp("r", [255, 10]),
             "g": _comp("g", [0, 200]),
             "b": _comp("b", [0, 30]),
+            "a": _comp("a", [255, 255]),
         },
         kind="color",
     )

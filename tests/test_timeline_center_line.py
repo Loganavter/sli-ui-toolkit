@@ -60,11 +60,12 @@ def test_row_center_y_under_odd_uiscale_factor(_restore_scale):
 def _fill_spy(monkeypatch):
     """Record ``QPainter.fillRect`` rects; forbid ``drawLine`` centers."""
     rects: list[QRectF] = []
+    _orig_fill = QPainter.fillRect
 
     def _fill(self, *args):
         if args and isinstance(args[0], QRectF):
             rects.append(QRectF(args[0]))
-        return QPainter.fillRect(self, *args)
+        return _orig_fill(self, *args)
 
     def _no_line(self, *args, **kwargs):
         raise AssertionError("center line must not use drawLine")
