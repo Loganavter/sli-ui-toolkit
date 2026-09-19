@@ -9,6 +9,11 @@ The globals stay because ``viewport.py`` / ``primitives.py`` format tooltips
 and labels without a widget handle (out of scope for this change) — new code
 must prefer the ``*_for`` accessors. Threading the widget through those
 paint paths is a follow-up.
+
+Constructing a widget binds per-instance hooks only and never overwrites
+the process-global ``set_localize_*`` callbacks (the last-constructed
+dialog must not win the globals); the host sets the globals explicitly
+at app level when the widget-less paths need them.
 """
 
 from __future__ import annotations
