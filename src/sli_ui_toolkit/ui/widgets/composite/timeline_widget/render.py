@@ -17,35 +17,14 @@ from .segments import _draw_keyframe_segments
 #
 # Wave-G interim (flagged for wave A promotion into
 # ``theme._TIMELINE_ALPHA_DEFAULTS``): every wash strength the row painters
-# used to pick with a per-theme ternary now resolves through
-# ``ThemeManager.try_get_color`` on a ``timeline.*`` token first, so hosts
-# can already override any entry via ``register_palettes``. The local
-# per-theme default below applies only while the token is unregistered —
-# the same chain ``theme.timeline_alpha`` implements for the older wash
-# tokens. Values are the exact pre-refactor per-theme strengths, so default
-# paints are pixel-identical in both themes.
-_WASH_ALPHA_DEFAULTS: dict[str, tuple[int, int]] = {
-    "timeline.group.wash.track.alpha": (22, 46),
-    "timeline.group.wash.first.alpha": (18, 42),
-    "timeline.group.wash.channel.alpha": (10, 24),
-    "timeline.ruler.minor.tick.alpha": (180, 150),
-}
-
-
 def _wash_alpha(tm, token: str) -> int:
     """Resolve a row-paint wash alpha through theme tokens.
 
-    Chain: ``timeline.*`` token alpha (host override) → local per-theme
-    default from ``_WASH_ALPHA_DEFAULTS``. The fallback reads the active
-    theme name (never a hardcoded paint-path branch), mirroring
-    ``theme.timeline_alpha``; wave A promotes these tokens into theme.py
-    and this helper collapses to that function.
+    Thin alias over ``theme.timeline_alpha`` (the four wash tokens live in
+    ``theme._TIMELINE_ALPHA_DEFAULTS`` since wave A with the exact
+    pre-refactor per-theme defaults).
     """
-    hit = tm.try_get_color(token)
-    if hit is not None:
-        return max(0, min(255, hit.alpha()))
-    light, dark = _WASH_ALPHA_DEFAULTS[token]
-    return dark if tm.get_current_theme() == "dark" else light
+    return timeline_theme.timeline_alpha(tm, token)
 
 
 def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, content_start_x: float, strip_top: float, width: int, start_x: float, end_x: float, logical_width: float, slot_width: float) -> None:
