@@ -141,7 +141,7 @@ def build_theme_colors(widget) -> dict[str, Any]:
         "is_dark": tm.is_dark(),
         "accent": tm.get_color("accent"),
         "text_col": tm.get_color("WindowText"),
-        "canvas_bg": tm.get_color("Window"),
+        "canvas_bg": tm.get_color("surface.background"),
         "gutter_bg": _timeline_color(tm, "timeline.gutter.background"),
         "group_bg": _timeline_color(tm, "timeline.group.background"),
         "track_bg": _timeline_color(tm, "timeline.track.background"),

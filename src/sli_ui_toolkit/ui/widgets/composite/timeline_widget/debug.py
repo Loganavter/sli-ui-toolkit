@@ -6,12 +6,18 @@ Canonical var ``SLI_TIMELINE_DEBUG`` first, legacy ``IMGSLI_TIMELINE_DEBUG`` /
 ``0/false/no/off``).
 
 Two thin wrappers share one gate/helper so widget logic and paint paths stay
-greppable independently:
+greppable independently, plus a gutter wrapper with a monotonic tick for
+zoom-vs-overlay ordering analysis:
 
 * :func:`_timeline_debug` — ``[timeline-debug]`` for ``widget.py`` state /
   geometry sites.
 * :func:`_timeline_paint_debug` — ``[timeline-paint]`` for ``render.py``
   paint sites.
+* :func:`gutter_debug` — ``[timeline-gutter]`` for gutter/overlay sites
+  (zoom commit band, sticky overlay, gutter drag, host scroll). Each line
+  carries ``tick=N`` from :func:`_next_tick` so a lag between the zoom
+  commit, the synchronous band repaint, and the async full paint can be
+  read off the log order.
 """
 
 from __future__ import annotations
@@ -46,3 +52,17 @@ def _timeline_debug(message: str, *args: Any) -> None:
 
 def _timeline_paint_debug(message: str, *args: Any) -> None:
     _emit("[timeline-paint]", message, *args)
+
+
+_tick = 0
+
+
+def _next_tick() -> int:
+    """Monotonic sequence for gutter-trace ordering (debug only)."""
+    global _tick
+    _tick += 1
+    return _tick
+
+
+def gutter_debug(message: str, *args: Any) -> None:
+    _emit("[timeline-gutter]", message, *args)

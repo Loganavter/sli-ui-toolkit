@@ -94,7 +94,7 @@ Current streams (canonical name first, legacy aliases after):
 | `SLI_UI_COLORS_DEBUG` | — | `[colors-source-debug]` | `ui/inspector/rendering.py` |
 | `SLI_SCROLLBAR_DEBUG` | `IMGSLI_SCROLLBAR_DEBUG` | `[scrollbar]` | `ui/widgets/atomic/minimalist_scrollbar.py` |
 | `SLI_RESIZE_DEBUG` | — | `[resize-debug]` | `ui/windows/frameless/resize_filter.py` |
-| `SLI_TIMELINE_DEBUG` | `IMGSLI_TIMELINE_DEBUG`, `IMGSLI_VIDEO_EDITOR_DEBUG` | `[timeline-debug]` / `[timeline-paint]` | `ui/widgets/composite/timeline_widget/debug.py` |
+| `SLI_TIMELINE_DEBUG` | `IMGSLI_TIMELINE_DEBUG`, `IMGSLI_VIDEO_EDITOR_DEBUG` | `[timeline-debug]` / `[timeline-paint]` / `[timeline-gutter]` (gutter lines carry `tick=N` for zoom-vs-overlay ordering) | `ui/widgets/composite/timeline_widget/debug.py` |
 | `SLI_DND_DEBUG` | `IMGSLI_DND_DEBUG`, `IMGSLI_IMAGE_COMPARE_DEBUG`, `IMGSLI_IC_DEBUG` | `[dnd-overlay]` | `ui/widgets/overlays/drag_drop_overlay.py` |
 | `SLI_TEXTVIEW_DEBUG` | `IMGSLI_TRACE` | `[textview]` | `ui/widgets/composite/text_view/` (canvas/widget/events/paint share one stream) |
 | `SLI_INSPECTOR_DEBUG` | — | `[inspector]` | `ui/inspector/tree.py` |

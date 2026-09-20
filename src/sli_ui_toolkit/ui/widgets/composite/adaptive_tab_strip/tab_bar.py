@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QFontMetrics,
@@ -494,6 +494,13 @@ class _AdaptiveTabBar(QWidget):
             self._ensure_visible(self._current_index)
         self._position_tab_buttons()
 
+    def changeEvent(self, event) -> None:  # noqa: N802
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange:
+            self._relayout()
+            self.updateGeometry()
+            self.update()
+
     def _position_tab_buttons(self) -> None:
         for index in range(len(self._tabs)):
             slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
@@ -655,7 +662,7 @@ class _AdaptiveTabBar(QWidget):
 
         return {
             "strip": color("surface.list"),
-            "background": color("Window"),
+            "background": color("surface.background", "Window"),
             "border": color("separator.color"),
             "hover": color("button.toggle.background.hover"),
             "text": color("WindowText"),

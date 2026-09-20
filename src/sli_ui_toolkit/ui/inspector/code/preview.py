@@ -25,9 +25,9 @@ logger = logging.getLogger("sli_ui_toolkit.inspector")
 
 
 def _panel_color(theme_manager) -> QColor:
-    """The recent-projects shelf well: Window, slightly darker (light) or
-    lighter (dark) so the surface reads as a raised panel."""
-    base = QColor(theme_manager.get_color("Window"))
+    """The recent-projects shelf well: surface.background, slightly darker
+    (light) or lighter (dark) so the surface reads as a raised panel."""
+    base = QColor(theme_manager.get_color("surface.background"))
     base.setAlpha(255)
     if base.lightness() > 140:
         return base.darker(106)
