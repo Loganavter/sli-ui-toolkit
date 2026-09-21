@@ -30,7 +30,8 @@ Host wiring (Improve-ImgSLI ``FontManager``)::
 
 from __future__ import annotations
 
-from typing import Optional
+import weakref
+from typing import Any, Optional
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPalette
@@ -49,6 +50,13 @@ class UiFont(QObject):
         super().__init__()
         self._family_override: str | None = None
         self._event_filter_installed = False
+        # Live apply() wirings, keyed weakly by widget: re-applying to the
+        # same widget first disconnects the previous resync instead of
+        # stacking a duplicate (one font change then re-ran setFont N
+        # times). Entries vanish on their own when the widget dies.
+        self._apply_connections: weakref.WeakKeyDictionary[
+            QWidget, list[tuple[Any, Any]]
+        ] = weakref.WeakKeyDictionary()
 
     @classmethod
     def get_instance(cls) -> "UiFont":
@@ -204,16 +212,38 @@ class UiFont(QObject):
 
         Safe against ``widget`` being destroyed later: disconnects itself
         via ``widget.destroyed`` rather than leaving a dangling connection
-        to a freed C++ object."""
+        to a freed C++ object. The resync closure holds only a weak
+        reference, so an applied widget is still released on teardown
+        instead of being kept alive by the singleton's own signal."""
         font = self.resolve(**overrides)
         widget.setFont(font)
 
-        def _resync() -> None:
-            widget.setFont(self.resolve(**overrides))
+        self._disconnect_apply(widget)
+        ref = weakref.ref(widget)
+        connections: list[tuple[Any, Any]] = []
 
-        connection = self.font_changed.connect(_resync)
+        def _resync() -> None:
+            target = ref()
+            if target is None:
+                # Widget gone without destroyed firing (GC path): drop our
+                # connections rather than resyncing a corpse forever.
+                for sig, conn in list(connections):
+                    try:
+                        sig.disconnect(conn)
+                    except (RuntimeError, TypeError):
+                        pass
+                connections.clear()
+                return
+            target.setFont(self.resolve(**overrides))
+
+        connections.append(
+            (self.font_changed, self.font_changed.connect(_resync))
+        )
         scale = UiScale.get_instance()
-        scale_connection = scale.scale_changed.connect(_resync)
+        connections.append(
+            (scale.scale_changed, scale.scale_changed.connect(_resync))
+        )
+        self._apply_connections[widget] = connections
 
         def _cleanup() -> None:
             # Best-effort teardown: at interpreter/app shutdown the
@@ -224,17 +254,33 @@ class UiFont(QObject):
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                try:
-                    self.font_changed.disconnect(connection)
-                except (RuntimeError, TypeError):
-                    pass
-                try:
-                    scale.scale_changed.disconnect(scale_connection)
-                except (RuntimeError, TypeError):
-                    pass
+                for sig, conn in connections:
+                    try:
+                        sig.disconnect(conn)
+                    except (RuntimeError, TypeError):
+                        pass
+            try:
+                self._apply_connections.pop(widget, None)
+            except Exception:
+                pass
 
         widget.destroyed.connect(_cleanup)
         return font
+
+    def _disconnect_apply(self, widget: QWidget) -> None:
+        """Drop a previous apply() wiring for *widget*, if any."""
+        old = self._apply_connections.pop(widget, None)
+        if not old:
+            return
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            for sig, conn in old:
+                try:
+                    sig.disconnect(conn)
+                except (RuntimeError, TypeError):
+                    pass
 
     def eventFilter(self, obj, event):  # noqa: N802 — Qt API
         if event.type() == QEvent.Type.ApplicationFontChange:

@@ -14,6 +14,7 @@ Sections are registered explicitly via ``register(owner, spec)`` where
 
 from __future__ import annotations
 
+import logging
 from typing import Protocol, runtime_checkable
 
 import shiboken6
@@ -22,6 +23,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from .navigation_debug import _key_name, nav_debug, nav_debug_enabled, widget_label
 from .realign import ClickRealignCoordinator
+
+logger = logging.getLogger(__name__)
 
 _ARROWS = frozenset({Qt.Key.Key_Down, Qt.Key.Key_Up, Qt.Key.Key_Left, Qt.Key.Key_Right})
 _EXIT_DOWN = frozenset({Qt.Key.Key_Down})
@@ -507,6 +510,39 @@ class NavigationManager(QObject):
                 return i
         return None
 
+    @staticmethod
+    def _safe_owns(spec: NavigationSection, widget: QObject) -> bool:
+        """Host ``owns()`` must never break the app-wide event filter.
+
+        Sections are host-implemented; an exception here would propagate
+        out of ``eventFilter`` and kill arrow-key handling for the whole
+        application. Log and treat as "not owned".
+        """
+        try:
+            return bool(spec.owns(widget))
+        except Exception:
+            logger.exception(
+                "NavigationSection.owns() raised for %s",
+                type(spec).__name__,
+            )
+            return False
+
+    @staticmethod
+    def _safe_navigate(spec: NavigationSection, key: int, widget: QObject) -> bool:
+        """Host ``navigate()`` must never break the app-wide event filter.
+
+        Log and treat as declined (the manager then tries the adjacent
+        section, same as an explicit ``False``).
+        """
+        try:
+            return bool(spec.navigate(key, widget))
+        except Exception:
+            logger.exception(
+                "NavigationSection.navigate() raised for %s",
+                type(spec).__name__,
+            )
+            return False
+
     def _neighbor(self, owner: QObject, direction: int) -> tuple[QObject, NavigationSection] | None:
         idx = self._section_index(owner)
         if idx is None:
@@ -834,7 +870,7 @@ class NavigationManager(QObject):
             wants_key = any(
                 key in getattr(spec, "extra_keys", frozenset())
                 for owner, spec in self._sections
-                if spec.owns(focused) or focused is owner
+                if self._safe_owns(spec, focused) or focused is owner
             )
             if _debug and not wants_key:
                 nav_debug(
@@ -867,7 +903,7 @@ class NavigationManager(QObject):
             return True
 
         for owner, spec in self._sections:
-            if not spec.owns(focused):
+            if not self._safe_owns(spec, focused):
                 # The registered owner widget itself can legitimately hold
                 # focus (e.g. right after its page becomes active, before
                 # anything inside it has been explicitly focused) without
@@ -896,7 +932,7 @@ class NavigationManager(QObject):
                     widget_label(focused),
                     type(owner).__name__,
                 )
-            if spec.navigate(key, focused):
+            if self._safe_navigate(spec, key, focused):
                 if _debug:
                     new_focus = QApplication.focusWidget()
                     if new_focus is not focused:
