@@ -1,9 +1,12 @@
 """CustomTitleBar drag surface — window moving via system move or manual.
 
 The whole bar is draggable except registered exclusions (window controls,
-zone widgets the host added) and any interactive ``Button``. On Wayland
-the drag is handed to ``startSystemMove``; on X11 it falls back to manual
-``window.move`` delta tracking.
+zone widgets the host added) and any interactive ``Button``. The system
+move is attempted on PRESS (compositors — Wayland especially — bind the
+move to the press serial; attempting it on a later move event fails and
+needlessly falls back to manual). While a system move owns the drag,
+app-level move events are ignored; otherwise the manual delta path runs,
+re-anchoring instead of teleporting when the press un-maximizes.
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ class _TitleBarDragApi:
     _drag_enabled: bool
     _drag_exclusions: set[int]
     _drag_start_global: QPoint | None
+    _drag_system_move: bool
     _balance_spacer: QWidget
     _left_balance: QWidget
     _controls: QWidget
@@ -83,6 +87,25 @@ class _TitleBarDragApi:
             and self._is_draggable_at(event.position().toPoint())
         ):
             self._drag_start_global = event.globalPosition().toPoint()
+            # Attempt the system move HERE, on press: compositors bind the
+            # move to the press serial, so starting it on a later move
+            # event fails (and the press-then-move click becomes a manual
+            # fallback drag). Maximized/fullscreen windows cannot system-
+            # move — go straight to the manual path.
+            self._drag_system_move = False
+            w = self._target_window
+            if (
+                w is not None
+                and not w.isMaximized()
+                and not w.isFullScreen()
+            ):
+                handle = w.windowHandle()
+                if handle is not None:
+                    try:
+                        if handle.startSystemMove():
+                            self._drag_system_move = True
+                    except Exception:
+                        pass
             # Title-bar drag must not become a navigation click-anchor:
             # NavigationManager's MouseButtonPress filter already stamped
             # last_click_pos / realign_pending on the QApplication level
@@ -102,6 +125,7 @@ class _TitleBarDragApi:
                 pass
         else:
             self._drag_start_global = None
+            self._drag_system_move = False
         QWidget.mousePressEvent(self, event)  # type: ignore[arg-type]
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -111,27 +135,31 @@ class _TitleBarDragApi:
             and event.buttons() & Qt.MouseButton.LeftButton
             and w is not None
         ):
-            handle = w.windowHandle()
-            if handle is not None:
-                try:
-                    handle.startSystemMove()
-                    self._drag_start_global = None
-                    return
-                except Exception:
-                    pass
-
+            if getattr(self, "_drag_system_move", False):
+                # The compositor owns this drag (started on press) —
+                # app-level moves must not fight it.
+                QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
+                return
             drag_start = self._drag_start_global
             assert drag_start is not None
             current = event.globalPosition().toPoint()
+            if w.isMaximized():
+                # Un-maximize WITHOUT teleporting: the restored geometry
+                # rarely sits under the cursor, so applying the pending
+                # delta would jump the window to the cursor. Restore and
+                # re-anchor — the move starts from the next event.
+                w.showNormal()
+                self._drag_start_global = current
+                QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
+                return
             delta = current - drag_start
             self._drag_start_global = current
-            if w.isMaximized():
-                w.showNormal()
             w.move(w.pos() + delta)
         QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._drag_start_global = None
+        self._drag_system_move = False
         QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:

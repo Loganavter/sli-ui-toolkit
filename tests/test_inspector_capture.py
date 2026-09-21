@@ -5,7 +5,10 @@ from __future__ import annotations
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.inspector.capture import capture_tokens
+from sli_ui_toolkit.ui.inspector.capture import (
+    CAPTURE_LIMITATION_META,
+    capture_tokens,
+)
 from sli_ui_toolkit.ui.inspector.contract import FieldKind
 from sli_ui_toolkit.widgets import Button, Label
 
@@ -61,5 +64,8 @@ def test_capture_empty_without_theme(qapp):
 
 
 def test_capture_empty_on_bare_widget(qapp):
+    # A hidden widget records nothing: disclosed as a hidden-grab blind
+    # spot, never a silent ().
     tokens = capture_tokens(QWidget(), _theme(qapp))
-    assert tokens == ()
+    assert len(tokens) == 1
+    assert tokens[0].meta.get(CAPTURE_LIMITATION_META) == "hidden"

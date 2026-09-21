@@ -53,12 +53,27 @@ class MeasuredHeights:
     Hosts report a height for an index once (``set_height``); the cache grows
     on demand up to the item count and stores prefix sums so both
     ``offset_of_index`` and ``index_at_offset`` are O(log n).
+
+    Measurement contract (pinned, 2026-09-21): hosts must report a height
+    for EVERY index in ``0..count`` before querying ``total()``,
+    ``offset_of_index()``, ``index_at_offset()``, or ``visible_window()``.
+    Unmeasured rows read as 0 px and silently skew every window — there is
+    no estimated-height fallback by design (a wrong estimate scrolls to a
+    wrong offset just as quietly). ``VirtualListController.set_count``
+    upholds this via ``_measure_all``; direct users check
+    ``is_fully_measured``.
     """
 
     def __init__(self) -> None:
         self._heights: list[int] = []
         self._prefix: list[int] = [0]
         self._count = 0
+        self._measured: set[int] = set()
+
+    @property
+    def is_fully_measured(self) -> bool:
+        """True once every index in ``0..count`` has a reported height."""
+        return len(self._measured) >= self._count
 
     def set_count(self, count: int) -> None:
         count = max(0, int(count))
@@ -66,6 +81,7 @@ class MeasuredHeights:
             del self._heights[count:]
             del self._prefix[count + 1:]
         self._count = count
+        self._measured = {i for i in self._measured if i < count}
         self._prefix = [0]
         for h in self._heights:
             self._prefix.append(self._prefix[-1] + h)
@@ -76,10 +92,12 @@ class MeasuredHeights:
         h = max(0, int(height))
         delta = h - (self._heights[index] if index < len(self._heights) else 0)
         if delta == 0 and index < len(self._heights):
+            self._measured.add(index)
             return
         while len(self._heights) <= index:
             self._heights.append(0)
         self._heights[index] = h
+        self._measured.add(index)
         # Rebuild prefix from the changed index on (linear in changed tail).
         if index == 0:
             self._prefix = [0]

@@ -13,6 +13,7 @@ from sli_ui_toolkit.ui.windows.csd_helpers import (
     CsdRoundedBackground,
     TitleBarGeometryFilter,
     reapply_msgbox_transparency,
+    sync_csd_chrome,
 )
 from sli_ui_toolkit.ui.windows.custom_title_bar import CustomTitleBar
 from sli_ui_toolkit.ui.windows.frameless import apply_frameless
@@ -65,11 +66,31 @@ class WindowChrome:
 
     @classmethod
     def install(cls, window: QWidget, *, config: WindowChromeConfig | None = None) -> WindowChrome:
-        cfg = config or WindowChromeConfig()
-        from sli_ui_toolkit.ui.windows import frameless
+        """Install client-side decorations on ``window``.
 
+        Idempotent: a window that already carries a ``WindowChrome``
+        returns it (re-installing would double-patch ``resize``/
+        ``setGeometry``, stack geometry filters, and orphan title bars).
+        """
+        existing = getattr(window, "_window_chrome", None)
+        if existing is not None:
+            return existing
+        cfg = config or WindowChromeConfig()
+
+        # The app-sized surface below is a CONTENT size; snapshot it before
+        # the patch/min-max translation below so the final expansion can
+        # target content+band instead of blindly re-expanding an already-
+        # frame-sized surface (adjustSize + the translated min would
+        # otherwise compound to +4*band).
+        pre_w, pre_h = int(window.width()), int(window.height())
+
+        # Per-window resize margin, never process-global: mutating
+        # ``frameless.RESIZE_MARGIN`` here would retune every other
+        # window's edge zones (and every future install). The resize
+        # filter reads this property first and falls back to the package
+        # default when it is absent.
         if cfg.resize_margin is not None:
-            frameless.RESIZE_MARGIN = int(cfg.resize_margin)
+            window.setProperty("_csd_resize_margin", int(cfg.resize_margin))
 
         # Outer resize band: the window surface extends ``band`` px beyond
         # the visible body on every side (transparent — the rounded body is
@@ -78,12 +99,23 @@ class WindowChrome:
         # The app keeps thinking in content size: ``resize``/``setGeometry``
         # are re-expanded by 2*band (inside ``apply_frameless``), and the
         # layout/title-bar/body are inset by ``band`` here.
+        #
+        # The band derives from the per-window margin when set, else the
+        # package default — mirroring the resize filter's own resolution so
+        # the two can never disagree (see ``_ResizeFilter``).
+        from sli_ui_toolkit.ui.windows.frameless.geometry import RESIZE_MARGIN as _DEFAULT_MARGIN
+
         band = 0
         if cfg.resizable:
+            per_window = window.property("_csd_resize_margin")
             band = (
-                int(cfg.resize_margin)
-                if cfg.resize_margin is not None
-                else int(frameless.RESIZE_MARGIN)
+                int(per_window)
+                if per_window is not None
+                else (
+                    int(cfg.resize_margin)
+                    if cfg.resize_margin is not None
+                    else int(_DEFAULT_MARGIN)
+                )
             )
 
         apply_frameless(window, resizable=cfg.resizable, outer_band=band or None)
@@ -226,13 +258,23 @@ class WindowChrome:
             # ``apply_frameless`` already installed the geometry patch (via
             # ``frameless._patch_outer_band_geometry``); the app sized the
             # window before decorating and ``adjustSize`` may have re-clamped
-            # it — expand the current surface now, or the band (and its
+            # it — expand the surface now, or the band (and its
             # grab-from-outside zone) would not exist until the next resize.
+            # Target the pre-install content size + band (floored at the
+            # current surface, which adjustSize may have grown past it) —
+            # never a blind +2*band on top of an already-frame surface.
+            # Re-sync explicitly: on a hidden window no Resize event may
+            # ever arrive to drive the geometry filter, which would leave
+            # the body layer frozen at a pre-expansion size.
             try:
                 window._csd_outer_band_patch[0](  # type: ignore[attr-defined]
-                    window.width() + 2 * band,
-                    window.height() + 2 * band,
+                    max(window.width(), pre_w + 2 * band),
+                    max(window.height(), pre_h + 2 * band),
                 )
+            except Exception:
+                pass
+            try:
+                sync_csd_chrome(window)
             except Exception:
                 pass
 

@@ -149,9 +149,12 @@ class FlyoutManager(QObject):
             try:
                 destroyed = getattr(flyout, "destroyed", None)
                 if destroyed is not None:
-                    destroyed.connect(lambda _obj=None, f=flyout: self._registered_flyouts.discard(f))  # type: ignore[attr-defined]
-                    destroyed.connect(lambda _obj=None, f=flyout: self._registration_order.pop(f, None))  # type: ignore[attr-defined]
-                    destroyed.connect(lambda _obj=None, f=flyout: self._anchor_snapshots.pop(f, None))  # type: ignore[attr-defined]
+                    # Full teardown, not a partial discard: a destroyed
+                    # flyout must also clear _active_flyout and the link
+                    # maps, exactly like unregister_flyout() does — a bare
+                    # _registered_flyouts.discard() leaves a stale active
+                    # pointer and dead link entries behind.
+                    destroyed.connect(lambda _obj=None, f=flyout: self.unregister_flyout(f))  # type: ignore[attr-defined]
             except Exception:
                 pass
 
@@ -201,8 +204,17 @@ class FlyoutManager(QObject):
 
             if policy.should_claim_active(flyout, self._active_flyout):
                 self._active_flyout = flyout
-            elif self._active_flyout is None or not self._active_flyout.isVisible():
-                self._active_flyout = flyout
+            else:
+                active = self._active_flyout
+                if active is None:
+                    self._active_flyout = flyout
+                else:
+                    try:
+                        if not active.isVisible():
+                            self._active_flyout = flyout
+                    except RuntimeError:
+                        self.unregister_flyout(active)
+                        self._active_flyout = flyout
 
         self._schedule_anchor_snapshot(flyout)
         self.ensure_overlay_stacking(raised=flyout)
@@ -261,14 +273,10 @@ class FlyoutManager(QObject):
         self._anchor_snapshots.pop(flyout, None)
         if self._active_flyout is flyout:
             self._active_flyout = None
+        # Same recursion depth as _hide_with_family: hiding a parent hides
+        # grandchildren too, not just direct children.
         for child in list(self._links.get(flyout, ())):
-            try:
-                if child.isVisible():
-                    child.hide()
-            except RuntimeError:
-                self._registered_flyouts.discard(child)
-            except Exception:
-                continue
+            self._hide_with_family(child)
         if not self._any_visible():
             self._remove_event_filter()
 
@@ -330,11 +338,24 @@ class FlyoutManager(QObject):
         return True
 
     def is_flyout_active(self, flyout: ManagedFlyout) -> bool:
-        return self._active_flyout is flyout and flyout.isVisible()
+        if self._active_flyout is not flyout:
+            return False
+        try:
+            return bool(flyout.isVisible())
+        except RuntimeError:
+            # C++ side gone without teardown: drop the stale pointer.
+            self.unregister_flyout(flyout)
+            return False
 
     def get_active_flyout(self) -> Optional[ManagedFlyout]:
-        if self._active_flyout is not None and self._active_flyout.isVisible():
-            return self._active_flyout
+        active = self._active_flyout
+        if active is None:
+            return None
+        try:
+            if active.isVisible():
+                return active
+        except RuntimeError:
+            self.unregister_flyout(active)
         return None
 
     def eventFilter(self, obj, event):

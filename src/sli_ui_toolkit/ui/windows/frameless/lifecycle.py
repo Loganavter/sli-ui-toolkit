@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
+from .geometry import QWIDGETSIZE_MAX
 from .platform_win import _win_refresh_native_frame
 from .resize_filter import _ResizeFilter, _resize_debug
 
@@ -33,13 +34,40 @@ def _patch_outer_band_geometry(window: QWidget, band: int) -> None:
     thinking in *content* size while the window surface carries the outer
     resize band (transparent — the visible body is inset by ``band``).
 
+    The app's minimum/maximum sizes are content sizes too, but Qt (and the
+    compositor on the native path) enforces them on the FRAME rect — an
+    unbumped max would cap the frame at the content max (content max
+    unreachable) and an unbumped min would let the content breach its
+    floor. So the patch translates min/max into frame space (+2*band;
+    unset sides stay unset) and ``remove_frameless`` restores them.
+
+    Idempotent: a second ``apply_frameless`` on the same window keeps the
+    single patch (re-wrapping would compound the expansion to 4*band).
+    ``remove_frameless`` restores the originals and drops the patch.
+
     The frameless manual-resize drag bypasses this patch by calling the
     base-class setter directly (see ``_update_manual_resize``).
     Maximized/fullscreen windows collapse the band to 0 (see
     ``resolve_csd_band``).
     """
+    if getattr(window, "_csd_outer_band_patch", None) is not None:
+        return
     orig_resize = window.resize
     orig_set_geometry = window.setGeometry
+    orig_min = window.minimumSize()
+    orig_max = window.maximumSize()
+    window.setMinimumSize(
+        orig_min.width() + 2 * band, orig_min.height() + 2 * band
+    )
+    if orig_max.width() < QWIDGETSIZE_MAX or orig_max.height() < QWIDGETSIZE_MAX:
+        window.setMaximumSize(
+            orig_max.width() + 2 * band
+            if orig_max.width() < QWIDGETSIZE_MAX
+            else orig_max.width(),
+            orig_max.height() + 2 * band
+            if orig_max.height() < QWIDGETSIZE_MAX
+            else orig_max.height(),
+        )
 
     def _resize(width: int, height: int) -> None:
         from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
@@ -62,14 +90,39 @@ def _patch_outer_band_geometry(window: QWidget, band: int) -> None:
 
     window.resize = _resize  # type: ignore[method-assign]
     window.setGeometry = _set_geometry  # type: ignore[method-assign]
-    # Keep the bound originals alive (they reference the C++ object).
-    window._csd_outer_band_patch = (orig_resize, orig_set_geometry)  # type: ignore[attr-defined]
+    # Keep the bound originals (and the pre-bump min/max) alive — the
+    # bound methods reference the C++ object.
+    window._csd_outer_band_patch = (  # type: ignore[attr-defined]
+        orig_resize,
+        orig_set_geometry,
+        orig_min,
+        orig_max,
+    )
 
 
 def remove_frameless(window: QWidget) -> None:
     flags = window.windowFlags() & ~Qt.WindowType.FramelessWindowHint
     window.setWindowFlags(flags)
     _set_resize_filter(window, enabled=False)
+    # Drop the outer-band geometry patch: restore the pre-patch bound
+    # setters (content-size expansion stops with the band) and the
+    # pre-bump min/max sizes.
+    patch = getattr(window, "_csd_outer_band_patch", None)
+    if patch is not None:
+        try:
+            orig_resize, orig_set_geometry, orig_min, orig_max = patch
+            # Restoring a bound method read back off the instance is an
+            # [assignment] mismatch (not [method-assign] like the patch).
+            window.resize = orig_resize  # type: ignore[assignment]
+            window.setGeometry = orig_set_geometry  # type: ignore[assignment]
+            window.setMinimumSize(orig_min)
+            window.setMaximumSize(orig_max)
+        except Exception:
+            pass
+        try:
+            delattr(window, "_csd_outer_band_patch")
+        except Exception:
+            pass
 
 
 def set_frameless_runtime(window: QWidget, enabled: bool) -> None:

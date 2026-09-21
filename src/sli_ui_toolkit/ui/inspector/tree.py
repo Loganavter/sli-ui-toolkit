@@ -107,18 +107,31 @@ def _nest_nodes(nodes) -> list[dict]:
 
 
 def _layout_tree_key(nodes) -> tuple | None:
-    """Cheap staleness signature for the cached Layout tree: the window
-    object, the node count and the first/last node identities. Most tree
-    changes alter one of these; anything subtler costs a rebuild at worst
-    (a diagnostic tool, not a hot path)."""
+    """Exact staleness signature for the cached Layout tree.
+
+    The key is the window identity plus the FULL ordered fingerprint of the
+    node list — ``(label, widget identity, indent)`` per row. A reorder, an
+    insertion/removal anywhere (not just at the endpoints), or a row rename
+    changes the key, so the window-level cache in ``InspectorWindow`` can
+    never serve a stale tree: the worst case is a rebuild, never a wrong
+    tree shown as current (a diagnostic tool, not a hot path).
+    """
     first = next((w for _label, w, _indent in nodes if isinstance(w, QWidget)), None)
     if first is None:
         return None
-    last = next(
-        (w for _label, w, _indent in reversed(nodes) if isinstance(w, QWidget)),
-        first,
+    try:
+        window_id = id(first.window())
+    except Exception:
+        return None
+    fingerprint = tuple(
+        (
+            str(label),
+            id(widget) if isinstance(widget, QWidget) else None,
+            int(indent),
+        )
+        for label, widget, indent in nodes
     )
-    return (id(first.window()), len(nodes), id(first), id(last))
+    return (window_id, fingerprint)
 
 
 class _TreeNodeRow(Button):
@@ -765,8 +778,8 @@ class _PaneTreeMixin:
         """Render the tree into a standalone container widget.
 
         Used for the window-level Layout cache: the whole-window tree is
-        per-window (``_layout_tree_key``: window id + count + first/last
-        identities), identical for every tab of that window, so it is built
+        per-window (``_layout_tree_key``: window id + full ordered node
+        fingerprint), identical for every tab of that window, so it is built
         once and re-attached to the active tab instead of re-creating
         hundreds of row widgets per tab. Collapse state lives inside the
         returned widget (a fresh ``set()``, not the pane's ``_expanded``).

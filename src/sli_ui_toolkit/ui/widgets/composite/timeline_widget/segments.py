@@ -161,7 +161,7 @@ def _enum_state_spans(
     endpoint the draw pass paints. ``content_x_range`` derives the cull
     interval from these spans, so cull and paint can never disagree.
     """
-    keyframes = channel.keyframes
+    keyframes = timeline_layout._ordered_keyframes(channel)
     if not keyframes:
         return []
 

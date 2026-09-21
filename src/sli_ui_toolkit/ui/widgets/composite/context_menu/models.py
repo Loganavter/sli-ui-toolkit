@@ -8,6 +8,13 @@ from PySide6.QtGui import QColor, QKeySequence
 
 from sli_ui_toolkit.ui.managers.ui_font import measure_text_width
 
+# Destructive-action red — deliberately NOT a theme token (documented
+# hardcode, reviewed 2026-09-21). Rationale: the danger cue must read as
+# the same red in both themes (both shipped palettes would define the
+# identical value, so a token buys indirection without flexibility), and
+# hosts that need a different destructive color own their row paint layers
+# already. If a third consumer ever needs this red, promote it to the
+# Optional tier in palettes.py + DESIGN_LANGUAGE.md instead of copying it.
 _DANGER_COLOR = QColor("#e5484d")
 _ROW_H_PADDING = 12
 

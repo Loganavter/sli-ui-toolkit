@@ -7,7 +7,7 @@ generic QWidget fallback guarantees every widget is inspectable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 from PySide6.QtCore import QRect, Qt
@@ -68,6 +68,18 @@ def _generic_extract(widget: QWidget, theme_manager=None) -> WidgetInspection:
     return WidgetInspection(family="QWidget", config=config, state=state)
 
 
+def _failure_mark(family: str, exc: BaseException) -> InspectField:
+    """State row marking a failed extractor — the generic fallback below
+    must never pose as a complete inspection when a family extractor (or
+    the widget's own spec build) raised."""
+    return InspectField(
+        name=f"extractor:{family}",
+        value=f"{type(exc).__name__}: {exc}",
+        kind=FieldKind.TEXT,
+        meta={"extractor_failed": True, "family": family},
+    )
+
+
 def inspect_widget(
     widget: QWidget, theme_manager=None
 ) -> WidgetInspection:
@@ -75,22 +87,40 @@ def inspect_widget(
 
     Priority: the widget's own ``InspectSpec`` (self-declared, no guessing) →
     the duck-typed family registry → the generic QWidget fallback.
+
+    Extractor failures are recorded, never swallowed: when the spec build
+    or a matching family extractor raises, inspection falls through as
+    before, but the returned inspection carries an ``extractor:<family>``
+    state row (``meta={"extractor_failed": True}``) naming the failure —
+    the generic fallback never poses as the full story.
     """
     from .spec import build_inspection, spec_of
 
+    failures: list[tuple[str, BaseException]] = []
     spec = spec_of(widget)
     if spec is not None:
         try:
             return build_inspection(widget, spec, theme_manager)
-        except Exception:
-            pass
+        except Exception as exc:
+            failures.append((getattr(spec, "family", type(spec).__name__), exc))
     for family, match, extract in _REGISTERED:
         try:
             if match(widget):
-                return extract(widget, theme_manager)
+                try:
+                    return extract(widget, theme_manager)
+                except Exception as exc:
+                    failures.append((family, exc))
+                    continue
         except Exception:
             continue
-    return _generic_extract(widget, theme_manager)
+    inspection = _generic_extract(widget, theme_manager)
+    if failures:
+        inspection = replace(
+            inspection,
+            state=inspection.state
+            + tuple(_failure_mark(family, exc) for family, exc in failures),
+        )
+    return inspection
 
 
 __all__ = ["inspect_widget", "register_family", "registered_families"]

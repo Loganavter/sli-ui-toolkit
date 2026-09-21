@@ -16,6 +16,19 @@ from PySide6.QtWidgets import QWidget
 from .contract import FieldKind, InspectField
 
 
+#: meta flag marking disclosure rows (see ``capture_tokens``).
+CAPTURE_LIMITATION_META = "capture_limitation"
+
+
+def _limitation_field(name: str, value: str, *, kind: str) -> InspectField:
+    return InspectField(
+        name=name,
+        value=value,
+        kind=FieldKind.TEXT,
+        meta={CAPTURE_LIMITATION_META: kind},
+    )
+
+
 def capture_tokens(
     widget: QWidget, theme_manager
 ) -> tuple[InspectField, ...]:
@@ -24,6 +37,21 @@ def capture_tokens(
     Returns ordered ``(key -> hex)`` fields; keys that failed
     ``try_get_color`` are marked ``meta={"missing": True}``. Wrapping is
     exception-safe (the original methods are always restored).
+
+    An empty repaint is disclosed, never silently empty:
+
+    - a hidden widget cannot be repainted by ``grab()`` on real platforms
+      (it records zero keys no matter how many tokens the widget uses) —
+      an empty result on one carries a ``capture_limitation=hidden``
+      disclosure row instead of ``()``;
+    - a visible widget whose repaint resolves no keys most likely paints
+      from cached colors/state rather than live ``ThemeManager`` lookups —
+      an empty result carries a ``capture_limitation=cached`` disclosure
+      row so it is not misread as "uses no theme tokens".
+
+    (When the repaint *does* record keys the rows are returned as-is —
+    offscreen ``grab()`` repaints unshown widgets, so hidden-ness alone
+    suppresses nothing.)
     """
     if theme_manager is None or widget is None:
         return ()
@@ -77,7 +105,33 @@ def capture_tokens(
                 meta={"missing": value is None},
             )
         )
+    if not fields:
+        # Empty repaint: disclose WHY instead of returning () (which reads
+        # as "this widget uses no theme tokens"). A hidden widget cannot be
+        # repainted by grab() — first-order explanation; otherwise the
+        # widget most likely paints from cached colors/state without live
+        # ThemeManager lookups (see paint state / token family).
+        if not widget.isVisible():
+            return (
+                _limitation_field(
+                    "capture (hidden widget)",
+                    "widget is not visible: grab() cannot repaint it, so no "
+                    "theme keys were recorded. Show the widget and capture "
+                    "again — an empty result here says nothing about which "
+                    "tokens the widget uses.",
+                    kind="hidden",
+                ),
+            )
+        return (
+            _limitation_field(
+                "capture (no tokens resolved)",
+                "repaint resolved no theme keys: the widget likely paints "
+                "from cached colors/state (see paint state / token family) "
+                "rather than live ThemeManager lookups.",
+                kind="cached",
+            ),
+        )
     return tuple(fields)
 
 
-__all__ = ["capture_tokens"]
+__all__ = ["CAPTURE_LIMITATION_META", "capture_tokens"]

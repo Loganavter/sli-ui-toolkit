@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QCursor, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import DrawContext, Layer
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
 from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import CloseButtonPolicy
@@ -136,6 +137,10 @@ class TopTabBar(QWidget):
             ThemeManager.get_instance().theme_changed.connect(self._on_theme_changed)
         except Exception:
             pass
+        try:
+            UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        except Exception:
+            pass
 
     def set_items(self, items: Iterable[TopTabItem | str | tuple]) -> None:
         self.clear()
@@ -151,18 +156,19 @@ class TopTabBar(QWidget):
 
     def add_item(self, text: str, data: object | None = None) -> TabItem:
         closable = self._close_policy is not CloseButtonPolicy.NONE
+        tab_height = self._scaled_tab_height()
         button = TopTabButton(
             text=text,
             toggle=True,
-            size=(0, self._tab_height),
+            size=(0, tab_height),
             variant="top_tab",
             corner_radii=(self._corner_radius, self._corner_radius, 0, 0),
             close_zone=(
-                self._close_size + TAB_CLOSE_MARGIN if closable else 0
+                self._scaled_close_size() + TAB_CLOSE_MARGIN if closable else 0
             ),
         )
         button.set_show_indicator(self._show_indicator)
-        button.setFixedHeight(self._tab_height)
+        button.setFixedHeight(tab_height)
         if self._expand_tabs:
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             button.setMinimumWidth(TAB_MIN_WIDTH)
@@ -184,7 +190,7 @@ class TopTabBar(QWidget):
             # mechanics): the close button is a child of the tab button; its
             # background follows the tab's state, not its own hover.
             close_button = Button(
-                size=(self._close_size, self._close_size),
+                size=(self._scaled_close_size(), self._scaled_close_size()),
                 corner_radius=5,
                 variant="default",
                 layers=[_CloseSlotBackgroundLayer(), _CloseXLayer()],
@@ -326,7 +332,7 @@ class TopTabBar(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, value)
 
     def sizeHint(self) -> QSize:
-        return QSize(self._content_width(), self._tab_height)
+        return QSize(self._content_width(), self._scaled_tab_height())
 
     def minimumSizeHint(self) -> QSize:
         # Tabs clip/overflow when the host is narrower than the content (see
@@ -334,7 +340,7 @@ class TopTabBar(QWidget):
         # wants, so the minimum is just the chrome floor, not the content.
         return QSize(self._layout.contentsMargins().left()
                      + self._layout.contentsMargins().right() + TAB_MIN_WIDTH,
-                     self._tab_height)
+                     self._scaled_tab_height())
 
     def _content_width(self) -> int:
         margins = self._layout.contentsMargins()
@@ -352,8 +358,9 @@ class TopTabBar(QWidget):
 
     def _sync_strip_geometry(self) -> None:
         width = self._content_width()
-        self._strip.setFixedSize(width, self._tab_height)
-        self.setFixedHeight(self._tab_height)
+        tab_height = self._scaled_tab_height()
+        self._strip.setFixedSize(width, tab_height)
+        self.setFixedHeight(tab_height)
         self.updateGeometry()
 
     def _on_tab_clicked(self, idx: int) -> None:
@@ -380,3 +387,31 @@ class TopTabBar(QWidget):
             for tab in self._tabs:
                 tab.button.setFixedWidth(tab.button.sizeHint().width())
         self._sync_strip_geometry()
+
+    def _scaled_tab_height(self) -> int:
+        """Design ``tab_height`` resolved through the live ``UiScale`` factor."""
+        return scaled_px(self._tab_height)
+
+    def _scaled_close_size(self) -> int:
+        """Design ``close_size`` resolved through the live ``UiScale`` factor."""
+        return scaled_px(self._close_size)
+
+    def _on_scale_changed(self, _factor: float) -> None:
+        # Interface-scale resync: tab buttons were fixed at construction in
+        # old design px — re-stamp heights, re-fit widths from the (now
+        # scale-resolved) size hints, then re-flow the strip like a theme
+        # switch does.
+        tab_height = self._scaled_tab_height()
+        for tab in self._tabs:
+            tab.button.setFixedHeight(tab_height)
+            if not self._expand_tabs:
+                tab.button.setFixedWidth(tab.button.sizeHint().width())
+            if tab.close_button is not None:
+                try:
+                    if isinstance(tab.close_button, QWidget):
+                        close = self._scaled_close_size()
+                        tab.close_button.setFixedSize(close, close)
+                except Exception:
+                    pass
+        self._sync_strip_geometry()
+        self.update()

@@ -336,14 +336,15 @@ def test_outer_resize_band_insets_chrome_and_expands_geometry(qapp):
         bar = dialog._csd_title_bar
         assert bar.geometry().left() == 8
         assert bar.geometry().top() == 8
-        # The rounded body layer is inset by the band.
+        # The rounded body layer is inset by the band (aligned with the
+        # title bar above: surface minus the band on both sides).
         bg = dialog._csd_bg_layer
         dialog.resize(300, 200)
         qapp.processEvents()
         assert bg.geometry().left() == 8
         assert bg.geometry().top() == 8
-        assert bg.width() == 300 - 16
-        assert bg.height() == 200 - 16
+        assert bg.width() == dialog.width() - 16
+        assert bg.height() == dialog.height() - 16
         # resize keeps content-size semantics: the surface grows by 2*band.
         dialog.resize(340, 240)
         assert dialog.width() == 340 + 16

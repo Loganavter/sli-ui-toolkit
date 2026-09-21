@@ -637,8 +637,20 @@ def _find_track(widget, track_id: str):
             return track
     return None
 
+def _ordered_keyframes(channel) -> list:
+    """Keyframes in ascending timestamp order (stable, never mutates host data).
+
+    Step evaluation (``_evaluate_channel_at_timestamp``), exact lookup
+    (``_channel_value_at_timestamp``), and the pair walks
+    (``visible_keyframe_segments``, ``segments._enum_state_spans``) all
+    assume time-sorted input; shuffled host data used to drop or misplace
+    spans. Every site routes through here so sorted and shuffled input
+    evaluate identically.
+    """
+    return sorted(channel.keyframes, key=lambda kf: float(kf.timestamp))
+
 def _evaluate_channel_at_timestamp(channel, timestamp: float):
-    keyframes = channel.keyframes
+    keyframes = _ordered_keyframes(channel)
     if not keyframes:
         return None
     if timestamp <= keyframes[0].timestamp:
@@ -673,7 +685,7 @@ def _is_track_active(widget, track, channel, timestamp: float) -> bool:
 def _channel_value_at_timestamp(channel, timestamp: float, *, prefer_exact: bool = False):
     if channel is None:
         return None
-    keyframes = channel.keyframes
+    keyframes = _ordered_keyframes(channel)
     if not keyframes:
         return None
     if prefer_exact:
@@ -739,10 +751,10 @@ def visible_keyframe_segments(
     end_x: float,
     stagger_px: float = 7.0,
 ) -> list[dict[str, Any]]:
-    if not channel.keyframes:
+    keyframes = _ordered_keyframes(channel)
+    if not keyframes:
         return []
 
-    keyframes = channel.keyframes
     is_active_bool_channel = channel.kind == "bool"
     if len(keyframes) < 2:
         keyframe = keyframes[0]
@@ -837,13 +849,20 @@ def visible_keyframe_segments(
                         curve_points=curve_points,
                     )
                     continue
+            # Damage-independent stagger: the parity counter advances for
+            # every eligible segment BEFORE the damage cull, so a partial
+            # repaint assigns the same lane y as a full repaint. Previously
+            # culled segments consumed no parity and scalar lanes visibly
+            # jumped up/down between partial paints (playhead/hover/
+            # selection) and full paints. Enum/color lanes already index
+            # parity over their pre-cull span lists; this aligns scalar.
             direction = -1.0 if active_segment_index % 2 == 0 else 1.0
+            active_segment_index += 1
             if x2 < left_bound:
                 continue
             if x1 > right_bound:
                 break
             y = row_center_y if is_active_bool_channel else row_center_y + direction * stagger_px
-            active_segment_index += 1
             if is_active_bool_channel:
                 curve_points = [(x1, y), (x2, y)]
             else:

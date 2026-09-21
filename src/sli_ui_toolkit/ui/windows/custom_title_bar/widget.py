@@ -93,6 +93,9 @@ class CustomTitleBar(
         self._restore_icon = restore_icon
         self._app_icon_label: QLabel | None = None
         self._target_window: QWidget | None = None
+        # (signal, slot) pairs installed by attach_window — kept so a
+        # re-attach (or destroy) can disconnect exactly our slots.
+        self._window_slots: list = []
         self._drag_start_global = None
         self._drag_enabled = True
         self._drag_exclusions: set[int] = set()
@@ -308,22 +311,75 @@ class CustomTitleBar(
             pass
 
     def attach_window(self, window: QWidget) -> None:
-        """Wire the controls cluster + this bar to a real window."""
+        """Wire the controls cluster + this bar to a real window.
+
+        Idempotent: re-attaching the same window only refreshes state
+        (re-connecting would stack duplicate slots and install the event
+        filter twice, double-firing every window event). Attaching a
+        different window first detaches the previous one. When the target
+        is destroyed the bar unpins it (``_target_window`` → None) so
+        later calls cannot touch a dead C++ object.
+        """
+        if self._target_window is window:
+            self._controls.refresh_window_state(window)
+            return
+        if self._target_window is not None:
+            self._detach_window()
         self._target_window = window
-        self._controls.minimize_requested.connect(
-            lambda: window.showMinimized()
-        )
-        self._controls.maximize_toggle_requested.connect(
-            lambda: self._toggle_maximize(window)
-        )
-        self.close_requested.connect(window.close)
+        minimize_slot = lambda: window.showMinimized()
+        maximize_slot = lambda: self._toggle_maximize(window)
+        close_slot = window.close
+        self._controls.minimize_requested.connect(minimize_slot)
+        self._controls.maximize_toggle_requested.connect(maximize_slot)
+        self.close_requested.connect(close_slot)
+        self._window_slots = [
+            (self._controls.minimize_requested, minimize_slot),
+            (self._controls.maximize_toggle_requested, maximize_slot),
+            (self.close_requested, close_slot),
+        ]
         window.installEventFilter(self)
         # Auto-detach when window is destroyed
         try:
-            window.destroyed.connect(lambda _obj=None: self._remove_app_event_filter())
+            window.destroyed.connect(self._on_target_window_destroyed)
         except Exception:
             pass
         self._controls.refresh_window_state(window)
+
+    def _detach_window(self) -> None:
+        """Undo ``attach_window`` wiring (the re-attach path)."""
+        for signal, slot in list(getattr(self, "_window_slots", ())):
+            try:
+                signal.disconnect(slot)
+            except Exception:
+                pass
+        self._window_slots = []
+        old = self._target_window
+        self._target_window = None
+        if old is not None:
+            try:
+                # stubs gap: shiboken6.isValid missing from PySide6-stubs
+                if shiboken6.isValid(old):  # type: ignore[attr-defined]
+                    old.removeEventFilter(self)
+                    try:
+                        old.destroyed.disconnect(self._on_target_window_destroyed)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+    def _on_target_window_destroyed(self, _obj=None) -> None:
+        """Unpin the dead target: drop our slots and clear the ref."""
+        self._window_slots = []
+        old = self._target_window
+        self._target_window = None
+        if old is not None:
+            try:
+                # stubs gap: shiboken6.isValid missing from PySide6-stubs
+                if shiboken6.isValid(old):  # type: ignore[attr-defined]
+                    old.removeEventFilter(self)
+            except Exception:
+                pass
+        self._remove_app_event_filter()
 
     @staticmethod
     def _toggle_maximize(window: QWidget) -> None:
@@ -427,7 +483,11 @@ class CustomTitleBar(
                         if 0 <= target < len(buttons):
                             self._set_child_focus(buttons[target])
                             return True
-                        return True
+                        # Cluster end: fall through (return False) so the key
+                        # keeps propagating — NavigationManager owns
+                        # cross-section handoffs and a swallowed arrow at
+                        # the edge would trap keyboard focus in the bar.
+                        return False
 
         try:
             return super().eventFilter(obj, event)

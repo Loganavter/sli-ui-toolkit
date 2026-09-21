@@ -1,29 +1,72 @@
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QConicalGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 
 class LoadingSpinner(QWidget):
+    #: Design-px diameter at ``UiScale`` factor 1.0 (see DESIGN_LANGUAGE.md).
+    SIZE_PX = 40
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.theme_manager = ThemeManager.get_instance()
         self._angle = 0
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self.setFixedSize(40, 40)
+        #: Hide/self-stop handshake: hiding a spinning widget parks the
+        #: resume request here; an explicit ``stop()`` while hidden clears
+        #: it so a later ``show()`` does not restart a cancelled spinner.
+        self._resume_on_show = False
+        self._apply_scale_size()
+        try:
+            UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        except Exception:
+            pass
 
     def start(self):
         if not self._timer.isActive():
             self._timer.start(15)
+        self._resume_on_show = False
 
     def stop(self):
         if self._timer.isActive():
             self._timer.stop()
+        self._resume_on_show = False
 
     def is_spinning(self) -> bool:
         return self._timer.isActive()
+
+    def hideEvent(self, event) -> None:  # noqa: N802 - Qt API
+        # A hidden spinner cannot paint: park the timer instead of burning
+        # 60 fps of backing-store updates nobody sees (offscreen hosts,
+        # tab switches, collapsed panes). The resume request restores the
+        # pre-hide state on show; explicit stop()/start() overrides it.
+        if self._timer.isActive():
+            self._resume_on_show = True
+            self._timer.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
+        if self._resume_on_show:
+            self._resume_on_show = False
+            self.start()
+
+    def sizeHint(self):  # noqa: N802 - Qt API
+        side = scaled_px(self.SIZE_PX)
+        return QSize(side, side)
+
+    def _apply_scale_size(self) -> None:
+        side = scaled_px(self.SIZE_PX)
+        self.setFixedSize(side, side)
+
+    def _on_scale_changed(self, _factor: float) -> None:
+        self._apply_scale_size()
+        self.updateGeometry()
+        self.update()
 
     def _tick(self):
         self._angle = (self._angle + 6) % 360

@@ -156,8 +156,15 @@ class GroupShowPolicy:
         self._group_claim_active: dict[str, bool] = {}
         self._group_parent: dict[str, str] = {}
         self._group_coexist: dict[str, set[str]] = {}
+        # Per-flyout rules are keyed by id() (flyouts may be duck-typed
+        # non-QObjects, so the object itself is not always a safe key).
+        # Stale-id reuse is closed by hooking destroyed in
+        # configure_flyout(): the rules die with the flyout. Non-QObject
+        # flyouts have no destroyed signal — call clear_flyout() manually
+        # for those.
         self._flyout_dismisses: dict[int, frozenset[str] | None] = {}
         self._flyout_claim_active: dict[int, bool] = {}
+        self._flyout_hooked: set[int] = set()
 
     def configure_group(
         self,
@@ -205,7 +212,23 @@ class GroupShowPolicy:
         key = id(flyout)
         self._flyout_dismisses[key] = self._normalize_dismisses(dismisses)
         self._flyout_claim_active[key] = bool(claim_active)
+        if key not in self._flyout_hooked:
+            try:
+                destroyed = getattr(flyout, "destroyed", None)
+                if destroyed is not None:
+                    # Key-only capture (no strong ref to the flyout): the
+                    # rules are dropped when the flyout dies, so a later
+                    # object reusing this id starts clean.
+                    destroyed.connect(lambda _obj=None, k=key: self._drop_flyout_rules(k))
+                    self._flyout_hooked.add(key)
+            except Exception:
+                pass
         return self
+
+    def _drop_flyout_rules(self, key: int) -> None:
+        self._flyout_dismisses.pop(key, None)
+        self._flyout_claim_active.pop(key, None)
+        self._flyout_hooked.discard(key)
 
     def clear_flyout(self, flyout: object) -> None:
         key = id(flyout)

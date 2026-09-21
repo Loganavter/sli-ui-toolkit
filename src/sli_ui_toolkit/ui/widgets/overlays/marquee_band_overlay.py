@@ -29,7 +29,22 @@ class MarqueeBandOverlay(TopLevelInWindowOverlay):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._accent = QColor("#0078D4")
+        #: Host override flag: ``set_accent()`` pins an explicit color that
+        #: theme switches must not clobber; otherwise the accent re-resolves
+        #: from the active palette on every ``theme_changed``.
+        self._accent_custom = False
         self._active = False
+        self._refresh_accent_from_theme()
+        try:
+            from sli_ui_toolkit.theme import ThemeManager
+
+            ThemeManager.get_instance().theme_changed.connect(
+                self._on_theme_changed
+            )
+        except Exception:
+            pass
+
+    def _refresh_accent_from_theme(self) -> None:
         try:
             from sli_ui_toolkit.theme import ThemeManager
 
@@ -39,8 +54,15 @@ class MarqueeBandOverlay(TopLevelInWindowOverlay):
         except Exception:
             pass
 
+    def _on_theme_changed(self, *_args) -> None:
+        if not self._accent_custom:
+            self._refresh_accent_from_theme()
+        if self.isVisible():
+            self.update()
+
     def set_accent(self, color: QColor) -> None:
         self._accent = QColor(color)
+        self._accent_custom = True
         if self.isVisible():
             self.update()
 

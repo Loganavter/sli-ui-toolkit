@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from collections import deque
@@ -8,6 +9,14 @@ from collections.abc import Callable
 from PySide6.QtCore import QObject, QPoint, QTimer
 
 from sli_ui_toolkit.config import get_flyout_timings
+
+# Toolkit-tree logger: setup_logging() attaches handlers to "sli_ui_toolkit",
+# so records land in the host log file; hosts that skip setup_logging() still
+# see them via root propagation (lastResort stderr). The previous
+# logging.getLogger("ImproveImgSLI") target was a host-tree logger with no
+# handlers unless the host app configured it — wrong tree for toolkit code
+# and invisible file-wise. Gating stays on SLI_FLYOUT_DEBUG et al.
+_log = logging.getLogger(__name__)
 
 
 def _timer_debug_enabled() -> bool:
@@ -44,11 +53,7 @@ class DecisionJournal:
         except Exception:
             pass
         if _timer_debug_enabled():
-            import logging
-
-            logging.getLogger("ImproveImgSLI").warning(
-                "[%s] %s %s", self._owner, event, detail
-            )
+            _log.warning("[%s] %s %s", self._owner, event, detail)
 
     def snapshot(self) -> list:
         return list(self._entries)
