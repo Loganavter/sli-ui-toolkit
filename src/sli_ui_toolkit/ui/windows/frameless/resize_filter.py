@@ -1,12 +1,12 @@
 """Edge-resize hit testing for frameless windows.
 
 ``_ResizeFilter`` owns all manual-resize drag state, the app-wide override
-cursor stack, and hover reconciliation. It reads the *live* resize margin
-off the ``frameless`` package namespace (not off ``geometry.RESIZE_MARGIN``
-directly) because ``window_chrome.py`` reconfigures the margin per-window by
-mutating ``frameless.RESIZE_MARGIN`` on that package object; snapshotting it
-here at instantiation time keeps that host override working exactly as it
-did when this was one module.
+cursor stack, and hover reconciliation. It snapshots the resize margin at
+install: the window's own ``_csd_resize_margin`` property when
+``WindowChrome.install`` set one, else the package-default
+``frameless.RESIZE_MARGIN`` (hosts may still override that default before
+installing). Snapshotting keeps a later install on another window from
+retroactively changing this window's edge hit zones.
 """
 
 from __future__ import annotations
@@ -65,12 +65,14 @@ class _ResizeFilter(QObject):
     def __init__(self, target: QWidget):
         super().__init__(target)
         self._target = target
-        # Snapshot the *live* margin at install: dialogs re-install their
-        # chrome with a different margin (WindowChrome.install mutates the
-        # process-wide ``frameless.RESIZE_MARGIN``), and that must not
-        # retroactively change this window's edge hit zones. Read off the
-        # package namespace (not geometry.RESIZE_MARGIN) so a host override
-        # via ``frameless.RESIZE_MARGIN = X`` is honored here.
+        # Per-window margin: ``WindowChrome.install`` stores
+        # ``_csd_resize_margin`` on the window; a bare ``apply_frameless``
+        # window has none and uses the package default. The margin is
+        # snapshotted at install so a later install on ANOTHER window can
+        # never retune this window's edge hit zones (the old process-wide
+        # ``frameless.RESIZE_MARGIN`` mutation is gone — hosts keep
+        # overriding the default via ``frameless.RESIZE_MARGIN = X`` before
+        # installing, which is still honored here as the fallback).
         from sli_ui_toolkit.ui.windows import frameless as _frameless_pkg
 
         band = 0
@@ -78,10 +80,17 @@ class _ResizeFilter(QObject):
             band = int(target.property("_csd_outer_band") or 0)
         except Exception:
             band = 0
+        base_margin = int(_frameless_pkg.RESIZE_MARGIN)
+        try:
+            per_window = target.property("_csd_resize_margin")
+            if per_window is not None:
+                base_margin = int(per_window)
+        except Exception:
+            pass
         # The CSD outer band extends the window surface beyond the visible
         # body, so the edge zone [0, margin] straddles the visible edge —
-        # RESIZE_MARGIN pixels inside the body plus ``band`` outside it.
-        self._resize_margin = int(_frameless_pkg.RESIZE_MARGIN) + band
+        # base margin pixels inside the body plus ``band`` outside it.
+        self._resize_margin = base_margin + band
         self._cursor_armed = False
         # Edges the resize cursor is currently showing (0 = none). Coalescing
         # key: hover/move events re-arrive at the same edge position several

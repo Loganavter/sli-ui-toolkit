@@ -33,11 +33,17 @@ def _patch_outer_band_geometry(window: QWidget, band: int) -> None:
     thinking in *content* size while the window surface carries the outer
     resize band (transparent — the visible body is inset by ``band``).
 
+    Idempotent: a second ``apply_frameless`` on the same window keeps the
+    single patch (re-wrapping would compound the expansion to 4*band).
+    ``remove_frameless`` restores the originals and drops the patch.
+
     The frameless manual-resize drag bypasses this patch by calling the
     base-class setter directly (see ``_update_manual_resize``).
     Maximized/fullscreen windows collapse the band to 0 (see
     ``resolve_csd_band``).
     """
+    if getattr(window, "_csd_outer_band_patch", None) is not None:
+        return
     orig_resize = window.resize
     orig_set_geometry = window.setGeometry
 
@@ -70,6 +76,22 @@ def remove_frameless(window: QWidget) -> None:
     flags = window.windowFlags() & ~Qt.WindowType.FramelessWindowHint
     window.setWindowFlags(flags)
     _set_resize_filter(window, enabled=False)
+    # Drop the outer-band geometry patch: restore the pre-patch bound
+    # setters so content-size expansion stops with the band.
+    patch = getattr(window, "_csd_outer_band_patch", None)
+    if patch is not None:
+        try:
+            orig_resize, orig_set_geometry = patch
+            # Restoring a bound method read back off the instance is an
+            # [assignment] mismatch (not [method-assign] like the patch).
+            window.resize = orig_resize  # type: ignore[assignment]
+            window.setGeometry = orig_set_geometry  # type: ignore[assignment]
+        except Exception:
+            pass
+        try:
+            delattr(window, "_csd_outer_band_patch")
+        except Exception:
+            pass
 
 
 def set_frameless_runtime(window: QWidget, enabled: bool) -> None:

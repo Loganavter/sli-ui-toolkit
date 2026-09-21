@@ -65,11 +65,24 @@ class WindowChrome:
 
     @classmethod
     def install(cls, window: QWidget, *, config: WindowChromeConfig | None = None) -> WindowChrome:
-        cfg = config or WindowChromeConfig()
-        from sli_ui_toolkit.ui.windows import frameless
+        """Install client-side decorations on ``window``.
 
+        Idempotent: a window that already carries a ``WindowChrome``
+        returns it (re-installing would double-patch ``resize``/
+        ``setGeometry``, stack geometry filters, and orphan title bars).
+        """
+        existing = getattr(window, "_window_chrome", None)
+        if existing is not None:
+            return existing
+        cfg = config or WindowChromeConfig()
+
+        # Per-window resize margin, never process-global: mutating
+        # ``frameless.RESIZE_MARGIN`` here would retune every other
+        # window's edge zones (and every future install). The resize
+        # filter reads this property first and falls back to the package
+        # default when it is absent.
         if cfg.resize_margin is not None:
-            frameless.RESIZE_MARGIN = int(cfg.resize_margin)
+            window.setProperty("_csd_resize_margin", int(cfg.resize_margin))
 
         # Outer resize band: the window surface extends ``band`` px beyond
         # the visible body on every side (transparent — the rounded body is
@@ -78,12 +91,23 @@ class WindowChrome:
         # The app keeps thinking in content size: ``resize``/``setGeometry``
         # are re-expanded by 2*band (inside ``apply_frameless``), and the
         # layout/title-bar/body are inset by ``band`` here.
+        #
+        # The band derives from the per-window margin when set, else the
+        # package default — mirroring the resize filter's own resolution so
+        # the two can never disagree (see ``_ResizeFilter``).
+        from sli_ui_toolkit.ui.windows.frameless.geometry import RESIZE_MARGIN as _DEFAULT_MARGIN
+
         band = 0
         if cfg.resizable:
+            per_window = window.property("_csd_resize_margin")
             band = (
-                int(cfg.resize_margin)
-                if cfg.resize_margin is not None
-                else int(frameless.RESIZE_MARGIN)
+                int(per_window)
+                if per_window is not None
+                else (
+                    int(cfg.resize_margin)
+                    if cfg.resize_margin is not None
+                    else int(_DEFAULT_MARGIN)
+                )
             )
 
         apply_frameless(window, resizable=cfg.resizable, outer_band=band or None)
