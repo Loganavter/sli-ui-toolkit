@@ -32,7 +32,11 @@ class SunburstChartWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._bg_color = QColor(30, 30, 30)
+        self._bg_color = self._default_background()
+        #: Host override flag: ``set_background_color()`` pins an explicit
+        #: fill that theme switches must not clobber; otherwise the default
+        #: background re-resolves from the active palette on ``theme_changed``.
+        self._bg_custom = False
         self._gap_color: QColor | None = None
         self._center_text_color: QColor | None = None
 
@@ -57,9 +61,37 @@ class SunburstChartWidget(QWidget):
         self._signals.hover_enter.connect(self.segment_hover_enter.emit)
         self._signals.hover_move.connect(self.segment_hover_move.emit)
         self._signals.hover_leave.connect(self.segment_hover_leave.emit)
+        try:
+            ThemeManager.get_instance().theme_changed.connect(
+                self._on_theme_changed
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _default_background() -> QColor:
+        """Theme-following default scene fill (pre-customization fallback)."""
+        try:
+            color = ThemeManager.get_instance().try_get_color("dialog.background")
+            if color is not None and color.isValid():
+                return QColor(color)
+        except Exception:
+            pass
+        return QColor(30, 30, 30)
+
+    def _on_theme_changed(self, *_args) -> None:
+        # Center text already resolves live at draw time; the default scene
+        # background is the cached piece — refresh it unless the host pinned
+        # one via set_background_color(), then repaint either way.
+        if not self._bg_custom:
+            self._bg_color = self._default_background()
+            if self._scene.items():
+                self._view.setBackgroundBrush(QBrush(self._bg_color))
+        self.update()
 
     def set_background_color(self, color: QColor) -> None:
         self._bg_color = QColor(color)
+        self._bg_custom = True
         self._view.setBackgroundBrush(QBrush(self._bg_color))
 
     def set_gap_color(self, color: QColor) -> None:

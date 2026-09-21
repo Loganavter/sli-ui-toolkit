@@ -41,7 +41,12 @@ _last_paint_ts = 0.0
 _burst_start = 0.0
 _burst_count = 0
 # Theme color cache: avoid try_get_color + QColor alloc per paint at 60 Hz.
-_cached_theme_generation = 0
+# Invalidation is owned by TextCanvas._on_theme_changed (canvas.py), which
+# clears these module caches on every theme switch and repaints. The
+# dark-mode flip comparison below is only a backstop for a missed signal —
+# there is no generation counter (an earlier comment claimed a "generation
+# bump" path that never existed; _cached_theme_generation was write-only
+# and has been removed).
 _cached_foreground: QColor | None = None
 _cached_span_colors: dict[str, QColor] | None = None
 _cached_selection_color: QColor | None = None
@@ -73,8 +78,9 @@ class _CanvasPaintApi:
             return
         painter = QPainter(self)
         tm = ThemeManager.get_instance()
-        # Cached theme colors — invalidation via _on_theme_changed or generation bump.
-        global _cached_foreground, _cached_span_colors, _cached_selection_color, _cached_theme_dark, _cached_theme_generation
+        # Cached theme colors — cleared by TextCanvas._on_theme_changed;
+        # the dark-flip comparison is a backstop, not the primary path.
+        global _cached_foreground, _cached_span_colors, _cached_selection_color, _cached_theme_dark
         cur_dark = bool(tm.is_dark())
         # Invalidate if theme dark flipped or cache empty; accent change is covered by span_colors cache key.
         if _cached_foreground is None or _cached_span_colors is None or _cached_theme_dark != cur_dark:

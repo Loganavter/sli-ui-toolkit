@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWi
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, apply_ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from sli_ui_toolkit.ui.widgets.buttons import Button
 
 from .progress_bar import ToastProgressBar
@@ -104,6 +105,10 @@ class ToastNotification(QWidget):
 
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
+        try:
+            UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        except Exception:
+            pass
         self._apply_message_typography()
         self._apply_surface_state()
 
@@ -121,6 +126,15 @@ class ToastNotification(QWidget):
         self._repolish_surface_widgets()
         self.progress_bar.update()
         self.adjustSize()
+
+    def _on_scale_changed(self, _factor: float) -> None:
+        # Interface-scale resync: fonts re-resolve through UiFont, then the
+        # toast re-flows (fixed widths were computed in old design px, so
+        # re-fit via adjustSize + geometry round-trip like show_message).
+        self._apply_message_typography()
+        self.adjustSize()
+        self.updateGeometry()
+        self.update()
 
     def _apply_message_typography(self) -> None:
         apply_ui_font(self.message_label)
