@@ -837,13 +837,20 @@ def visible_keyframe_segments(
                         curve_points=curve_points,
                     )
                     continue
+            # Damage-independent stagger: the parity counter advances for
+            # every eligible segment BEFORE the damage cull, so a partial
+            # repaint assigns the same lane y as a full repaint. Previously
+            # culled segments consumed no parity and scalar lanes visibly
+            # jumped up/down between partial paints (playhead/hover/
+            # selection) and full paints. Enum/color lanes already index
+            # parity over their pre-cull span lists; this aligns scalar.
             direction = -1.0 if active_segment_index % 2 == 0 else 1.0
+            active_segment_index += 1
             if x2 < left_bound:
                 continue
             if x1 > right_bound:
                 break
             y = row_center_y if is_active_bool_channel else row_center_y + direction * stagger_px
-            active_segment_index += 1
             if is_active_bool_channel:
                 curve_points = [(x1, y), (x2, y)]
             else:
