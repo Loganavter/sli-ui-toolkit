@@ -41,13 +41,14 @@ Colors are resolved through `ThemeManager` at runtime:
 
 ```python
 theme = ThemeManager.get_instance()
-palette = theme.current_palette()
 
-accent = palette.get("accent")       # Primary interactive color
-window = palette.get("Window")       # Background
-text = palette.get("WindowText")     # Foreground text
-base = palette.get("Base")           # Input field backgrounds
-button = palette.get("Button")       # Button surface
+accent = theme.get_color("accent")       # Primary interactive color
+window = theme.get_color("Window")       # Background
+text = theme.get_color("WindowText")     # Foreground text
+base = theme.get_color("Base")           # Input field backgrounds
+button = theme.get_color("Button")       # Button surface
+# Optional tokens resolve to None instead of raising when a host omits
+# them: selected = theme.try_get_color("list_item.background.selected")
 ```
 
 ### Semantic QSS Tokens
@@ -140,7 +141,7 @@ including `sizeHint`s and fixed sizes — and re-flows live via
 | `Button` (icon) | 44×44 px default, 22×22 px icon | `Button` constructor `size=` / `icon_size=` |
 | `Button` (icon, dropdown menu trigger) | 36×36 px when used as a flyout anchor | `button.py:435` / `button.py:454` |
 | `InstancesCounterButton` | 36×36 px capsule, 6 px corner radius | Thin `Button` regions subclass with `_OUTER_SIZE` / `_CORNER_RADIUS` |
-| `LoadingSpinner` | 40×40 px | `setFixedSize(40, 40)` |
+| `LoadingSpinner` | 40×40 px design | `LoadingSpinner.SIZE_PX` via `scaled_px()` |
 | `Context menu row` | 40 px row height inside flyout container | `context_menu/` |
 | `TimelineWidget` | 25 px ruler, 72 px thumbnail strip, 180 px left gutter (140–320 px clamp), 18 px playhead handle | constants on `TimelineWidget` |
 
@@ -273,6 +274,7 @@ its own dict with the same keys to `ThemeManager.register_palettes(...)`.
 | `Highlight` | `#0078D4` | `#0078D4` | selection backgrounds (must keep AA 4.5:1 with `HighlightedText`) |
 | `HighlightedText` | `#ffffff` | `#ffffff` | selected text |
 | `accent` | `#0078D4` | `#0096FF` | every active/focus/checked state |
+| `surface.background` | `#ffffff` | `#2b2b2b` | panel/toast/input surfaces, unknown-token fallback |
 
 ### Optional
 
@@ -288,7 +290,11 @@ Grouped by widget family (full keys in `src/sli_ui_toolkit/palettes.py`):
 - **Flyouts & overlays** — `flyout.background`, `flyout.border`, `shadow.color`,
   `separator.color`.
 - **List items** — `list_item.background.normal`, `list_item.background.hover`,
-  `list_item.text.normal`, `list_item.text.rating`.
+  `list_item.background.selected` (`#0078D4` both themes, keeps AA 4.5:1
+  with white selected text), `list_item.text.normal`, `list_item.text.rating`,
+  `list_item.icon.selected` (`#ffffff` both themes).
+- **Surfaces** — `surface.background` (Required tier, see above),
+  `surface.list` (button idle fill, `#f0f0f0` / `#3c3c3c`).
 - **Dialogs** — `dialog.background`, `dialog.text`, `dialog.border`,
   `dialog.input.background`, `dialog.button.background`, `dialog.button.hover`,
   `dialog.button.ok.background`.

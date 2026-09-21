@@ -269,6 +269,23 @@ class ThemeManager(QObject):
         self._pending_theme: str | None = None
         self._theme_flush_scheduled = False
         self._theme_flush_app: QApplication | None = None
+        try:
+            # Interface-scale changes re-scale Npx literals in the app QSS
+            # (_scale_qss_px); without this the new factor only takes
+            # effect on the next theme switch. Toolkit widgets handle
+            # scale_changed themselves — this only refreshes host QSS.
+            UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        except Exception:
+            pass
+
+    def _on_scale_changed(self, _factor: float) -> None:
+        app = _qapp_instance()
+        if app is None or not self._qss_template:
+            return
+        try:
+            self.apply_theme_to_app(app)
+        except RuntimeError:
+            pass
 
     @classmethod
     def get_instance(cls) -> "ThemeManager":

@@ -105,10 +105,12 @@ class ToolbarRowsSection:
         *,
         tag: str = "toolbar-rows",
         on_exit_left: Callable[..., bool] | None = None,
+        on_exit_right: Callable[..., bool] | None = None,
     ) -> None:
         self._rows_provider = rows_provider
         self._tag = tag
         self._on_exit_left = on_exit_left
+        self._on_exit_right = on_exit_right
 
     def _rows(self) -> list[QWidget]:
         return [r for r in self._rows_provider() if r is not None and r.isVisible()]
@@ -263,6 +265,17 @@ class ToolbarRowsSection:
                 except TypeError:
                     try:
                         if self._on_exit_left():
+                            return True
+                    except TypeError:
+                        return True
+                return True
+            if key == Qt.Key.Key_Right and self._on_exit_right is not None:
+                try:
+                    if self._on_exit_right(reason=reason):
+                        return True
+                except TypeError:
+                    try:
+                        if self._on_exit_right():
                             return True
                     except TypeError:
                         return True
@@ -449,10 +462,10 @@ class AutoNavigationSection(ToolbarRowsSection):
     Или декларативно через WidgetDescriptor: owner.widget_descriptor = WidgetDescriptor(navigation=AutoNavigationSection(owner))
     """
 
-    def __init__(self, owner: QWidget, *, tag: str = "auto", on_exit_left=None):
+    def __init__(self, owner: QWidget, *, tag: str = "auto", on_exit_left=None, on_exit_right=None):
         self._owner = owner
         # rows_provider — авто-скан, tag для логов
-        super().__init__(rows_provider=self._auto_rows, tag=tag, on_exit_left=on_exit_left)
+        super().__init__(rows_provider=self._auto_rows, tag=tag, on_exit_left=on_exit_left, on_exit_right=on_exit_right)
 
     def _auto_rows(self) -> list[QWidget]:
         # Все StrongFocus листы, сгруппированные по y
