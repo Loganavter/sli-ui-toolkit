@@ -33,6 +33,7 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScro
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import (
     BaseFlyout,
     resolve_flyout_animation,
+    should_restore_host_focus,
     slide_start_delta,
 )
 
@@ -509,19 +510,15 @@ class SimpleOptionsFlyout(BaseFlyout):
         super().hide()
         if self.parent_widget:
             win = self.parent_widget.window()
-            # Restore keyboard focus to the host window only when nothing
-            # else in the app took it (e.g. a dialog opened from a row click).
-            # On Wayland an activateWindow() whose token surface does not
-            # match the pointer's focus surface is denied by the compositor,
-            # which marks the host window as demanding attention and surfaces
-            # a "«App» is ready" notification — exactly what happens when a
-            # dialog is active but the cursor still hovers the host window.
-            active = QApplication.activeWindow()
-            if active is None or active is win:
-                if win is not None and not win.isActiveWindow():
-                    win.activateWindow()
-                if win is not None:
-                    win.setFocus()
+            # Re-assert widget-level focus only when the host is the app's
+            # active window (see should_restore_host_focus). Never
+            # activateWindow() here: a hide-time activation mints its token
+            # after the user gesture is over, the compositor denies it on an
+            # inactive/obscured host and raises "«App» is ready".
+            if should_restore_host_focus(
+                win, window_active_on_show=True
+            ):
+                win.setFocus()
 
     def hideEvent(self, e):
         # Never swallow hideEvent: ignoring it after hide() already ran leaves
