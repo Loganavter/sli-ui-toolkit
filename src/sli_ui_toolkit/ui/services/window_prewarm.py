@@ -20,12 +20,22 @@ def prewarm_widget_window(
     if aware is not None:
         aware.begin_offscreen_prewarm()
 
+    # A prewarm must never change the visible state it found: show()/hide()
+    # below exists only to realize the native window offscreen. Without the
+    # guard, prewarming an already-visible window would hide it out from
+    # under the host (observed as chrome flicker on late-attached dialogs).
+    was_visible = False
+    try:
+        was_visible = bool(widget.isVisible())
+    except RuntimeError:
+        return
     widget.ensurePolished()
     widget.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
     try:
         widget.show()
         widget.repaint()
-        widget.hide()
+        if not was_visible:
+            widget.hide()
     finally:
         widget.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
         if aware is not None:
@@ -40,6 +50,23 @@ def prewarm_widget_window_once(
     if bool(widget.property("_offscreen_prewarmed")):
         return False
     prewarm_widget_window(app, widget, name=name)
-    widget.setProperty("_offscreen_prewarmed", True)
+    try:
+        widget.setProperty("_offscreen_prewarmed", True)
+    except RuntimeError:
+        return True
     return True
+
+
+def reset_prewarm_once(widget: QWidget) -> None:
+    """Clear the once-flag so the next ``prewarm_widget_window_once`` re-runs.
+
+    The flag is sticky for the widget's lifetime (reconfigure paths such as
+    theme/scale changes that need a fresh native-window realization call
+    this); the property itself dies with the widget, so no destroyed-signal
+    bookkeeping is needed.
+    """
+    try:
+        widget.setProperty("_offscreen_prewarmed", False)
+    except RuntimeError:
+        pass
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QPointF
+from PySide6.QtCore import QEvent, QObject, QPointF, Signal
 from PySide6.QtWidgets import QApplication
 
 
@@ -15,6 +15,11 @@ class ToolkitDragDropService(QObject):
     """
 
     _instance: "ToolkitDragDropService | None" = None
+
+    # Busy-drag signal: True on successful start_drag, False when the drag
+    # ends (finish/cancel). Hosts use it to dim non-targets, suspend hover
+    # auto-hide, etc. without polling is_dragging().
+    drag_state_changed = Signal(bool)
 
     @classmethod
     def get_instance(cls) -> "ToolkitDragDropService":
@@ -34,14 +39,49 @@ class ToolkitDragDropService(QObject):
         self._payload_extractor = payload_extractor  # type: ignore[attr-defined]
 
     def register_drop_target(self, target) -> None:
+        self._purge_dead_targets()
         if target not in self._drop_targets:
             self._drop_targets.append(target)
 
     def unregister_drop_target(self, target) -> None:
-        if target in self._drop_targets:
-            self._drop_targets.remove(target)
-        if self._current_target is target:
+        # Identity-based removal: ``in``/``remove`` on a deleted C++ object
+        # can raise RuntimeError via PySide __eq__, and must never take down
+        # a teardown path. Dead entries are purged wholesale instead.
+        try:
+            self._drop_targets = [t for t in self._drop_targets if t is not target]
+        except RuntimeError:
+            self._purge_dead_targets()
+        try:
+            if self._current_target is target:
+                self._current_target = None
+        except RuntimeError:
             self._current_target = None
+        self._purge_dead_targets()
+
+    def _purge_dead_targets(self) -> None:
+        """Drop entries whose C++ object is gone (unregister hygiene).
+
+        QWidget teardown does not notify us; without the purge the list
+        accumulates dead wrappers that only surface as RuntimeError on the
+        next drag. Cheap validity probe, safe to call on every mutation.
+        """
+        alive = []
+        for target in self._drop_targets:
+            try:
+                # Calling into a deleted wrapper raises RuntimeError.
+                bool(target.isVisible())
+                alive.append(target)
+            except RuntimeError:
+                continue
+            except Exception:
+                alive.append(target)
+        if len(alive) != len(self._drop_targets):
+            self._drop_targets = alive
+            try:
+                if self._current_target is not None and self._current_target not in alive:
+                    self._current_target = None
+            except RuntimeError:
+                self._current_target = None
 
     def set_payload_extractor(self, extractor) -> None:  # type: ignore[no-untyped-def]
         """Inject a custom payload factory: ``extractor(source_widget) -> dict | None``."""
@@ -103,6 +143,7 @@ class ToolkitDragDropService(QObject):
                 except Exception:
                     pass
             self._install_event_filter()
+            self.drag_state_changed.emit(True)
             return
 
         list_num = getattr(source_widget, "list_num", None)
@@ -142,6 +183,7 @@ class ToolkitDragDropService(QObject):
                 pass
 
         self._install_event_filter()
+        self.drag_state_changed.emit(True)
 
     def update_drag_position(self, event) -> None:
         if not self._is_dragging:
@@ -203,25 +245,51 @@ class ToolkitDragDropService(QObject):
 
     def _target_at(self, current_pos: QPointF):
         global_point = current_pos.toPoint()
-        for target in reversed(self._drop_targets):
+        hits = []
+        # Snapshot: unregister-on-RuntimeError below mutates the list, and
+        # iterating the live list would skip entries.
+        for target in list(self._drop_targets):
             try:
                 if not target.isVisible():
                     continue
                 contains = getattr(target, "contains_global", None)
                 if contains is not None and contains(global_point):
-                    return target
+                    hits.append(target)
+                    continue
                 local_pos = target.mapFromGlobal(global_point)
                 if target.rect().contains(local_pos):
-                    return target
+                    hits.append(target)
             except RuntimeError:
                 self.unregister_drop_target(target)
             except Exception:
                 continue
-        return None
+        if not hits:
+            return None
+        if len(hits) == 1:
+            return hits[0]
+        # Stacking-aware pick: overlapping targets resolve by real z-order,
+        # not registration order. QApplication.widgetAt() reports the
+        # genuine topmost widget at the point; prefer the hit that is that
+        # widget or one of its ancestors. Falls back to last-registered
+        # (previous behavior).
+        try:
+            top = QApplication.widgetAt(global_point)
+        except Exception:
+            top = None
+        if top is not None:
+            for target in reversed(hits):
+                try:
+                    if target is top or target.isAncestorOf(top):
+                        return target
+                except RuntimeError:
+                    continue
+                except Exception:
+                    continue
+        return hits[-1]
 
     def _maybe_switch_visible_single_flyout_to_double(self, current_pos: QPointF) -> None:
         global_point = current_pos.toPoint()
-        for target in reversed(self._drop_targets):
+        for target in list(self._drop_targets):
             try:
                 mode = getattr(target, "mode", None)
                 if not target.isVisible() or mode is None or mode.name == "DOUBLE":
@@ -262,6 +330,7 @@ class ToolkitDragDropService(QObject):
         self._source_widget = None
         self._current_target = None
         self._remove_event_filter()
+        self.drag_state_changed.emit(False)
 
     def _install_event_filter(self) -> None:
         if self._event_filter_installed:

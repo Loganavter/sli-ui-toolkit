@@ -483,7 +483,11 @@ class CustomTitleBar(
                         if 0 <= target < len(buttons):
                             self._set_child_focus(buttons[target])
                             return True
-                        return True
+                        # Cluster end: fall through (return False) so the key
+                        # keeps propagating — NavigationManager owns
+                        # cross-section handoffs and a swallowed arrow at
+                        # the edge would trap keyboard focus in the bar.
+                        return False
 
         try:
             return super().eventFilter(obj, event)
