@@ -53,6 +53,24 @@ def _resize_debug(message: str, *args) -> None:
         pass
 
 
+def _content_frame_limits(target: QWidget) -> tuple[int, int, int, int]:
+    """min/max size in WINDOW-FRAME coordinates.
+
+    The app declares minimum/maximum size in *content* coordinates, but Qt
+    (and the compositor on the native path) enforces them on the *frame*
+    rect — so the outer-band patch translates them into frame space once
+    at install (+2*band; see ``_patch_outer_band_geometry``). This helper
+    is the single reader both drag paths clamp through (manual per-move,
+    native on release) — native/manual parity by construction. Unset sides
+    stay at Qt's unbound default (``QWIDGETSIZE_MAX``).
+    """
+    min_w = max(1, target.minimumWidth())
+    min_h = max(1, target.minimumHeight())
+    max_w = target.maximumWidth()
+    max_h = target.maximumHeight()
+    return (min_w, min_h, max_w, max_h)
+
+
 class _ResizeFilter(QObject):
     """Edge-resize hit testing for frameless windows.
 
@@ -214,6 +232,12 @@ class _ResizeFilter(QObject):
                 )
                 if self._manual_edges:
                     self.end_manual_resize()
+                if self._native_resizing:
+                    # The compositor enforced its own constraints in frame
+                    # coordinates during the native drag while the app
+                    # declared them in content coordinates — reconcile the
+                    # final rect exactly like the manual path (parity).
+                    self._clamp_frame_to_content_limits()
                 self._native_resizing = False
                 if resizing:
                     # Re-snap hover + edge cursor to the real pointer position:
@@ -360,10 +384,9 @@ class _ResizeFilter(QObject):
         dx = global_pos.x() - self._manual_origin.x()
         dy = global_pos.y() - self._manual_origin.y()
         geo = QRect(self._manual_geometry)
-        min_w = max(1, target.minimumWidth())
-        min_h = max(1, target.minimumHeight())
-        max_w = target.maximumWidth()
-        max_h = target.maximumHeight()
+        # Frame-space limits (translated from the app's content sizes at
+        # install — see _content_frame_limits).
+        min_w, min_h, max_w, max_h = _content_frame_limits(target)
 
         if edges & _LEFT:
             new_left = geo.left() + dx
@@ -433,6 +456,39 @@ class _ResizeFilter(QObject):
         target = self._target
         if target is not None and target.mouseGrabber() is target:
             target.releaseMouse()
+
+    def _clamp_frame_to_content_limits(self) -> None:
+        """Clamp the frame rect into content-frame min/max (native parity).
+
+        Used once at the end of a native (compositor-driven) drag: the
+        manual path clamps per-move, the native path cannot be intercepted
+        mid-drag, so the final rect is reconciled on release through the
+        same ``_content_frame_limits``. Bypasses the content-size geometry
+        patch verbatim, like the manual drag does.
+        """
+        target = self._target
+        min_w, min_h, max_w, max_h = _content_frame_limits(target)
+        geo = QRect(target.geometry())
+        width = min(max(geo.width(), min_w), max_w)
+        height = min(max(geo.height(), min_h), max_h)
+        if width == geo.width() and height == geo.height():
+            return
+        _resize_debug(
+            "clamp native result %dx%d -> %dx%d (frame limits %dx%d..%dx%d)",
+            geo.width(),
+            geo.height(),
+            width,
+            height,
+            min_w,
+            min_h,
+            max_w,
+            max_h,
+        )
+        geo.setWidth(width)
+        geo.setHeight(height)
+        from PySide6.QtWidgets import QWidget
+
+        QWidget.setGeometry(target, geo)
 
     def _update_cursor(self, x: int, y: int, via=None) -> None:
         target = self._target

@@ -13,6 +13,7 @@ from sli_ui_toolkit.ui.windows.csd_helpers import (
     CsdRoundedBackground,
     TitleBarGeometryFilter,
     reapply_msgbox_transparency,
+    sync_csd_chrome,
 )
 from sli_ui_toolkit.ui.windows.custom_title_bar import CustomTitleBar
 from sli_ui_toolkit.ui.windows.frameless import apply_frameless
@@ -75,6 +76,13 @@ class WindowChrome:
         if existing is not None:
             return existing
         cfg = config or WindowChromeConfig()
+
+        # The app-sized surface below is a CONTENT size; snapshot it before
+        # the patch/min-max translation below so the final expansion can
+        # target content+band instead of blindly re-expanding an already-
+        # frame-sized surface (adjustSize + the translated min would
+        # otherwise compound to +4*band).
+        pre_w, pre_h = int(window.width()), int(window.height())
 
         # Per-window resize margin, never process-global: mutating
         # ``frameless.RESIZE_MARGIN`` here would retune every other
@@ -250,13 +258,23 @@ class WindowChrome:
             # ``apply_frameless`` already installed the geometry patch (via
             # ``frameless._patch_outer_band_geometry``); the app sized the
             # window before decorating and ``adjustSize`` may have re-clamped
-            # it — expand the current surface now, or the band (and its
+            # it — expand the surface now, or the band (and its
             # grab-from-outside zone) would not exist until the next resize.
+            # Target the pre-install content size + band (floored at the
+            # current surface, which adjustSize may have grown past it) —
+            # never a blind +2*band on top of an already-frame surface.
+            # Re-sync explicitly: on a hidden window no Resize event may
+            # ever arrive to drive the geometry filter, which would leave
+            # the body layer frozen at a pre-expansion size.
             try:
                 window._csd_outer_band_patch[0](  # type: ignore[attr-defined]
-                    window.width() + 2 * band,
-                    window.height() + 2 * band,
+                    max(window.width(), pre_w + 2 * band),
+                    max(window.height(), pre_h + 2 * band),
                 )
+            except Exception:
+                pass
+            try:
+                sync_csd_chrome(window)
             except Exception:
                 pass
 

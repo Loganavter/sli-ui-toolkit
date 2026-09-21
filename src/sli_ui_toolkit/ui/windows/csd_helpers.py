@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import weakref
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QRectF, Qt
+from PySide6.QtCore import QEvent, QObject, QRectF, Qt, QTimer
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QDialog, QMessageBox, QWidget
 
@@ -148,13 +149,18 @@ def _sync_csd_layout_margins(dialog: QWidget) -> None:
         pass
 
 
-def sync_csd_chrome(dialog: QWidget) -> None:
+def sync_csd_chrome(dialog: QWidget, *, defer_mask: bool = False) -> None:
     """Re-fit CSD background and title bar to the current size.
 
     Intentionally does **not** ``setMask`` the top-level shell: binary masks
     destroy the antialiased corner painted by :class:`CsdRoundedBackground`.
     Opaque content hosts that reach a corner zone are masked automatically
     by :func:`_mask_edge_hosts`.
+
+    ``defer_mask`` coalesces the mask rebuild for resize streams (see
+    ``request_csd_mask_sync``): the layout/bg/title-bar sync still runs
+    synchronously every event — only the expensive per-child QRegion
+    re-masking waits for the stream to yield.
     """
     if dialog is None:
         return
@@ -197,11 +203,14 @@ def sync_csd_chrome(dialog: QWidget) -> None:
             pass
     state = getattr(dialog, "_csd_paint_state", None)
     if state is not None:
-        _mask_edge_hosts(
-            dialog,
-            radius=float(state.get("radius", 10)),
-            squared=bool(dialog.isMaximized() or dialog.isFullScreen()),
-        )
+        if defer_mask:
+            request_csd_mask_sync(dialog)
+        else:
+            _mask_edge_hosts(
+                dialog,
+                radius=float(state.get("radius", 10)),
+                squared=bool(dialog.isMaximized() or dialog.isFullScreen()),
+            )
     # Drop any stale shell mask from older toolkit builds / maximize toggles.
     try:
         dialog.clearMask()
@@ -209,6 +218,47 @@ def sync_csd_chrome(dialog: QWidget) -> None:
         pass
     if hasattr(dialog, "update"):
         dialog.update()
+
+
+#: dialogs (by id) with a mask rebuild already queued — resize-stream
+#: coalescing: at most one deferred rebuild per burst.
+_mask_sync_pending: set[int] = set()
+
+
+def request_csd_mask_sync(dialog: QWidget) -> None:
+    """Queue a corner-mask rebuild, coalesced across resize streams.
+
+    A live resize delivers dozens of ``Resize`` events per second; running
+    ``_mask_edge_hosts`` synchronously per event (QRegion ops + ``setMask``
+    per edge-reaching child) churns and flickers. The first request in a
+    burst arms a single-shot that re-masks once the stream yields; further
+    requests in the same burst are no-ops. The dialog is held weakly so a
+    close mid-burst simply drops the rebuild.
+    """
+    key = id(dialog)
+    if key in _mask_sync_pending:
+        return
+    _mask_sync_pending.add(key)
+    ref = weakref.ref(dialog)
+
+    def _fire() -> None:
+        _mask_sync_pending.discard(key)
+        target = ref()
+        if target is None:
+            return
+        try:
+            state = getattr(target, "_csd_paint_state", None)
+            if state is None:
+                return
+            _mask_edge_hosts(
+                target,
+                radius=float(state.get("radius", 10)),
+                squared=bool(target.isMaximized() or target.isFullScreen()),
+            )
+        except RuntimeError:
+            pass
+
+    QTimer.singleShot(0, _fire)
 
 
 class TitleBarGeometryFilter(QObject):
@@ -225,7 +275,10 @@ class TitleBarGeometryFilter(QObject):
             QEvent.Type.Show,
             QEvent.Type.WindowStateChange,
         ):
-            sync_csd_chrome(dialog)
+            # Resize streams (live drags, layout-driven growth) coalesce
+            # the mask rebuild — the rest of the chrome still syncs
+            # synchronously on every event.
+            sync_csd_chrome(dialog, defer_mask=event.type() == QEvent.Type.Resize)
             on_show = getattr(dialog, "_csd_on_show", None)
             if event.type() == QEvent.Type.Show and callable(on_show):
                 on_show()
