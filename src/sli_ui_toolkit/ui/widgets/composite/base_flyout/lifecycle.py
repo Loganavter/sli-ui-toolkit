@@ -27,6 +27,38 @@ def _is_alive_and_enabled(widget: QWidget | None) -> bool:
         return False
 
 
+def should_restore_host_focus(window, *, window_active_on_show: bool) -> bool:
+    """Whether a hiding flyout may re-assert focus on its host window.
+
+    A True return permits a widget-level ``setFocus()`` ONLY — never
+    ``activateWindow()``: activation tokens go stale across event-loop
+    turns by construction (the fade delay proved it), and a denied request
+    pages the compositor. Restore is allowed only when the host window is
+    the app's active window right now *and* it was active when the flyout
+    opened. Every other case is a skip:
+
+    * host already active — restore would be a no-op WM round-trip (the
+      hover-frequency stall guard);
+    * another app window active (dialog from a flyout row) — yanking focus
+      back carries a stale xdg-activation token on Wayland, the compositor
+      denies it and marks the host demanding attention ("«App» is ready");
+    * nothing active (minimizing / deactivating / never activated) — same
+      deny path with no valid focus surface at all; this is the minimize
+      case and it must never restore.
+
+    Fail-closed: any uncertainty returns False (not restoring is always
+    safe; wrongly restoring pages the compositor).
+    """
+    try:
+        if window is None or window.isActiveWindow():
+            return False
+        if QApplication.activeWindow() is not window:
+            return False
+        return bool(window_active_on_show)
+    except Exception:
+        return False
+
+
 class _FlyoutLifecycleApi:
     """Mixin: hide / show / raise_ overrides + the real-hide completion.
 
@@ -157,30 +189,24 @@ class _FlyoutLifecycleApi:
             # synchronous WM traffic to visibly stall the main thread
             # (observed as an "app not responding" busy-cursor flash).
             return
-        active = QApplication.activeWindow()
-        if active is not None and active is not window:
-            # Another window of this app became active while the flyout was
-            # open (e.g. a dialog opened from a flyout row). Do not yank
-            # focus back: on Wayland the activateWindow() request carries a
-            # token whose surface was the focus window *when the token was
-            # requested* (before the dialog focused), so the compositor
-            # rejects it and marks the host window as demanding attention —
-            # surfacing as a "«App» is ready" notification.
+        if not should_restore_host_focus(
+            window,
+            window_active_on_show=getattr(self, "_window_active_on_show", False),
+        ):
+            # Either another window of this app became active while the
+            # flyout was open (e.g. a dialog opened from a flyout row), or
+            # nothing is active at all (minimizing / deactivating / never
+            # activated). Do nothing: on Wayland any activateWindow() issued
+            # while the host is not the active window carries a stale
+            # xdg-activation token, the compositor rejects it and marks the
+            # host demanding attention ("«App» is ready"). A bare setFocus()
+            # is equally pointless here — there is no focus to take back.
+            # See should_restore_host_focus.
             return
-        if not getattr(self, "_window_active_on_show", False):
-            # The host window was already inactive (app in the background,
-            # OS focus elsewhere) at the moment this flyout opened -- e.g. a
-            # purely hover-driven flyout (slider hint, settings panel) that
-            # opened just because the cursor passed over its trigger while
-            # the user was working in another app. There is no prior focus
-            # state to "restore" here, so calling activateWindow() would
-            # only steal/ request OS focus for a window the user never
-            # activated -- surfacing as an unsolicited taskbar flash / "app
-            # wants attention" hint. Only windows that were genuinely active
-            # when the flyout opened (and lost activation during its
-            # lifetime, e.g. to a nested dialog) get focus handed back.
-            return
-        window.activateWindow()
+        # Host is (still) the active window: re-assert widget-level focus
+        # only. Never activateWindow() here — activation tokens go stale
+        # across the fade/event-loop turns by construction, and a denied
+        # request pages the compositor. setFocus() consumes no token.
         window.setFocus()
 
     # Declared here only so mypy can resolve them across the mixin split —

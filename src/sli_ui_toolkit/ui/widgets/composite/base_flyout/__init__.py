@@ -15,6 +15,9 @@ from sli_ui_toolkit.ui.widgets.composite.base_flyout.geometry import (
     aligned_flyout_rect,
     slide_start_delta,
 )
+from sli_ui_toolkit.ui.widgets.composite.base_flyout.lifecycle import (
+    should_restore_host_focus,
+)
 from sli_ui_toolkit.ui.widgets.composite.base_flyout.widget import BaseFlyout
 
 __all__ = [
@@ -22,5 +25,6 @@ __all__ = [
     "BaseFlyout",
     "aligned_flyout_rect",
     "resolve_flyout_animation",
+    "should_restore_host_focus",
     "slide_start_delta",
 ]
