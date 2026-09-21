@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- **Inspector honesty [task-fix-inspector-staleness-2026-09-20]** — `_layout_tree_key` is now the window id plus the full ordered `(label, widget, indent)` fingerprint: middle reorder/removal/rename changes the key, so the window-level Layout cache can never serve a stale tree (worst case is a rebuild; also fixes the inverted "costs a rebuild at worst" comment). `capture_tokens` discloses empty repaints instead of returning `()`: hidden widgets get a `capture_limitation=hidden` row (grab cannot repaint them), visible-but-keyless repaints a `capture_limitation=cached` row (paints from cached state, not live lookups). `inspect_widget` marks failed spec/extractor runs with an `extractor:<family>` state row (`meta extractor_failed`) on the generic fallback instead of silently posing as complete; the Theme page titles disclosure-only captures "Live capture (no tokens recorded)". Tests: new `tests/test_inspector_honesty.py` (13); inspector suites green, mypy 0 new.
 - `_AdaptiveTabBar` relayouts on `FontChange` (no more detached add button / dead zone after font switches).
 - Shared logging re-entry keeps `min(app, toolkit)` handler level so a second `setup_logging()` call can't silence the host's debug stream.
 - `Window` -> `surface.background` token migration for missed painter reads, `token_family` lists, and CSD window-body defaults (`Window` kept as `get_color` fallback).

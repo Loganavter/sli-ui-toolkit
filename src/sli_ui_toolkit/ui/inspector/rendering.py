@@ -611,7 +611,21 @@ class _PaneRenderingMixin:
                 ),
             )
         if inspection.live_tokens:
-            self._add_title(page, "Live capture")
+            from .capture import CAPTURE_LIMITATION_META
+
+            # A capture that recorded nothing carries disclosure rows
+            # (hidden widget / cached colors — see capture_tokens), not
+            # data: title the subsection so it reads as a caveat, never
+            # as "these are the tokens".
+            recorded = [
+                f
+                for f in inspection.live_tokens
+                if not f.meta.get(CAPTURE_LIMITATION_META)
+            ]
+            self._add_title(
+                page,
+                "Live capture" if recorded else "Live capture (no tokens recorded)",
+            )
             for field in inspection.live_tokens:
                 self._add_field_row(page, field)
         page.content_layout.addStretch(1)
