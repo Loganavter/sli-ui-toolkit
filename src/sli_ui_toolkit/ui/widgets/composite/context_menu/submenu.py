@@ -71,7 +71,7 @@ def position_submenu(
 
 
 def toggle_submenu(
-    menu: ContextMenu, row: ContextMenuRow, spec: ContextMenuAction
+    menu: "ContextMenu", row: ContextMenuRow, spec: ContextMenuAction
 ) -> None:
     from sli_ui_toolkit.ui.widgets.composite.context_menu.menu import ContextMenu
 

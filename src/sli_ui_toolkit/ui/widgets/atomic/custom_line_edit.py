@@ -1,7 +1,7 @@
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 from typing import Literal
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen
 from PySide6.QtWidgets import QLineEdit
 
@@ -84,8 +84,6 @@ class CustomLineEdit(QLineEdit):
         # tight. A zero-width floor lets the edit yield to its neighbor
         # labels (text still scrolls/elides inside); vertical minimum stays
         # the fixed scaled height.
-        from PySide6.QtCore import QSize
-
         return QSize(0, scaled_px(self.HEIGHT))
 
     def _style_prefix(self) -> str:
