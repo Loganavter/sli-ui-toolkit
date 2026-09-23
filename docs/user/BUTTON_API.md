@@ -134,10 +134,15 @@ the shared inner edge square — **you do not need to set per-region
 `corner_radii` to get a seamless capsule; it happens automatically.** Only set
 `corner_radii` on a region when you want *that region* to deviate from the
 whole button's rounding (e.g. a smaller radius on one side, or a fully custom
-shape via `path_fn`). Borders are whole-button only: `BackgroundLayer` skips
-the border stroke entirely for any region whose rect differs from the
-button's rect, so a grouped/split button is outlined once around the full
-capsule, never per-region.
+shape via `path_fn`). Borders are whole-button only and come in two halves:
+`BackgroundLayer` strokes the edge for plain (non-region) buttons, while
+region-composed buttons get their outline from the widget-scope
+`BorderLayer` — but only when the host sets an explicit
+`setBorderColor()` override (`setBorderColor(None)` keeps meaning "no
+outline"). Either way a grouped/split button is outlined once around the
+full capsule, never per-region. Outline width honors the `borderWidth`
+dynamic property (`float >= 1`, default `1.0`), so
+`button.setProperty("borderWidth", 2)` gives a 2px leader edge.
 
 Content rendering inside grouped regions is **not** clipped to the region path
 — glyph antialiasing and any overflow can spill into a sibling region of the

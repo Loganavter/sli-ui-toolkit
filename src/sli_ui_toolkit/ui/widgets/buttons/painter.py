@@ -22,6 +22,7 @@ from .specs import _to_corner_radii, normalize_corner_radii
 from .variants import get_variant
 from .layers import (
     BackgroundLayer,
+    BorderLayer,
     ContentLayer,
     BadgeLayer,
     RippleLayer,
@@ -127,6 +128,7 @@ def iter_button_regions(button, ctx: DrawContext):
 def default_layers() -> list[Layer]:
     return [
         BackgroundLayer(),
+        BorderLayer(),
         RippleLayer(),
         ContentLayer(),
         BadgeLayer(),

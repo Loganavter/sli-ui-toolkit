@@ -30,6 +30,7 @@ from sli_ui_toolkit.ui.widgets.atomic import (
 )
 from sli_ui_toolkit.ui.widgets.buttons import (
     BackgroundLayer,
+    BorderLayer,
     BadgeLayer,
     BehaviorSpec,
     Button,
@@ -181,6 +182,7 @@ from sli_ui_toolkit.deprecations import (
 
 __all__ = [
     "BackgroundLayer",
+    "BorderLayer",
     "BadgeLayer",
     "BehaviorSpec",
     "Button",
