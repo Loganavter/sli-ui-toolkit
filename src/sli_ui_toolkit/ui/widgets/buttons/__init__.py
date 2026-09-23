@@ -13,6 +13,7 @@ from sli_ui_toolkit.ui.widgets.buttons.feedback import (
 from sli_ui_toolkit.ui.widgets.buttons.context import DrawContext
 from sli_ui_toolkit.ui.widgets.buttons.layers import (
     BackgroundLayer,
+    BorderLayer,
     BadgeLayer,
     ContentLayer,
     DividerLayer,
@@ -55,6 +56,7 @@ from sli_ui_toolkit.deprecations import (
 
 __all__ = [
     "BackgroundLayer",
+    "BorderLayer",
     "BadgeLayer",
     "BehaviorSpec",
     "Button",

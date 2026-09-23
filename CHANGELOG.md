@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **Outer outline for region-composed buttons (`BorderLayer` + `borderWidth`)** — `BackgroundLayer` skips the border stroke for any region whose rect differs from the button rect, so `setBorderColor()` on a fully region-composed button (cover + text rows, segmented capsules) was a silent no-op: the override property was set but nothing ever stroked it. New widget-scope `BorderLayer` (runs right after `BackgroundLayer` in `default_layers`) strokes one outer rounded rect for region-composed buttons with an explicit `setBorderColor()` override; plain buttons, variant theme borders, and `setBorderColor(None)` behavior are unchanged, and the override keeps winning over disabled/`bg_locked` exactly like `BackgroundLayer`. Both layers now honor the `borderWidth` dynamic property (`float >= 1`, default `1.0`), so `setProperty("borderWidth", 2)` gives a 2px leader edge (previously hardcoded 1px). Exported from `sli_ui_toolkit.widgets` and `...buttons`. Tests: new `tests/test_button_outer_border.py` (6: override paints on region buttons, silence without override, 2px band, disabled parity, helper defaults, layer order); button/paint/flyout/tab-strip suites green (305 passed).
+
 ### Fixed
 
 - **Eager-annotation imports (`QSize`, `ContextMenu`)** — `CustomLineEdit.minimumSizeHint` annotated `-> QSize` with only a body-level import, and `toggle_submenu` annotated `menu: ContextMenu` with a circular-dodge body import: both raise `NameError` at import time on Python ≤ 3.13 (only masked locally by PEP 649 lazy annotations on 3.14+, which is why CI on 3.13 went red while Termux stayed green). `QSize` moved to the module `QtCore` import; the submenu annotation is now quoted.

@@ -274,8 +274,14 @@ class BackgroundLayer(Layer):
         # visible 0.5px gap on HiDPI when the button sits flush against the
         # window edge.
         has_border = border_color is not None
+        # Outline width honors the ``borderWidth`` dynamic property
+        # (default 1.0) — shared helper with BorderLayer.
+        from ._base import outline_width
+
+        pen_width = outline_width(ctx.widget) if has_border else 1.0
+        half = pen_width / 2.0
         if has_border:
-            widget_rect = ctx.rect.adjusted(0.5, 0.5, -0.5, -0.5)
+            widget_rect = ctx.rect.adjusted(half, half, -half, -half)
         else:
             widget_rect = QRectF(ctx.rect)
         path = _footer_path_radii(widget_rect, outer_radii) if ctx.is_footer else None
@@ -327,7 +333,7 @@ class BackgroundLayer(Layer):
                 _fill_outer(p, widget_rect, outer_radii)
 
         if border_color is not None and not is_subregion:
-            p.setPen(QPen(border_color, 1.0))
+            p.setPen(QPen(border_color, pen_width))
             p.setBrush(Qt.BrushStyle.NoBrush)
             if path is not None:
                 p.drawPath(path)

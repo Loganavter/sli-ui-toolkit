@@ -4,6 +4,7 @@ Pipeline по умолчанию задаётся в painter.DEFAULT_LAYERS.
 """
 
 from .background import BackgroundLayer
+from .border import BorderLayer
 from .content import ContentLayer
 from .badge import BadgeLayer
 from .ripple import RippleEffect, RippleLayer
@@ -15,6 +16,7 @@ from .focus import FocusLayer
 
 __all__ = [
     "BackgroundLayer",
+    "BorderLayer",
     "ContentLayer",
     "BadgeLayer",
     "RippleEffect",
