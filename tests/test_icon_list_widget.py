@@ -185,20 +185,35 @@ def test_icon_list_widget_set_selected_icon_mode_refreshes_icons(qapp):
     assert row.selected_pixmap.cacheKey() != row.normal_pixmap.cacheKey()
 
 
-def test_icon_list_widget_rows_expand_without_text_minimum(qapp):
+def test_icon_list_widget_rows_shrink_below_text_minimum(qapp):
     long_text = "Very long navigation entry that should not stretch the sidebar"
     widget = IconListWidget()
     item = widget.add_item(long_text, icon="settings")
     row = widget._rows[0]
 
     assert row.button.minimumWidth() == 0
-    assert row.button.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Expanding
+    assert row.button.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Ignored
     assert row.button.toolTip() == ""
 
     updated_text = "Updated long navigation entry without a duplicate tooltip"
     item.setText(updated_text)
 
     assert row.button.toolTip() == ""
+
+    # Layout-level regression: in a narrowed host the row must shrink
+    # below its text width (so ContentLayer elides) instead of wedging
+    # the host at the widest entry and clipping at the viewport.
+    from PySide6.QtWidgets import QWidget, QVBoxLayout
+
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(widget)
+    host.resize(120, 100)
+    host.show()
+    qapp.processEvents()
+    assert row.button.width() < row.button.sizeHint().width()
+    assert row.button.width() <= 120
 
 
 def test_nav_row_content_elides_text_to_available_width(qapp):

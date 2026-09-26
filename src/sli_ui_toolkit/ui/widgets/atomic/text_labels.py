@@ -391,13 +391,18 @@ class Label(QLabel):
             self.setFont(font)
 
             if self._expanding():
-                self.setSizePolicy(
-                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                policy = QSizePolicy(
+                    QSizePolicy.Policy.Expanding, self._vertical_policy()
                 )
             else:
-                self.setSizePolicy(
-                    QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+                policy = QSizePolicy(
+                    QSizePolicy.Policy.Preferred, self._vertical_policy()
                 )
+            # setSizePolicy replaces the whole policy: re-raise the
+            # heightForWidth flag setWordWrap() maintains, or layouts never
+            # query heightForWidth and wrapped labels keep a stale tall hint.
+            policy.setHeightForWidth(self.wordWrap())
+            self.setSizePolicy(policy)
 
             minimum_width = self._minimum_width()
             if minimum_width > 0:
@@ -420,6 +425,21 @@ class Label(QLabel):
 
         fallback = self.theme_manager.try_get_color("WindowText")
         return fallback if fallback is not None else None
+
+    def setWordWrap(self, on: bool) -> None:
+        super().setWordWrap(bool(on))
+        # Keep the vertical policy in sync: a wrapped label must let the
+        # layout use heightForWidth (Preferred), a single-line one keeps
+        # the exact sizeHint height (Fixed).
+        policy = self.sizePolicy()
+        policy.setVerticalPolicy(self._vertical_policy())
+        self.setSizePolicy(policy)
+        self.updateGeometry()
+
+    def _vertical_policy(self) -> QSizePolicy.Policy:
+        if self.wordWrap():
+            return QSizePolicy.Policy.Preferred
+        return QSizePolicy.Policy.Fixed
 
     def _minimum_width(self) -> int:
         if self._minimum_width_override is not None:
