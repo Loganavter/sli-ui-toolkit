@@ -360,8 +360,9 @@ class IconListWidget(QWidget):
             custom=self._button_factory is not None,
         )
         row.button.setMinimumWidth(0)
+        # Ignored: same shrink-below-text rationale as regular rows.
         row.button.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
         )
         row.button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._no_results_row = row
@@ -489,7 +490,12 @@ class IconListWidget(QWidget):
                 icon_size_px=self._icon_size.height() if isinstance(self._icon_size, QSize) else 24,
             )
         button.setMinimumWidth(0)
-        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        # Ignored (not Expanding): the layout must be free to shrink rows
+        # below their text width — Expanding still honors minimumSizeHint
+        # (full text), which wedged the host at the widest entry, blocked
+        # splitter narrowing, and clipped text at the viewport instead of
+        # eliding it (ContentLayer already elides to the region width).
+        button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         # StrongFocus (not NoFocus): rows are keyboard-navigable via
         # IconListNavSection (Up/Down + an optional Right handoff into
         # content) — see navigation_sections.py.
