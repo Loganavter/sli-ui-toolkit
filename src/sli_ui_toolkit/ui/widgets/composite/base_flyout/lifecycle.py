@@ -265,9 +265,23 @@ class _FlyoutLifecycleApi:
         self._grab_focus()
         # WA_ShowWithoutActivating suppresses window activation which
         # blocks keyboard events.  Activate the window so the flyout
-        # receives keyboard input.
+        # receives keyboard input — UNLESS the flyout opted out via
+        # ``_no_window_activate`` (hover-frequency informational pills,
+        # e.g. the gallery card capsule: one bare show() per card Enter,
+        # and cards also sweep under a stationary cursor during grid
+        # scroll). When Qt reports the window inactive mid-gesture (the
+        # common Wayland scroll state) every show mints an xdg-activation
+        # request with a stale token, and the compositor answers the
+        # storm with busy-cursor feedback — same class as the MC
+        # wheel-zoom storm and the hide-time focus-restore banner (see
+        # should_restore_host_focus). Clicks focus pill buttons naturally,
+        # so the pill loses nothing by staying quiet.
         w = self.window()
-        if w is not None and not w.isActiveWindow():
+        if (
+            w is not None
+            and not w.isActiveWindow()
+            and not getattr(self, "_no_window_activate", False)
+        ):
             w.activateWindow()
 
     @staticmethod
