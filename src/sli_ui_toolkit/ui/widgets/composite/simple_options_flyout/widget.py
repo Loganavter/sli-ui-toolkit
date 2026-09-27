@@ -265,7 +265,12 @@ class SimpleOptionsFlyout(BaseFlyout):
             kwargs["animation"] = self._default_animation
         return super().show_aligned(*args, **kwargs)
 
-    def show_below(self, anchor_widget: QWidget, exact_width_match: bool = True):
+    def show_below(self, anchor_widget: QWidget, exact_width_match: bool = True,
+                   match_card_width: bool = False):
+        """Show under ``anchor_widget``. ``exact_width_match`` matches the
+        outer width to the anchor; ``match_card_width`` additionally excludes
+        the shadow margins so the white card (not the halo) equals the
+        anchor width."""
         if self.isVisible() and self._anchor_widget is anchor_widget:
             self._just_opened = False
             self.hide()
@@ -313,6 +318,10 @@ class SimpleOptionsFlyout(BaseFlyout):
             anchor_width = anchor_widget.geometry().width()
         if anchor_width <= 0:
             anchor_width = anchor_widget.width()
+        # Card-match: geometry.update_size subtracts the shadow margins from
+        # the match, so pass them back in — the opaque card then equals the
+        # anchor instead of the halo.
+        _match_for = anchor_width + (self.MARGIN * 2 if match_card_width else 0)
 
         self._just_opened = True
         self._open_timestamp = time.monotonic()
@@ -336,12 +345,12 @@ class SimpleOptionsFlyout(BaseFlyout):
                 space_above = anchor_top_edge - avail.top() - offset - gap
                 budget = max(space_below, space_above)
                 self._update_size(
-                    match_width=anchor_width,
+                    match_width=_match_for,
                     exact_match=exact_width_match,
                     available_height=budget,
                 )
             else:
-                self._update_size(match_width=anchor_width, exact_match=exact_width_match)
+                self._update_size(match_width=_match_for, exact_match=exact_width_match)
 
             position = "bottom"
             if avail is not None and anchor_rect is not None:
@@ -405,7 +414,7 @@ class SimpleOptionsFlyout(BaseFlyout):
             space_above = anchor_top_y - avail.top() - offset - gap
             budget = max(space_below, space_above)
             self._update_size(
-                match_width=anchor_width,
+                match_width=_match_for,
                 exact_match=exact_width_match,
                 available_height=budget,
             )

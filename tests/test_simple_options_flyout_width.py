@@ -66,3 +66,47 @@ def test_show_below_grows_for_long_label_above_anchor(qtbot):
     qtbot.wait(20)
 
     assert flyout.width() > 80 + flyout.MARGIN * 2
+
+
+def test_show_below_match_card_width_excludes_shadow(qtbot):
+    """match_card_width=True matches the opaque card (not the halo)."""
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(500, 400)
+    host.show()
+
+    anchor = QWidget(host)
+    anchor.setFixedSize(140, 28)
+    anchor.move(40, 40)
+    anchor.show()
+
+    flyout = SimpleOptionsFlyout(parent_widget=host)
+    qtbot.addWidget(flyout)
+    flyout.populate(["Sort: Rank", "Sort: Name", "Sort: Date"], current_index=0)
+    flyout.show_below(anchor, match_card_width=True)
+    qtbot.wait(20)
+
+    assert flyout.container.width() == 140
+    assert flyout.width() == 140 + flyout.MARGIN * 2
+
+
+def test_show_below_default_matches_outer(qtbot):
+    """Default behavior unchanged: outer width equals the anchor."""
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(500, 400)
+    host.show()
+
+    anchor = QWidget(host)
+    anchor.setFixedSize(140, 28)
+    anchor.move(40, 40)
+    anchor.show()
+
+    flyout = SimpleOptionsFlyout(parent_widget=host)
+    qtbot.addWidget(flyout)
+    flyout.populate(["Sort: Rank", "Sort: Name", "Sort: Date"], current_index=0)
+    flyout.show_below(anchor)
+    qtbot.wait(20)
+
+    assert flyout.width() == 140
+    assert flyout.container.width() == 140 - flyout.MARGIN * 2

@@ -1,8 +1,8 @@
-"""MinimalistScrollBar visual interpolation tests.
+"""MinimalistScrollBar instant visual tests.
 
-Thickness (idle/hover/drag) and opacity ease toward their targets instead of
-switching instantly; animated visibility fades in/out; idle auto-hide fades
-the bar out after inactivity and re-shows it on scroll activity.
+Thickness (idle/hover/drag) and visibility switch instantly instead of
+easing; idle auto-hide hides the bar after inactivity and re-shows it on
+scroll activity.
 """
 
 from __future__ import annotations
@@ -51,11 +51,9 @@ def test_thickness_eases_on_hover(qtbot):
     bar = _make_bar(qtbot)
     assert bar._anim_thickness == 4.0
     bar.setHoverActive(True)
-    qtbot.wait(40)
-    assert 4.0 < bar._anim_thickness < 6.0  # eased, not jumped
-    qtbot.waitUntil(lambda: bar._anim_thickness == 6.0, timeout=1500)
+    assert bar._anim_thickness == 6.0  # instant, not eased
     bar.setHoverActive(False)
-    qtbot.waitUntil(lambda: bar._anim_thickness == 4.0, timeout=1500)
+    assert bar._anim_thickness == 4.0
 
 
 def test_thickness_eases_on_drag(qtbot):
@@ -63,28 +61,25 @@ def test_thickness_eases_on_drag(qtbot):
     handle = bar._get_handle_rect()
     bar.mousePressEvent(_press(bar, handle.center()))
     assert bar._is_dragging
-    qtbot.waitUntil(lambda: bar._anim_thickness == 10.0, timeout=1500)
+    assert bar._anim_thickness == 10.0
     bar.mouseReleaseEvent(_press(bar, handle.center(), release=True))
-    qtbot.waitUntil(lambda: bar._anim_thickness == 4.0, timeout=1500)
+    assert bar._anim_thickness == 4.0
 
 
 def test_animated_visible_fades_out_then_hides(qtbot):
     bar = _make_bar(qtbot)
     bar.set_animated_visible(False)
-    qtbot.wait(40)
-    assert bar.isVisible()  # fading, not hidden yet
-    assert bar._anim_alpha < 1.0
-    qtbot.waitUntil(lambda: not bar.isVisible(), timeout=1500)
+    assert not bar.isVisible()  # instant hide, no fade
+    assert bar._anim_alpha == 0.0
 
 
 def test_animated_visible_fades_in(qtbot):
     bar = _make_bar(qtbot)
     bar.set_animated_visible(False)
-    qtbot.waitUntil(lambda: not bar.isVisible(), timeout=1500)
+    assert not bar.isVisible()
     bar.set_animated_visible(True)
     assert bar.isVisible()
-    assert bar._anim_alpha == 0.0
-    qtbot.waitUntil(lambda: bar._anim_alpha == 1.0, timeout=1500)
+    assert bar._anim_alpha == 1.0
 
 
 def test_auto_hide_fades_after_idle(qtbot):
