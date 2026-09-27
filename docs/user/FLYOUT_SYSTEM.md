@@ -628,7 +628,13 @@ flyout.set_rows([SeparatorRow(), MyMenuRow("Open…", "Ctrl+O")])
 | `set_max_visible_items(n)` | Cap visible rows before scrolling kicks in. |
 | `set_row_height(h)` | Fixed row height in px (default simple rows). |
 | `set_row_font(f)` | Override row font (use this to fix tiny text on dense parents). |
+| `content_width_hint()` | Natural width of the current rows, panel margins included, shadow halo excluded (opaque-card width). Valid after `populate`/`set_rows`. Hosts fitting an anchor to the same options can compare with it. |
 | `show_below(anchor, exact_width_match=True)` | Width at least the anchor (grows for long labels); centers under the combo. Prefer `show_aligned(..., bottom-left/top-left)` for narrow toolbar buttons. Content-only opens (`populate`/`set_rows` + `show_aligned`) size to the widest row — no 180px floor. |
+
+Picker-anchor recipe (button sized by the longest option, not the reverse):
+`Button(text=..., width_texts=[f"{t} ▾" for t in options], size=(0, h))` +
+`show_below(button, match_card_width=True)` — the layout fits the button to the
+widest option via the width hints, and the flyout card lands exactly on it.
 
 ### IconActionFlyout
 

@@ -17,7 +17,7 @@ from PySide6.QtCore import (
     QVariantAnimation,
     Signal,
 )
-from PySide6.QtGui import QFont, QGuiApplication
+from PySide6.QtGui import QFont, QFontMetrics, QGuiApplication
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -255,6 +255,31 @@ class SimpleOptionsFlyout(BaseFlyout):
             exact_match=exact_match,
             available_height=available_height,
         )
+
+    def content_width_hint(self) -> int:
+        """Natural width of the current rows, panel margins included.
+
+        Shadow halo excluded — this is the opaque-card width. Hosts sizing
+        an anchor ``Button`` from the same option labels can compare with it
+        (e.g. ``Button.set_width_texts`` keeps the anchor at the widest
+        option and ``show_below(..., match_card_width=True)`` lands the card
+        exactly on it). Valid after ``populate``/``set_rows``; falls back to
+        font metrics when no row reports a usable ``sizeHint``.
+        """
+        content_w = 0
+        for row in self._rows:
+            hint = row.sizeHint()
+            if hint.isValid():
+                content_w = max(content_w, hint.width())
+        if content_w <= 0:
+            fm = QFontMetrics(self._item_font)
+            text_w = max(
+                (fm.boundingRect(text).width() for text in self._options),
+                default=0,
+            )
+            content_w = text_w + 16
+        margins = self.content_layout.contentsMargins()
+        return content_w + margins.left() + margins.right()
 
     def show_aligned(self, *args, **kwargs):
         # Re-fit after populate so BaseFlyout.adjustSize cannot keep a stale

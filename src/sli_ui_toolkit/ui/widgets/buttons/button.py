@@ -22,6 +22,7 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 import dataclasses
 import logging
 import time
+from collections.abc import Sequence
 from typing import Any
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
@@ -186,6 +187,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         background_color: QColor | None = None,
         defer_click: bool | int | str | None = None,
         text_fit: bool = False,
+        width_texts: Sequence[str] | None = None,
         regions: list[ButtonRegion] | None = None,
         split: SplitLayout | None = None,
         divider: Divider | None = None,
@@ -282,6 +284,9 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._rows = rows or []
         self._rows_compact = False
         self._text_fit = bool(text_fit)
+        self._width_texts: tuple[str, ...] = (
+            tuple(str(t) for t in width_texts) if width_texts else ()
+        )
 
         self._variant = variant
         self._density = density

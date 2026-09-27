@@ -11,6 +11,7 @@ setProperty, setFixedSize…).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Callable
 
 from PySide6.QtCore import QEvent, QSize, Qt
@@ -57,6 +58,7 @@ class _ButtonStyleApi:
     # time — Button's own MRO still supplies the real objects at runtime.
     _show_underline: bool
     _has_text: bool
+    _width_texts: tuple[str, ...]
     _gap_px: int
     _content_align: Qt.AlignmentFlag
     _content_padding: tuple[float, float, float, float]
@@ -282,6 +284,26 @@ class _ButtonStyleApi:
         self._sync_main_region(rows=self._rows)
         self._apply_text_geometry(bool(rows))
 
+    def set_width_texts(self, texts: Sequence[str] | None) -> None:
+        """Size hints follow the widest of these candidate labels.
+
+        Picker-style anchors (``Button`` + ``SimpleOptionsFlyout``): pass
+        every option label (with any persistent affix, e.g. ``" ▾"``) so
+        the layout sizes the button to the longest option instead of the
+        current text — the flyout card then matches via
+        ``show_below(..., match_card_width=True)``. Measured with the
+        button's paint font at hint time, so live ``UiScale`` changes
+        re-derive the width through ``updateGeometry`` (no fixed width).
+        ``None`` (default) disables: hints measure the current content only.
+        """
+        self._width_texts = tuple(str(t) for t in texts) if texts else ()
+        self.updateGeometry()
+        self.update()
+
+    def width_texts(self) -> tuple[str, ...]:
+        """Candidate labels feeding the width hints (``()`` = disabled)."""
+        return tuple(getattr(self, "_width_texts", ()))
+
     _UNSET = object()
 
     def _sync_main_region(self, *, text=_UNSET, icon=_UNSET, rows=_UNSET) -> None:
@@ -339,29 +361,36 @@ class _ButtonStyleApi:
 
     def _content_text_width(self) -> int:
         """Painted text width of the current content: the ``text=`` label or
-        the widest ``rows=`` row. Measured with each row's own paint font
-        (design size × UiScale) so hints stay correct at any scale."""
+        the widest ``rows=`` row, widened to the widest ``width_texts``
+        candidate when set. Current content keeps its own measurement
+        (design size × UiScale); candidates use ``measure_text_width`` with
+        the button's paint font so hints stay correct at any scale."""
+        widths: list[int] = []
         if self._has_text and self._text:
-            return QFontMetrics(paint_font(self)).horizontalAdvance(self._text)
-        if not self._rows:
-            return 0
-        from sli_ui_toolkit.ui.managers.ui_font import measure_text_width, ui_font
+            widths.append(QFontMetrics(paint_font(self)).horizontalAdvance(self._text))
+        elif self._rows:
+            from sli_ui_toolkit.ui.managers.ui_font import measure_text_width, ui_font
 
-        widths = []
-        for row in self._rows:
-            fm = QFontMetrics(
-                ui_font(
-                    pixel_size=getattr(row, "size", None),
-                    bold=(getattr(row, "weight", "normal") == "bold"),
+            for row in self._rows:
+                fm = QFontMetrics(
+                    ui_font(
+                        pixel_size=getattr(row, "size", None),
+                        bold=(getattr(row, "weight", "normal") == "bold"),
+                    )
                 )
+                widths.append(measure_text_width(fm, getattr(row, "text", "") or ""))
+        for text in getattr(self, "_width_texts", ()):
+            from sli_ui_toolkit.ui.managers.ui_font import measure_text_width
+
+            widths.append(
+                measure_text_width(QFontMetrics(paint_font(self)), text)
             )
-            widths.append(measure_text_width(fm, getattr(row, "text", "") or ""))
         return max(widths) if widths else 0
 
     def sizeHint(self):
         text_w = self._content_text_width()
         icon_w = scaled_px(self._icon_size_px) + scaled_px(self._gap_px) if self._icon_unchecked else 0
-        if self._has_text or self._rows:
+        if self._has_text or self._rows or getattr(self, "_width_texts", ()):
             w = text_w + icon_w + scaled_px(24)
             fm = QFontMetrics(paint_font(self))
             h = max(scaled_px(32), fm.height() + scaled_px(16))

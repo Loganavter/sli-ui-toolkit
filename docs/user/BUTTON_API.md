@@ -593,6 +593,7 @@ Button(
     density: str = "normal",
     defer_click: bool | int | str | None = None,
     text_fit: bool = False,
+    width_texts: list[str] | None = None,
     regions: list[ButtonRegion] | None = None,
     split: SplitLayout | None = None,
     divider: Divider | None = None,
@@ -627,6 +628,7 @@ Button(
 | `density` | `str` | `"normal"` | Visual density: "normal", "compact" |
 | `defer_click` | `bool \| int \| str \| None` | `None` | `None` inherits `get_default_defer_click()`; `False` sync; `True` next tick; `int` ms; `"ripple"` awaits `get_ripple_duration_ms()` (see [Press animations](#press-animations--blocking-handlers)) |
 | `text_fit` | `bool` | `False` | Grow with the parent row up to the full text width, compress below it. `sizeHint` tracks the parent layout's available width (margins + preceding siblings) capped at the text width; `minimumSizeHint` stays tiny so a scroll content can always shrink the button. Pair with a **trailing `addStretch(1)`** in the row (a stretch/Expanding item right-anchors its widget in Qt) and a row `marquee=True` for overflowing text. `text=` and `rows=` both work. |
+| `width_texts` | `list[str] \| None` | `None` | Candidate labels feeding the width hints: `sizeHint`/`minimumSizeHint` size to the widest of the current content and these candidates (measured with the paint font via `measure_text_width`, so no clipping and no fixed width — live `UiScale` changes re-derive through `updateGeometry`). Picker-style anchors (`Button` + `SimpleOptionsFlyout`): pass every option label with any persistent affix (e.g. `" ▾"`) so the button fits the longest option instead of the current text; the flyout card then matches via `show_below(..., match_card_width=True)`. `None`/empty disables. |
 | `regions` | `list[ButtonRegion]` | `None` | Optional multi-region model. If omitted, Button creates a single `_main` region from the flat constructor params. |
 | `split` | `SplitLayout` | `None` | Geometry strategy for regions: `HorizontalSplit`, `VerticalSplit`, `GridSplit`, or `CustomSplit`. |
 | `divider` | `Divider` | `None` | Optional whole-widget divider between regions. |
@@ -711,6 +713,13 @@ rows = [
     ButtonRow(text='Line 2', size=11),
 ]
 button.setRows(rows, compact=False)  # compact=True centers block vertically
+
+# Width candidates (picker anchors sized by the longest option, not the current text)
+button.set_width_texts(["Sort: Rank ▾", "Sort: Name ▾", "Sort: Date ▾"])
+button.width_texts()      # current candidates, () = disabled
+button.set_width_texts(None)  # back to current-content sizing
+# Constructor form: Button(text="Sort: Rank ▾", width_texts=[...], size=(0, 34)) —
+# width 0 leaves the width to the layout (hints), height stays fixed.
 
 # Icon
 button.setIcon('new_icon_name')

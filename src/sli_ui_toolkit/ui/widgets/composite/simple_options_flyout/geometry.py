@@ -12,8 +12,6 @@ long parameter list without losing readability.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QFontMetrics
-
 
 def update_size(
     flyout,
@@ -57,21 +55,10 @@ def update_size(
 
     container_h = content_h + margins_v
 
-    # Prefer live row sizeHints (label + row pad). Font metrics are a
-    # fallback before rows exist / while updates are disabled mid-populate.
-    content_w = 0
-    for row in rows:
-        hint = row.sizeHint()
-        if hint.isValid():
-            content_w = max(content_w, hint.width())
-    if content_w <= 0:
-        fm = QFontMetrics(flyout._item_font)
-        text_w = max(
-            (fm.boundingRect(text).width() for text in flyout._options),
-            default=0,
-        )
-        content_w = text_w + 16
-    content_w = content_w + margins_h
+    # Natural content width lives on the widget (hosts reuse it to fit
+    # anchors); geometry only reconciles it with the anchor match here.
+    margins_h = outer_margins.left() + outer_margins.right()
+    content_w = flyout.content_width_hint()
 
     if match_width > 0:
         target_container_width = max(1, match_width - (flyout.MARGIN * 2))
