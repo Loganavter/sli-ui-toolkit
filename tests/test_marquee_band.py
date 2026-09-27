@@ -96,11 +96,50 @@ def test_marquee_band_gesture_updates_and_finishes(qapp, qtbot):
         Qt.MouseButton.LeftButton,
         Qt.KeyboardModifier.NoModifier,
     )
-    assert gesture.eventFilter(host, release) is True
+    assert gesture.eventFilter(host, release) is False
     assert gesture.active is False
     assert gesture.app_filter_installed is False
     assert finishes == [expected]
     assert not gesture.overlay.isVisible()
+
+
+def test_marquee_release_reaches_widgets(qapp, qtbot):
+    """Release passes through after finish (no press-tracking desync).
+
+    Regression for inv-gallery-hover-loss-2026-09-26: the app-level
+    filter used to consume the release whose press went through the
+    window, leaving Qt press-tracking stuck ("LeftButton held") so
+    later moves grab-routed to the press receiver — no hit-testing,
+    no Enter, gallery hover capsule + delete badge dead.
+    """
+    host = QWidget()
+    host.resize(400, 300)
+    qtbot.addWidget(host)
+    host.show()
+
+    content = QWidget(host)
+    content.setGeometry(0, 0, 400, 300)
+    content.show()
+
+    finishes: list[QRect] = []
+    gesture = MarqueeBandGesture(content, on_finish=finishes.append)
+    assert gesture.start(QPoint(10, 10)) is True
+
+    release = QMouseEvent(
+        QMouseEvent.Type.MouseButtonRelease,
+        QPoint(80, 60),
+        content.mapToGlobal(QPoint(80, 60)),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    # Finish runs, filter removed, overlay hidden — but the event itself
+    # is NOT consumed, so QWidgetWindow sees the release.
+    assert gesture.eventFilter(host, release) is False
+    assert gesture.active is False
+    assert gesture.app_filter_installed is False
+    assert not gesture.overlay.isVisible()
+    assert len(finishes) == 1
 
 
 def test_marquee_band_gesture_tiny_drag_finishes_empty(qapp, qtbot):

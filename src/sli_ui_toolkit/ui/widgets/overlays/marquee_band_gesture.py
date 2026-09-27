@@ -159,7 +159,16 @@ class MarqueeBandGesture(QObject):
         ):
             pos = self._content.mapFromGlobal(event.globalPosition().toPoint())
             self._finish_at(pos)
-            return True
+            # Pass the release through (return False): the matching press
+            # went through the window before the child filter consumed it,
+            # so consuming the release here would leave Qt press-tracking
+            # stuck on "LeftButton held" — later moves grab-route to the
+            # press receiver with no hit-testing and no Enter events
+            # (gallery hover capsule + delete badge stay dead until some
+            # other balanced click; see inv-gallery-hover-loss-2026-09-26).
+            # _finish_at already removed the app filter, so this only
+            # lets normal delivery continue — no double handling.
+            return False
         return False
 
     def _ensure_overlay(self) -> MarqueeBandOverlay | None:
