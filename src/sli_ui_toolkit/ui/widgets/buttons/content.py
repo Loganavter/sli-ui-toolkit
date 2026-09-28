@@ -314,8 +314,12 @@ class PixmapContent(Content):
         p.save()
         radii = ctx.region_corner_radii
         if radii is not None:
+            from PySide6.QtGui import QPainter as _QP
             from .layers.background import rounded_rect_path
 
+            # Smooth clip: without AA the rounded clip leaves stair-step
+            # fringe pixels in the corners (visible as dirt on thumbs).
+            p.setRenderHint(_QP.RenderHint.Antialiasing, True)
             clip = rounded_rect_path(QRectF(dest), radii)
             p.setClipPath(clip)
         else:

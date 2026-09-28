@@ -4,6 +4,7 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 import logging
 import time
 from collections.abc import Sequence
+from typing import Literal
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -291,11 +292,24 @@ class SimpleOptionsFlyout(BaseFlyout):
         return super().show_aligned(*args, **kwargs)
 
     def show_below(self, anchor_widget: QWidget, exact_width_match: bool = True,
-                   match_card_width: bool = False):
+                   match_card_width: bool = False,
+                   width_mode: Literal["anchor", "content"] = "anchor"):
         """Show under ``anchor_widget``. ``exact_width_match`` matches the
         outer width to the anchor; ``match_card_width`` additionally excludes
         the shadow margins so the white card (not the halo) equals the
-        anchor width."""
+        anchor width.
+
+        ``width_mode`` selects what the width derives from: ``"anchor"`
+        (default) sizes to at least the anchor (grows for long labels);
+        ``"content"`` sizes to the widest row only (``content_width_hint``)
+        and ignores the anchor — uniform rows, tight card, edges need not
+        coincide with the anchor. Placement (centered below the anchor) is
+        identical in both modes; for left-aligned content opens prefer
+        ``show_aligned(..., bottom-left/top-left)``."""
+        if width_mode not in ("anchor", "content"):
+            raise ValueError(
+                f"width_mode must be 'anchor' or 'content', got {width_mode!r}"
+            )
         if self.isVisible() and self._anchor_widget is anchor_widget:
             self._just_opened = False
             self.hide()
@@ -345,8 +359,12 @@ class SimpleOptionsFlyout(BaseFlyout):
             anchor_width = anchor_widget.width()
         # Card-match: geometry.update_size subtracts the shadow margins from
         # the match, so pass them back in — the opaque card then equals the
-        # anchor instead of the halo.
-        _match_for = anchor_width + (self.MARGIN * 2 if match_card_width else 0)
+        # anchor instead of the halo. Content mode skips the anchor entirely
+        # (match_width=0 → content_width_hint only).
+        if width_mode == "content":
+            _match_for = 0
+        else:
+            _match_for = anchor_width + (self.MARGIN * 2 if match_card_width else 0)
 
         self._just_opened = True
         self._open_timestamp = time.monotonic()
