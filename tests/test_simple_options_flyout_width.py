@@ -110,3 +110,58 @@ def test_show_below_default_matches_outer(qtbot):
 
     assert flyout.width() == 140
     assert flyout.container.width() == 140 - flyout.MARGIN * 2
+
+
+def test_show_below_content_mode_ignores_wide_anchor(qtbot):
+    """width_mode="content": tight card on the widest row, anchor ignored."""
+    import pytest
+
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(500, 400)
+    host.show()
+
+    anchor = QWidget(host)
+    anchor.setFixedSize(200, 28)
+    anchor.move(40, 40)
+    anchor.show()
+
+    flyout = SimpleOptionsFlyout(parent_widget=host)
+    qtbot.addWidget(flyout)
+    flyout.populate(["A", "Bb", "Ccc"], current_index=0)
+    flyout.show_below(anchor, width_mode="content")
+    qtbot.wait(20)
+
+    assert flyout.isVisible()
+    assert flyout.container.width() == flyout.content_width_hint()
+    assert flyout.width() == flyout.content_width_hint() + flyout.MARGIN * 2
+    assert flyout.width() < 200
+    # Uniform rows: every row spans the same (content-driven) width.
+    widths = {
+        flyout._rows_layout.itemAt(i).widget().width() for i in range(3)
+    }
+    assert len(widths) == 1
+
+    with pytest.raises(ValueError):
+        flyout.show_below(anchor, width_mode="sideways")
+
+
+def test_show_below_anchor_mode_is_default(qtbot):
+    """No flag change: wide anchor still forces at least its own width."""
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(500, 400)
+    host.show()
+
+    anchor = QWidget(host)
+    anchor.setFixedSize(200, 28)
+    anchor.move(40, 40)
+    anchor.show()
+
+    flyout = SimpleOptionsFlyout(parent_widget=host)
+    qtbot.addWidget(flyout)
+    flyout.populate(["A", "Bb", "Ccc"], current_index=0)
+    flyout.show_below(anchor)
+    qtbot.wait(20)
+
+    assert flyout.width() == 200
