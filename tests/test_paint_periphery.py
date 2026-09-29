@@ -1,8 +1,8 @@
 """Task 1 (paint periphery) regression tests.
 
-Covers: LoadingSpinner hide auto-stop + UiScale sizing, MarqueeBandOverlay
-and SunburstChartWidget theme refresh, ListPanel painter-path styling (no
-QSS), and the MeasuredHeights full-measurement contract pin.
+Covers: LoadingSpinner hide auto-stop + UiScale sizing, MarqueeState
+accent pinning and SunburstChartWidget theme refresh, ListPanel painter-path
+styling (no QSS), and the MeasuredHeights full-measurement contract pin.
 """
 
 from __future__ import annotations
@@ -24,8 +24,9 @@ from sli_ui_toolkit.ui.widgets.composite.list_panel import ListPanel
 from sli_ui_toolkit.ui.widgets.composite.sunburst_chart.chart_widget import (
     SunburstChartWidget,
 )
-from sli_ui_toolkit.ui.widgets.overlays.marquee_band_overlay import (
-    MarqueeBandOverlay,
+from sli_ui_toolkit.ui.widgets.overlays.marquee_state import (
+    DEFAULT_MARQUEE_ACCENT,
+    MarqueeState,
 )
 from sli_ui_toolkit.ui.widgets.virtual_list.window import MeasuredHeights
 from sli_ui_toolkit.widgets import LoadingSpinner as PublicSpinner
@@ -145,39 +146,35 @@ def test_spinner_size_follows_ui_scale(qapp, qtbot, hermetic_theme):
     spinner.stop()
 
 
-# -- MarqueeBandOverlay ----------------------------------------------------
+# -- MarqueeState accent ----------------------------------------------------
+
+# The in-paint state carries no theme connection: the default accent is
+# fixed and set_accent() pins explicitly. Hosts (gallery, ListPanel) push
+# their own accent per theme switch.
 
 
-def test_marquee_accent_refreshes_on_theme_change(
-    qapp, qtbot, hermetic_theme
-):
-    from PySide6.QtCore import QRect
-
-    host = QWidget()
-    qtbot.addWidget(host)
-    host.resize(400, 300)
-    host.show()
-    band = MarqueeBandOverlay(host)
-    band.set_band(QRect(10, 10, 50, 50))
-    light_accent = QColor(FLUENT_LIGHT["accent"]).name()
-    assert band.accent().name() == light_accent
-    hermetic_theme.set_theme("dark", qapp, await_ripples=False)
-    qapp.processEvents()
-    assert band.accent().name() == QColor(FLUENT_DARK["accent"]).name()
-
-
-def test_marquee_custom_accent_survives_theme_change(
+def test_marquee_default_accent_is_theme_independent(
     qapp, qtbot, hermetic_theme
 ):
     host = QWidget()
     qtbot.addWidget(host)
-    host.resize(400, 300)
-    host.show()
-    band = MarqueeBandOverlay(host)
-    band.set_accent(QColor("#9eccef"))
+    state = MarqueeState(host)
+    assert state.accent().name() == QColor(DEFAULT_MARQUEE_ACCENT).name()
     hermetic_theme.set_theme("dark", qapp, await_ripples=False)
     qapp.processEvents()
-    assert band.accent().name() == "#9eccef"
+    assert state.accent().name() == QColor(DEFAULT_MARQUEE_ACCENT).name()
+
+
+def test_marquee_custom_accent_pins(
+    qapp, qtbot, hermetic_theme
+):
+    host = QWidget()
+    qtbot.addWidget(host)
+    state = MarqueeState(host)
+    state.set_accent(QColor("#9eccef"))
+    hermetic_theme.set_theme("dark", qapp, await_ripples=False)
+    qapp.processEvents()
+    assert state.accent().name() == "#9eccef"
 
 
 # -- SunburstChartWidget ---------------------------------------------------
