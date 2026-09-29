@@ -135,13 +135,16 @@ from sli_ui_toolkit.ui.widgets.helpers import (
 )
 from sli_ui_toolkit.ui.widgets.list_items import EditableListItem
 from sli_ui_toolkit.ui.widgets.overlays import (
+    DEFAULT_MARQUEE_ACCENT,
     DragDropOverlay,
-    MarqueeBandGesture,
-    MarqueeBandOverlay,
+    MarqueeBandWidget,
+    MarqueeState,
     OverlayItem,
     OverlaySlot,
     TopLevelInWindowOverlay,
-    map_content_rect_to_window,
+    marquee_dirty_rect,
+    paint_marquee_band,
+    resolve_band_rects,
 )
 from sli_ui_toolkit.ui.widgets.themed import ThemedWidget
 from sli_ui_toolkit.ui.widgets.virtual_list import (
@@ -315,12 +318,15 @@ __all__ = [
     "draw_bottom_underline",
     "draw_rounded_shadow",
     "DragDropOverlay",
-    "MarqueeBandGesture",
-    "MarqueeBandOverlay",
+    "DEFAULT_MARQUEE_ACCENT",
+    "MarqueeBandWidget",
+    "MarqueeState",
     "OverlayItem",
     "OverlaySlot",
     "TopLevelInWindowOverlay",
-    "map_content_rect_to_window",
+    "marquee_dirty_rect",
+    "paint_marquee_band",
+    "resolve_band_rects",
     "ThemedWidget",
     "WidgetStyleTokens",
     "read_widget_style",

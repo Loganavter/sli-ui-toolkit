@@ -1,7 +1,7 @@
 """ListPanel - scrollable multi-select list panel with drag&drop.
 
 The panel owns the widget tree (scroll area, rows, drop indicator, marquee
-gesture) and orchestrates its pieces; all decision logic lives outside it
+state) and orchestrates its pieces; all decision logic lives outside it
 in state-owning objects and pure functions with explicit inputs:
 
 - ``selection.MarqueeSelectionModel`` - the selection set + band semantics
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QMouseEvent
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
@@ -32,7 +32,10 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
 )
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from sli_ui_toolkit.ui.widgets.helpers.multi_move import payload_indices
-from sli_ui_toolkit.ui.widgets.overlays.marquee_band_gesture import MarqueeBandGesture
+from sli_ui_toolkit.ui.widgets.overlays.marquee_state import (
+    MarqueeBandWidget,
+    MarqueeState,
+)
 from sli_ui_toolkit.ui.widgets.virtual_list import VirtualListController
 
 from .drag_drop import _DropIndicator, drop_target_index, should_hide_indicator
@@ -108,7 +111,8 @@ class ListPanel(QWidget):
         self._container_height = 50
         self._list_type: str = "default"
         self._selection = MarqueeSelectionModel()
-        self._marquee_gesture = None
+        self._marquee_state = None
+        self._marquee_band = None
 
         self.setObjectName("ListPanel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -458,15 +462,15 @@ class ListPanel(QWidget):
 
     # -------- marquee selection --------
 
-    def _ensure_marquee_gesture(self):
-        if self._marquee_gesture is None:
-            self._marquee_gesture = MarqueeBandGesture(
+    def _ensure_marquee_state(self):
+        if self._marquee_state is None:
+            self._marquee_state = MarqueeState(
                 self.content_widget,
                 parent=self,
-                clip_widget=self.scroll_area.viewport(),
                 on_update=self._on_marquee_rect_update,
                 on_finish=self._on_marquee_rect_finish,
             )
+            self._marquee_band = MarqueeBandWidget(self.scroll_area.viewport())
             try:
                 accent = QColor(self.theme_manager.get_color("accent"))
                 base = QColor(self.theme_manager.get_color("surface.background"))
@@ -475,12 +479,33 @@ class ListPanel(QWidget):
                     int(round(accent.green() * 0.38 + base.green() * 0.62)),
                     int(round(accent.blue() * 0.38 + base.blue() * 0.62)),
                 )
-                self._marquee_gesture.set_accent(pastel)
+                self._marquee_state.set_accent(pastel)
+                if self._marquee_band is not None:
+                    self._marquee_band.set_accent(pastel)
             except Exception:
                 pass
         else:
-            self._marquee_gesture.set_clip_widget(self.scroll_area.viewport())
-        return self._marquee_gesture
+            # No-op on the state (the band lives in viewport coordinates and
+            # needs no viewport clipping); kept so the refresh call site
+            # survives unchanged.
+            self._marquee_state.set_clip_widget(self.scroll_area.viewport())
+        return self._marquee_state
+
+    def _scroll_offset(self) -> QPoint:
+        """Live scroll offset (content → viewport translation)."""
+        try:
+            bar_v = self.scroll_area.verticalScrollBar()
+            bar_h = self.scroll_area.horizontalScrollBar()
+            return QPoint(
+                int(bar_h.value()) if bar_h is not None else 0,
+                int(bar_v.value()) if bar_v is not None else 0,
+            )
+        except Exception:
+            return QPoint(0, 0)
+
+    def _content_to_viewport(self, rect: QRect) -> QRect:
+        off = self._scroll_offset()
+        return QRect(rect.translated(-off.x(), -off.y()))
 
     def _row_geometries(self) -> list[tuple[int, QRect]]:
         """(item index, geometry) for the materialized rows, in content coords.
@@ -497,6 +522,8 @@ class ListPanel(QWidget):
         return rows
 
     def _on_marquee_rect_update(self, rect: QRect) -> None:
+        if self._marquee_band is not None:
+            self._marquee_band.set_band(self._content_to_viewport(rect))
         band = indices_intersecting_rect(rect, self._row_geometries())
         preview = self._selection.preview(band)
         # Preview without committing until finish.
@@ -506,6 +533,8 @@ class ListPanel(QWidget):
                 setter(widget.index in preview)
 
     def _on_marquee_rect_finish(self, rect: QRect) -> None:
+        if self._marquee_band is not None:
+            self._marquee_band.set_active(False)
         if rect.isEmpty():
             self._selection.finish_empty()
             self._sync_selection_visuals()
@@ -548,9 +577,11 @@ class ListPanel(QWidget):
                                 )
                             )
                         )
-                        gesture = self._ensure_marquee_gesture()
+                        gesture = self._ensure_marquee_state()
                         ok = gesture.start(event.position().toPoint())
                         if ok:
+                            if self._marquee_band is not None:
+                                self._marquee_band.set_active(True)
                             if not self._selection.additive:
                                 self._on_marquee_rect_update(QRect())
                             return True
