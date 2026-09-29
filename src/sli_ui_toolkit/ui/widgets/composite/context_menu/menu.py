@@ -98,10 +98,6 @@ class ContextMenu(BaseFlyout):
         # SUBMENU_HOVER_DELAY_MS. Never confused with _open_submenu.
         self._submenu_hover_timer: QTimer | None = None
         self._submenu_hover_row: ContextMenuRow | None = None
-        # Pending outside-grace close (hover-forwarding): a single-shot
-        # QTimer started when the pointer sits outside both the menu and its
-        # open submenu branch; cancelled on any return into either.
-        self._submenu_outside_timer: QTimer | None = None
         self._owner_menu: ContextMenu | None = None
         self._is_submenu = _is_submenu
         self._surface = surface if surface is not None else get_context_menu_surface()
@@ -267,7 +263,7 @@ class ContextMenu(BaseFlyout):
         ):
             # Hover forwarding: the open submenu holds the mouse grab, so
             # the owner's rows see no Enter events. Hit-test the forwarded
-            # position instead (sibling switch / leaf close / grace).
+            # position instead (sibling switch / leaf close).
             if submenu_ops._is_forwarded_obj(self, obj):
                 global_pos = None
                 try:

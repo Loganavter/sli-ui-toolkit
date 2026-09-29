@@ -30,13 +30,6 @@ if TYPE_CHECKING:
 #: pointer leaves the row first.
 SUBMENU_HOVER_DELAY_MS = 300
 
-#: Grace period before an open submenu closes when the pointer sits outside
-#: both the owner menu and the submenu branch. The pointer merely transits
-#: the gap between the two menus on the way in, so an immediate close would
-#: flicker; a pending switch/close/branch-return cancels this timer.
-_SUBMENU_OUTSIDE_GRACE_MS = 350
-
-
 def _cancel_pending_hover(menu: ContextMenu) -> None:
     """Drop a scheduled hover-open without touching an open submenu."""
     timer = getattr(menu, "_submenu_hover_timer", None)
@@ -66,7 +59,6 @@ def open_submenu(
 
 def close_submenu(menu: ContextMenu) -> None:
     _cancel_pending_hover(menu)
-    _cancel_outside_grace(menu)
     submenu = menu._open_submenu
     if submenu is None:
         return
@@ -245,44 +237,6 @@ def _branch_contains(menu: ContextMenu, widget: object) -> bool:
     return False
 
 
-def _cancel_outside_grace(menu: ContextMenu) -> None:
-    """Drop a pending outside-grace close without touching the submenu."""
-    timer = getattr(menu, "_submenu_outside_timer", None)
-    if timer is not None:
-        try:
-            timer.stop()
-        except RuntimeError:
-            pass
-        menu._submenu_outside_timer = None
-
-
-def _schedule_outside_grace(menu: ContextMenu) -> None:
-    """Close the open submenu ~350ms after the pointer left both menus."""
-    if menu._open_submenu is None:
-        return
-    if getattr(menu, "_submenu_outside_timer", None) is not None:
-        return  # already pending; a single grace covers the gap transit
-    timer = QTimer(menu)
-    timer.setSingleShot(True)
-    timer.setInterval(_SUBMENU_OUTSIDE_GRACE_MS)
-    timer.timeout.connect(lambda: _on_outside_grace_timeout(menu, timer))
-    menu._submenu_outside_timer = timer
-    timer.start()
-
-
-def _on_outside_grace_timeout(menu: ContextMenu, timer: QTimer) -> None:
-    if getattr(menu, "_submenu_outside_timer", None) is not timer:
-        return  # superseded by a cancel
-    menu._submenu_outside_timer = None
-    try:
-        visible = menu._open_submenu is not None and menu._open_submenu.isVisible()
-    except RuntimeError:
-        return
-    if not visible:
-        return
-    close_submenu(menu)
-
-
 def _handle_submenu_forward(menu: ContextMenu, global_pos: QPoint) -> None:
     """Dispatch a hover position forwarded from the open submenu branch.
 
@@ -291,17 +245,16 @@ def _handle_submenu_forward(menu: ContextMenu, global_pos: QPoint) -> None:
 
     (a) over a sibling parent row -> schedule a switch with the existing
     hover-delay machinery; (b) over a sibling leaf row -> close immediately
-    (QMenu parity); (c) inside the open submenu branch -> cancel any pending
-    switch/grace, change nothing else; (d) outside both menus -> start the
-    outside-grace timer. Pointer motion over the owner's own non-row chrome
-    only cancels the grace timer (the pointer is back over the owner).
+    (QMenu parity); (c) inside the open submenu branch, over the owner's
+    own non-row chrome, or outside both menus -> change nothing (QMenu
+    parity: aiming across the gap must never kill the submenu; it closes
+    on sibling hover, outside click, Escape, or parent hide).
     """
     try:
         hit = QApplication.widgetAt(global_pos)
     except Exception:
         return
     if hit is None:
-        _schedule_outside_grace(menu)
         return
     owner_row: ContextMenuRow | None = None
     node: QWidget | None = hit
@@ -319,22 +272,10 @@ def _handle_submenu_forward(menu: ContextMenu, global_pos: QPoint) -> None:
         spec = getattr(owner_row, "_spec", None)
         children = getattr(spec, "children", None)
         if children:
-            _cancel_outside_grace(menu)
             menu._schedule_submenu_hover(owner_row, spec)
         else:
             close_submenu(menu)
         return
-    if _branch_contains(menu, hit):
-        _cancel_pending_hover(menu)
-        _cancel_outside_grace(menu)
-        return
-    try:
-        if hit is menu or menu.isAncestorOf(hit):
-            _cancel_outside_grace(menu)
-            return
-    except RuntimeError:
-        pass
-    _schedule_outside_grace(menu)
 
 
 def root_menu(menu: ContextMenu) -> ContextMenu:

@@ -117,36 +117,29 @@ def test_forward_hover_leaf_closes_submenu(qtbot, monkeypatch) -> None:
     assert menu._open_submenu is None
 
 
-def test_forward_outside_grace_closes_submenu(qtbot, monkeypatch) -> None:
-    """Pointer outside both menus closes only after the grace period."""
-    menu, _parent = _popup_menu(qtbot, _two_parent_entries())
-    menu._rows[0].clicked.emit()
-    assert menu._open_submenu is not None
+def test_forward_outside_keeps_submenu_open(qtbot, monkeypatch) -> None:
+    """Aiming across the gap must never kill the submenu (QMenu parity).
 
-    _forward_move(menu, menu._open_submenu, monkeypatch, None)
-    # Gap transit must not kill the submenu synchronously ...
-    assert menu._open_submenu is not None
-    assert menu._submenu_outside_timer is not None
-
-    qtbot.wait(submenu_ops._SUBMENU_OUTSIDE_GRACE_MS + 150)
-    assert menu._open_submenu is None
-
-
-def test_forward_branch_return_cancels_outside_grace(qtbot, monkeypatch) -> None:
-    """Moving back into the submenu branch cancels the grace close."""
+    The pointer transits the gap between the menus on the way in; closing
+    there made the submenu vanish mid-aim. It closes on sibling hover,
+    outside click, Escape, or parent hide instead.
+    """
     menu, _parent = _popup_menu(qtbot, _two_parent_entries())
     menu._rows[0].clicked.emit()
     submenu = menu._open_submenu
     assert submenu is not None
 
     _forward_move(menu, submenu, monkeypatch, None)
-    assert menu._submenu_outside_timer is not None
+    assert menu._open_submenu is submenu
 
-    _forward_move(menu, submenu, monkeypatch, submenu._rows[0])
-    assert menu._submenu_outside_timer is None
+    # A slow aim (longer than any old grace) still leaves it open ...
+    qtbot.wait(submenu_ops.SUBMENU_HOVER_DELAY_MS + 250)
+    assert menu._open_submenu is submenu
 
-    qtbot.wait(submenu_ops._SUBMENU_OUTSIDE_GRACE_MS + 150)
-    assert menu._open_submenu is not None
+    # ... and the branch still switches afterwards.
+    _forward_move(menu, submenu, monkeypatch, menu._rows[1])
+    qtbot.wait(submenu_ops.SUBMENU_HOVER_DELAY_MS + 150)
+    assert menu._submenu_owner_row is menu._rows[1]
 
 
 def test_forward_hover_does_not_double_schedule(qtbot, monkeypatch) -> None:
