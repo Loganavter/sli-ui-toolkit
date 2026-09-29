@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QMouseEvent, QPainter
+from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QMouseEvent
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from sli_ui_toolkit.config import get_dragdrop_service
@@ -33,10 +33,8 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
 from sli_ui_toolkit.ui.widgets.atomic.tooltips import PathTooltip
 from sli_ui_toolkit.ui.widgets.helpers.multi_move import payload_indices
 from sli_ui_toolkit.ui.widgets.overlays.marquee_state import (
-    DEFAULT_MARQUEE_ACCENT,
+    MarqueeBandWidget,
     MarqueeState,
-    marquee_dirty_rect,
-    paint_marquee_band,
 )
 from sli_ui_toolkit.ui.widgets.virtual_list import VirtualListController
 
@@ -54,38 +52,6 @@ from .selection import (
 )
 from .sizing import constrained_height, deferred_scrollbar_sync, recalculate_and_set_height
 from .style import apply_style
-
-
-class _MarqueeContentWidget(QWidget):
-    """Scroll content that paints the in-paint marquee band.
-
-    Plain QWidget otherwise: rows are absolutely-positioned children
-    (virtual-list pool) and the band paints in content coordinates via
-    :func:`paint_marquee_band`. Band state is host-driven — ListPanel
-    sets it from ``MarqueeState`` callbacks with region-limited
-    updates, so per-mousemove repaints stay inside old∪new±1px.
-    """
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._band_rect = QRect()
-        self._band_accent = QColor(DEFAULT_MARQUEE_ACCENT)
-
-    def band_rect(self) -> QRect:
-        return QRect(self._band_rect)
-
-    def set_band_rect(self, rect: QRect) -> None:
-        self._band_rect = QRect(rect)
-
-    def set_band_accent(self, color: QColor) -> None:
-        self._band_accent = QColor(color)
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        super().paintEvent(event)
-        if self._band_rect.isEmpty():
-            return
-        painter = QPainter(self)
-        paint_marquee_band(painter, self._band_rect, self._band_accent)
 
 
 class ListPanel(QWidget):
@@ -146,6 +112,7 @@ class ListPanel(QWidget):
         self._list_type: str = "default"
         self._selection = MarqueeSelectionModel()
         self._marquee_state = None
+        self._marquee_band = None
 
         self.setObjectName("ListPanel")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -160,7 +127,7 @@ class ListPanel(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.set_corner_radius(8)
 
-        self.content_widget = _MarqueeContentWidget()
+        self.content_widget = QWidget()
 
         # Compat shim: hosts still read content_layout.spacing() for panel
         # height math. Rows are positioned absolutely by the virtual-list
@@ -503,6 +470,7 @@ class ListPanel(QWidget):
                 on_update=self._on_marquee_rect_update,
                 on_finish=self._on_marquee_rect_finish,
             )
+            self._marquee_band = MarqueeBandWidget(self.scroll_area.viewport())
             try:
                 accent = QColor(self.theme_manager.get_color("accent"))
                 base = QColor(self.theme_manager.get_color("surface.background"))
@@ -512,15 +480,32 @@ class ListPanel(QWidget):
                     int(round(accent.blue() * 0.38 + base.blue() * 0.62)),
                 )
                 self._marquee_state.set_accent(pastel)
-                self.content_widget.set_band_accent(pastel)
+                if self._marquee_band is not None:
+                    self._marquee_band.set_accent(pastel)
             except Exception:
                 pass
         else:
-            # No-op on the state (the in-paint band lives in content
-            # coordinates and needs no viewport clipping); kept so the
-            # refresh call site survives unchanged.
+            # No-op on the state (the band lives in viewport coordinates and
+            # needs no viewport clipping); kept so the refresh call site
+            # survives unchanged.
             self._marquee_state.set_clip_widget(self.scroll_area.viewport())
         return self._marquee_state
+
+    def _scroll_offset(self) -> QPoint:
+        """Live scroll offset (content → viewport translation)."""
+        try:
+            bar_v = self.scroll_area.verticalScrollBar()
+            bar_h = self.scroll_area.horizontalScrollBar()
+            return QPoint(
+                int(bar_h.value()) if bar_h is not None else 0,
+                int(bar_v.value()) if bar_v is not None else 0,
+            )
+        except Exception:
+            return QPoint(0, 0)
+
+    def _content_to_viewport(self, rect: QRect) -> QRect:
+        off = self._scroll_offset()
+        return QRect(rect.translated(-off.x(), -off.y()))
 
     def _row_geometries(self) -> list[tuple[int, QRect]]:
         """(item index, geometry) for the materialized rows, in content coords.
@@ -536,16 +521,9 @@ class ListPanel(QWidget):
                 rows.append((index, widget.geometry()))
         return rows
 
-    def _repaint_marquee_band(self, old: QRect, new: QRect) -> None:
-        """Region-limited band repaint (old∪new±1px), never fullscreen."""
-        dirty = marquee_dirty_rect(old, new)
-        if not dirty.isEmpty():
-            self.content_widget.update(dirty)
-
     def _on_marquee_rect_update(self, rect: QRect) -> None:
-        old = self.content_widget.band_rect()
-        self.content_widget.set_band_rect(rect)
-        self._repaint_marquee_band(old, rect)
+        if self._marquee_band is not None:
+            self._marquee_band.set_band(self._content_to_viewport(rect))
         band = indices_intersecting_rect(rect, self._row_geometries())
         preview = self._selection.preview(band)
         # Preview without committing until finish.
@@ -555,9 +533,8 @@ class ListPanel(QWidget):
                 setter(widget.index in preview)
 
     def _on_marquee_rect_finish(self, rect: QRect) -> None:
-        old = self.content_widget.band_rect()
-        self.content_widget.set_band_rect(QRect())
-        self._repaint_marquee_band(old, QRect())
+        if self._marquee_band is not None:
+            self._marquee_band.set_active(False)
         if rect.isEmpty():
             self._selection.finish_empty()
             self._sync_selection_visuals()
@@ -603,6 +580,8 @@ class ListPanel(QWidget):
                         gesture = self._ensure_marquee_state()
                         ok = gesture.start(event.position().toPoint())
                         if ok:
+                            if self._marquee_band is not None:
+                                self._marquee_band.set_active(True)
                             if not self._selection.additive:
                                 self._on_marquee_rect_update(QRect())
                             return True

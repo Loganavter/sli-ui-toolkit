@@ -153,3 +153,34 @@ def test_marquee_dirty_rect_union(qapp):
     assert marquee_dirty_rect(QRect(), QRect()).isEmpty()
     assert marquee_dirty_rect(QRect(), new) == new.adjusted(-1, -1, 1, 1)
     assert marquee_dirty_rect(old, QRect()) == old.adjusted(-1, -1, 1, 1)
+
+
+def test_band_widget_stacks_over_content(qapp, qtbot):
+    """Band widget floats above content children (Dolphin foreground parity)."""
+    from sli_ui_toolkit.widgets import MarqueeBandWidget
+
+    viewport = QWidget()
+    viewport.resize(400, 300)
+    qtbot.addWidget(viewport)
+    viewport.show()
+    content = QWidget(viewport)
+    content.setGeometry(0, 0, 400, 600)
+    content.show()
+    card = QWidget(content)
+    card.setGeometry(50, 50, 100, 100)
+    card.show()
+    band = MarqueeBandWidget(viewport)
+    assert not band.isVisible()
+    band.set_active(True)
+    assert band.isVisible()
+    band.set_band(QRect(40, 40, 200, 150))
+    assert band.geometry() == QRect(40, 40, 200, 150)
+    # Above the content and its cards in stacking order.
+    siblings = viewport.children()
+    assert siblings.index(band) > siblings.index(content)
+    assert band.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    band.set_band(QRect(40, 40, 200, 150))  # identical: no-op, stays put
+    assert band.geometry() == QRect(40, 40, 200, 150)
+    band.set_active(False)
+    assert not band.isVisible()
+    assert band.band_rect().isEmpty()

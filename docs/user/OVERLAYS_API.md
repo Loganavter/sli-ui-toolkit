@@ -9,6 +9,7 @@ zone painters, and rubber-band selection, all built on one base class.
 | `OverlaySlot` / `OverlayItem` | Slot enum and item metadata used by `TopLevelInWindowOverlay`. |
 | `DragDropOverlay` | Transparent drag/drop zone painter built on `TopLevelInWindowOverlay`; keeps pointer transparency and the existing `set_overlay_state(...)` API. |
 | `MarqueeState` | Wayland-safe drag tracker (app event filter; no `grabMouse`). Content-local rects only — no overlay widget. Host supplies hit-testing via `on_update` / `on_finish` and paints the band itself. |
+| `MarqueeBandWidget` | Transparent mouse-transparent viewport child floating ABOVE content and cards (Dolphin foreground parity — host paint hides under opaque cards). Per move only `set_band`; visibility toggles via `set_active`. |
 | `paint_marquee_band(painter, rect, accent)` / `marquee_dirty_rect(old, new)` | Band look (fill a48 + 1px border a200) + region-limited repaint helper for host `paintEvent`s. |
 
 Drag ghosts for list pickers built on `ListPanel` are **host-owned** (Improve-ImgSLI

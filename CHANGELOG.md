@@ -12,6 +12,14 @@
 
 - **Marquee goes in-paint: `MarqueeState` + `paint_marquee_band` + `marquee_dirty_rect`** — the window-level `MarqueeBandOverlay` + `MarqueeBandGesture` pair (per-mousemove `setGeometry` + `raise_()` + `show()` on a translucent top-level child, content→window round-trip per move, viewport-clip intersection with hide/show flicker) is replaced by Dolphin-style state: `MarqueeState` tracks the drag as a content-local rect (moves consumed, LeftButton release finishes then passes through — hover-loss contract kept; degenerate start==end nudged, never invalid; `on_trace` injection instead of logger calls so `SLI_MARQUEE_DEBUG=1` needs no logger-level second gate), the host paints the band (fill a48 + 1px border a200, default `#0078D4`) in its own paint pass with region-limited `old∪new±1px` repaints. `ListPanel` migrated (own `_MarqueeContentWidget` host); `MarqueeBandGesture`/`MarqueeBandOverlay`/`map_content_rect_to_window` deleted with no shims. Tests: `tests/test_marquee_band.py` replaced by `tests/test_marquee_state.py` (8: identity, tiny, cancel, release pass-through, non-left witness, trace gate, pixels, dirty union); full suite green, mypy clean.
 
+- **Marquee band paints over content (`MarqueeBandWidget`)** — the host-painted
+variant hid under opaque cards (Dolphin paints its band after items, in
+`KItemListView::paint`). New transparent mouse-transparent viewport child:
+per move only `set_band` (`setGeometry` + `update`, no `raise_`/`show`
+storm), visibility toggles twice per drag via `set_active`. Consumers
+convert content→viewport synchronously per update. `ListPanel` and both app
+shelves use it; `paint_marquee_band`/`marquee_dirty_rect` unchanged underneath.
+
 ### Changed
 
 - **`SimpleOptionsFlyout.show_below(..., match_card_width=True)`** — width matching measured the halo: `exact_width_match` equals the *outer* widget (card + shadow margins) to the anchor, so the white card always read narrower. The opt-in flag passes the margins back in, matching the opaque card to the anchor instead. Default behavior unchanged. Tests: `tests/test_simple_options_flyout_width.py` (+2: card-match, outer default).

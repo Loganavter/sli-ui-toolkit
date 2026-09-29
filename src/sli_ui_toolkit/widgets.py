@@ -137,6 +137,7 @@ from sli_ui_toolkit.ui.widgets.list_items import EditableListItem
 from sli_ui_toolkit.ui.widgets.overlays import (
     DEFAULT_MARQUEE_ACCENT,
     DragDropOverlay,
+    MarqueeBandWidget,
     MarqueeState,
     OverlayItem,
     OverlaySlot,
@@ -317,6 +318,7 @@ __all__ = [
     "draw_rounded_shadow",
     "DragDropOverlay",
     "DEFAULT_MARQUEE_ACCENT",
+    "MarqueeBandWidget",
     "MarqueeState",
     "OverlayItem",
     "OverlaySlot",

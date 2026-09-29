@@ -2,6 +2,7 @@ from .drag_drop_overlay import DragDropOverlay
 from .in_window_overlay import OverlayItem, OverlaySlot, TopLevelInWindowOverlay
 from .marquee_state import (
     DEFAULT_MARQUEE_ACCENT,
+    MarqueeBandWidget,
     MarqueeState,
     marquee_dirty_rect,
     paint_marquee_band,
@@ -15,6 +16,7 @@ from sli_ui_toolkit.deprecations import (
 __all__ = [
     "DEFAULT_MARQUEE_ACCENT",
     "DragDropOverlay",
+    "MarqueeBandWidget",
     "MarqueeState",
     "OverlayItem",
     "OverlaySlot",

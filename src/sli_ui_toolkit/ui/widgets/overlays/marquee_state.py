@@ -11,10 +11,10 @@ Split of responsibilities:
   short-lived ``QApplication`` event filter, and the ``on_update`` /
   ``on_finish`` callbacks. It never creates a widget and never imports
   app code.
-- The HOST owns the visual: it keeps the current ``band_rect``, paints
-  it with :func:`paint_marquee_band` in its own ``paintEvent``, and
-  repaints only the region-limited damage from
-  :func:`marquee_dirty_rect` (old ∪ new, ±1px).
+- :class:`MarqueeBandWidget` owns the visual: a transparent child of the
+  scroll viewport that floats ABOVE the content and its cards (host paint
+  would hide under opaque cards). The consumer converts its content-space
+  rect to viewport space once per update; per move only ``set_band`` runs.
 
 Routing/motion match the deleted gesture exactly: moves with the left
 button held are consumed (``True``); the left-button release finishes
@@ -101,6 +101,84 @@ def marquee_dirty_rect(old: QRect, new: QRect, pad: int = 1) -> QRect:
     if base.isEmpty():
         return QRect()
     return base.adjusted(-pad, -pad, pad, pad)
+
+
+class MarqueeBandWidget(QWidget):
+    """Viewport-local band visual: paints OVER content, like Dolphin.
+
+    A transparent, mouse-transparent child of the scroll viewport (NOT of
+    the window): it floats above the content host and its cards, so the
+    band is visible over items — the host-painted variant hid under opaque
+    cards. Geometry is viewport-local; the consumer converts its
+    content-space rect once per update (synchronously, so mid-drag scroll
+    cannot desync the two ends). Per move only ``set_band`` runs
+    (``setGeometry`` + ``update`` — no ``raise_``/``show`` storm);
+    visibility toggles twice per drag via ``set_active``.
+    """
+
+    def __init__(self, viewport: QWidget, accent: QColor | None = None) -> None:
+        super().__init__(viewport)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._band = QRect()
+        self._accent = QColor(accent) if accent is not None else QColor(DEFAULT_MARQUEE_ACCENT)
+        if not self._accent.isValid():
+            self._accent = QColor(DEFAULT_MARQUEE_ACCENT)
+        self.hide()
+
+    def band_rect(self) -> QRect:
+        return QRect(self._band)
+
+    def set_accent(self, color: QColor) -> None:
+        accent = QColor(color)
+        if accent.isValid():
+            self._accent = accent
+            if not self._band.isEmpty():
+                self.update()
+
+    def set_active(self, active: bool) -> None:
+        """Show/hide the band widget (twice per drag, never per move)."""
+        if bool(active):
+            if not self.isVisible():
+                self.show()
+        else:
+            self._band = QRect()
+            if self.isVisible():
+                self.hide()
+
+    def set_band(self, rect: QRect) -> None:
+        """Move the band (viewport-local); skip when unchanged."""
+        try:
+            norm = QRect(rect)
+            if not norm.isValid() or norm.isEmpty():
+                norm = QRect()
+        except Exception:
+            norm = QRect()
+        if norm == self._band:
+            return
+        self._band = norm
+        try:
+            if norm.isEmpty():
+                self.update()
+            else:
+                self.setGeometry(norm)
+                self.update()
+        except Exception:
+            pass
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        del event
+        if self._band.isEmpty():
+            return
+        try:
+            painter = QPainter(self)
+            try:
+                # Widget-local coords: the band rect IS our geometry.
+                paint_marquee_band(painter, self.rect(), self._accent)
+            finally:
+                painter.end()
+        except Exception:
+            pass
 
 
 class MarqueeState(QObject):
