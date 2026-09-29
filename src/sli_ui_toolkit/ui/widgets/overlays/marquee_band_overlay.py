@@ -70,16 +70,41 @@ class MarqueeBandOverlay(TopLevelInWindowOverlay):
         return QColor(self._accent)
 
     def set_band(self, rect: QRect | None) -> None:
-        """Show ``rect`` in parent-local coordinates, or hide when empty/None."""
+        """Show ``rect`` in parent-local coordinates, or hide when empty/None.
+
+        No-op when the band is already visible at the same geometry: the
+        gesture drives this per mousemove (100+/s), and a redundant
+        setGeometry + raise + repaint on every event makes the band edge
+        judder against compositor paint frames. Stacking is established on
+        show — but sibling flyouts (context menus explicitly restack
+        themselves above everything on open) can cover the band
+        afterwards, so the no-op path still re-raises when this widget is
+        no longer topmost. That restack needs no repaint.
+        """
         if rect is None or not rect.isValid() or rect.isEmpty():
             self._active = False
             self.hide()
+            return
+        if self._active and self.isVisible() and self.geometry() == rect:
+            self._ensure_stacking()
             return
         self._active = True
         self.setGeometry(rect)
         self.raise_()
         self.show()
         self.update()
+
+    def _ensure_stacking(self) -> None:
+        """Re-raise only when a sibling got above the band (no repaint)."""
+        try:
+            parent = self.parentWidget()
+            if parent is None:
+                return
+            siblings = parent.children()
+            if siblings and siblings[-1] is not self:
+                self.raise_()
+        except Exception:
+            pass
 
     def paintEvent(self, event) -> None:  # noqa: N802
         del event

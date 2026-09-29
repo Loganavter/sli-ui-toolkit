@@ -164,3 +164,96 @@ def test_marquee_band_gesture_tiny_drag_finishes_empty(qapp, qtbot):
     )
     gesture.eventFilter(host, release)
     assert finishes == [QRect()]
+
+
+def test_marquee_band_set_band_skips_identical_geometry(qapp, qtbot):
+    """Same-geometry set_band is a no-op (no restack/repaint spam).
+
+    The gesture drives set_band per mousemove (100+/s); without the
+    early-out every event restacks + repaints the overlay and the band
+    edge judders against compositor paint frames.
+    """
+    from PySide6.QtCore import QEvent, QObject
+
+    host = QWidget()
+    host.resize(400, 300)
+    qtbot.addWidget(host)
+    host.show()
+
+    paints: list[int] = []
+
+    class _PaintCounter(QObject):
+        def eventFilter(self, obj, ev):  # noqa: N802
+            if ev.type() == QEvent.Type.Paint:
+                paints.append(1)
+            return False
+
+    counter = _PaintCounter()
+    band = MarqueeBandOverlay(host)
+    band.installEventFilter(counter)
+    rect = QRect(40, 50, 120, 80)
+    band.set_band(rect)
+    qapp.processEvents()
+    qapp.processEvents()
+    n1 = len(paints)
+    assert band.isVisible()
+    assert band.geometry() == rect
+    band.set_band(QRect(rect))
+    band.set_band(QRect(rect))
+    qapp.processEvents()
+    qapp.processEvents()
+    assert band.isVisible()
+    assert band.geometry() == rect
+    assert len(paints) == n1  # no redundant repaint for identical geometry
+
+
+def test_marquee_band_set_band_reraises_when_covered(qapp, qtbot):
+    """Identical geometry re-raises a covered band — still without repaint.
+
+    Sibling flyouts (context menus restack themselves on open) can end up
+    above the band; the no-op path must restore stacking while skipping
+    the repaint.
+    """
+    from PySide6.QtCore import QEvent, QObject
+
+    host = QWidget()
+    host.resize(400, 300)
+    qtbot.addWidget(host)
+    host.show()
+
+    paints: list[int] = []
+
+    class _PaintCounter(QObject):
+        def eventFilter(self, obj, ev):  # noqa: N802
+            if ev.type() == QEvent.Type.Paint:
+                paints.append(1)
+            return False
+
+    counter = _PaintCounter()
+    band = MarqueeBandOverlay(host)
+    band.installEventFilter(counter)
+    rect = QRect(40, 50, 120, 80)
+    band.set_band(rect)
+    qapp.processEvents()
+    qapp.processEvents()
+    n1 = len(paints)
+
+    cover = QWidget(host)
+    cover.setGeometry(0, 0, 400, 300)
+    cover.show()
+    cover.raise_()
+    qapp.processEvents()
+    assert host.children()[-1] is cover
+
+    band.set_band(QRect(rect))
+    qapp.processEvents()
+    qapp.processEvents()
+    assert host.children()[-1] is band  # stacking restored
+    assert band.isVisible()
+    assert band.geometry() == rect
+    n2 = len(paints)  # at most the one legitimate restack repaint
+    assert n2 <= n1 + 1
+    band.set_band(QRect(rect))  # topmost again: pure no-op
+    qapp.processEvents()
+    qapp.processEvents()
+    assert len(paints) == n2  # ...with zero further repaints
