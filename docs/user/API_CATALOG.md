@@ -393,7 +393,7 @@ In-window modal surfaces, drag/drop zone painters, and rubber-band selection
 | `TopLevelInWindowOverlay` | Modal full-window in-window overlay hosting arbitrary `QWidget` content. |
 | `OverlaySlot` / `OverlayItem` | Slot enum and item metadata. |
 | `DragDropOverlay` | Transparent drag/drop zone painter. |
-| `MarqueeBandOverlay` / `MarqueeBandGesture` | Pointer-transparent selection rubber-band + Wayland-safe drag tracker. |
+| `MarqueeState` / `paint_marquee_band` / `marquee_dirty_rect` | In-paint selection rubber-band: content-local drag tracker + host-painted band (fill a48 + 1px border a200) with region-limited repaints. No overlay widget, no restack. |
 
 ---
 

@@ -93,6 +93,15 @@ class ContextMenu(BaseFlyout):
         # effect, and hide()/close_submenu() read these attributes.
         self._open_submenu: ContextMenu | None = None
         self._submenu_owner_row: ContextMenuRow | None = None
+        # Pending hover-open (FM parity): a single-shot QTimer started when
+        # the pointer enters a parent row, cancelled when it leaves before
+        # SUBMENU_HOVER_DELAY_MS. Never confused with _open_submenu.
+        self._submenu_hover_timer: QTimer | None = None
+        self._submenu_hover_row: ContextMenuRow | None = None
+        # Pending outside-grace close (hover-forwarding): a single-shot
+        # QTimer started when the pointer sits outside both the menu and its
+        # open submenu branch; cancelled on any return into either.
+        self._submenu_outside_timer: QTimer | None = None
         self._owner_menu: ContextMenu | None = None
         self._is_submenu = _is_submenu
         self._surface = surface if surface is not None else get_context_menu_surface()
@@ -181,6 +190,53 @@ class ContextMenu(BaseFlyout):
     def _toggle_submenu(self, row: ContextMenuRow, spec) -> None:
         submenu_ops.toggle_submenu(self, row, spec)
 
+    def _schedule_submenu_hover(self, row: ContextMenuRow, spec) -> None:
+        """Start the hover-open delay for a parent row (FM parity).
+
+        Fires ``open_submenu`` after ``SUBMENU_HOVER_DELAY_MS`` unless the
+        pointer leaves first (see ``_cancel_submenu_hover``) or the submenu
+        is already open on this row. Re-scheduling the same row while its
+        timer is still pending is a no-op (Enter+HoverEnter both hit this
+        path, and the submenu branch forwards repeated moves).
+        """
+        pending = self._submenu_hover_timer
+        if pending is not None and self._submenu_hover_row is row:
+            try:
+                if pending.isActive():
+                    return
+            except RuntimeError:
+                pass
+        self._cancel_submenu_hover()
+        if self._open_submenu is not None and self._submenu_owner_row is row:
+            return
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(submenu_ops.SUBMENU_HOVER_DELAY_MS)
+        timer.timeout.connect(
+            lambda: self._on_submenu_hover_timeout(row, spec, timer)
+        )
+        self._submenu_hover_timer = timer
+        self._submenu_hover_row = row
+        timer.start()
+
+    def _cancel_submenu_hover(self) -> None:
+        """Drop a pending hover-open; an already-open submenu is untouched."""
+        submenu_ops._cancel_pending_hover(self)
+
+    def _on_submenu_hover_timeout(self, row: ContextMenuRow, spec, timer: QTimer) -> None:
+        if self._submenu_hover_timer is not timer:
+            return  # superseded by a newer hover (or cancelled)
+        self._submenu_hover_timer = None
+        self._submenu_hover_row = None
+        try:
+            if not sip.isValid(self) or not sip.isValid(row):  # type: ignore[attr-defined]
+                return
+        except Exception:
+            return
+        if not self.isVisible() or row not in self._rows:
+            return
+        submenu_ops.open_submenu(self, row, spec)
+
     def _position_submenu(self, submenu: "ContextMenu", row: ContextMenuRow) -> None:
         submenu_ops.position_submenu(self, submenu, row)
 
@@ -204,9 +260,43 @@ class ContextMenu(BaseFlyout):
         return False
 
     def eventFilter(self, obj, event):  # noqa: N802
+        event_type = event.type()
+        if self._open_submenu is not None and event_type in (
+            QEvent.Type.MouseMove,
+            QEvent.Type.HoverMove,
+        ):
+            # Hover forwarding: the open submenu holds the mouse grab, so
+            # the owner's rows see no Enter events. Hit-test the forwarded
+            # position instead (sibling switch / leaf close / grace).
+            if submenu_ops._is_forwarded_obj(self, obj):
+                global_pos = None
+                try:
+                    global_pos = event.globalPosition().toPoint()
+                except AttributeError:
+                    try:
+                        global_pos = event.globalPos()
+                    except AttributeError:
+                        global_pos = None
+                if global_pos is not None:
+                    submenu_ops._handle_submenu_forward(self, global_pos)
+                return super().eventFilter(obj, event)
+        if isinstance(obj, ContextMenuRow):
+            if event_type in (QEvent.Type.Enter, QEvent.Type.HoverEnter):
+                spec = getattr(obj, "_spec", None)
+                if spec is not None and getattr(spec, "children", ()):
+                    self._schedule_submenu_hover(obj, spec)
+                elif self._open_submenu is not None:
+                    # Sibling leaf hovered: drop the open submenu (QMenu
+                    # parity) so only one branch stays open at a time.
+                    # Moving from the owner row straight into its submenu
+                    # never hovers a sibling row, so this cannot steal the
+                    # submenu out from under the pointer.
+                    submenu_ops.close_submenu(self)
+            elif event_type in (QEvent.Type.Leave, QEvent.Type.HoverLeave):
+                self._cancel_submenu_hover()
         # Rows are child Buttons — they receive presses before the menu widget.
         if (
-            event.type() == QEvent.Type.MouseButtonPress
+            event_type == QEvent.Type.MouseButtonPress
             and event.button() == Qt.MouseButton.RightButton
         ):
             submenu_ops.root_menu(self).hide()
