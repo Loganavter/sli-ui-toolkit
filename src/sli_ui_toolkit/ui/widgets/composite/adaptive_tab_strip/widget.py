@@ -15,6 +15,7 @@ from PySide6.QtCore import QEvent, QPoint, QRect, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
 
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
+from sli_ui_toolkit.ui.layout_settle import settle_layout
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button, default_layers
 
@@ -108,6 +109,14 @@ class AdaptiveTabStrip(QWidget):
                 + self.tab_bar._SELECTED_SHADOW_SPREAD
             )
         )
+        # Synchronous settle (qt-selfsizing T1): the tab-bar minimum
+        # derives from the add button while the strip layout places both.
+        # Raising the minimum self-enforces, but lowering it never shrinks
+        # the bar — without this the strip layout reclaims the height a
+        # turn late and the bar paints a frame too tall. (The deferred
+        # parent-layout resync in _on_scale_changed stays: the host above
+        # the strip is layout-external.)
+        settle_layout(self, self.tab_bar, self.add_button)
 
     def _on_scale_changed(self, _factor: float) -> None:
         self._apply_layout_metrics()
