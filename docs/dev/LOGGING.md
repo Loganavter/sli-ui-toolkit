@@ -100,7 +100,7 @@ Current streams (canonical name first, legacy aliases after):
 | `SLI_INSPECTOR_DEBUG` | — | `[inspector]` | `ui/inspector/tree.py` |
 | `SLI_MARQUEE_DEBUG` | — | `[marquee]` | `ui/widgets/overlays/marquee_state.py` (`_MARQUEE_DEBUG_VARS`; traces flow via the `on_trace` callback, so no logger-level second gate is needed) |
 | `SLI_TABSTRIP_DEBUG` | — | `[TAB-BAR]` | `ui/widgets/composite/adaptive_tab_strip/tab_bar.py` |
-| `SLI_CTX_MENU_DEBUG` | — | `[ctx-menu]` | `ui/widgets/composite/context_menu/menu.py` |
+| `SLI_CTX_MENU_DEBUG` | — | `[ctx-menu]` | `ui/widgets/composite/context_menu/menu.py` (keys, hover schedule/cancel/timeout, row enter/leave, hide) + `.../context_menu/submenu.py` (open/close `reason=`, forwarding, hit-test decisions, position) |
 
 ## Never mutate logger levels at import time
 

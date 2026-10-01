@@ -8,6 +8,7 @@ as its first argument.
 
 from __future__ import annotations
 
+import logging
 import math
 
 from PySide6.QtCore import (
@@ -22,6 +23,7 @@ from PySide6.QtCore import (
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.config import get_flyout_timings
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.ui.in_window_surface import (
     clamp_surface_rect,
     surface_anchor_rect,
@@ -39,6 +41,16 @@ from sli_ui_toolkit.ui.widgets.composite.base_flyout import (
     slide_start_delta,
 )
 from sli_ui_toolkit.ui.widgets.composite.context_menu import submenu as submenu_ops
+
+logger = logging.getLogger(__name__)
+
+_POPUP_DEBUG_VARS = ("SLI_CTX_MENU_DEBUG",)
+
+
+def _popup_debug(message: str, *args) -> None:
+    """Env-gated popup fade trace (already ``[ctx-menu]``-prefixed)."""
+    if any_flag(*_POPUP_DEBUG_VARS):
+        logger.debug(message, *args)
 
 
 def popup_show_aligned(
@@ -153,7 +165,8 @@ def popup_show_aligned(
 
 
 def popup_at(menu, global_pos: QPoint, *, animation: str | None = None) -> None:
-    submenu_ops.close_submenu(menu)
+    submenu_ops.close_submenu(menu, reason="popup-reopen")
+    menu._submenu_closed_row = None
     menu._relayout_widths()
     container_layout = menu.container.layout()
     if container_layout is not None:
@@ -249,9 +262,13 @@ def _on_popup_fade_in_finished(menu) -> None:
 
 
 def should_popup_fade_out(menu) -> bool:
+    # Submenus never fade (see ``toggle_submenu``): a branch is a distinct
+    # popup, and keeping the outgoing branch mapped during a switch left it
+    # overlapping the incoming one — the new branch read as "died". Only the
+    # root menu fades.
     return bool(
         menu.is_popup_surface()
-        and not menu._is_submenu
+        and not getattr(menu, "_is_submenu", False)
         and menu._fade.fade_out_enabled
         and menu.isVisible()
         and not menu._popup_fade_in_progress
@@ -259,8 +276,25 @@ def should_popup_fade_out(menu) -> bool:
 
 
 def start_popup_fade_out(menu) -> None:
+    _popup_debug(
+        "[ctx-menu] popup fade-out start is_submenu=%s",
+        getattr(menu, "_is_submenu", None),
+    )
     menu._popup_fade_in_progress = True
     menu._fade.capture(menu)
+    # Drop below full opacity and hide the live children NOW. ``paintEvent``
+    # composites the fade snapshot only while ``opacity < 1.0`` (style.py), so
+    # a same-turn repaint of the live tree — e.g. ``close_submenu`` clearing
+    # the owner row's ``_submenu_open`` highlight — would otherwise paint the
+    # live children at full opacity for the first frame(s), then the snapshot
+    # returns the highlight: the "selected button blinks on close" report.
+    if menu._fade.cache is not None and menu._fade.opacity >= 1.0:
+        menu._fade.set_opacity(menu, 1.0 - 1e-3)
+    _popup_debug(
+        "[ctx-menu] popup fade-out snapshot cache=%s opacity=%.4f",
+        menu._fade.cache is not None,
+        menu._fade.opacity,
+    )
     anim = QVariantAnimation(menu)
     anim.setDuration(get_flyout_timings().flyout_fade_out_duration_ms)
     anim.setStartValue(menu._fade.opacity)
@@ -275,6 +309,10 @@ def start_popup_fade_out(menu) -> None:
 
 
 def _on_popup_fade_out_finished(menu) -> None:
+    _popup_debug(
+        "[ctx-menu] popup fade-out finished is_submenu=%s",
+        getattr(menu, "_is_submenu", None),
+    )
     if menu._popup_fade_anim is not None:
         menu._popup_fade_anim.deleteLater()
         menu._popup_fade_anim = None
@@ -283,7 +321,7 @@ def _on_popup_fade_out_finished(menu) -> None:
     menu._fade.opacity = 1.0
     QWidget.hide(menu)
     menu.aboutToHide.emit()
-    if menu.is_popup_surface() and not menu._is_submenu:
+    if menu.is_popup_surface():
         menu.deleteLater()
 
 

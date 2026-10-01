@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
+from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.managers.ui_font import rebase_family, ui_font
@@ -22,6 +25,21 @@ from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
     _shortcut_display_text,
 )
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
+
+logger = logging.getLogger(__name__)
+
+# Same stream/prefix as ``menu.py``/``submenu.py``: ``SLI_CTX_MENU_DEBUG``,
+# ``[ctx-menu]``. Row-level hover/open transitions are the exact signals a
+# "the parent button blinks on submenu close" report needs — the menu-level
+# trace sees the close, but not which row repainted highlighted/plain.
+_ROW_DEBUG_VARS = ("SLI_CTX_MENU_DEBUG",)
+
+
+def _row_debug(message: str, *args) -> None:
+    """Env-gated row trace line (already ``[ctx-menu]``-prefixed)."""
+    if any_flag(*_ROW_DEBUG_VARS):
+        logger.debug(message, *args)
+
 
 
 class SeparatorRow(QWidget):
@@ -267,8 +285,23 @@ class ContextMenuRow(Button):
         return self.sizeHint()
 
     def set_submenu_open(self, is_open: bool) -> None:
+        changed = bool(is_open) != self._submenu_open
         self._submenu_open = is_open
+        if changed:
+            _row_debug(
+                "[ctx-menu] row %s submenu-open=%s (repaint)",
+                self.action_id,
+                bool(is_open),
+            )
         self.update()
+
+    def enterEvent(self, event):  # noqa: N802 - Qt API
+        _row_debug("[ctx-menu] row %s hover-enter", self.action_id)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):  # noqa: N802 - Qt API
+        _row_debug("[ctx-menu] row %s hover-leave", self.action_id)
+        super().leaveEvent(event)
 
     def set_position(self, position: str) -> None:
         if self.position != position:

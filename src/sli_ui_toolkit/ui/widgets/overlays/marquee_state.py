@@ -60,6 +60,34 @@ def _marquee_debug_enabled() -> bool:
     return any_flag(*_MARQUEE_DEBUG_VARS)
 
 
+def _left_button_held(event: QMouseEvent) -> bool:
+    """True when the left button drives this move (desync-tolerant).
+
+    Mid-drag crossings into sibling native windows (toolbar/stats-strip
+    ``QWindow``s, context-menu popups) empty the per-event button mask —
+    sticky, even back on the press window — while the OS-level mask stays
+    truthful (live-proven: gallery 2026-09-30, moves flowed ~3 s with
+    ``event.buttons() == 0`` and global ``LeftButton`` held, band frozen).
+    A real release always arrives as ``MouseButtonRelease`` (finishes the
+    gesture and removes the filter), so an in-flight origin plus a global
+    Left means desync, not hover — fall back to the global mask then.
+    """
+    try:
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            return True
+    except Exception:
+        pass
+    try:
+        app = QApplication.instance()
+        if app is not None and (
+            QApplication.mouseButtons() & Qt.MouseButton.LeftButton
+        ):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def paint_marquee_band(
     painter: QPainter,
     rect: QRect,
@@ -385,9 +413,7 @@ class MarqueeState(QObject):
                 event.button(), self._origin,
             )
             return False
-        if et == QEvent.Type.MouseMove and (
-            event.buttons() & Qt.MouseButton.LeftButton
-        ):
+        if et == QEvent.Type.MouseMove and _left_button_held(event):
             pos = self._host.mapFromGlobal(event.globalPosition().toPoint())
             self.update_at(pos)
             return True
