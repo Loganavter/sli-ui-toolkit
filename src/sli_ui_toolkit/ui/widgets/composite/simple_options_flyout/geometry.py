@@ -79,17 +79,16 @@ def update_size(
     # from live row hints while QLayouts place the children — refresh the
     # hints and re-run each affected layout now so the first painted frame
     # already agrees (a posted re-run splits the growth into the wrong
-    # child for one frame). Two ordering constraints (both probe-verified
-    # in .agent/scratch/):
+    # child for one frame). Two ordering constraints (both verified with
+    # offscreen probes during development):
     # - rows refresh BEFORE the fixed sizes: the sizes propagate
     #   synchronously through the scroll area (container resize ->
     #   scroll resize -> updateScrollBars -> contents resize), and that
     #   cascade pins the contents to whatever minimum is current — with
-    #   stale hints a shrink sticks wide for a frame (probe_flyout3).
+    #   stale hints a shrink sticks wide for a frame.
     # - the rows level needs its own activate AFTER the ancestors
     #   resized its host: an outer activate alone misattributes growth
-    #   through a nested fixed-size host (probe_cascade2: 60/60 splits
-    #   instead of 20/100).
+    #   through a nested fixed-size host (60/60 splits instead of 20/100).
     settle_layout(flyout.container, flyout._scroll_area, flyout._rows_container)
     settle_layout(flyout, flyout.container)
     settle_layout(flyout._rows_container, *rows)
