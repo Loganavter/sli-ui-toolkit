@@ -5,6 +5,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.layout_settle import settle_layout
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.utils import resource_path
 
@@ -117,18 +118,65 @@ def setup_dialog_icon(dialog: QDialog, icon_path: str | None = None):
     if icon_path and os.path.exists(icon_path):
         dialog.setWindowIcon(QIcon(icon_path))
 
+def _dialog_layout_children(dialog: QDialog) -> list[QWidget]:
+    """Direct layout children of ``dialog`` (for ``settle_layout``)."""
+    layout = dialog.layout()
+    if layout is None:
+        return []
+    children: list[QWidget] = []
+    for i in range(layout.count()):
+        item = layout.itemAt(i)
+        widget = item.widget() if item is not None else None
+        if widget is not None:
+            children.append(widget)
+    return children
+
+
+def apply_auto_size(dialog: QDialog, min_width: int = 0, min_height: int = 0) -> None:
+    """Resize ``dialog`` to its content synchronously (no event-loop wait).
+
+    The synchronous core behind ``auto_size_dialog``: refreshes child hints
+    first (so ``adjustSize()``/``sizeHint()`` below see current child state
+    instead of a stale cache), resizes from the fresh hint, re-syncs group
+    frames, then settles the dialog layout in the same call — the widget
+    and its contents agree in the first painted frame (see
+    ``ui.layout_settle``). A dialog without a layout still resizes; the
+    settle is a no-op there.
+    """
+    children = _dialog_layout_children(dialog)
+    settle_layout(dialog, *children)
+    dialog.ensurePolished()
+    dialog.adjustSize()
+
+    content_size = dialog.sizeHint()
+
+    final_width = max(min_width, content_size.width() + 50)
+    final_height = max(min_height, content_size.height() + 30)
+
+    dialog.resize(final_width, final_height)
+
+    _update_group_sizes(dialog)
+    settle_layout(dialog, *children)
+
+
 def auto_size_dialog(dialog: QDialog, min_width: int = 0, min_height: int = 0):
+    """Size ``dialog`` to its content (deferred when still hidden).
+
+    A hidden dialog has no valid hints yet, so the sizing is posted to the
+    next loop turn (as before). A dialog that is already visible/polished
+    is sized synchronously in the same call — its hints are valid and
+    there is no reason to show one frame at the old size. Either leg ends
+    in ``apply_auto_size``'s synchronous settle.
+    """
+    if dialog.isVisible():
+        apply_auto_size(dialog, min_width, min_height)
+        return
+
     def _recalculate_sizes():
-        dialog.adjustSize()
-
-        content_size = dialog.sizeHint()
-
-        final_width = max(min_width, content_size.width() + 50)
-        final_height = max(min_height, content_size.height() + 30)
-
-        dialog.resize(final_width, final_height)
-
-        _update_group_sizes(dialog)
+        try:
+            apply_auto_size(dialog, min_width, min_height)
+        except RuntimeError:
+            pass  # dialog torn down before the deferred pass ran
 
     QTimer.singleShot(0, _recalculate_sizes)
 
@@ -147,4 +195,9 @@ def _update_group_sizes(dialog: QDialog):
                         break
 
                 parent_group.resize(max(parent_group.width(), min_width), parent_group.height())
+                # The resize above derives the host's size from a child's
+                # hint while a layout may place its children: settle now so
+                # the group and its contents agree in the same call (a group
+                # without a layout is a no-op for the settle, not an error).
+                settle_layout(parent_group, child)
                 parent_group.updateGeometry()
