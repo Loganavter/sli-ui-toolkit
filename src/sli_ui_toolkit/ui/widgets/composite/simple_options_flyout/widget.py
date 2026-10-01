@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from sli_ui_toolkit.config import get_flyout_timings
+from sli_ui_toolkit.ui.layout_settle import settle_layout
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.managers.ui_font import UiFont, rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
@@ -189,9 +190,13 @@ class SimpleOptionsFlyout(BaseFlyout):
                         except TypeError:
                             pass
                 self._rows_layout.insertWidget(self._rows_layout.count() - 1, row)
-            self._update_size()
         finally:
             self._rows_container.setUpdatesEnabled(True)
+        # Re-fit AFTER updates are re-enabled: a layout on an
+        # updates-disabled widget ignores activate() (it is disabled along
+        # with the widget), so settling inside the guarded block silently
+        # no-ops and the rows keep stale geometry for a frame.
+        self._update_size()
 
     def _clear_rows(self) -> None:
         while self._rows_layout.count() > 1:
@@ -546,6 +551,9 @@ class SimpleOptionsFlyout(BaseFlyout):
                     f"Before={total_width}, After={actual_width_after}, anchor_width={anchor_width}"
                 )
                 self.setFixedSize(total_width, total_height)
+                # The re-assert re-derives our size after show() moved it:
+                # settle synchronously so the layout agrees in this call.
+                settle_layout(self, self.container)
 
         _animation.start_show_animation(self, want_slide, want_fade, start_pos, end_pos)
 

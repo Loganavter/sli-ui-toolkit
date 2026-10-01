@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
+from sli_ui_toolkit.ui.layout_settle import settle_layout
 from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import CloseButtonPolicy
 from sli_ui_toolkit.ui.widgets.composite.dialog_shell import (
     ScrollableDialogPage,
@@ -101,10 +102,13 @@ class _InspectionPane(
             # their creation size, so their scroll areas (Code section etc.)
             # stay stale: the code canvas would freeze at the width the page
             # had when it was first opened. Resize EVERY page, not just the
-            # current one.
+            # current one, and settle each page's own layout in the same call
+            # (the settled widget is the page, not the watched stack, so this
+            # is not a settle-inside-own-resizeEvent; see layout_settle).
             size = self.shell.pages_stack.size()
             for page in self.pages.values():
                 page.resize(size)
+                settle_layout(page, page.scroll_area)
         return super().eventFilter(watched, event)
 
     def _on_sidebar_row(self, row: int) -> None:
@@ -113,8 +117,11 @@ class _InspectionPane(
         if page is not None:
             # Hidden pages do not follow the stack size (see eventFilter);
             # sync the freshly shown page so its scroll area/canvas relayouts
-            # at the current window width instead of the opening-time one.
+            # at the current window width instead of the opening-time one —
+            # settled synchronously so the first frame after the switch
+            # already agrees (a row-change slot is not a resizeEvent).
             page.resize(self.shell.pages_stack.size())
+            settle_layout(page, getattr(page, "scroll_area", None))
 
     def add_section(self, name: str) -> ScrollableDialogPage:
         """Append an extra sidebar section (app layer: Native)."""
