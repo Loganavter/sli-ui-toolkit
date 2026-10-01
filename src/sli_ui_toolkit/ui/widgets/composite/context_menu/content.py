@@ -33,7 +33,7 @@ from sli_ui_toolkit.ui.widgets.composite.context_menu.rows import (
 
 
 def set_entries(menu, entries) -> None:
-    submenu_ops.close_submenu(menu)
+    submenu_ops.close_submenu(menu, reason="entries-reset")
     # Take widgets out of the layout once, then destroy. Calling
     # deleteLater on both ``_rows`` and layout items double-schedules the
     # same ContextMenuRow and races with immediate recreation under

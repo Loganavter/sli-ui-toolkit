@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QMouseEvent, QPainter
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.widgets import (
     MarqueeState,
@@ -91,6 +91,47 @@ def test_state_release_passes_through_while_finishing(qapp, qtbot):
     assert st.active is False
     assert st.app_filter_installed is False
     assert finishes == [QRect(QPoint(10, 10), QPoint(80, 60)).normalized()]
+
+
+def test_state_move_with_desynced_event_buttons_still_tracks(qapp, qtbot):
+    """Per-event mask emptied mid-drag (native-window crossing) still tracks.
+
+    Regression (gallery 2026-09-30): crossing into a sibling native window
+    (toolbar/stats/popup ``QWindow``) empties ``event.buttons()`` sticky
+    while the OS button stays held — the band froze with Left down. The
+    filter falls back to the global mask (a real release always arrives as
+    ``MouseButtonRelease`` and finishes, so in-flight origin + global Left
+    means desync, not hover).
+    """
+    from PySide6.QtCore import QPointF
+    from PySide6.QtTest import QTest
+
+    host = QWidget()
+    host.resize(400, 300)
+    qtbot.addWidget(host)
+    host.show()
+    updates: list[QRect] = []
+    st = MarqueeState(host, on_update=updates.append)
+    assert st.start(QPoint(10, 10)) is True
+    assert len(updates) == 1
+    try:
+        QTest.mousePress(host, Qt.MouseButton.LeftButton, pos=QPoint(10, 10))
+        assert QApplication.mouseButtons() & Qt.MouseButton.LeftButton
+        desynced = QMouseEvent(
+            QMouseEvent.Type.MouseMove,
+            QPointF(80, 60),
+            QPointF(host.mapToGlobal(QPoint(80, 60))),
+            Qt.MouseButton.NoButton,
+            Qt.MouseButtons(Qt.MouseButton.NoButton),
+            Qt.KeyboardModifier.NoModifier,
+        )
+        assert st.eventFilter(host, desynced) is True
+        assert len(updates) == 2
+        assert st.band_rect == QRect(QPoint(10, 10), QPoint(80, 60)).normalized()
+    finally:
+        # Real release still finishes normally (pass-through contract kept).
+        QTest.mouseRelease(host, Qt.MouseButton.LeftButton, pos=QPoint(80, 60))
+    assert st.active is False
 
 
 def test_state_non_left_press_ignored_while_active(qapp):

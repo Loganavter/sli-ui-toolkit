@@ -98,6 +98,12 @@ class ContextMenu(BaseFlyout):
         # SUBMENU_HOVER_DELAY_MS. Never confused with _open_submenu.
         self._submenu_hover_timer: QTimer | None = None
         self._submenu_hover_row: ContextMenuRow | None = None
+        # The row whose submenu was just closed (toggle/leaf/outside). While
+        # the pointer never left that row, the popup hide makes Qt re-deliver
+        # a hover Enter to it; without this guard that Enter re-schedules the
+        # hover-open and the branch blinks (closes, reopens). Cleared on the
+        # row's Leave (or when another row is entered).
+        self._submenu_closed_row: ContextMenuRow | None = None
         self._owner_menu: ContextMenu | None = None
         self._is_submenu = _is_submenu
         self._surface = surface if surface is not None else get_context_menu_surface()
@@ -174,7 +180,10 @@ class ContextMenu(BaseFlyout):
         self._finish_row_click(spec.action_id, spec.data)
 
     def _finish_row_click(self, action_id: str, data: object) -> None:
-        submenu_ops.close_submenu(self)
+        _ctx_menu_debug(
+            "[ctx-menu] row click action_id=%s -> close submenu", action_id
+        )
+        submenu_ops.close_submenu(self, reason="row-click")
         submenu_ops.root_menu(self).hide()
         self.actionTriggered.emit(action_id, data)
         if self._on_triggered is not None:
@@ -199,12 +208,31 @@ class ContextMenu(BaseFlyout):
         if pending is not None and self._submenu_hover_row is row:
             try:
                 if pending.isActive():
+                    _ctx_menu_debug(
+                        "[ctx-menu] hover schedule row=%s already pending -> keep",
+                        getattr(getattr(row, "_spec", None), "action_id", None),
+                    )
                     return
             except RuntimeError:
                 pass
         self._cancel_submenu_hover()
-        if self._open_submenu is not None and self._submenu_owner_row is row:
+        if self._open_submenu is None and row is self._submenu_closed_row:
+            _ctx_menu_debug(
+                "[ctx-menu] hover schedule row=%s suppressed (just-closed owner)",
+                getattr(getattr(row, "_spec", None), "action_id", None),
+            )
             return
+        if self._open_submenu is not None and self._submenu_owner_row is row:
+            _ctx_menu_debug(
+                "[ctx-menu] hover schedule row=%s already owner -> keep",
+                getattr(getattr(row, "_spec", None), "action_id", None),
+            )
+            return
+        _ctx_menu_debug(
+            "[ctx-menu] hover schedule row=%s delay_ms=%d",
+            getattr(getattr(row, "_spec", None), "action_id", None),
+            submenu_ops.SUBMENU_HOVER_DELAY_MS,
+        )
         timer = QTimer(self)
         timer.setSingleShot(True)
         timer.setInterval(submenu_ops.SUBMENU_HOVER_DELAY_MS)
@@ -217,7 +245,10 @@ class ContextMenu(BaseFlyout):
 
     def _cancel_submenu_hover(self) -> None:
         """Drop a pending hover-open; an already-open submenu is untouched."""
+        had_pending = self._submenu_hover_timer is not None
         submenu_ops._cancel_pending_hover(self)
+        if had_pending:
+            _ctx_menu_debug("[ctx-menu] hover cancelled (pointer left first)")
 
     def _on_submenu_hover_timeout(self, row: ContextMenuRow, spec, timer: QTimer) -> None:
         if self._submenu_hover_timer is not timer:
@@ -230,7 +261,17 @@ class ContextMenu(BaseFlyout):
         except Exception:
             return
         if not self.isVisible() or row not in self._rows:
+            _ctx_menu_debug(
+                "[ctx-menu] hover timeout row=%s dropped (visible=%s in_rows=%s)",
+                getattr(spec, "action_id", None),
+                self.isVisible(),
+                row in self._rows,
+            )
             return
+        _ctx_menu_debug(
+            "[ctx-menu] hover timeout row=%s -> open",
+            getattr(spec, "action_id", None),
+        )
         submenu_ops.open_submenu(self, row, spec)
 
     def _position_submenu(self, submenu: "ContextMenu", row: ContextMenuRow) -> None:
@@ -274,12 +315,56 @@ class ContextMenu(BaseFlyout):
                     except AttributeError:
                         global_pos = None
                 if global_pos is not None:
+                    _ctx_menu_debug(
+                        "[ctx-menu] forward move pos=%s -> hit-test", global_pos
+                    )
                     submenu_ops._handle_submenu_forward(self, global_pos)
                 return super().eventFilter(obj, event)
         if isinstance(obj, ContextMenuRow):
+            if self._open_submenu is not None and submenu_ops._is_forwarded_obj(
+                self, obj
+            ):
+                # Enter/Leave inside the open submenu branch: the branch owns
+                # its own hover. Reading it as sibling motion closed the
+                # submenu out from under the pointer on the first step into
+                # it (live: recent-empty Sort by -> first leaf Enter killed
+                # the branch as "sibling leaf"). Ignore for sibling logic.
+                if event_type in (
+                    QEvent.Type.Enter,
+                    QEvent.Type.HoverEnter,
+                    QEvent.Type.Leave,
+                    QEvent.Type.HoverLeave,
+                ):
+                    _ctx_menu_debug(
+                        "[ctx-menu] branch row %s action_id=%s -> ignore (own hover)",
+                        "enter"
+                        if event_type
+                        in (QEvent.Type.Enter, QEvent.Type.HoverEnter)
+                        else "leave",
+                        getattr(getattr(obj, "_spec", None), "action_id", None),
+                    )
+                    return super().eventFilter(obj, event)
             if event_type in (QEvent.Type.Enter, QEvent.Type.HoverEnter):
                 spec = getattr(obj, "_spec", None)
-                if spec is not None and getattr(spec, "children", ()):
+                action_id = getattr(spec, "action_id", None)
+                has_children = bool(getattr(spec, "children", ()))
+                if obj is not self._submenu_closed_row:
+                    if self._submenu_closed_row is not None:
+                        _ctx_menu_debug(
+                            "[ctx-menu] just-closed guard cleared "
+                            "(entered other row action_id=%s)",
+                            action_id,
+                        )
+                    # Pointer is on a different row now — the just-closed
+                    # owner may reopen on a later re-entry.
+                    self._submenu_closed_row = None
+                _ctx_menu_debug(
+                    "[ctx-menu] row enter action_id=%s children=%s open=%s",
+                    action_id,
+                    has_children,
+                    self._open_submenu is not None,
+                )
+                if spec is not None and has_children:
                     self._schedule_submenu_hover(obj, spec)
                 elif self._open_submenu is not None:
                     # Sibling leaf hovered: drop the open submenu (QMenu
@@ -287,8 +372,25 @@ class ContextMenu(BaseFlyout):
                     # Moving from the owner row straight into its submenu
                     # never hovers a sibling row, so this cannot steal the
                     # submenu out from under the pointer.
-                    submenu_ops.close_submenu(self)
+                    _ctx_menu_debug(
+                        "[ctx-menu] row enter action_id=%s -> close (sibling leaf)",
+                        action_id,
+                    )
+                    submenu_ops.close_submenu(self, reason="sibling-leaf-hover")
             elif event_type in (QEvent.Type.Leave, QEvent.Type.HoverLeave):
+                if obj is self._submenu_closed_row:
+                    _ctx_menu_debug(
+                        "[ctx-menu] just-closed guard cleared "
+                        "(pointer left row action_id=%s)",
+                        getattr(getattr(obj, "_spec", None), "action_id", None),
+                    )
+                    # Pointer actually left the just-closed owner; a later
+                    # re-entry may hover-open it again.
+                    self._submenu_closed_row = None
+                _ctx_menu_debug(
+                    "[ctx-menu] row leave action_id=%s",
+                    getattr(getattr(obj, "_spec", None), "action_id", None),
+                )
                 self._cancel_submenu_hover()
         # Rows are child Buttons — they receive presses before the menu widget.
         if (
@@ -319,14 +421,40 @@ class ContextMenu(BaseFlyout):
         super().mousePressEvent(event)
 
     def hide(self):
-        submenu_ops.close_submenu(self)
-        if not self.is_popup_surface():
-            self._visible_menus.discard(self)
-        if popup_ops.should_popup_fade_out(self):
+        _ctx_menu_debug(
+            "[ctx-menu] hide surface=%s had_submenu=%s fade_out=%s "
+            "fade_in_progress=%s visible=%s is_submenu=%s",
+            self._surface,
+            self._open_submenu is not None,
+            popup_ops.should_popup_fade_out(self),
+            self._popup_fade_in_progress,
+            self.isVisible(),
+            self._is_submenu,
+        )
+        # A hide while our own fade-out is already running is a no-op: the
+        # finish handler owns the real hide + deleteLater. Without this,
+        # cascade re-entry (owner hide -> branch hide -> owner hide) would
+        # restart animations and double-emit aboutToHide.
+        if getattr(self, "_popup_fade_anim", None) is not None:
+            _ctx_menu_debug("[ctx-menu] hide suppressed — fade already in flight")
+            return
+        # Only the root menu fades (submenus never do — see ``toggle_submenu``).
+        # Start our own fade BEFORE detaching the branch: the snapshot must
+        # keep the owner row's open-highlight (detaching repaints it plain
+        # while still fully opaque — a one-frame unhover flash).
+        fading = popup_ops.should_popup_fade_out(self)
+        if fading:
             # Popup surface shown with a fade-bearing animation: fade out
             # first, then really hide + emit aboutToHide + deleteLater once
             # the widget is off screen (see popup._on_popup_fade_out_finished).
             popup_ops.start_popup_fade_out(self)
+        submenu_ops.close_submenu(self, reason="parent-hide")
+        # The menu is going away; drop the just-closed-owner guard so a later
+        # show of this instance is not affected.
+        self._submenu_closed_row = None
+        if not self.is_popup_surface():
+            self._visible_menus.discard(self)
+        if fading:
             return
         ephemeral = self._is_submenu or self.is_popup_surface()
         if ephemeral:
