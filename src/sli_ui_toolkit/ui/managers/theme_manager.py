@@ -5,7 +5,7 @@ import re
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -399,6 +399,13 @@ class ThemeManager(QObject):
         Top-levels that currently host an active button ripple keep updates
         enabled so a finishing wave is not frozen mid-frame (QSS itself still
         blocks the GUI thread — prefer ``await_ripples`` / ``defer_click``).
+
+        ``WA_TranslucentBackground`` top-levels (CSD shells) are NEVER
+        suspended: the window keeps delivering layout passes while updates
+        are off, and any geometry mutated mid-suspension leaves a
+        never-repainted (see-through) area — the CSD punch-through class
+        (qt-selfsizing Phase 3). Correctness beats the atomic-fill benefit
+        there; opaque windows still freeze as before.
         """
         app = app or _qapp_instance()
         if app is None:
@@ -410,6 +417,10 @@ class ThemeManager(QObject):
             for widget in app.topLevelWidgets():
                 try:
                     if _tree_has_active_ripple(widget):
+                        continue
+                    if widget.testAttribute(
+                        Qt.WidgetAttribute.WA_TranslucentBackground
+                    ):
                         continue
                     state.append((widget, widget.updatesEnabled()))
                     widget.setUpdatesEnabled(False)
