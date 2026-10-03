@@ -88,9 +88,12 @@ class _PaneRenderingMixin:
             item = layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
-                # detach immediately (deleteLater alone leaves the widget a
+                # Detach hidden (deleteLater alone leaves the widget a
                 # visible child until the event loop flushes deferred
-                # deletes — a re-inspection would double-render pages)
+                # deletes — a re-inspection would double-render pages).
+                # hide() first: an orphaned visible widget maps a
+                # stillborn toplevel (global busy cursor on Wayland).
+                widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
 

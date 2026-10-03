@@ -239,6 +239,8 @@ class IconListWidget(QWidget):
 
     def clear(self) -> None:
         for row in self._rows:
+            # Hide before orphaning (stillborn-toplevel guard).
+            row.button.hide()
             row.button.setParent(None)
             row.button.deleteLater()
         self._rows.clear()

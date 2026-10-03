@@ -138,6 +138,10 @@ class RowPool:
 
     def dispose(self) -> None:
         for widget in self._widgets:
+            # Hide before orphaning: a visible slot reparented to None maps
+            # a stillborn toplevel + stale activation token (global busy
+            # cursor on Wayland).
+            widget.hide()
             widget.setParent(None)
             widget.deleteLater()
         self._widgets = []

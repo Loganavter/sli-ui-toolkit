@@ -214,6 +214,8 @@ class ToastNotification(QWidget):
             item = self.action_row_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # Hide before orphaning (stillborn-toplevel guard).
+                widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
         self._action_widgets.clear()
@@ -270,6 +272,8 @@ class ToastNotification(QWidget):
     def _set_custom_content(self, widget: QWidget, max_width: int):
         if self._custom_content is not None and self._custom_content is not widget:
             self.main_layout.removeWidget(self._custom_content)
+            # Hide before orphaning (stillborn-toplevel guard).
+            self._custom_content.hide()
             self._custom_content.setParent(None)
             self._custom_content.deleteLater()
 
@@ -296,6 +300,8 @@ class ToastNotification(QWidget):
     def _set_message_text(self, message: str, max_width: int):
         if self._custom_content is not None:
             self.main_layout.removeWidget(self._custom_content)
+            # Hide before orphaning (stillborn-toplevel guard).
+            self._custom_content.hide()
             self._custom_content.setParent(None)
             self._custom_content.deleteLater()
             self._custom_content = None
