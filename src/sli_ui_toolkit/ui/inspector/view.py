@@ -512,6 +512,7 @@ class InspectorWindow(QDialog):
             index = layout.indexOf(widget)
             if index >= 0:
                 layout.takeAt(index)
+        widget.hide()
         widget.setParent(None)
 
     # -- forwarding helpers for the app layer -------------------------------

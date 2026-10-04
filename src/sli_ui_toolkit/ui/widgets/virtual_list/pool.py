@@ -138,6 +138,7 @@ class RowPool:
 
     def dispose(self) -> None:
         for widget in self._widgets:
+            widget.hide()
             widget.setParent(None)
             widget.deleteLater()
         self._widgets = []
