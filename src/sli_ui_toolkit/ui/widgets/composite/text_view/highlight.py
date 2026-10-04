@@ -105,6 +105,7 @@ def python_line_spans(line: str) -> tuple[tuple[int, int, str], ...]:
                 continue
         if ch.isascii() and (ch.isalpha() or ch == "_"):
             match = _KEYWORD_RE.match(line, index)
+            assert match is not None  # [A-Za-z_] always matches the ascii-alpha/_ char at index
             word = match.group(0)
             end = index + len(word)
             if word in PY_KEYWORDS:
