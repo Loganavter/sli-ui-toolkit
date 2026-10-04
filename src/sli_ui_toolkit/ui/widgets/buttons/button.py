@@ -26,14 +26,16 @@ from collections.abc import Sequence
 from typing import Any, ClassVar, TYPE_CHECKING, cast
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+import shiboken6 as sip
 
 logger = logging.getLogger(__name__)
 _last_button_paint_error_ts: float = 0.0
 _BUTTON_PAINT_ERROR_THROTTLE_S = 5.0
-from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath
+from PySide6.QtGui import QColor, QCursor, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_font import UiFont
 from sli_ui_toolkit.deprecations import (
     BUTTON_PRIMARY_VARIANT,
     BUTTON_SET_CHECKED_EMIT_SIGNAL,
@@ -46,7 +48,12 @@ from .capabilities import (
     ButtonCapability,
     LongPressCapability,
 )
-from .content import ButtonRow, build_button_content, build_region_content
+from .content import (
+    ButtonRow,
+    build_button_content,
+    build_region_content,
+    draw_marquee_paints,
+)
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import ensure_marquee_driver
 from .controller import ButtonController
 from .context import DrawContext
@@ -145,6 +152,44 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     def event(self, event):
         return _ButtonStyleApi.event(self, event)
 
+    def changeEvent(self, event):
+        # setFont()/setPalette()/setStyle() repaint through Qt internals,
+        # bypassing the update() override — retire the snapshot explicitly.
+        if event.type() in (
+            QEvent.Type.FontChange,
+            QEvent.Type.PaletteChange,
+            QEvent.Type.StyleChange,
+        ):
+            self._invalidate_static_cache()
+        super().changeEvent(event)
+
+    def update(self, *args: Any) -> None:
+        """Full-widget repaints retire the static layer; tick rects don't.
+
+        Every painted-content mutator (text/icon/rows, colors, variant,
+        padding, regions, theme/font/scale switches, state flips) funnels
+        through a full ``update()`` — bumping ``_content_version`` here
+        invalidates the snapshot without touching any of those call sites.
+        Marquee ticks repaint only the driver dirty rect
+        (``update(QRect)``), so the idle 60fps crawl keeps its cache.
+
+        The ``isValid`` guard matters because this override is a Python
+        callable held by long-lived singleton signals (``theme_changed``,
+        ``font_changed``): unlike a direct C++ slot connection, those do
+        not auto-disconnect when the C++ object dies, so a late theme
+        switch would otherwise re-enter ``QWidget.update`` on a deleted
+        object (``RuntimeError`` in the Qt event loop).
+        """
+        if not sip.isValid(self):  # type: ignore[attr-defined]
+            return
+        if not args:
+            self._invalidate_static_cache()
+        super().update(*args)
+
+    def _on_toolkit_font_changed(self) -> None:
+        self._invalidate_static_cache()
+        self.update()
+
     def sizeHint(self):
         return _ButtonStyleApi.sizeHint(self)
 
@@ -213,6 +258,24 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         # the Shiboken ``__init__`` wrapper on Python 3.14+ (SystemError, then
         # segfault when a ContextMenuRow is built for a title-bar menu).
         QWidget.__init__(self, parent)
+
+        # Static-layer cache state — first, before any update() can fire
+        # (the update() override below bumps the version on full repaints).
+        self._content_version = 0
+        self._static_cache: QPixmap | None = None
+        self._static_key: tuple[Any, ...] | None = None
+        self._marquee_row_paints: list[Any] = []
+        self._paint_skip_marquee = False
+        # Custom layers / overlay painters paint through the same snapshotted
+        # pipeline (Painter.paint with the final layer list, incl. the
+        # OverlayPainterLayer adapter), so the snapshot reproduces their
+        # output exactly — no overlay/layer code in the repo reads the
+        # marquee phase, and any animated paint code must call update(),
+        # which bumps _content_version and re-snapshots per frame (fail-safe:
+        # animated overlays degrade to today's full-pipeline behavior, never
+        # frozen). Ripples keep their own per-tick guard. Always cache.
+        self._static_cache_allowed = True
+        self._static_fast_hits = 0
 
         if config is not None:
             cfg = config.to_kwargs()
@@ -371,6 +434,10 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update)
         UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+        # ui_font() results feed every text row (including the cached marquee
+        # descriptors), so an app-font change must retire the snapshot — the
+        # same class of invalidation as a theme switch.
+        UiFont.get_instance().font_changed.connect(self._on_toolkit_font_changed)
 
         effective_extra: list[Layer] = []
         if extra_layers:
@@ -485,6 +552,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         capability.attach(self, region_id=region_id or "_main")
         self._capabilities.append(capability)
         self._capability_map[key] = capability
+        self._invalidate_static_cache()
 
     def detach_capability(
         self,
@@ -497,6 +565,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             cap.detach(self)
             self._capabilities.remove(cap)
             del self._capability_map[key]
+            self._invalidate_static_cache()
 
     def get_capability(
         self,
@@ -723,6 +792,131 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     def region_ripple(self, region_id: str) -> RippleEffect | None:
         return self._controller.ripple(region_id)
 
+    # -------- static-layer cache (marquee fast path) --------
+
+    def _invalidate_static_cache(self) -> None:
+        """Retire the static snapshot (safe before attrs exist, via update())."""
+        self._content_version = int(getattr(self, "_content_version", 0) or 0) + 1
+        self._static_cache = None
+        self._static_key = None
+        self._marquee_row_paints = []
+
+    def _static_key_now(self) -> tuple[Any, ...]:
+        """Key for the snapshot: geometry + paint states + version + DPR.
+
+        Mutators bump ``_content_version`` (via the ``update()`` override);
+        hover/press/check/disable/focus flips ride in ``states`` (no bump
+        needed); per-region hover targets ride along explicitly because
+        ``_update_hover_region`` can move the highlight without a state
+        change; resize/DPR changes fall out of the size/ratio terms.
+        """
+        states = frozenset(
+            (region_id, state)
+            for region_id, owned in self._region_states.items()
+            for state in owned
+        )
+        size = self.size()
+        return (
+            size.width(),
+            size.height(),
+            states,
+            self._hovered_region,
+            self._pressed_region,
+            self._content_version,
+            float(self.devicePixelRatioF()),
+        )
+
+    def _ripple_active(self) -> bool:
+        ripples = list(self._region_ripple.values())
+        main = getattr(self, "_ripple", None)
+        if main is not None and main not in ripples:
+            ripples.append(main)
+        return any(r is not None and r.is_active() for r in ripples)
+
+    def _try_fast_marquee_paint(self, painter: QPainter, event: Any) -> bool:
+        """Blit the static snapshot + replay marquee rows at tick phase.
+
+        Zero context builds, zero region walks, zero background resolves,
+        zero pixmap scaling, zero font metrics — the strip cache on the
+        driver serves the row blits. Falls back (False) to the full
+        pipeline on any doubt: missing/disabled cache, key mismatch,
+        uncovered event rect, active ripple.
+        """
+        if not self._static_cache_allowed:
+            return False
+        cache = self._static_cache
+        if cache is None or cache.isNull():
+            return False
+        paints = self._marquee_row_paints
+        if not paints:
+            return False
+        driver = getattr(self, "_marquee_driver", None)
+        if driver is None:
+            return False
+        dirty = driver.dirty_rect()
+        if dirty is None or dirty.isEmpty():
+            return False
+        rect = event.rect()
+        if rect.isEmpty() or not dirty.contains(rect, False):
+            return False
+        if self._static_key != self._static_key_now():
+            return False
+        if self._ripple_active():
+            return False
+        # The snapshot pixmap carries devicePixelRatio, so (0, 0) blits it
+        # back onto exactly the widget rect it was rendered from.
+        painter.drawPixmap(0, 0, cache)
+        draw_marquee_paints(painter, paints, float(driver.phase), driver)
+        self._static_fast_hits += 1
+        return True
+
+    def _maybe_snapshot_static(self, event: Any) -> None:
+        """Re-render the static layer after a full paint with marquee live.
+
+        One extra full render, amortized over hundreds of cheap ticks. Only
+        from a paint that covered the whole widget — a row-clipped tick
+        repaint must never bake a partial frame into the snapshot.
+        """
+        if not self._static_cache_allowed:
+            return
+        if not self._marquee_row_paints:
+            return
+        if self._ripple_active():
+            return
+        if not event.rect().contains(self.rect(), False):
+            return
+        key = self._static_key_now()
+        if self._static_cache is not None and self._static_key == key:
+            return
+        size = self.size()
+        if size.width() <= 0 or size.height() <= 0:
+            return
+        dpr = float(self.devicePixelRatioF() or 1.0)
+        pixmap = QPixmap(size)
+        if pixmap.isNull():
+            return
+        pixmap.setDevicePixelRatio(dpr)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        snapshot = QPainter(pixmap)
+        if not snapshot.isActive():
+            return
+        # ContentLayer calls RowsContent.draw(ctx, tm) without the skip
+        # flag, so the flag travels on the widget for the snapshot render.
+        self._paint_skip_marquee = True
+        try:
+            snapshot.save()
+            try:
+                self._painter.paint(self._make_context(snapshot))
+            finally:
+                snapshot.restore()
+        finally:
+            self._paint_skip_marquee = False
+            snapshot.end()
+        if pixmap.isNull():
+            return
+        self._static_cache = pixmap
+        self._static_key = key
+
     def set_defer_click(self, value: bool | int | str) -> None:
         """Defer ``clicked`` / ``shortClicked`` relative to the press gesture.
 
@@ -759,6 +953,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._region_paths = self._controller.paths
 
     def resizeEvent(self, event):
+        self._invalidate_static_cache()
         self._recompute_region_rects()
         super().resizeEvent(event)
 
@@ -798,12 +993,20 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         if not painter.isActive():
             return
         try:
+            # Marquee tick fast path: blit the static snapshot + replay the
+            # crawling rows. Qt still runs this whole handler per tick — the
+            # win is skipping the pipeline inside it.
+            if self._try_fast_marquee_paint(painter, event):
+                painter.end()
+                return
+            self._marquee_row_paints = []
             painter.save()
             try:
                 self._painter.paint(self._make_context(painter))
             finally:
                 painter.restore()
                 painter.end()
+            self._maybe_snapshot_static(event)
         except Exception:
             global _last_button_paint_error_ts
             now = time.monotonic()
