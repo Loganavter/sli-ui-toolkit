@@ -16,7 +16,7 @@ from typing import Any, Literal
 from pathlib import Path
 
 from PySide6.QtCore import QRect, QRectF, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QImage, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter, QPixmap
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font, ui_font
@@ -190,27 +190,87 @@ class ButtonRow:
 
 
 @dataclass
+class MarqueeRowPaint:
+    """Pre-resolved marquee row blit for the static-layer fast path.
+
+    Recorded during a full-pipeline paint (see ``RowsContent.draw``); the
+    per-tick fast path replays these with no context build, no region walk
+    and no ``QFontMetrics`` (the strip cache on the driver serves the blit).
+    Rects are absolute widget coordinates; font/pen match the full paint
+    exactly (same ``ui_font`` spec, same theme-token color).
+    """
+
+    text: str
+    rect: QRect
+    font: QFont
+    pen: QColor
+
+
+def draw_marquee_paints(
+    painter: QPainter,
+    paints: list[MarqueeRowPaint],
+    phase: float,
+    driver: Any = None,
+) -> None:
+    """Blit cached marquee rows at ``phase`` via the strip path.
+
+    Single blit implementation shared by the Button fast path (cached
+    paints, no ``DrawContext``) and ``RowsContent.draw_marquee_rows``
+    (paints resolved from a context) — parity by construction.
+    """
+    for paint in paints:
+        painter.setFont(paint.font)
+        painter.setPen(paint.pen)
+        draw_marquee_text(
+            painter, QRect(paint.rect), paint.text, float(phase), driver=driver
+        )
+
+
+@dataclass
+class _ResolvedRow:
+    """One row with layout + style resolved (font/pen/rect/overflow)."""
+
+    row: ButtonRow
+    rect: QRect
+    font: QFont
+    pen: QColor
+    h_align: Qt.AlignmentFlag
+    marquee_active: bool
+
+
+@dataclass
 class RowsContent(Content):
     rows: list[ButtonRow] = field(default_factory=list)
     compact: bool = False
     row_gap: int = 2
 
-    def draw(self, ctx: DrawContext, tm: ThemeManager) -> None:
+    def draw(
+        self, ctx: DrawContext, tm: ThemeManager, skip_marquee_rows: bool = False
+    ) -> None:
         if not self.rows:
             return
 
         widget = ctx.widget
         p = ctx.painter
         style = read_widget_style(widget)
+        # The layer pipeline calls ``draw(ctx, tm)`` without the flag, so a
+        # static-layer snapshot render arms the widget-level flag around
+        # ``Painter.paint`` instead (see ``Button._maybe_snapshot_static``).
+        skip = bool(skip_marquee_rows) or bool(
+            getattr(widget, "_paint_skip_marquee", False)
+        )
         padded = _rect(ctx)
         full = _raw_rect(ctx)
         widget_h = padded.height()
+        driver = ensure_marquee_driver(widget)
+        phase = float(getattr(widget, "_marquee_phase", 0.0) or 0.0)
         any_active = False
+        # Snapshot renders (skip) must not clobber the live paint list the
+        # fast path replays — they only refresh the driver dirty union.
+        paints: list[MarqueeRowPaint] | None = [] if not skip else None
 
-        def _emit_row(row: ButtonRow, y: int, height: int) -> None:
-            nonlocal any_active
-            if self._draw_row(
-                p,
+        for row, y, height in self._row_layout(padded, widget_h):
+            resolved = self._resolve_row(
                 row,
                 ctx,
                 style,
@@ -221,9 +281,81 @@ class RowsContent(Content):
                 full_w=full.width(),
                 y=y,
                 height=height,
-            ):
+            )
+            if resolved.marquee_active:
                 any_active = True
+                if skip:
+                    driver.note_marquee_rect(QRect(resolved.rect))
+                    continue
+            if self._draw_resolved(p, resolved, phase):
+                if paints is not None:
+                    paints.append(
+                        MarqueeRowPaint(
+                            text=resolved.row.text or "",
+                            rect=QRect(resolved.rect),
+                            font=resolved.font,
+                            pen=QColor(resolved.pen),
+                        )
+                    )
 
+        if paints:
+            recorded = getattr(widget, "_marquee_row_paints", None)
+            if isinstance(recorded, list):
+                recorded.extend(paints)
+
+        driver.set_active(any_active)
+
+    def marquee_row_paints(self, ctx: DrawContext) -> list[MarqueeRowPaint]:
+        """Resolve this content's currently-overflowing marquee rows (no paint).
+
+        Same geometry/fonts/pens the full paint uses, without drawing —
+        powers ``draw_marquee_rows`` and the pixel-parity tests.
+        """
+        tm = ThemeManager.get_instance()
+        style = read_widget_style(ctx.widget)
+        padded = _rect(ctx)
+        full = _raw_rect(ctx)
+        paints: list[MarqueeRowPaint] = []
+        for row, y, height in self._row_layout(padded, padded.height()):
+            resolved = self._resolve_row(
+                row,
+                ctx,
+                style,
+                tm,
+                padded_x=padded.x(),
+                padded_w=padded.width(),
+                full_x=full.x(),
+                full_w=full.width(),
+                y=y,
+                height=height,
+            )
+            if resolved.marquee_active:
+                paints.append(
+                    MarqueeRowPaint(
+                        text=resolved.row.text or "",
+                        rect=QRect(resolved.rect),
+                        font=resolved.font,
+                        pen=QColor(resolved.pen),
+                    )
+                )
+        return paints
+
+    def draw_marquee_rows(
+        self, painter: QPainter, ctx: DrawContext, phase: float
+    ) -> None:
+        """Draw ONLY this content's marquee rows at ``phase`` (strip path).
+
+        Static rows, pixmaps, icons and backgrounds are untouched — the
+        static-layer fast path owns those via its snapshot. The driver is
+        passed explicitly so pixmap-device renders behave like widget ones.
+        """
+        driver = getattr(ctx.widget, "_marquee_driver", None)
+        draw_marquee_paints(
+            painter, self.marquee_row_paints(ctx), float(phase), driver
+        )
+
+    def _row_layout(self, padded: QRect, widget_h: int):
+        """Yield ``(row, y, height)`` in paint order (compact or ratio mode)."""
         if self.compact:
             heights = []
             for row in self.rows:
@@ -232,7 +364,7 @@ class RowsContent(Content):
             total = sum(heights) + self.row_gap * max(0, len(self.rows) - 1)
             y = padded.y() + max(0, (widget_h - total) // 2)
             for row, lh in zip(self.rows, heights):
-                _emit_row(row, y, lh)
+                yield row, y, lh
                 y += lh + self.row_gap
         else:
             y = padded.y()
@@ -240,11 +372,69 @@ class RowsContent(Content):
                 rh = int(widget_h * row.ratio)
                 if rh <= 0:
                     continue
-                _emit_row(row, y, rh)
+                yield row, y, rh
                 y += rh
 
-        driver = ensure_marquee_driver(widget)
-        driver.set_active(any_active)
+    @staticmethod
+    def _resolve_row(
+        row: ButtonRow,
+        ctx: DrawContext,
+        style: Any,
+        tm: ThemeManager,
+        *,
+        padded_x: int,
+        padded_w: int,
+        full_x: int,
+        full_w: int,
+        y: int,
+        height: int,
+    ) -> _ResolvedRow:
+        f = ui_font(pixel_size=row.size, bold=(row.weight == "bold"))
+        if row.color:
+            color = row.color
+        else:
+            color = style.foreground_color or tm.get_color("dialog.text")
+        pen = color if isinstance(color, QColor) else QColor(color)
+        h_align = getattr(row, "h_align", Qt.AlignmentFlag.AlignHCenter)
+        text = row.text or ""
+        fm = QFontMetrics(f)
+        # Marquee measures/draws against the unpadded width so the crawl can
+        # use the full region (same idea as PixmapContent ignoring padding).
+        wants_marquee = bool(getattr(row, "marquee", False))
+        if wants_marquee and text_overflows(fm, text, full_w):
+            return _ResolvedRow(
+                row=row,
+                rect=QRect(full_x, y, full_w, height),
+                font=f,
+                pen=pen,
+                h_align=h_align,
+                marquee_active=True,
+            )
+        return _ResolvedRow(
+            row=row,
+            rect=QRect(padded_x, y, padded_w, height),
+            font=f,
+            pen=pen,
+            h_align=h_align,
+            marquee_active=False,
+        )
+
+    @staticmethod
+    def _draw_resolved(p: QPainter, resolved: _ResolvedRow, phase: float) -> bool:
+        """Paint one resolved row; return True when it is marquee-active."""
+        p.setFont(resolved.font)
+        p.setPen(resolved.pen)
+        if resolved.marquee_active:
+            # Driver auto-resolves from the paint device (the host widget);
+            # pixmap-device renders take the legacy direct path, as before.
+            draw_marquee_text(p, resolved.rect, resolved.row.text or "", phase)
+            return True
+        p.drawText(
+            resolved.rect,
+            resolved.h_align | Qt.AlignmentFlag.AlignVCenter,
+            resolved.row.text or "",
+        )
+        return False
 
     @staticmethod
     def _draw_row(
@@ -261,28 +451,23 @@ class RowsContent(Content):
         y: int,
         height: int,
     ) -> bool:
-        f = ui_font(pixel_size=row.size, bold=(row.weight == "bold"))
-        p.setFont(f)
-        if row.color:
-            color = row.color
-        else:
-            color = style.foreground_color or tm.get_color("dialog.text")
-        p.setPen(color)
-        h_align = getattr(row, "h_align", Qt.AlignmentFlag.AlignHCenter)
-        text = row.text or ""
-        fm = QFontMetrics(f)
-        # Marquee measures/draws against the unpadded width so the crawl can
-        # use the full region (same idea as PixmapContent ignoring padding).
-        wants_marquee = bool(getattr(row, "marquee", False))
-        if wants_marquee and text_overflows(fm, text, full_w):
-            row_rect = QRect(full_x, y, full_w, height)
-            phase = float(getattr(ctx.widget, "_marquee_phase", 0.0) or 0.0)
-            draw_marquee_text(p, row_rect, text, phase)
-            return True
-
-        row_rect = QRect(padded_x, y, padded_w, height)
-        p.drawText(row_rect, h_align | Qt.AlignmentFlag.AlignVCenter, text)
-        return False
+        phase = float(getattr(ctx.widget, "_marquee_phase", 0.0) or 0.0)
+        return RowsContent._draw_resolved(
+            p,
+            RowsContent._resolve_row(
+                row,
+                ctx,
+                style,
+                tm,
+                padded_x=padded_x,
+                padded_w=padded_w,
+                full_x=full_x,
+                full_w=full_w,
+                y=y,
+                height=height,
+            ),
+            phase,
+        )
 
 
 @dataclass
