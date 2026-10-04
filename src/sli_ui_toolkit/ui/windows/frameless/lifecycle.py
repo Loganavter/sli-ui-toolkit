@@ -88,8 +88,8 @@ def _patch_outer_band_geometry(window: QWidget, band: int) -> None:
             eff = band
         orig_set_geometry(x, y, width + 2 * eff, height + 2 * eff)
 
-    window.resize = _resize  # type: ignore[method-assign]
-    window.setGeometry = _set_geometry  # type: ignore[method-assign]
+    window.resize = _resize  # type: ignore[assignment]
+    window.setGeometry = _set_geometry  # type: ignore[assignment]
     # Keep the bound originals (and the pre-bump min/max) alive — the
     # bound methods reference the C++ object.
     window._csd_outer_band_patch = (  # type: ignore[attr-defined]

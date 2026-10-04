@@ -18,7 +18,7 @@ modules can import it without cycles.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Union
+from typing import TYPE_CHECKING, Any, Callable, Union
 
 from PySide6.QtWidgets import QWidget
 
@@ -29,6 +29,9 @@ from .extract import (
     from_regions,
     kind_of,
 )
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import InspectSection
 
 # Lazy import to avoid circular dependency
 _InspectSection = None

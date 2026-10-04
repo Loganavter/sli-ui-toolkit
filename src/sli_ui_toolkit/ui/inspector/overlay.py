@@ -6,7 +6,7 @@ Overlays stay in-process children of the inspected window (Wayland-safe).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -39,7 +39,7 @@ class InspectorOverlay(QWidget):
         self.update()
 
     def set_regions(
-        self, regions: list[tuple[str, object]], hovered: str | None = None
+        self, regions: list[tuple[str, QRect | QRectF]], hovered: str | None = None
     ) -> None:
         """Region rects already mapped into overlay-local coordinates."""
         self._regions = [(rid, QRectF(r)) for rid, r in regions if r is not None]

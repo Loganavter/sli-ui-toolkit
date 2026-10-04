@@ -211,6 +211,6 @@ def widget_descriptor(descriptor: WidgetDescriptor) -> Callable[[type], type]:
     def decorator(cls: type) -> type:
         WidgetRegistry.get_instance().register(cls, descriptor)
         # Also attach as class attribute for MRO-based lookup
-        cls.widget_descriptor = descriptor
+        setattr(cls, "widget_descriptor", descriptor)
         return cls
     return decorator

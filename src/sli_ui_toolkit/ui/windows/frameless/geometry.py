@@ -39,10 +39,12 @@ def resolve_csd_band(window) -> int:
         return 0
 
 
-_LEFT = int(Qt.Edge.LeftEdge.value)
-_RIGHT = int(Qt.Edge.RightEdge.value)
-_TOP = int(Qt.Edge.TopEdge.value)
-_BOTTOM = int(Qt.Edge.BottomEdge.value)
+# .value is already an int at runtime; the stubs type it as Edge, so the
+# int() calls below need a narrow ignore (no runtime effect).
+_LEFT = int(Qt.Edge.LeftEdge.value)  # type: ignore[call-overload]
+_RIGHT = int(Qt.Edge.RightEdge.value)  # type: ignore[call-overload]
+_TOP = int(Qt.Edge.TopEdge.value)  # type: ignore[call-overload]
+_BOTTOM = int(Qt.Edge.BottomEdge.value)  # type: ignore[call-overload]
 
 
 def _edges_for_pos(

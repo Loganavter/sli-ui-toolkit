@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QMetaObject, QObject, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QDialog, QWidget
 
@@ -60,6 +60,10 @@ class WindowChrome:
         self._geom_filter = geom_filter
         self._bg_layer = bg_layer
         self._bg_token = bg_token
+        # Set post-construction by install(): snapshot of the layout margins
+        # before CSD compensation, and the UiScale re-sync connection.
+        self._base_layout_margins: tuple[int, int, int, int] | None = None
+        self._csd_scale_connection: QMetaObject.Connection | None = None
         self._theme_manager = ThemeManager.get_instance()
         self._theme_manager.theme_changed.connect(self._on_theme_changed)
         window.destroyed.connect(self._disconnect_theme)
