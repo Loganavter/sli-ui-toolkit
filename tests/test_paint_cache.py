@@ -8,8 +8,9 @@ skip path (``content.py``):
 - EVERY painted-content mutator busts the cache (miss + correct repaint);
 - fast-path frames are byte-exact vs full-pipeline frames at the same phase;
 - buttons without marquee never allocate a cache;
-- resize / DPR changes bust; ripple blocks the fast path; custom layers
-  disable the cache entirely.
+- resize / DPR changes bust; ripple blocks the fast path; custom layers /
+  overlay painters snapshot through the same pipeline (animated paint code
+  re-snapshots per frame via the update() version bump).
 
 Harness note: ``QWidget.render(target, offset, region)`` maps the region's
 top-left onto ``offset`` — region renders that must land at widget
@@ -21,6 +22,7 @@ from __future__ import annotations
 
 import statistics
 import time
+from collections.abc import Callable
 
 import pytest
 from PySide6.QtCore import QPoint, QPointF, QSize, Qt
@@ -508,8 +510,8 @@ class _NoopLayer(Layer):
         pass
 
 
-def test_custom_layers_disable_cache(qapp) -> None:
-    """Opaque host paint code opts out: never snapshot, never fast-path."""
+def test_custom_layers_use_cache(qapp) -> None:
+    """Custom layers paint through the snapshotted pipeline: cache stays on."""
     btn = Button(
         rows=[ButtonRow(text=LONG_TEXT, size=11, marquee=True)],
         size=(120, 40),
@@ -519,27 +521,131 @@ def test_custom_layers_disable_cache(qapp) -> None:
         btn.resize(120, 40)
         btn.show()
         qapp.processEvents()
-        assert not btn._static_cache_allowed
+        assert btn._static_cache_allowed
         render_full(btn)
-        assert btn._static_cache is None
-        assert btn._static_fast_hits == 0
+        assert btn._static_cache is not None
+        hits0 = btn._static_fast_hits
+        render_row_region(btn, btn._marquee_driver.dirty_rect())
+        assert btn._static_fast_hits == hits0 + 1
     finally:
         btn.deleteLater()
 
 
-def test_overlay_painter_disables_cache(qapp) -> None:
+def _toy_overlay(state: dict) -> Callable:
+    """Overlay painter drawing dots + badge text over the cover half.
+
+    Confined to the top half on purpose: the overlay paints above the
+    marquee rows in the layer stack, so shapes overlapping the crawl
+    would composite in a different order in the snapshot (overlay over
+    empty row area, text replayed on top) vs the full pipeline (overlay
+    over the glyphs). Real gallery overlays (dots/badges) sit outside
+    the crawling row for the same reason.
+    """
+
+    def paint(painter, rect) -> None:
+        del rect
+        painter.save()
+        try:
+            painter.setPen(QColor("#ff0000"))
+            painter.setBrush(QColor("#00ff00"))
+            painter.drawEllipse(4, 4, 10, 10)
+            painter.setBrush(QColor("#0000ff"))
+            painter.drawEllipse(18, 4, 10, 10)
+            painter.setPen(QColor("#ffffff"))
+            painter.drawText(34, 13, f"ov:{state['n']}")
+        finally:
+            painter.restore()
+
+    return paint
+
+
+def make_overlay_card(state: dict | None = None) -> tuple[Button, dict]:
+    """Gallery-like card with a toy overlay painter (dots + badge text)."""
+    owned: dict = state if state is not None else {"n": 0}
     btn = Button(
-        rows=[ButtonRow(text=LONG_TEXT, size=11, marquee=True)],
-        size=(120, 40),
-        overlay_painter=lambda painter, rect: None,
+        regions=[
+            ButtonRegion(id="cover", pixmap=_cover_pixmap()),
+            ButtonRegion(
+                id="text",
+                rows=[
+                    ButtonRow(text="2m ago", size=11),
+                    ButtonRow(
+                        text=LONG_TEXT,
+                        size=11,
+                        h_align=Qt.AlignmentFlag.AlignLeft,
+                        marquee=True,
+                    ),
+                ],
+            ),
+        ],
+        split=VerticalSplit(),
+        size=(120, 64),
+        content_padding=(8, 4, 8, 4),
+        overlay_painter=_toy_overlay(owned),
     )
+    btn.resize(120, 64)
+    return btn, owned
+
+
+def test_overlay_takes_fast_path_over_ticks(qapp) -> None:
+    """A button WITH overlay_painter blits + replays on marquee ticks."""
+    btn, _ = make_overlay_card()
     try:
-        btn.resize(120, 40)
-        btn.show()
-        qapp.processEvents()
-        assert not btn._static_cache_allowed
-        render_full(btn)
-        assert btn._static_cache is None
+        warm(btn, qapp)
+        assert btn._static_cache_allowed
+        hits0 = btn._static_fast_hits
+        dirty = btn._marquee_driver.dirty_rect()
+        for _ in range(60):
+            render_row_region(btn, dirty)
+        assert btn._static_fast_hits == hits0 + 60
+    finally:
+        btn.deleteLater()
+
+
+def test_overlay_parity_fast_vs_full(qapp) -> None:
+    """Fast-path frame vs full-pipeline frame incl. overlay: byte-exact."""
+    btn, _ = make_overlay_card()
+    try:
+        warm(btn, qapp)
+        driver = btn._marquee_driver
+        driver.phase = 7.0
+        btn._marquee_phase = 7.0  # noqa: SLF001
+        full_image = render_full(btn)
+        fast_image = full_image.copy()
+        region = QRegion(driver.dirty_rect())
+        btn.render(fast_image, region.boundingRect().topLeft(), region)
+        mismatches = [
+            (x, y)
+            for y in range(full_image.height())
+            for x in range(full_image.width())
+            if full_image.pixel(x, y) != fast_image.pixel(x, y)
+        ]
+        assert mismatches == [], f"{len(mismatches)} pixels differ, e.g. {mismatches[:5]}"
+    finally:
+        btn.deleteLater()
+
+
+def test_overlay_state_change_busts(qapp, monkeypatch) -> None:
+    """Mutating the overlay input + full update misses, then repaints right."""
+    btn, state = make_overlay_card()
+    try:
+        warm(btn, qapp)
+        before = render_full(btn)
+        state["n"] = 7
+        btn.update()  # full repaint: version bump retires the snapshot
+        assert btn._static_cache is None, "overlay change must retire snapshot"
+        calls = count_context_builds(btn, monkeypatch)
+        hits0 = btn._static_fast_hits
+        render_row_region(btn, btn._marquee_driver.dirty_rect())
+        assert btn._static_fast_hits == hits0, "busted cache must miss"
+        assert calls, "busted cache must run the full pipeline"
+        after = render_full(btn)
+        assert btn._static_cache is not None, "full repaint must re-snapshot"
+        assert any(
+            before.pixel(x, y) != after.pixel(x, y)
+            for y in range(before.height())
+            for x in range(before.width())
+        ), "overlay repaint must reflect the new state"
     finally:
         btn.deleteLater()
 

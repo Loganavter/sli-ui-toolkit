@@ -266,11 +266,15 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._static_key: tuple[Any, ...] | None = None
         self._marquee_row_paints: list[Any] = []
         self._paint_skip_marquee = False
-        # Custom layers / overlay painters are opaque animated-or-not paint
-        # code the snapshot cannot reproduce — never cache those buttons.
-        self._static_cache_allowed = not (
-            layers is not None or extra_layers or overlay_painter is not None
-        )
+        # Custom layers / overlay painters paint through the same snapshotted
+        # pipeline (Painter.paint with the final layer list, incl. the
+        # OverlayPainterLayer adapter), so the snapshot reproduces their
+        # output exactly — no overlay/layer code in the repo reads the
+        # marquee phase, and any animated paint code must call update(),
+        # which bumps _content_version and re-snapshots per frame (fail-safe:
+        # animated overlays degrade to today's full-pipeline behavior, never
+        # frozen). Ripples keep their own per-tick guard. Always cache.
+        self._static_cache_allowed = True
         self._static_fast_hits = 0
 
         if config is not None:
