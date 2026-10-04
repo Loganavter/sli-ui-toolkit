@@ -1,7 +1,7 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
-from typing import Any
+from typing import Any, ClassVar
 
 from PySide6.QtCore import QEasingCurve, QRect, QRectF, Qt, QTimer, Signal, QVariantAnimation
 
@@ -38,6 +38,10 @@ class TimelineWidget(QWidget):
     in ``viewport.py`` / ``layout.py`` / ``interaction.py``. Supply
     app-specific behavior via ``callbacks`` (:class:`TimelineCallbacks`).
     """
+
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: "ClassVar[InspectSpec]"
+    widget_descriptor: "ClassVar[WidgetDescriptor]"
 
     headMoved = Signal(int)
     deletePressed = Signal()

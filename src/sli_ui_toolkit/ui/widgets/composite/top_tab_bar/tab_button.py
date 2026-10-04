@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QCursor, QFontMetrics, QPainterPath, QPen
 from PySide6.QtWidgets import QWidget
@@ -180,7 +182,7 @@ class TopTabButton(Button):
             elif hasattr(event, "globalPosition"):
                 global_pos = event.globalPosition().toPoint()
             else:
-                global_pos = watched.mapToGlobal(event.position().toPoint())
+                global_pos = cast(QWidget, watched).mapToGlobal(event.position().toPoint())
             bar = self.parentWidget()
             while bar is not None and not hasattr(bar, "set_hover_from_global"):
                 bar = bar.parentWidget()

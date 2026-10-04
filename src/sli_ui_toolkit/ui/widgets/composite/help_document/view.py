@@ -348,7 +348,8 @@ class _LinkLabel(Label):
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setPen(QPen(c, 1.5))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(self.rect().adjusted(0.5, 0.5, -0.5, -0.5), 4, 4)
+            # QRect is integer-based (floats would truncate); paint the full rect.
+            p.drawRoundedRect(self.rect(), 4, 4)
             p.end()
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802

@@ -9,7 +9,7 @@ itself (tabs, painting, scrolling, hover) lives in ``_AdaptiveTabBar``
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
@@ -28,6 +28,10 @@ from .tab_bar import _AdaptiveTabBar
 
 
 class AdaptiveTabStrip(QWidget):
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
+
     currentChanged = Signal(int)
     tabCloseRequested = Signal(int)
     tabContextMenuRequested = Signal(int, QPoint)
@@ -361,7 +365,7 @@ def _refresh_config_applied(live, applied: tuple[str, ...]) -> None:
         pass
 
 
-AdaptiveTabStrip.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
+AdaptiveTabStrip.inspect_spec = InspectSpec(
     family="AdaptiveTabStrip",
     state=(
         SpecField("count", "count"),
@@ -381,7 +385,7 @@ AdaptiveTabStrip.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
 
 from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor
 
-AdaptiveTabStrip.widget_descriptor = WidgetDescriptor(  # type: ignore[attr-defined]
+AdaptiveTabStrip.widget_descriptor = WidgetDescriptor(
     family="AdaptiveTabStrip",
     inspect=InspectSection(
         state=AdaptiveTabStrip.inspect_spec.state,

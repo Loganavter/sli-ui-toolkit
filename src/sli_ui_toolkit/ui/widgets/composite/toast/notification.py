@@ -9,7 +9,7 @@ registry, anchoring, stacking).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, ClassVar, Iterable
 
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen
@@ -37,6 +37,10 @@ class ToastAction:
 
 
 class ToastNotification(QWidget):
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
+
     _MARGINS_WITH_ACTION = (12, 10, 12, 10)
     _MARGINS_NO_ACTION = (12, 10, 12, 6)
 
@@ -431,7 +435,7 @@ class ToastNotification(QWidget):
         event.accept()
 
 
-ToastNotification.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
+ToastNotification.inspect_spec = InspectSpec(
 
     family="ToastNotification",
     state=(

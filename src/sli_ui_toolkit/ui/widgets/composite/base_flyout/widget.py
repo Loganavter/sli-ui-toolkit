@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 
+from typing import ClassVar
+
 import shiboken6
 
 from PySide6.QtCore import (
@@ -61,6 +63,10 @@ class BaseFlyout(
     """In-window flyout shell. Mixins precede ``QWidget`` so their overrides
     (``show``/``hide``/``raise_``/``paintEvent``) win the MRO; ``super()``
     inside them still resolves to QWidget's own methods."""
+
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
 
     SHADOW_RADIUS = 8
     CONTENT_RADIUS = 8
@@ -263,7 +269,7 @@ class BaseFlyout(
             thickness = max(1.0, 2.0 * factor)
             # Пользовательский width переопределяет factor-масштаб, если задан
             if getattr(self, "_focus_ring_base_width", 2) != 2:
-                w = int(getattr(self, "_focus_ring_width", 2))
+                w: float = int(getattr(self, "_focus_ring_width", 2))
                 thickness = float(w)
             w = thickness
             p = QPainter(self)
@@ -438,7 +444,7 @@ class BaseFlyout(
         return self._fade.opacity
 
 
-BaseFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
+BaseFlyout.inspect_spec = InspectSpec(
     family="BaseFlyout",
     state=(
         SpecField("pinned", "pinned"),

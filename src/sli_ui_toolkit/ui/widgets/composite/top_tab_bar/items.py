@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt
 from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.tab_button import TopTabButton
 
 if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widgets.buttons import Button
     from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.bar import TopTabBar
 
 
@@ -22,7 +23,7 @@ class TopTabItem:
 class TabSpec:
     text: str
     button: TopTabButton
-    close_button: object | None = None
+    close_button: Button | None = None
     data_roles: dict[int, object] = field(default_factory=dict)
 
 

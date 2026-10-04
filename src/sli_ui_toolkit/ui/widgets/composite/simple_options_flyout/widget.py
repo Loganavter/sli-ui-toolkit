@@ -4,7 +4,7 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 import logging
 import time
 from collections.abc import Sequence
-from typing import Literal
+from typing import ClassVar, Literal
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -47,6 +47,10 @@ logger = logging.getLogger(__name__)
 
 
 class SimpleOptionsFlyout(BaseFlyout):
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: "ClassVar[InspectSpec]"
+    widget_descriptor: "ClassVar[WidgetDescriptor]"
+
     item_chosen = Signal(int)
     closed = Signal()
 
@@ -598,7 +602,7 @@ class SimpleOptionsFlyout(BaseFlyout):
         except Exception:
             pass
 
-SimpleOptionsFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
+SimpleOptionsFlyout.inspect_spec = InspectSpec(
     family="SimpleOptionsFlyout",
     state=(
         SpecField("pinned", "pinned"),

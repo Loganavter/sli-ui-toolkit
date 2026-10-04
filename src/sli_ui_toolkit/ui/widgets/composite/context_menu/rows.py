@@ -225,6 +225,10 @@ class ContextMenuRow(Button):
     ROW_HEIGHT = 32
     ICON_SIZE = 16
 
+    # Entry this row was built for; attached by content._build_row after
+    # construction (menu/submenu read it back via getattr).
+    _spec: ContextMenuAction
+
     def __init__(self, action: ContextMenuAction, *, check_gutter: int, parent: QWidget):
         super().__init__(
             text="",
