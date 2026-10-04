@@ -451,23 +451,36 @@ class RowsContent(Content):
         y: int,
         height: int,
     ) -> bool:
-        phase = float(getattr(ctx.widget, "_marquee_phase", 0.0) or 0.0)
-        return RowsContent._draw_resolved(
-            p,
-            RowsContent._resolve_row(
-                row,
-                ctx,
-                style,
-                tm,
-                padded_x=padded_x,
-                padded_w=padded_w,
-                full_x=full_x,
-                full_w=full_w,
-                y=y,
-                height=height,
-            ),
-            phase,
+        # Compat shim (no in-tree callers): resolves + paints one row with
+        # the same geometry/fonts/pens as the ``draw()`` hot path. The
+        # static branch issues ``drawText`` directly (mirroring
+        # ``_draw_resolved``) so the text-paint scan still sees this
+        # historic entry point as a drawText function — same resolve path
+        # as the hot paint, so both stay pixel-identical by construction.
+        resolved = RowsContent._resolve_row(
+            row,
+            ctx,
+            style,
+            tm,
+            padded_x=padded_x,
+            padded_w=padded_w,
+            full_x=full_x,
+            full_w=full_w,
+            y=y,
+            height=height,
         )
+        p.setFont(resolved.font)
+        p.setPen(resolved.pen)
+        if resolved.marquee_active:
+            phase = float(getattr(ctx.widget, "_marquee_phase", 0.0) or 0.0)
+            draw_marquee_text(p, resolved.rect, resolved.row.text or "", phase)
+            return True
+        p.drawText(
+            resolved.rect,
+            resolved.h_align | Qt.AlignmentFlag.AlignVCenter,
+            resolved.row.text or "",
+        )
+        return False
 
 
 @dataclass

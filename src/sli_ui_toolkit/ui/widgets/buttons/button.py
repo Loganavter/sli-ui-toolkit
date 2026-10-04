@@ -26,6 +26,7 @@ from collections.abc import Sequence
 from typing import Any, ClassVar, TYPE_CHECKING, cast
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+import shiboken6 as sip
 
 logger = logging.getLogger(__name__)
 _last_button_paint_error_ts: float = 0.0
@@ -171,7 +172,16 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         invalidates the snapshot without touching any of those call sites.
         Marquee ticks repaint only the driver dirty rect
         (``update(QRect)``), so the idle 60fps crawl keeps its cache.
+
+        The ``isValid`` guard matters because this override is a Python
+        callable held by long-lived singleton signals (``theme_changed``,
+        ``font_changed``): unlike a direct C++ slot connection, those do
+        not auto-disconnect when the C++ object dies, so a late theme
+        switch would otherwise re-enter ``QWidget.update`` on a deleted
+        object (``RuntimeError`` in the Qt event loop).
         """
+        if not sip.isValid(self):  # type: ignore[attr-defined]
+            return
         if not args:
             self._invalidate_static_cache()
         super().update(*args)
