@@ -187,6 +187,10 @@ class ButtonRow:
     # label — do not marquee composite "a · b" status lines.
     # Active marquee rows ignore horizontal ``content_padding`` (full-bleed).
     marquee: bool = False
+    # When True (and marquee is False) and the text is wider than the row,
+    # truncate with an ellipsis via QFontMetrics.elidedText instead of
+    # clipping. Static paint, no timers.
+    elide: bool = False
 
 
 @dataclass
@@ -429,10 +433,15 @@ class RowsContent(Content):
             # pixmap-device renders take the legacy direct path, as before.
             draw_marquee_text(p, resolved.rect, resolved.row.text or "", phase)
             return True
+        text = resolved.row.text or ""
+        if bool(getattr(resolved.row, "elide", False)):
+            text = p.fontMetrics().elidedText(
+                text, Qt.TextElideMode.ElideRight, max(0, resolved.rect.width())
+            )
         p.drawText(
             resolved.rect,
             resolved.h_align | Qt.AlignmentFlag.AlignVCenter,
-            resolved.row.text or "",
+            text,
         )
         return False
 
@@ -475,10 +484,15 @@ class RowsContent(Content):
             phase = float(getattr(ctx.widget, "_marquee_phase", 0.0) or 0.0)
             draw_marquee_text(p, resolved.rect, resolved.row.text or "", phase)
             return True
+        text = resolved.row.text or ""
+        if bool(getattr(resolved.row, "elide", False)):
+            text = p.fontMetrics().elidedText(
+                text, Qt.TextElideMode.ElideRight, max(0, resolved.rect.width())
+            )
         p.drawText(
             resolved.rect,
             resolved.h_align | Qt.AlignmentFlag.AlignVCenter,
-            resolved.row.text or "",
+            text,
         )
         return False
 
