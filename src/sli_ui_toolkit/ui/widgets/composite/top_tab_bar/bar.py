@@ -208,10 +208,12 @@ class TopTabBar(QWidget):
 
     def clear(self) -> None:
         for tab in self._tabs:
+            tab.button.hide()
             tab.button.setParent(None)
             tab.button.deleteLater()
             close_button = tab.close_button
             if close_button is not None:
+                close_button.hide()
                 close_button.setParent(None)
                 close_button.deleteLater()
         self._tabs.clear()

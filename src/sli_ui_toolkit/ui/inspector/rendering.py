@@ -91,6 +91,7 @@ class _PaneRenderingMixin:
                 # detach immediately (deleteLater alone leaves the widget a
                 # visible child until the event loop flushes deferred
                 # deletes — a re-inspection would double-render pages)
+                widget.hide()
                 widget.setParent(None)
                 widget.deleteLater()
 

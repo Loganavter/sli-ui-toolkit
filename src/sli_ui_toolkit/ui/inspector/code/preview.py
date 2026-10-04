@@ -114,6 +114,7 @@ def clear_host(editor) -> None:
         item = editor._preview_host_layout.takeAt(0)
         widget = item.widget()
         if widget is not None:
+            widget.hide()
             widget.setParent(None)
             widget.deleteLater()
     editor._preview_error.setVisible(False)
