@@ -8,7 +8,7 @@ the layout debug dump in ``debug.py``, and the row spec/factory in
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, ClassVar, Iterable
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QPainter
@@ -63,6 +63,10 @@ from .rows import (
 
 
 class IconListWidget(QWidget):
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
+
     currentRowChanged = Signal(int)
     currentItemChanged = Signal(object, object)
 
@@ -551,7 +555,7 @@ class IconListWidget(QWidget):
             selected_icon=selected_icon,
         )
 
-IconListWidget.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
+IconListWidget.inspect_spec = InspectSpec(
     family="IconListWidget",
     state=(
         SpecField("count", "count"),

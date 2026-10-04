@@ -3,6 +3,8 @@ from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E40
 
 import logging
 
+from typing import ClassVar
+
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
@@ -14,6 +16,10 @@ from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 logger = logging.getLogger(__name__)
 
 class IndexedToggleFlyout(BaseFlyout):
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
+
     # Identity for host ``GroupShowPolicy``.
     flyout_group = "toggle"
 
