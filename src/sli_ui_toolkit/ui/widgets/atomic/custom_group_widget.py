@@ -1,7 +1,7 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
-from typing import Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QFontMetrics, QPainter, QPainterPath, QPen
@@ -10,6 +10,9 @@ from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font, ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 CaptionStyle = Literal["top", "bottom"]
 CornerRadii = tuple[int, int, int, int]
@@ -72,6 +75,9 @@ class CustomGroupWidget(QWidget):
     content type (unlike the old ``ButtonGroup``, which only took a flat
     list of buttons at construction).
     """
+
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
 
     def __init__(
         self,

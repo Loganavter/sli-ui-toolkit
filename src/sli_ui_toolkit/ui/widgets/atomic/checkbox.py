@@ -1,6 +1,8 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
+from typing import TYPE_CHECKING, ClassVar
+
 from PySide6.QtCore import (
     QEasingCurve,
     QPointF,
@@ -18,6 +20,9 @@ from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 
 class _CheckIndicatorLayer(Layer):
@@ -159,6 +164,9 @@ class CheckBox(Button):
     nothing in this toolkit's host apps used tri-state, and ``Button``'s own
     ``_checked`` is a plain bool.
     """
+
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
 
     INDICATOR_SIZE = 20
     INDICATOR_RADIUS = 4

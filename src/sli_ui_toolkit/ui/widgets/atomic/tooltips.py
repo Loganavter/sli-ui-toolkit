@@ -181,7 +181,7 @@ class PathTooltip(QObject):
             cls._instance = PathTooltip()
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if PathTooltip._instance is not None:
             raise RuntimeError("Singleton")
         super().__init__(None)
