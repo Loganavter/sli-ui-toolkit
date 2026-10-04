@@ -41,11 +41,11 @@ _HORIZONTAL = frozenset({Qt.Key.Key_Left, Qt.Key.Key_Right})
 class NavigationSection(Protocol):
     """Protocol for a navigable UI section."""
 
-    def owns(self, widget: QObject) -> bool:
+    def owns(self, widget: QWidget) -> bool:
         """Return ``True`` if *widget* belongs to this section."""
         ...
 
-    def navigate(self, key: int, widget: QObject) -> bool:
+    def navigate(self, key: int, widget: QWidget) -> bool:
         """Handle *key* press while *widget* is focused.
 
         Return ``True`` if the event was consumed.
@@ -204,7 +204,7 @@ class NavigationManager(QObject):
         (ring should not).
         """
         w = self._last_keyboard_focus
-        if w is not None and not shiboken6.isValid(w):
+        if w is not None and not shiboken6.isValid(w):  # type: ignore[attr-defined]
             self._last_keyboard_focus = None
             return None
         return self._last_keyboard_focus
@@ -291,7 +291,7 @@ class NavigationManager(QObject):
             QTimer.singleShot(0, lambda o=owner, s=spec: self._bootstrap_if_still_owner(o, s))
 
     def _bootstrap_if_still_owner(self, owner: QObject, spec: NavigationSection) -> None:
-        if not shiboken6.isValid(self) or (owner, spec) not in self._sections:
+        if not shiboken6.isValid(self) or (owner, spec) not in self._sections:  # type: ignore[attr-defined]
             return
         current = QApplication.focusWidget()
         if current is not owner:
@@ -324,7 +324,7 @@ class NavigationManager(QObject):
         # interpreter shutdown, after this singleton's own C++ side is
         # already gone — touching self._sections or app.removeEventFilter
         # at that point raises, harmlessly but noisily. Bail out quietly.
-        if not shiboken6.isValid(self):
+        if not shiboken6.isValid(self):  # type: ignore[attr-defined]
             return
         prev_count = len(self._sections)
         self._sections = [(o, s) for o, s in self._sections if o is not owner]
@@ -393,7 +393,7 @@ class NavigationManager(QObject):
         flyout = self._extensions_below.get(owner)
         if flyout is None:
             return None
-        if not shiboken6.isValid(flyout) or not flyout.isVisible():
+        if not shiboken6.isValid(flyout) or not flyout.isVisible():  # type: ignore[attr-defined]
             return None
         self._extension_owners[flyout] = owner
         return flyout
@@ -406,7 +406,7 @@ class NavigationManager(QObject):
         owner = self._extension_owners.get(flyout)
         if owner is None:
             return None
-        if not shiboken6.isValid(owner) or not owner.isVisible():
+        if not shiboken6.isValid(owner) or not owner.isVisible():  # type: ignore[attr-defined]
             return None
         return owner
 
@@ -511,7 +511,7 @@ class NavigationManager(QObject):
         return None
 
     @staticmethod
-    def _safe_owns(spec: NavigationSection, widget: QObject) -> bool:
+    def _safe_owns(spec: NavigationSection, widget: QWidget) -> bool:
         """Host ``owns()`` must never break the app-wide event filter.
 
         Sections are host-implemented; an exception here would propagate
@@ -528,7 +528,7 @@ class NavigationManager(QObject):
             return False
 
     @staticmethod
-    def _safe_navigate(spec: NavigationSection, key: int, widget: QObject) -> bool:
+    def _safe_navigate(spec: NavigationSection, key: int, widget: QWidget) -> bool:
         """Host ``navigate()`` must never break the app-wide event filter.
 
         Log and treat as declined (the manager then tries the adjacent
@@ -566,7 +566,7 @@ class NavigationManager(QObject):
             # widget doesn't raise a catchable Python exception, it can
             # corrupt the interpreter, so it must never be called at all
             # once the object is known-invalid.
-            if isinstance(candidate_owner, QWidget) and not shiboken6.isValid(candidate_owner):
+            if isinstance(candidate_owner, QWidget) and not shiboken6.isValid(candidate_owner):  # type: ignore[attr-defined]
                 target += direction
                 continue
             if not isinstance(candidate_owner, QWidget) or candidate_owner.isVisible():

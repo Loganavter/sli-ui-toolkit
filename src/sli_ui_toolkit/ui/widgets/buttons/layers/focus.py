@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QPainterPath, QPen
 
 from sli_ui_toolkit.core.debug_flags import any_flag
@@ -56,7 +56,7 @@ class FocusLayer(Layer):
             focused = None
         widget = ctx.widget
         try:
-            rect = ctx.rect
+            rect: QRect | QRectF = ctx.rect
             if hasattr(rect, "toAlignedRect"):
                 rect = rect.toAlignedRect()
             global_pos = widget.mapToGlobal(rect.center()) if widget.isVisible() else None
@@ -89,7 +89,7 @@ class FocusLayer(Layer):
         # interface scale (same convention as UnderlineLayer).
         design_radius = radius / factor if factor > 0 else radius
 
-        rect = ctx.rect
+        rect: QRect | QRectF = ctx.rect
         if hasattr(rect, "toAlignedRect"):
             rect = rect.toAlignedRect()
 

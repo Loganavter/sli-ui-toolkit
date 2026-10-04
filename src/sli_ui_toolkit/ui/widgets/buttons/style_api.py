@@ -12,10 +12,11 @@ setProperty, setFixedSize…).
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QColor, QCursor, QFontMetrics
+from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.deprecations import BUTTON_PRIMARY_VARIANT, warn_deprecated
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
@@ -367,7 +368,7 @@ class _ButtonStyleApi:
         the button's paint font so hints stay correct at any scale."""
         widths: list[int] = []
         if self._has_text and self._text:
-            widths.append(QFontMetrics(paint_font(self)).horizontalAdvance(self._text))
+            widths.append(QFontMetrics(paint_font(cast(QWidget, self))).horizontalAdvance(self._text))
         elif self._rows:
             from sli_ui_toolkit.ui.managers.ui_font import measure_text_width, ui_font
 
@@ -383,7 +384,7 @@ class _ButtonStyleApi:
             from sli_ui_toolkit.ui.managers.ui_font import measure_text_width
 
             widths.append(
-                measure_text_width(QFontMetrics(paint_font(self)), text)
+                measure_text_width(QFontMetrics(paint_font(cast(QWidget, self))), text)
             )
         return max(widths) if widths else 0
 
@@ -407,11 +408,11 @@ class _ButtonStyleApi:
         trailing ``addStretch(1)`` in the row: a stretch/Expanding item
         right-anchors its widget in Qt, while a plain sizeHint keeps it
         left-anchored."""
-        parent = self.parentWidget()
+        parent = cast(QWidget, self).parentWidget()
         layout = parent.layout() if parent is not None else None
         if layout is None:
             return natural
-        left, _top, right, _bottom = layout.getContentsMargins()
+        left, _top, right, _bottom = cast("tuple[int, int, int, int]", layout.getContentsMargins())
         available = parent.width() - left - right
         spacing = layout.spacing()
         for i in range(layout.count()):

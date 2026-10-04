@@ -467,12 +467,12 @@ class AutoNavigationSection(ToolbarRowsSection):
         # rows_provider — авто-скан, tag для логов
         super().__init__(rows_provider=self._auto_rows, tag=tag, on_exit_left=on_exit_left, on_exit_right=on_exit_right)
 
-    def _auto_rows(self) -> list[QWidget]:
+    def _auto_rows(self) -> list[QWidget | None]:
         # Все StrongFocus листы, сгруппированные по y
         try:
             candidates = [
                 w for w in self._owner.findChildren(QWidget)
-                if shiboken6.isValid(w)
+                if shiboken6.isValid(w)  # type: ignore[attr-defined]
                 and w.focusPolicy() == Qt.FocusPolicy.StrongFocus
                 and w.isVisible() and w.isEnabled()
                 and w is not self._owner
@@ -493,7 +493,7 @@ class AutoNavigationSection(ToolbarRowsSection):
         cur_row: list[QWidget] = []
         cur_y: float | None = None
         for w in candidates:
-            if not shiboken6.isValid(w):
+            if not shiboken6.isValid(w):  # type: ignore[attr-defined]
                 continue
             try:
                 y = w.mapToGlobal(w.rect().center()).y()
@@ -554,7 +554,7 @@ class AutoNavigationSection(ToolbarRowsSection):
                 return self.focus_first(reason=_nav_focus_reason())
             if key == Qt.Key.Key_Up:
                 return self.focus_last(reason=_nav_focus_reason())
-            if key == Qt.Key.Key_Left and getattr(self, "_on_exit_left", None) is not None:
+            if key == Qt.Key.Key_Left and self._on_exit_left is not None:
                 try:
                     if self._on_exit_left(reason=_nav_focus_reason()):
                         return True
@@ -598,12 +598,12 @@ class AutoNavigationSection(ToolbarRowsSection):
                     ref_x = widget.mapToGlobal(widget.rect().center()).x()
                 except Exception:
                     ref_x = 0
-                target_row = [w for w in rows[row_idx + 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+                target_row = [w for w in rows[row_idx + 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
                 if not target_row:
                     self._auto_rows()
                     rows = getattr(self, "_cached_rows_widgets", [])
                     if row_idx + 1 < len(rows):
-                        target_row = [w for w in rows[row_idx + 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+                        target_row = [w for w in rows[row_idx + 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
                     if not target_row:
                         return True
                 def _dx(w):
@@ -613,7 +613,7 @@ class AutoNavigationSection(ToolbarRowsSection):
                         return 1e9
 
                 target = min(target_row, key=_dx)
-                if not shiboken6.isValid(target):
+                if not shiboken6.isValid(target):  # type: ignore[attr-defined]  # type: ignore[attr-defined]
                     return True
                 target.setFocus(reason)
                 _ensure_visible(target)
@@ -633,12 +633,12 @@ class AutoNavigationSection(ToolbarRowsSection):
                     ref_x = widget.mapToGlobal(widget.rect().center()).x()
                 except Exception:
                     ref_x = 0
-                target_row = [w for w in rows[row_idx - 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+                target_row = [w for w in rows[row_idx - 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
                 if not target_row:
                     self._auto_rows()
                     rows = getattr(self, "_cached_rows_widgets", [])
                     if row_idx - 1 >= 0 and row_idx - 1 < len(rows):
-                        target_row = [w for w in rows[row_idx - 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+                        target_row = [w for w in rows[row_idx - 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
                     if not target_row:
                         return True
                 def _dx2(w):
@@ -648,7 +648,7 @@ class AutoNavigationSection(ToolbarRowsSection):
                         return 1e9
 
                 target = min(target_row, key=_dx2)
-                if not shiboken6.isValid(target):
+                if not shiboken6.isValid(target):  # type: ignore[attr-defined]  # type: ignore[attr-defined]
                     return True
                 target.setFocus(reason)
                 _ensure_visible(target)
@@ -675,7 +675,7 @@ class AutoNavigationSection(ToolbarRowsSection):
                         return True
             if self._widget_handles(key, widget):
                 return True
-            row = [w for w in rows[row_idx] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+            row = [w for w in rows[row_idx] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
             if not row:
                 self._auto_rows()
                 return True
@@ -696,7 +696,7 @@ class AutoNavigationSection(ToolbarRowsSection):
                 row_sorted[nxt].setFocus(reason)
                 _ensure_visible(row_sorted[nxt])
                 return True
-            if key == Qt.Key.Key_Left and getattr(self, "_on_exit_left", None) is not None:
+            if key == Qt.Key.Key_Left and self._on_exit_left is not None:
                 try:
                     if self._on_exit_left(reason=reason):
                         return True
@@ -707,7 +707,7 @@ class AutoNavigationSection(ToolbarRowsSection):
                     except TypeError:
                         return True
                 return True
-            if key == Qt.Key.Key_Right and getattr(self, "_on_exit_right", None) is not None:
+            if key == Qt.Key.Key_Right and self._on_exit_right is not None:
                 try:
                     if self._on_exit_right(reason=reason):
                         return True
@@ -719,6 +719,9 @@ class AutoNavigationSection(ToolbarRowsSection):
                         return True
                 return True
             return True  # consume at edge
+        # Unknown key: yield to the adjacent section (the manager treats a
+        # falsy return as declined — same as falling off the end before).
+        return False
 
     def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
         # Always rescan for dynamic containers (e.g. Help hub rebuilds cards)
@@ -726,7 +729,7 @@ class AutoNavigationSection(ToolbarRowsSection):
         rows = getattr(self, "_cached_rows_widgets", [])
         if not rows:
             return False
-        first_row = [w for w in rows[0] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+        first_row = [w for w in rows[0] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
         if not first_row:
             return False
         def _fx(w):
@@ -736,10 +739,10 @@ class AutoNavigationSection(ToolbarRowsSection):
                 return 1e9
 
         try:
-            target = min(first_row, key=_fx) if ref_x is not None else sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x() if shiboken6.isValid(w) else 1e9)[0]
+            target = min(first_row, key=_fx) if ref_x is not None else sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x() if shiboken6.isValid(w) else 1e9)[0]  # type: ignore[attr-defined]
         except Exception:
             return False
-        if not shiboken6.isValid(target):
+        if not shiboken6.isValid(target):  # type: ignore[attr-defined]
             return False
         target.setFocus(reason)
         _ensure_visible(target)
@@ -750,7 +753,7 @@ class AutoNavigationSection(ToolbarRowsSection):
         rows = getattr(self, "_cached_rows_widgets", [])
         if not rows:
             return False
-        last_row = [w for w in rows[-1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]
+        last_row = [w for w in rows[-1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
         if not last_row:
             return False
         def _fx2(w):
@@ -760,10 +763,10 @@ class AutoNavigationSection(ToolbarRowsSection):
                 return 1e9
 
         try:
-            target = min(last_row, key=_fx2) if ref_x is not None else sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x() if shiboken6.isValid(w) else 1e9)[-1]
+            target = min(last_row, key=_fx2) if ref_x is not None else sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x() if shiboken6.isValid(w) else 1e9)[-1]  # type: ignore[attr-defined]
         except Exception:
             return False
-        if not shiboken6.isValid(target):
+        if not shiboken6.isValid(target):  # type: ignore[attr-defined]
             return False
         target.setFocus(reason)
         _ensure_visible(target)

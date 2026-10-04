@@ -265,7 +265,7 @@ class VirtualListController(QObject):
             start = max(0, first - self._overscan)
             end = min(self._count, first + visible + self._overscan)
             return (start, end)
-        return self._heights.visible_window(self._viewport_height(), self._scroll_offset, self._overscan)
+        return self._heights.visible_window(self._viewport_height(), self._scroll_offset, self._overscan) if self._heights is not None else (0, 0)
 
     # -------- events --------
 

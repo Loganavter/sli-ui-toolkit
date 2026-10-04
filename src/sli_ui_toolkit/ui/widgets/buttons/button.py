@@ -23,7 +23,7 @@ import dataclasses
 import logging
 import time
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, ClassVar, TYPE_CHECKING, cast
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 
@@ -70,6 +70,11 @@ from .style_api import (
     normalize_content_padding,
 )
 
+if TYPE_CHECKING:
+    # Runtime import lives at module bottom (after the class body) to
+    # avoid a heavier import cycle; annotations stay lazy via __future__.
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+
 
 def _state_property(state: ButtonState):
     """Property-обёртка: bool геттер/сеттер, мутирующий StateSet и вызывающий update()."""
@@ -95,6 +100,11 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     regionClicked = Signal(str)
     rightClicked = Signal()
     middleClicked = Signal()
+
+    # Declared here, assigned at module bottom (deferred widget_descriptor
+    # import — see below): the inspector spec and unified descriptor.
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
 
     def enterEvent(self, event):
         _ButtonEvents.enterEvent(self, event)
@@ -441,12 +451,16 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self.update()
 
     def _scaled_corner_radii(self) -> tuple[int, int, int, int] | None:
-        design = getattr(self, "_design_corner_radii", None)
+        design = self._design_corner_radii
         if design is None:
             return None
         # 0 (square corner) must stay 0 — scaled_px's min-1 clamp would turn
-        # it into a 1px rounding at every factor.
-        return tuple(0 if v == 0 else scaled_px(v) for v in design)
+        # it into a 1px rounding at every factor. cast: design is always
+        # exactly 4 elements (see _to_corner_radii / the attribute annotation).
+        return cast(
+            "tuple[int, int, int, int]",
+            tuple(0 if v == 0 else scaled_px(v) for v in design),
+        )
 
     @classmethod
     def from_spec(
