@@ -2,7 +2,7 @@ from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import time
-from typing import Callable
+from typing import TYPE_CHECKING, Callable, ClassVar
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt, Property
 from PySide6.QtGui import QBrush, QColor, QCursor, QPainter, QPainterPath, QPen
@@ -11,6 +11,9 @@ from PySide6.QtWidgets import QSlider
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 TrackPainter = Callable[[QPainter, QRectF], None]
 
@@ -27,6 +30,9 @@ class Slider(WheelScrollPolicyMixin, QSlider):
     ``show_value_fill=False`` for content (hue/alpha strips) where the full
     track is always meaningful and there is no "progress" to shade in.
     """
+
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
 
     TRACK_HEIGHT = 5
     RADIUS = 8

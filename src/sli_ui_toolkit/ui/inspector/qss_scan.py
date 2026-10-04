@@ -12,7 +12,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TypedDict
 
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -115,7 +115,17 @@ class QssIndex:
         return self.dead_selectors(widgets)
 
 
-def _widget_match_context(widget: QWidget) -> dict[str, object]:
+class _WidgetMatchContext(TypedDict):
+    """Keyword bundle for :func:`_parsed_may_match` (exact per-key types so
+    ``**ctx`` unpacking type-checks at the ``dead_selectors`` call site)."""
+
+    class_names: tuple[str, ...]
+    object_name: str
+    properties: dict[str, str]
+    ancestor_names: frozenset[str]
+
+
+def _widget_match_context(widget: QWidget) -> _WidgetMatchContext:
     properties: dict[str, str] = {}
     for name in widget.dynamicPropertyNames():
         key = bytes(name).decode("utf-8", errors="replace")

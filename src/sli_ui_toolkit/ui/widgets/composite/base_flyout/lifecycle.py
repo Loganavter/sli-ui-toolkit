@@ -8,12 +8,12 @@ registration stays in sync because these overrides notify it.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 import traceback
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from .debug import _flyout_debug, _flyout_debug_enabled
 
@@ -123,7 +123,7 @@ class _FlyoutLifecycleApi:
                 app = QApplication.instance()
                 if app is not None:
                     try:
-                        app.removeEventFilter(self)
+                        app.removeEventFilter(cast(QObject, self))
                     except Exception:
                         pass
                 self._focus_guard_installed = False
@@ -145,7 +145,7 @@ class _FlyoutLifecycleApi:
         if getattr(self, "_focus_guard_installed", False):
             app = QApplication.instance()
             if app is not None:
-                app.removeEventFilter(self)
+                app.removeEventFilter(cast(QObject, self))
             self._focus_guard_installed = False
         # Restore focus BEFORE hiding — setFocus() during hide causes a
         # synchronous focus jump that Qt processes via the event loop,
@@ -348,9 +348,9 @@ class _FlyoutLifecycleApi:
         )
         # _nearest_focus=True → pick nearest to anchor instead of always first (leftmost)
         if getattr(self, "_nearest_focus", False):
-            target = self._nearest_focusable(self)
+            target = self._nearest_focusable(cast(QWidget, self))
         else:
-            target = self._first_focusable(self)
+            target = self._first_focusable(cast(QWidget, self))
         # If the trigger had keyboard focus (arrow/Tab navigation), grant
         # the first child an OtherFocusReason so the focus ring is drawn
         # inside the flyout.  Mouse-opened flyouts keep MouseFocusReason
@@ -365,7 +365,7 @@ class _FlyoutLifecycleApi:
             )
             target.setFocus(reason)
         else:
-            self.setFocus(reason)
+            cast(QWidget, self).setFocus(reason)
         # Remembered so a fade-in's mid-animation child-hiding (see
         # FlyoutFadeController.sync_container_visibility) — which forces Qt
         # to yank focus off `target` onto the flyout itself, since Qt clears
@@ -380,7 +380,7 @@ class _FlyoutLifecycleApi:
         if target is not None:
             app = QApplication.instance()
             if app is not None:
-                app.installEventFilter(self)
+                app.installEventFilter(cast(QObject, self))
                 self._focus_guard_installed = True
 
         _flyout_debug(
@@ -428,9 +428,9 @@ class _FlyoutLifecycleApi:
         instead of always leftmost (fixes "always leftmost" bug).
         """
         if getattr(self, "_nearest_focus", False):
-            target = self._nearest_focusable(self, ref_x)
+            target = self._nearest_focusable(cast(QWidget, self), ref_x)
         else:
-            target = self._first_focusable(self)
+            target = self._first_focusable(cast(QWidget, self))
         if target is None:
             return False
         target.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -444,9 +444,9 @@ class _FlyoutLifecycleApi:
         """
         if getattr(self, "_nearest_focus", False):
             # For nearest mode, last is also nearest (Up/Down both land near anchor)
-            target = self._nearest_focusable(self, ref_x)
+            target = self._nearest_focusable(cast(QWidget, self), ref_x)
         else:
-            target = self._first_focusable(self, reverse=True)
+            target = self._first_focusable(cast(QWidget, self), reverse=True)
         if target is None:
             return False
         target.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -495,7 +495,7 @@ class _FlyoutLifecycleApi:
         if (
             actual_before is not None
             and actual_before is not target
-            and not self.isAncestorOf(actual_before)
+            and not cast(QWidget, self).isAncestorOf(actual_before)
             and actual_before is not anchor
             and _is_alive_and_enabled(actual_before)
         ):
@@ -506,10 +506,15 @@ class _FlyoutLifecycleApi:
                 from sli_ui_toolkit.managers import NavigationManager as _NMR
 
                 _nav = _NMR.get_instance()
-                _anchor_owns = any(spec.owns(anchor) for _, spec in _nav._sections if anchor is not None)
+                _anchor_owns = any(spec.owns(anchor) for _, spec in _nav._sections if isinstance(anchor, QWidget))
                 _before_owns_same = False
                 for _owner, _spec in _nav._sections:
-                    if _spec.owns(actual_before) and (_anchor_owns and _spec.owns(anchor)):
+                    if (
+                        isinstance(actual_before, QWidget)
+                        and isinstance(anchor, QWidget)
+                        and _spec.owns(actual_before)
+                        and (_anchor_owns and _spec.owns(anchor))
+                    ):
                         _before_owns_same = True
                         break
                 if _before_owns_same:
@@ -530,7 +535,7 @@ class _FlyoutLifecycleApi:
                 if type(actual_before).__name__ in ("Button", "InstancesCounterButton", "ScrollValueButton"):
                     _flyout_debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s", type(actual_before).__name__)
                     return
-        if _is_alive_and_enabled(target):
+        if target is not None and _is_alive_and_enabled(target):
             # OtherFocusReason unconditionally would light up the keyboard
             # focus ring on the trigger even when the flyout closed because
             # of an outside mouse click — key off whether the user is
@@ -566,8 +571,8 @@ class _FlyoutLifecycleApi:
         if not hasattr(self, "_nav_section_registered"):
             self._nav_section_registered = False
         if not self._nav_section_registered:
-            section = _FlyoutNavigationSection(self)
-            manager.register(self, section)
+            section = _FlyoutNavigationSection(cast(QWidget, self))
+            manager.register(cast(QObject, self), section)
             self._nav_section_registered = True
             # Only install a focus proxy when the flyout does NOT grab
             # focus itself (grab_focus=False).  When grab_focus=True,
@@ -576,9 +581,9 @@ class _FlyoutLifecycleApi:
             # back to the flyout shell with TabFocusReason, and the
             # bootstrap then re-focuses the child via OtherFocusReason,
             # lighting up the focus ring on a mouse-opened flyout.
-            window = self.window()
+            window = cast(QWidget, self).window()
             if window is not None and getattr(self, "_skip_focus_grab", False):
-                window.setFocusProxy(self)
+                window.setFocusProxy(cast(QWidget, self))
             _flyout_debug(
                 "[flyout-nav] registered %s", type(self).__name__,
             )
@@ -587,14 +592,14 @@ class _FlyoutLifecycleApi:
         if getattr(self, "_nav_section_registered", False):
             from sli_ui_toolkit.managers import NavigationManager
 
-            window = self.window()
+            window = cast(QWidget, self).window()
             if (
                 window is not None
                 and window.focusProxy() is self
                 and getattr(self, "_skip_focus_grab", False)
             ):
-                window.setFocusProxy(None)
-            NavigationManager.get_instance().unregister(self)
+                window.setFocusProxy(None)  # type: ignore[arg-type]  # Qt accepts nullptr to clear the proxy; stubs type the param QWidget-only
+            NavigationManager.get_instance().unregister(cast(QObject, self))
             self._nav_section_registered = False
             _flyout_debug(
                 "[flyout-nav] unregistered %s", type(self).__name__,
@@ -639,8 +644,8 @@ class _FlyoutNavigationSection:
     def __init__(self, flyout: QWidget) -> None:
         self._flyout = flyout
 
-    def owns(self, widget: QWidget) -> bool:
-        result = widget is self._flyout or self._flyout.isAncestorOf(widget)
+    def owns(self, widget: QObject) -> bool:
+        result = widget is self._flyout or self._flyout.isAncestorOf(cast(QWidget, widget))
         if result:
             _flyout_debug(
                 "[flyout-nav] owns(%s) → True (flyout=%s)",
@@ -648,7 +653,7 @@ class _FlyoutNavigationSection:
             )
         return result
 
-    def navigate(self, key: int, widget: QWidget) -> bool:
+    def navigate(self, key: int, widget: QObject) -> bool:
         if key not in self._NAV_KEYS and key not in self._EXTRA_KEYS:
             return False
         # PanelVisibilityFlyout: only intercept Left/Right after explicit Enter,
@@ -695,7 +700,7 @@ class _FlyoutNavigationSection:
                     if not getattr(self._flyout, "_keyboard_navigation_active", False):
                         return False
                 trial = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
-                widget.keyPressEvent(trial)
+                cast(QWidget, widget).keyPressEvent(trial)
                 if trial.isAccepted():
                     return True
                 # Not handled → fall through to flyout's row navigation
@@ -703,7 +708,7 @@ class _FlyoutNavigationSection:
                 child_event = QKeyEvent(
                     QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier,
                 )
-                widget.keyPressEvent(child_event)
+                cast(QWidget, widget).keyPressEvent(child_event)
                 if child_event.isAccepted():
                     _flyout_debug(
                         "[flyout-nav] navigate key=%s → delivered to focused %s (accepted)",
@@ -735,15 +740,15 @@ class _FlyoutNavigationSection:
     def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason = Qt.FocusReason.OtherFocusReason) -> bool:  # type: ignore[override]
         # Pass ref_x so nearest_focus flyouts can pick closest to anchor, not leftmost
         try:
-            return self._flyout.focus_first_child(ref_x)  # type: ignore[call-arg]
+            return self._flyout.focus_first_child(ref_x)  # type: ignore[attr-defined]
         except TypeError:
-            return self._flyout.focus_first_child()
+            return self._flyout.focus_first_child()  # type: ignore[attr-defined]
 
     def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason = Qt.FocusReason.OtherFocusReason) -> bool:  # type: ignore[override]
         try:
-            return self._flyout.focus_last_child(ref_x)  # type: ignore[call-arg]
+            return self._flyout.focus_last_child(ref_x)  # type: ignore[attr-defined]
         except TypeError:
-            return self._flyout.focus_last_child()
+            return self._flyout.focus_last_child()  # type: ignore[attr-defined]
 
     @property
     def extra_keys(self) -> frozenset[int]:

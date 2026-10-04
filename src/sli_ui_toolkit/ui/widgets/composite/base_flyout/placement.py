@@ -445,7 +445,7 @@ class _FlyoutPlacementApi:
         # correctly during the fade (baked into the snapshot) and then
         # vanishes the instant the fade finishes and live children resume.
         target = getattr(self, "_grab_focus_target", None)
-        if target is not None and shiboken6.isValid(target) and not target.hasFocus():
+        if target is not None and shiboken6.isValid(target) and not target.hasFocus():  # type: ignore[attr-defined]  # stubs gap: shiboken6.isValid missing from PySide6-stubs
             reason = getattr(self, "_grab_focus_reason", Qt.FocusReason.OtherFocusReason)
             target.setFocus(reason)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)

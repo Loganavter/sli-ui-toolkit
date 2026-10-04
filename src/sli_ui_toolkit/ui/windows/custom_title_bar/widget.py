@@ -260,7 +260,8 @@ class CustomTitleBar(
                 reason = Qt.FocusReason.OtherFocusReason
         self.setFocusProxy(child)
         self.setFocus(reason)
-        self.setFocusProxy(None)
+        # Clearing the proxy takes None; the stubs only declare the QWidget overload.
+        self.setFocusProxy(None)  # type: ignore[arg-type]
 
     def focus_first_button(self, reason: Qt.FocusReason | None = None) -> bool:
         """Focus the first focusable button in the title bar."""
@@ -305,7 +306,7 @@ class CustomTitleBar(
         # Also detach from target window if still alive
         try:
             w = getattr(self, "_target_window", None)
-            if w is not None and shiboken6.isValid(w):
+            if w is not None and shiboken6.isValid(w):  # type: ignore[attr-defined]
                 w.removeEventFilter(self)
         except Exception:
             pass

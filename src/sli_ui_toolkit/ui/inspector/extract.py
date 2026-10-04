@@ -90,7 +90,7 @@ def _init_signature_with_kwargs(widget: QWidget) -> inspect.Signature:
     """
     for cls in type(widget).__mro__:
         try:
-            sig = inspect.signature(cls.__init__)
+            sig = inspect.signature(getattr(cls, "__init__"))
         except (TypeError, ValueError):
             continue
         usable = [
@@ -238,7 +238,7 @@ def from_regions(button: QWidget) -> tuple[InspectRegion, ...]:
     region_states = getattr(button, "region_states", None)
     out: list[InspectRegion] = []
     for region in regions():
-        states = frozenset()
+        states: frozenset[str] = frozenset()
         if callable(region_states):
             try:
                 states = frozenset(region_states(region.id))

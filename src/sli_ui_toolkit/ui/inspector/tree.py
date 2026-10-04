@@ -290,7 +290,7 @@ class _TreeHoverFilter(QObject):
             if _inspector_debug_enabled():
                 from PySide6.QtWidgets import QLabel
 
-                self._cursor_label = QLabel("", None)  # type: ignore[attr-defined]
+                self._cursor_label: QLabel | None = QLabel("", None)
                 self._cursor_label.setWindowFlags(
                     Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
                 )
@@ -301,9 +301,9 @@ class _TreeHoverFilter(QObject):
                 )
                 self._cursor_label.hide()
             else:
-                self._cursor_label = None  # type: ignore[attr-defined]
+                self._cursor_label = None
         except Exception:
-            self._cursor_label = None  # type: ignore[attr-defined]
+            self._cursor_label = None
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         if watched is not self._tree:
@@ -452,11 +452,11 @@ class _TreeHoverFilter(QObject):
                     try:
                         if isinstance(row, _TreeNodeRow):
                             cs = row.cursor().shape()
-                            cursor_shape = cs.name if hasattr(cs, "name") else str(int(cs))
+                            cursor_shape = cs.name if hasattr(cs, "name") else str(getattr(cs, "value", "?"))
                         else:
                             # gap or tree background -> actual tree cursor (usually Arrow)
                             cs = self._tree.cursor().shape()
-                            cursor_shape = cs.name if hasattr(cs, "name") else str(int(cs))
+                            cursor_shape = cs.name if hasattr(cs, "name") else str(getattr(cs, "value", "?"))
                             if is_gap:
                                 cursor_shape = f"{cursor_shape} (gap)"
                     except Exception:

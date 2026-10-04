@@ -1,5 +1,6 @@
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 import os
+from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QRectF, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
@@ -7,6 +8,9 @@ from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 def _file_path_from_url(url: QUrl) -> str:
     path = url.toLocalFile()
@@ -38,6 +42,9 @@ def _paths_from_urls_and_uri_list(mime, urls: list) -> list[str]:
     return paths
 
 class DropZoneLabel(Label):
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
+
     file_dropped = Signal(str)
     drop_zone_drag_active = Signal(bool)
     drop_zone_hover_state_changed = Signal(bool)

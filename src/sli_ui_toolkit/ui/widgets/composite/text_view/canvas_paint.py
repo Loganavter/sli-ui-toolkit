@@ -10,17 +10,20 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any, Callable
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 
 from PySide6.QtCore import QRect
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 
 from sli_ui_toolkit.theme import ThemeManager
 
 from . import constants
 from .document import paint_layout
+from .editing import Position
 from .highlight import python_line_spans, python_span_colors
+from .selection import TextSelection
 from .painter import _cached_advance, draw_text_line
 
 _logger = logging.getLogger(__name__)
@@ -56,6 +59,31 @@ _cached_theme_dark: bool | None = None
 class _CanvasPaintApi:
     _FOLD_ARROW = "▸"  # ▸
 
+    # Declared here only so mypy can resolve them across the mixin split —
+    # the real assignments live in TextCanvas.__init__ (canvas.py), sibling
+    # mixins, or QWidget itself (later in the MRO). Plain annotations only
+    # (no `= value`) so nothing is created at import time. QWidget-provided
+    # names are ``Any`` (a precise Callable would clash with QWidget's own
+    # definition when the mixin precedes it in the MRO).
+    _lines: list[str]
+    _editing: bool
+    _cursor: Position
+    _selection: TextSelection
+    _line_height: int
+    _metrics: QFontMetrics
+    _font: QFont
+    _text_x: Callable[[], int]
+    _gutter_width: Callable[[], int]
+    _gutter_text: Callable[[int], str]
+    _fold_lines: set[int] | None
+    _line_number_start: int | None
+    _document_layout: Any
+    _doc_selection: Any
+    height: Any
+    rect: Any
+    hasFocus: Any
+    _selection_bounds: Callable[[], tuple[Position, Position] | None]
+
     def paintEvent(self, event) -> None:  # noqa: N802
         # Debug probe: use WARNING so it shows with default host log level.
         # No file IO on hot path — logger only (prevents 170 ms block).
@@ -76,7 +104,7 @@ class _CanvasPaintApi:
                 )
                 _logger.warning(msg)
             return
-        painter = QPainter(self)
+        painter = QPainter(self)  # type: ignore[call-overload] # self is the QWidget at runtime via the TextCanvas MRO
         tm = ThemeManager.get_instance()
         # Cached theme colors — cleared by TextCanvas._on_theme_changed;
         # the dark-flip comparison is a backstop, not the primary path.
@@ -100,6 +128,7 @@ class _CanvasPaintApi:
         foreground = _cached_foreground
         colors = _cached_span_colors  # type: ignore[assignment]
         selection_color = _cached_selection_color  # type: ignore[assignment]
+        assert selection_color is not None  # set above when the cache fills
         # Prime painter font/pen for cross-line batching (draw_text_line seeds from current state)
         painter.setFont(self._font)
         painter.setPen(foreground)
@@ -156,7 +185,7 @@ class _CanvasPaintApi:
             selection_start, selection_end = rng
         paint_layout(
             painter,
-            self._document_layout,  # type: ignore[arg-type]
+            self._document_layout,
             selection_start=selection_start,
             selection_end=selection_end,
             theme=ThemeManager.get_instance(),

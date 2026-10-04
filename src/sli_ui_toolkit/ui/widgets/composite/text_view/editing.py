@@ -12,15 +12,36 @@ way any other mixin in this split does.
 
 from __future__ import annotations
 
+from typing import Any, Callable
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QGuiApplication
 
 from . import constants
+from .selection import TextSelection
 
 Position = tuple[int, int]
 
 
 class _CanvasEditingApi:
+    # Declared here only so mypy can resolve them across the mixin split —
+    # the real assignments live in TextCanvas.__init__ (canvas.py), sibling
+    # mixins, or QWidget itself (later in the MRO). Plain annotations only
+    # (no `= value`) so nothing is created at import time.
+    _lines: list[str]
+    _editing: bool
+    _cursor: Position
+    _selection: TextSelection
+    _undo: list[tuple[str, Position]]
+    _chain_selecting: str | None
+    _line_height: int
+    _last_edit_line: int
+    changed: Any
+    parentWidget: Any
+    update: Any
+    text: Callable[[], str]
+    _sync_height: Callable[[], None]
+
     def insert_text(self, text: str) -> None:
         if not self._editing:
             return

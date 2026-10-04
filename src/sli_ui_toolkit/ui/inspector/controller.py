@@ -8,6 +8,7 @@ in-process children of the inspected window; no global grabs).
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
 from PySide6.QtGui import QCursor
@@ -18,6 +19,9 @@ from .capture import capture_tokens
 from .overlay import InspectorOverlay
 from .qss_scan import QssIndex
 from .registry import inspect_widget
+
+if TYPE_CHECKING:
+    from .view import InspectorWindow
 
 logger = logging.getLogger("sli_ui_toolkit.inspector")
 
@@ -200,7 +204,7 @@ class InspectorController(QObject):
             return False
         global_pos = _event_global_pos(event)
         first = self._is_first_press_log(global_pos, event)
-        widget = QApplication.widgetAt(global_pos)
+        widget: QWidget | None = QApplication.widgetAt(global_pos)
         if widget is not None and self._is_inspector_widget(widget):
             if self._widget_is_within(self._window, widget):
                 # Click on the inspector window itself — bring the highlight
@@ -472,7 +476,7 @@ class InspectorController(QObject):
 
     def _resnapshot(self) -> None:
         widget = self._committed_widget
-        if not self._is_valid_widget(widget):
+        if widget is None or not self._is_valid_widget(widget):
             self._reset_selection()
             return
         self._select_widget(widget, global_pos=QCursor.pos())
@@ -543,7 +547,7 @@ class InspectorController(QObject):
         if not self._enabled or not self._shift_held:
             return
         pos = QCursor.pos()
-        widget = QApplication.widgetAt(pos)
+        widget: QWidget | None = QApplication.widgetAt(pos)
         if widget is not None and self._is_inspector_widget(widget):
             widget = None
         widget = _resolve_meaningful_widget(widget)

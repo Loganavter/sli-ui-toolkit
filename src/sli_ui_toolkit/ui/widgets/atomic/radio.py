@@ -1,6 +1,8 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
+from typing import TYPE_CHECKING, ClassVar
+
 import shiboken6 as sip
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, Property
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
@@ -11,6 +13,9 @@ from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 
 class _RadioIndicatorLayer(Layer):
@@ -163,6 +168,9 @@ class RadioButton(Button):
     :class:`RadioButtonGroup` (unchecking a sibling once this one becomes
     checked) is left alone instead of being fought right back to checked.
     """
+
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
 
     INDICATOR_SIZE = 20
     OUTLINE_WIDTH = 1

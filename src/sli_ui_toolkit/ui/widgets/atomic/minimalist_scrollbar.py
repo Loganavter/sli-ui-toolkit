@@ -82,7 +82,7 @@ _SCROLL_EASE = 0.14
 _SCROLL_MIN_NOTCH_PX = 40
 
 class MinimalistScrollBar(QScrollBar):
-    def __init__(self, orientation=Qt.Orientation.Vertical, parent=None):
+    def __init__(self, orientation=Qt.Orientation.Vertical, parent=None) -> None:
         super().__init__(orientation, parent)
         self.theme_manager = ThemeManager.get_instance()
         self._is_dragging = False

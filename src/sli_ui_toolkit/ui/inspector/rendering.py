@@ -342,6 +342,16 @@ class _PaneRenderingMixin:
         ``ButtonRegion``s linked by ``group="row"``. When ``path`` is set the
         row opens that source file in the system editor on click."""
         regions: list[ButtonRegion] = []
+        if label:
+            # The label the old Label rows carried (kind of row: palette
+            # role, "QSS", "= token", …) — dropped in the ButtonRegion
+            # migration, restored here so the row says WHAT it is, not
+            # just the color value.
+            regions.append(
+                ButtonRegion(id="label", text=label, group="row", weight=1.6)
+            )
+        if path:
+            detail = f"{detail} ({path}:{line})" if line else f"{detail} ({path})"
         if color is not None and color.isValid():
             # The swatch deliberately stays OUT of the "row" group: the
             # controller gives a plain-rect group ONE united fill painted by
@@ -531,6 +541,18 @@ class _PaneRenderingMixin:
                     self._add_color_button_row(
                         page, "= token", QColor(tm.get_color(token)), token,
                         path=path, line=line,
+                    )
+                else:
+                    # Token known but source not resolvable here (no QSS
+                    # paths registered, e.g. unit contexts): still show
+                    # the row — the token name IS the information.
+                    # No path → no click-to-open tooltip.
+                    try:
+                        token_color = QColor(tm.get_color(token))
+                    except Exception:
+                        token_color = None
+                    self._add_color_button_row(
+                        page, "= token", token_color, token,
                     )
 
         # ---- text ----

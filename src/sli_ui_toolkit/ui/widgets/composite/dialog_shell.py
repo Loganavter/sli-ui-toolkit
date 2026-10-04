@@ -184,7 +184,7 @@ class SidebarDialogShell(QWidget):
         if resizable_sidebar:
             # Draggable divider between the sidebar column and the content
             # area (same interaction as the Help dialog's splitter).
-            self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
+            self.splitter: QSplitter | None = QSplitter(Qt.Orientation.Horizontal, self)
             self.splitter.setObjectName("SidebarDialogSplitter")
             self.splitter.setChildrenCollapsible(False)
             self.splitter.setHandleWidth(scaled_px(6))

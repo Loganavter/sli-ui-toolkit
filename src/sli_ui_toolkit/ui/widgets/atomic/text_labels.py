@@ -2,6 +2,7 @@ from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QColor, QFontMetrics, QPainter
@@ -15,6 +16,9 @@ from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     ensure_marquee_driver,
     text_overflows,
 )
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 
 @dataclass(frozen=True)
@@ -98,6 +102,9 @@ class Label(QLabel):
     Use direct keyword arguments for one-off typography and behavior, or
     ``variant`` when a registered shared preset is useful.
     """
+
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
 
     def __init__(
         self,

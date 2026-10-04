@@ -78,6 +78,11 @@ class CodeSectionEditor(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._path: str | None = None
+        # Legacy compat surface read by InspectorWindow._code_original /
+        # _code_config_original (never populated by the current Code
+        # section — kept as declared attributes so the access type-checks).
+        self._source_original: str = ""
+        self._config_original: str = ""
         self._config_text: str | None = None
         self._qss_text: str | None = None
         self._source_lines: list[str] = []

@@ -16,7 +16,7 @@ and tests rely on.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, ClassVar
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QPointF, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QMouseEvent
@@ -65,6 +65,10 @@ class ListPanel(QWidget):
     refresh, and — for hosts that support selection/drag visuals —
     ``set_selected(bool)`` / ``set_dragging_state(bool)``.
     """
+
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
 
     # Panel scrolls after ~7.5 rows of content (compact-density default).
     MAX_VISIBLE_ITEMS = 7
@@ -613,7 +617,7 @@ class ListPanel(QWidget):
         self._on_item_context_menu_cb(self.list_num, index)
 
 
-ListPanel.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
+ListPanel.inspect_spec = InspectSpec(
     family="ListPanel",
     config=(
         # w is a ListPanel at runtime; SpecField lambdas are untyped by design

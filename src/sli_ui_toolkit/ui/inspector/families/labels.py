@@ -31,7 +31,7 @@ def _extract(widget, theme_manager=None) -> WidgetInspection:
     state = from_getters(
         widget,
         (
-            ("text", lambda: getattr(widget, "get_original_text", lambda: "")()),
+            ("text", lambda w: getattr(w, "get_original_text", lambda: "")()),
             ("variant", lambda w: w.variant()),
             ("marquee", lambda w: w.marquee()),
         ),
