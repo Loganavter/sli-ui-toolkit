@@ -128,6 +128,19 @@ def _page_labels(window: InspectorWindow, section: str) -> list[str]:
         out.append(str(getattr(button, "_text", "") or ""))
         for row in getattr(button, "_rows", ()) or ():
             out.append(str(getattr(row, "text", "") or ""))
+        # Region-composed rows (Colors section renders ButtonRegions, not
+        # legacy text rows): collect region texts too.
+        try:
+            regions = button.regions()
+        except Exception:
+            regions = []
+        for region in regions or []:
+            try:
+                text = str(getattr(region, "text", "") or "")
+            except Exception:
+                continue
+            if text:
+                out.append(text)
     return out
 
 
