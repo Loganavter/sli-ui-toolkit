@@ -506,12 +506,12 @@ class _FlyoutLifecycleApi:
                 from sli_ui_toolkit.managers import NavigationManager as _NMR
 
                 _nav = _NMR.get_instance()
-                _anchor_owns = any(spec.owns(anchor) for _, spec in _nav._sections if isinstance(anchor, QObject))
+                _anchor_owns = any(spec.owns(anchor) for _, spec in _nav._sections if isinstance(anchor, QWidget))
                 _before_owns_same = False
                 for _owner, _spec in _nav._sections:
                     if (
-                        isinstance(actual_before, QObject)
-                        and isinstance(anchor, QObject)
+                        isinstance(actual_before, QWidget)
+                        and isinstance(anchor, QWidget)
                         and _spec.owns(actual_before)
                         and (_anchor_owns and _spec.owns(anchor))
                     ):
