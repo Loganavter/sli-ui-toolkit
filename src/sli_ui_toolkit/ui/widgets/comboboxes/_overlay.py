@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QMouseEvent, QPainter, QPainterPath, QPen
@@ -152,7 +152,7 @@ class _DropdownItemSlot(Button):
     каждому слоту переназначается `(item_index, text)`.
     """
 
-    def __init__(self, text_padding: int, parent: QWidget, overlay: "_DropdownOverlay"):
+    def __init__(self, text_padding: int, parent: QWidget | None, overlay: "_DropdownOverlay"):
         super().__init__(
             text="",
             size=(0, 0),
@@ -301,7 +301,7 @@ class _DropdownOverlay(BaseFlyout):
     @property
     def _slots(self) -> list["_DropdownItemSlot"]:
         """Live pooled slot widgets — see virtual_list.RowPool."""
-        return self._pool.widgets()
+        return cast("list[_DropdownItemSlot]", self._pool.widgets())
 
     def _make_slot(self) -> "_DropdownItemSlot":
         slot = _DropdownItemSlot(
@@ -312,14 +312,15 @@ class _DropdownOverlay(BaseFlyout):
         slot.clicked.connect(lambda s=slot: self._on_slot_clicked(s))
         return slot
 
-    def _bind_slot(self, visible_pos: int, slot: "_DropdownItemSlot") -> None:
+    def _bind_slot(self, visible_pos: int, slot: QWidget) -> None:
+        item_slot = cast(_DropdownItemSlot, slot)
         owner = self._owner
         visible_indices = self._visible_item_indices()
         if not (0 <= visible_pos < len(visible_indices)):
             return
         item_index = visible_indices[visible_pos]
         item = owner._items[item_index]
-        slot.bind(
+        item_slot.bind(
             text=item.text,
             item_index=item_index,
             is_gear_focus=owner._gear_active and item_index == owner._gear_focus_index,
