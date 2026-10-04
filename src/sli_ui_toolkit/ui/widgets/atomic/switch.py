@@ -1,6 +1,8 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
+from typing import TYPE_CHECKING, ClassVar
+
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, Property, Signal
 from PySide6.QtGui import QBrush, QColor, QCursor, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -11,7 +13,13 @@ from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+
 class Switch(QWidget):
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
+
     checkedChanged = Signal(bool)
     toggled = checkedChanged
 

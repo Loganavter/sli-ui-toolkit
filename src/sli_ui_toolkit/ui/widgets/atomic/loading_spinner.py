@@ -1,4 +1,6 @@
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
+from typing import TYPE_CHECKING, ClassVar
+
 from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QConicalGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
@@ -6,7 +8,13 @@ from PySide6.QtWidgets import QWidget
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+
 class LoadingSpinner(QWidget):
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
+
     #: Design-px diameter at ``UiScale`` factor 1.0 (see DESIGN_LANGUAGE.md).
     SIZE_PX = 40
 

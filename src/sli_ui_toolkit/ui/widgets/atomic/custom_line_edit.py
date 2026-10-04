@@ -1,5 +1,5 @@
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
-from typing import Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPalette, QPen
@@ -14,10 +14,16 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     draw_bottom_underline,
 )
 
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+
 TextAlignment = Qt.AlignmentFlag | Literal["left", "center", "right"]
 
 
 class CustomLineEdit(QLineEdit):
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
+
     RADIUS = 6
     # Horizontal inset only — vertical room comes from HEIGHT so descenders
     # (у, р, g, y) are not clipped. Do not also pad via QSS.

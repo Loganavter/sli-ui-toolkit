@@ -2,6 +2,7 @@ from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import time
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPen, QPolygon
@@ -64,6 +65,9 @@ class _ComboContentLayer(Layer):
 
 
 class ScrollableComboBox(Button):
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
+
     currentIndexChanged = Signal(int)
     wheelScrolledToIndex = Signal(int)
 
@@ -227,13 +231,21 @@ class ScrollableComboBox(Button):
             self._flyout_open_timestamp = 0.0
         super().setFlyoutOpen(is_open)
 
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+
+
+def _spec_items(w: Any) -> Any:
+    return [t for t, _d in w.items()]
+
+
 ScrollableComboBox.inspect_spec = InspectSpec(
     family="ScrollableComboBox",
     state=(
         SpecField("current_index", "currentIndex"),
         SpecField("current_text", "currentText"),
         SpecField("count", "count"),
-        SpecField("items", lambda w: [t for t, _d in w.items()]),
+        SpecField("items", _spec_items),
     ),
     token_family=("surface.background", "input.border.thin", "dialog.text"),
     docs='docs/user/INPUTS_API.md',

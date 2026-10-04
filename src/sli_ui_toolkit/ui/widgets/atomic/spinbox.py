@@ -1,4 +1,6 @@
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
+from typing import TYPE_CHECKING, ClassVar
+
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QFocusEvent, QIntValidator
 from PySide6.QtWidgets import QSizePolicy
@@ -8,8 +10,14 @@ from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit, TextAlignment
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+
 
 class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
+
     valueChanged = Signal(int)
 
     def __init__(
@@ -33,10 +41,10 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
             focused_underline_thickness=focused_underline_thickness,
         )
         self.init_wheel_scroll_policy(wheel_requires_focus=wheel_requires_focus)
-        self._minimum = 0
-        self._maximum = 100
-        self._value = default_value
-        self._default_value = default_value
+        self._minimum: int = 0
+        self._maximum: int = 100
+        self._value: int = default_value
+        self._default_value: int = default_value
 
         self.setValidator(QIntValidator(-999999, 999999, self))
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -162,6 +170,9 @@ class DoubleSpinBox(SpinBox):
     snaps to ``singleStep`` increments, matching SpinBox's stepped semantics.
     """
 
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
+
     valueChanged = Signal(float)
 
     def __init__(
@@ -182,10 +193,10 @@ class DoubleSpinBox(SpinBox):
             alignment=alignment,
             wheel_requires_focus=wheel_requires_focus,
         )
-        self._minimum = 0.0
-        self._maximum = 100.0
-        self._value = float(default_value)
-        self._default_value = float(default_value)
+        self._minimum = 0.0  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
+        self._maximum = 100.0  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
+        self._value = float(default_value)  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
+        self._default_value = float(default_value)  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
 
         self.setValidator(QDoubleValidator(-1e9, 1e9, self._decimals, self))
         self.setText(self._format(self._value))
@@ -208,8 +219,8 @@ class DoubleSpinBox(SpinBox):
         return self._single_step
 
     def setRange(self, min_val: float, max_val: float):  # type: ignore[override]
-        self._minimum = float(min_val)
-        self._maximum = float(max_val)
+        self._minimum = float(min_val)  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
+        self._maximum = float(max_val)  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
         self.setValue(self._value)
         self._update_content_width()
         self.updateGeometry()
@@ -223,7 +234,7 @@ class DoubleSpinBox(SpinBox):
             clamped = round((clamped - self._minimum) / self._single_step) * self._single_step + self._minimum
             clamped = min(max(clamped, self._minimum), self._maximum)
         if abs(clamped - self._value) > 1e-12:
-            self._value = clamped
+            self._value = clamped  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
             self.valueChanged.emit(self._value)
         if self.text() != self._format(clamped):
             self.setText(self._format(clamped))

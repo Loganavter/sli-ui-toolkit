@@ -18,6 +18,15 @@ from sli_ui_toolkit.ui.windows.frameless import (
     apply_frameless,
 )
 
+# NOTE: plain `from ...helpers import hover_coordinator` binds the
+# package-level *function* of that name, not the submodule — resolve the
+# module explicitly.
+import importlib as _importlib
+
+_hover_coordinator = _importlib.import_module(
+    "sli_ui_toolkit.ui.widgets.helpers.hover_coordinator"
+)
+
 
 def _mouse_event(etype, local: QPoint, global_pos: QPoint):
     return QMouseEvent(
@@ -217,8 +226,12 @@ def test_native_resize_release_resnaps_cursor_and_hover(qapp):
         release_local,
         window.mapToGlobal(release_local),
     )
-    with patch(
-        "sli_ui_toolkit.ui.widgets.helpers.hover_coordinator._COORDINATOR.reconcile"
+    # NOTE: patch.object on the singleton instance — the dotted-string
+    # target "...hover_coordinator._COORDINATOR.reconcile" fails on
+    # Python 3.10 (mock tries a module import of the CONSTANT path)
+    # while 3.11+ resolves it via getattr. Instance patch works all.
+    with patch.object(
+        _hover_coordinator._COORDINATOR, "reconcile"
     ) as spy:
         assert filt.eventFilter(window, release) is True
         spy.assert_called_once()
@@ -245,8 +258,8 @@ def test_manual_resize_reconciles_hover_per_move(qapp):
     )
     assert filt.eventFilter(window, press) is True
 
-    with patch(
-        "sli_ui_toolkit.ui.widgets.helpers.hover_coordinator._COORDINATOR.reconcile"
+    with patch.object(
+        _hover_coordinator._COORDINATOR, "reconcile"
     ) as spy:
         filt._update_manual_resize(window.mapToGlobal(QPoint(edge_x + 30, 60)))
         filt._update_manual_resize(window.mapToGlobal(QPoint(edge_x + 60, 60)))

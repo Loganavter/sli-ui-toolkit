@@ -89,8 +89,9 @@ class DragDropOverlay(TopLevelInWindowOverlay):
             # after pyvips finishes (~0.5s).
             try:
                 self.update()
-                if self.parent():
-                    self.parent().update()
+                parent = self.parentWidget()
+                if parent is not None:
+                    parent.update()
             except Exception:
                 pass
 

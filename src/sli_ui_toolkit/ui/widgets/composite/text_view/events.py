@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any, Callable
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 
 from PySide6.QtCore import QEvent, QRect, Qt
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QFont, QFontMetrics, QKeySequence
+from PySide6.QtWidgets import QWidget
 
 from . import constants
 from .editing import Position
@@ -36,6 +38,42 @@ def _textview_debug_enabled() -> bool:
 
 
 class _CanvasEventsApi:
+    # Declared here only so mypy can resolve them across the mixin split —
+    # the real assignments live in TextCanvas.__init__ (canvas.py), sibling
+    # mixins, or QWidget itself (later in the MRO). Plain annotations only
+    # (no `= value`) so nothing is created at import time. QWidget-provided
+    # names are ``Any`` (a precise Callable would clash with QWidget's own
+    # definition when the mixin precedes it in the MRO).
+    _lines: list[str]
+    _editing: bool
+    _cursor: Position
+    _selection: TextSelection
+    _chain_selecting: str | None
+    _line_height: int
+    _metrics: QFontMetrics
+    _font: QFont
+    _text_x: Callable[[], int]
+    _press_point: Any
+    _drag_extending: bool
+    _document_layout: Any
+    update: Any
+    setFocus: Any
+    _document_mouse_press: Callable[..., None]
+    _document_mouse_move: Callable[..., None]
+    _document_mouse_release: Callable[..., None]
+    _document_key: Callable[..., bool]
+    _copy_selection: Callable[[], None]
+    select_all: Callable[[], None]
+    _paste: Callable[[], None]
+    _cut: Callable[[], None]
+    _undo_action: Callable[[], None]
+    _move_cursor: Callable[..., None]
+    _move_cursor_to_col: Callable[..., None]
+    _backspace: Callable[[], None]
+    _delete: Callable[[], None]
+    _insert_newline: Callable[[], None]
+    insert_text: Callable[[str], None]
+
     def _pos_from_point(self, point) -> Position:
         line = max(
             0,
@@ -102,7 +140,7 @@ class _CanvasEventsApi:
             self._document_mouse_press(event)
             return
         if not self._editing:
-            super().mousePressEvent(event)
+            QWidget.mousePressEvent(self, event)  # type: ignore[arg-type]
             return
         self.setFocus()
         point = event.position().toPoint()
@@ -126,7 +164,7 @@ class _CanvasEventsApi:
             self._document_mouse_press(event)
             return
         if not self._editing:
-            super().mouseDoubleClickEvent(event)
+            QWidget.mouseDoubleClickEvent(self, event)  # type: ignore[arg-type]
             return        # Qt routes every rapid press to this handler (not
         # mousePressEvent) while within the double-click interval — a fast
         # triple-click arrives here as the 3rd press too. Use the REAL
@@ -153,7 +191,7 @@ class _CanvasEventsApi:
             )
         if self._document_layout is not None:
             self._document_mouse_move(event)
-            super().mouseMoveEvent(event)
+            QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
             return
         if (
             self._editing
@@ -165,7 +203,7 @@ class _CanvasEventsApi:
                     event.position().toPoint() - self._press_point
                 ).manhattanLength()
                 if delta < 4:
-                    super().mouseMoveEvent(event)
+                    QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
                     return
                 self._drag_extending = True
             # No manual 16 ms throttle — Qt coalesces multiple update() into one
@@ -177,7 +215,7 @@ class _CanvasEventsApi:
                 _logger.warning("drag hit_test line=%s col=%s", pos[0], pos[1])
             # Avoid redundant update when pos hasn't moved (jitter)
             if pos == getattr(self, "_last_drag_pos", None):
-                super().mouseMoveEvent(event)
+                QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
                 return
             self._last_drag_pos = pos
             self._cursor = pos
@@ -189,13 +227,13 @@ class _CanvasEventsApi:
             else:
                 self._selection.focus = pos
             self.update()
-        super().mouseMoveEvent(event)
+        QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._document_layout is not None:
             self._document_mouse_release(event)
             return
-        super().mouseReleaseEvent(event)
+        QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]
 
     def _claims_shortcut(self, event) -> bool:
         """Whether the canvas consumes the key itself (ShortcutOverride).
@@ -263,7 +301,7 @@ class _CanvasEventsApi:
             else:
                 event.ignore()
             return True
-        return super().event(event)
+        return QWidget.event(self, event)  # type: ignore[arg-type]
 
     def _is_typing_key(self, event) -> bool:
         """Whether the key event is plain text input.
@@ -301,7 +339,7 @@ class _CanvasEventsApi:
         """Feed the input context the same geometry/text it gets from
         QLineEdit (cursor rect, font, surrounding text)."""
         if not getattr(self, "_editing", False):
-            return super().inputMethodQuery(query)
+            return QWidget.inputMethodQuery(self, query)  # type: ignore[arg-type]
         line, col = self._cursor
         if query == Qt.InputMethodQuery.ImCursorRectangle:
             cx = self._text_x() + self._metrics.horizontalAdvance(self._lines[line][:col])
@@ -313,7 +351,7 @@ class _CanvasEventsApi:
             return "\n".join(self._lines)
         if query == Qt.InputMethodQuery.ImCursorPosition:
             return (
-                sum(len(line_text) + 1 for line_text in self._lines[:line]) + col
+                sum((len(line_text) + 1 for line_text in self._lines[:line]), 0) + col
             )
         if query == Qt.InputMethodQuery.ImAnchorPosition:
             anchor = self._selection.anchor
@@ -321,18 +359,18 @@ class _CanvasEventsApi:
                 anchor = self._cursor
             aline, acol = anchor
             return (
-                sum(len(line_text) + 1 for line_text in self._lines[:aline]) + acol
+                sum((len(line_text) + 1 for line_text in self._lines[:aline]), 0) + acol
             )
-        return super().inputMethodQuery(query)
+        return QWidget.inputMethodQuery(self, query)  # type: ignore[arg-type]
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if self._document_layout is not None:
             if self._document_key(event):
                 return
-            super().keyPressEvent(event)
+            QWidget.keyPressEvent(self, event)  # type: ignore[arg-type]
             return
         if not getattr(self, "_editing", False):
-            super().keyPressEvent(event)
+            QWidget.keyPressEvent(self, event)  # type: ignore[arg-type]
             return
         if event.matches(QKeySequence.StandardKey.Copy):
             self._copy_selection()
@@ -373,4 +411,4 @@ class _CanvasEventsApi:
         elif self._is_typing_key(event):
             self.insert_text(event.text())
         else:
-            super().keyPressEvent(event)
+            QWidget.keyPressEvent(self, event)  # type: ignore[arg-type]

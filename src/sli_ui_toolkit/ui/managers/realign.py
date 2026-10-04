@@ -150,7 +150,7 @@ class ClickRealignCoordinator:
         # that don't implement focus_nearest and sections whose
         # focus_nearest doesn't cover the click area (e.g. clicking
         # below the last card in a list that also has a footer panel).
-        target = self.nearest_focusable(owner, pos)
+        target = self.nearest_focusable(owner, pos) if isinstance(owner, QWidget) else None
         if target is not None:
             try:
                 from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason2

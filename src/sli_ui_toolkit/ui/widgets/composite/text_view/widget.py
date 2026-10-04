@@ -9,6 +9,7 @@ section area; the section page itself never scrolls.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import ClassVar
 
 from PySide6.QtCore import QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen, QPixmap, QRegion
@@ -71,6 +72,10 @@ class TextView(QScrollArea):
     linkActivated = Signal(str)
     #: document mode: an image was clicked (source asset path)
     imageActivated = Signal(str)
+
+    # Assigned after the class body below (mypy needs the declaration here).
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
 
     def __init__(self, text: str = ""):
         super().__init__()

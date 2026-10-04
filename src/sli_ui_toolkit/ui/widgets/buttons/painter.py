@@ -8,7 +8,7 @@ Default-pipeline задан в DEFAULT_LAYERS; Button может передат�
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QPainter
@@ -112,7 +112,10 @@ def iter_button_regions(button, ctx: DrawContext):
             group=region.group,
             icon_size_px=region.icon_size_px,
             corner_radii=(
-                tuple(0 if v == 0 else scaled_px(v) for v in _to_corner_radii(region.corner_radii))
+                cast(
+                    "tuple[int, int, int, int]",
+                    tuple(0 if v == 0 else scaled_px(v) for v in _to_corner_radii(region.corner_radii)),
+                )
                 if region.corner_radii is not None
                 else None
             ),

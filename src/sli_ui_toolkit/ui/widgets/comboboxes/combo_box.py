@@ -1,7 +1,7 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import (
     QEvent,
@@ -34,6 +34,9 @@ from sli_ui_toolkit.ui.widgets.comboboxes.capabilities import GearDragCapability
 
 
 class ComboBox(Button):
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar["WidgetDescriptor"]
+
     currentIndexChanged = Signal(int)
     currentTextChanged = Signal(str)
 
@@ -639,13 +642,21 @@ class ComboBox(Button):
 
         return super().eventFilter(watched, event)
 
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+
+
+def _spec_items(w: Any) -> Any:
+    return [t for t, _d in w.items()]
+
+
 ComboBox.inspect_spec = InspectSpec(
     family="ComboBox",
     state=(
         SpecField("current_index", "currentIndex"),
         SpecField("current_text", "currentText"),
         SpecField("count", "count"),
-        SpecField("items", lambda w: [t for t, _d in w.items()]),
+        SpecField("items", _spec_items),
         SpecField("max_visible_items", "maxVisibleItems"),
     ),
     token_family=(

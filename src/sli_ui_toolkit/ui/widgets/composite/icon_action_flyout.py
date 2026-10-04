@@ -2,12 +2,12 @@ from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import ClassVar, Iterable
 
 import shiboken6 as sip
 
-from PySide6.QtCore import QEvent, QEasingCurve, QSize, Signal
-from PySide6.QtWidgets import QHBoxLayout
+from PySide6.QtCore import QEvent, QEasingCurve, QSize, Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.managers import AnchoredFlyoutAutoHide
@@ -24,6 +24,10 @@ class IconAction:
     enabled: bool = True
 
 class IconActionFlyout(BaseFlyout):
+    # Inspector metadata assigned at module bottom.
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
+
     actionTriggered = Signal(str)
     elementHovered = Signal(str)
     elementHoverEnded = Signal()
@@ -42,7 +46,7 @@ class IconActionFlyout(BaseFlyout):
     ):
         super().__init__(parent)
         self._hovered_element = None
-        self._anchor_button = None
+        self._anchor_button: QWidget | None = None
         self._button_size = int(button_size)
         self._icon_size = int(icon_size)
         # Per-instance show-animation override for show_above/show_aligned.
@@ -238,17 +242,18 @@ class IconActionFlyout(BaseFlyout):
 
     def show_aligned(
         self,
-        anchor_widget,
-        anchor_point="top-center",
-        flyout_point="bottom-center",
+        anchor_widget: QWidget,
+        anchor_point: str = "top-center",
+        flyout_point: str = "bottom-center",
         *,
         position: str | None = None,
-        offset=5,
+        offset: int = 5,
         animation: str | None = None,
         animation_duration_ms: int | None = None,
         animation_distance: int | None = None,
         animation_axis: AnimationAxis = "auto",
         easing: QEasingCurve.Type = QEasingCurve.Type.OutQuad,
+        focus_reason: Qt.FocusReason | None = None,
         toggle: bool = True,
         grab_focus: bool = True,
         register_nav_section: bool | None = None,
@@ -276,6 +281,7 @@ class IconActionFlyout(BaseFlyout):
             animation_distance=animation_distance,
             animation_axis=animation_axis,
             easing=easing,
+            focus_reason=focus_reason,
             grab_focus=grab_focus,
             register_nav_section=register_nav_section,
         )
@@ -292,7 +298,7 @@ class IconActionFlyout(BaseFlyout):
         self.cancel_auto_hide()
         super().hide()
 
-IconActionFlyout.inspect_spec = InspectSpec(  # type: ignore[attr-defined]
+IconActionFlyout.inspect_spec = InspectSpec(
     family="IconActionFlyout",
     state=(
         SpecField("pinned", "pinned"),
