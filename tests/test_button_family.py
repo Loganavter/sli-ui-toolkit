@@ -71,9 +71,10 @@ def test_shared_hover_lights_whole_family(qtbot):
     qtbot.mouseMove(b1, QPoint(30, 14))
     assert _hovered(b1)
     assert _hovered(b2)
-    # Leaving all members clears the mirrored glow.
+    # Leaving all members clears the mirrored glow (via the poll backstop —
+    # Leave synthesis is not guaranteed, so allow one poll interval).
     qtbot.mouseMove(host, QPoint(290, 90))
-    QApplication.processEvents()
+    qtbot.wait(200)
     assert not _hovered(b1)
     assert not _hovered(b2)
 
