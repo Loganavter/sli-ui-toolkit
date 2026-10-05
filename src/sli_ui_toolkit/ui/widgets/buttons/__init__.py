@@ -1,5 +1,6 @@
 from sli_ui_toolkit.ui.widgets.buttons.button import Button, ButtonConfig, ButtonRow
 from sli_ui_toolkit.ui.widgets.buttons.content import PixmapContent
+from sli_ui_toolkit.ui.widgets.buttons.family import ButtonFamily
 from sli_ui_toolkit.ui.widgets.buttons.button_group import ButtonGroup
 from sli_ui_toolkit.ui.widgets.buttons.feedback import (
     DEFER_CLICK_AWAIT_RIPPLE,
@@ -61,6 +62,7 @@ __all__ = [
     "BehaviorSpec",
     "Button",
     "ButtonConfig",
+    "ButtonFamily",
     "ButtonGroup",
     "ButtonRegion",
     "ButtonRow",
