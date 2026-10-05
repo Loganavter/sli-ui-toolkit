@@ -196,6 +196,31 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     def minimumSizeHint(self):
         return _ButtonStyleApi.minimumSizeHint(self)
 
+    @staticmethod
+    def _drop_singleton_slots(pairs) -> None:
+        """Drop app-lifetime singleton connections at C++ destruction.
+
+        Static on purpose (see the destroyed-hook above): no ``self``.
+        Every disconnect is best-effort — a subclass that disconnected
+        earlier, or singletons already torn down at app exit, must not
+        fail teardown.
+        """
+        # One disconnect() call removes a single matching connection, but
+        # app code may connect the same slot twice (gallery series-header
+        # buttons get an extra theme_changed.connect(btn.update) in
+        # grid_view.py) — loop until no matching connection remains.
+        # The cap is paranoia: disconnect either removes one (progress)
+        # or raises (done), so the loop always terminates.
+        for signal, slot in pairs:
+            for _ in range(64):
+                try:
+                    signal.disconnect(slot)
+                except Exception:
+                    # Best-effort: RuntimeError (no such connection),
+                    # TypeError, or SystemError depending on teardown
+                    # order — none of them may fail destruction.
+                    break
+
     toggled = Signal(bool)
     longPressed = Signal()
     shortClicked = Signal()
@@ -432,12 +457,37 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         register_hover_widget(self)
         self.theme_manager = ThemeManager.get_instance()
-        self.theme_manager.theme_changed.connect(self.update)
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+        theme_sig = self.theme_manager.theme_changed
+        scale_sig = UiScale.get_instance().scale_changed
+        font_sig = UiFont.get_instance().font_changed
+        # Capture bound slots as locals: the destroyed-hook below must
+        # never touch the dying wrapper (attribute access on an object
+        # under C++ destruction is refused), so everything it needs is
+        # closed over here while the object is alive.
+        _update = self.update
+        _on_scale = self.on_scale_changed
+        _on_font = self._on_toolkit_font_changed
+        theme_sig.connect(_update)
+        scale_sig.connect(_on_scale)
         # ui_font() results feed every text row (including the cached marquee
         # descriptors), so an app-font change must retire the snapshot — the
         # same class of invalidation as a theme switch.
-        UiFont.get_instance().font_changed.connect(self._on_toolkit_font_changed)
+        font_sig.connect(_on_font)
+        # Singleton signals hold bound methods past C++ destruction (no
+        # auto-disconnect for Python callables): without this, every dead
+        # Button keeps firing on theme/font/scale switches, and a wrapper
+        # whose address was reused by a new C++ object passes the
+        # sip.isValid guard and crashes in the Qt event loop
+        # (gallery suite: stale slot firing as QSpacerItem).
+        # The hook is a closure over locals — NOT a bound method — because
+        # bound-method slots on the dying object never run. The closure
+        # itself dies with the last destroyed-connection, so it leaks
+        # nothing.
+        self.destroyed.connect(
+            lambda _obj=None: Button._drop_singleton_slots(
+                ((theme_sig, _update), (scale_sig, _on_scale), (font_sig, _on_font))
+            )
+        )
 
         effective_extra: list[Layer] = []
         if extra_layers:
