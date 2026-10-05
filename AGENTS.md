@@ -69,18 +69,18 @@ Read these files before changing code:
 
 ## Auto-Backup Daemon
 
-Same scheme as the sibling repos (`Improve-ImgSLI`, `improve-imgsli-internal-docs`): `~/.local/bin/sli-ui-toolkit-autopush.sh` runs every 15 min via `systemd --user sli-ui-toolkit-autopush.timer`:
+Same scheme as the sibling repos (`Improve-ImgSLI`, `improve-imgsli-internal-docs`): `~/.local/bin/sli-ui-toolkit-autopush.sh` runs every 15 min via `systemd --user sli-ui-toolkit-autopush.timer`. Since 2026-10-05 it snapshots the tree onto `backup/autopush/<branch>` refs and NEVER commits onto branches (throwaway-index snapshot, HEAD/index/worktree untouched) — `auto:` commits in history are always legacy:
 
 ```bash
-git add -A; git commit -m "auto: periodic backup ... [from $CUR_BRANCH]"
-git branch -f backup/autopush/$CUR_BRANCH HEAD; git push private backup/autopush/$CUR_BRANCH --force
-# no `git reset --hard` — ever; the working tree is always left untouched
+# snapshot only: temp index + commit-tree parented on the previous backup
+git push private backup/autopush/$CUR_BRANCH --force
+# no `git reset --hard` — ever; HEAD/index/tree are never modified
 ```
 
 - Never `push` to `main` manually — `main` changes go via reviewed commits/PRs. The daemon's `backup/autopush/<branch>` push is automatic, not a manual push.
-- Edits are swept into per-branch `backup/autopush/<branch>` (including staged index). Nothing is wiped — recover via `git log backup/autopush/<branch> --oneline -5` / `git checkout backup/autopush/<branch> -- <path>`.
+- Edits stay uncommitted in your tree until YOU commit them (the daemon only mirrors them to the backup ref). Nothing is wiped — recover via `git log backup/autopush/<branch> --oneline -5` / `git checkout backup/autopush/<branch> -- <path>`.
 - Do not use `git stash` — it is denied by opencode permissions and the stash list is shared per repo. Use `git worktree` for before/after comparisons.
-- **Never delegate work on `main`, never share one checkout.** Before any parallel `Task`, `git checkout -b feat/<slug>` or separate clones per agent (worktrees share one `.git` and its stash list; separate clones isolate fully). On a branch the working tree keeps edits, but `auto:` commits stay in branch history — drop them before PR (`git rebase -i main` / `git reset --soft main`).
+- **Never delegate work on `main`, never share one checkout.** Before any parallel `Task`, `git checkout -b feat/<slug>` or separate clones per agent (worktrees share one `.git` and its stash list; separate clones isolate fully). Branches stay clean of daemon commits; legacy `auto:` commits need a pre-squash audit first — `git diff --stat <last-non-auto> <tip>`, distill live experiments before dropping (sidebar-loss 2026-10-05).
 - Worktrees live in `/tmp/opencode/` (fallback `~/.cache/opencode/`), never in `../`. Pause with `systemctl --user stop *autopush.timer` / `start`. Run tests with `PYTHONDONTWRITEBYTECODE=1 -p no:cacheprovider`.
 
 ## Good Defaults
