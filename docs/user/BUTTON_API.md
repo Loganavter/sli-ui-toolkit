@@ -230,6 +230,53 @@ Background, content, ripple, and hit-testing are clipped to the path. Dividers
 are still layout-line based; custom path-shaped separators should be rendered
 as a dedicated layer.
 
+#### Linking separate buttons: `ButtonFamily`
+
+`group=` links regions *inside one* button. When several standalone buttons
+should behave as one ("one button, but different buttons" — e.g. rank pills
+`#1/#2/#3` over gallery thumbnails), link them with a `ButtonFamily`: a
+non-visual `QObject` holding shared policies plus the family's combined
+geometry. Members keep their own visuals, paint, and clicks; the family only
+mirrors state and reports area. It reparents nothing.
+
+```python
+from sli_ui_toolkit.widgets import ButtonFamily
+
+fam = ButtonFamily()
+fam.setSharedHover(True)  # pointer inside any member lights HOVERED on all
+fam.setExclusive(True)    # checking one member unchecks the rest (radio-like)
+fam.addButton(thumb1)
+fam.addButton(thumb2)
+fam.addButton(thumb3)
+
+area = fam.unionRect()  # bounding QRect of visible members, global coords
+fam.geometryChanged.connect(relayout_overlays)  # any member moved/resized
+```
+
+Policies (independent, combinable; `sharedHover()` / `isExclusive()` read back):
+
+- `shared_hover` — pointer inside *any* member sets `HOVERED` on *every*
+  member (whole buttons, all non-disabled regions); cleared when the pointer
+  leaves all of them. A 50 ms poll backstop (running only while something is
+  hovered) re-derives the set from the live cursor position, so a lost `Leave`
+  can never stick the glow. With the policy off the family is fully
+  transparent — it neither sets nor clears member hover.
+- `exclusive` — checking one member unchecks the rest. Works for any toggle
+  `Button`, not just `RadioButton` (compare `RadioButtonGroup`, which is
+  radio-only). Non-toggle members are skipped, never forced.
+
+Combined geometry:
+
+- `unionRect()` — bounding rect of visible members in global coordinates
+  (null `QRect` when empty); `unionRectMappedTo(widget)` maps it into another
+  widget's local coordinates; `center()` is the union center.
+- `geometryChanged` fires on member move/resize/show/hide, so hosts can
+  re-pin overlays anchored to the family area.
+
+Lifecycle: `removeButton()` detaches (clearing that member's family glow);
+destroyed members detach themselves. The family never takes ownership of
+the buttons — parent it or keep a reference like any `QObject`.
+
 #### High-level overlay painter & custom layers
 
 To draw custom decorations or outlines over a button without subclassing `Layer` or replacing default layers, pass `overlay_painter=`:
