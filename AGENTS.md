@@ -2,6 +2,18 @@
 
 This repository contains the shared PySide6 UI toolkit used by Improve-ImgSLI and Tkonverter. SLI stands for **Shared Lightweight Interface**.
 
+## Broken? Run the diagnosis ladder first
+
+Before any mechanism hypothesis for a bug/flicker/crash: **blast radius →
+working-sibling diff** (nearest non-broken path of the same class — highest
+yield) → grep known-bad comments → cheapest one-line discriminator → **only
+then** mechanism. Two live probes without a narrowed layer ⇒ stop. Full ladder +
+anti-shortcut index live in the private sibling docs:
+`../improve-imgsli-internal-docs/docs/dev/DEBUGGING.md` and
+`../improve-imgsli-internal-docs/docs/dev/investigations/circling-map-2026-10-06.md`
+(skill `diagnosis-ladder`). Example already on record: never parent a `Qt.Popup`
+to the top-level window (popup_surface.py).
+
 ## What This Library Is
 
 `sli-ui-toolkit` is a reusable PySide6 UI layer (Shared Lightweight Interface)
