@@ -417,6 +417,20 @@ class OverlayScrollArea(QScrollArea):
         # Wheel glide state: an accumulated target the ticker eases toward.
         self._scroll_target: int | None = None
         self._syncing_scroll = False
+        # Re-entrancy guard for the range/value sync below: layout feedback
+        # (margins -> viewport -> ranges) can re-emit mid-pass, and each
+        # nested pass costs dozens of frames (signal + sdbg env lookups),
+        # so ~25 nested passes already exhaust the stack (proven
+        # RecursionError in production logs). A nested pass is cut and
+        # re-queued deferred instead — the sync is idempotent, so the
+        # outer pass plus one timer tick converge on fresh values.
+        self._sync_depth = 0
+        # Consecutive cut counter (spin breaker below): reset only by a
+        # pass that completes with zero cuts of its own, so a perpetually
+        # oscillating driver exhausts the budget across ticks instead of
+        # renewing it on every unwind.
+        self._sync_cuts = 0
+        self._sync_entry_cuts = 0
         self._scroll_timer = QTimer(self)
         self._scroll_timer.setInterval(_SCROLL_TICK_MS)
         self._scroll_timer.timeout.connect(self._scroll_tick)
@@ -668,25 +682,78 @@ class OverlayScrollArea(QScrollArea):
         region = QRegion(path.toFillPolygon().toPolygon())
         viewport.setMask(region)
 
+    def _enter_sync(self) -> bool:
+        """Try entering a sync pass; False when already inside (cut it)."""
+        if self._sync_depth > 0:
+            try:
+                self._sync_cuts += 1
+                cuts = self._sync_cuts
+            except Exception:
+                cuts = 0
+            # Spin breaker: a driver that never settles must not pin the
+            # 0ms timer forever (that would turn the old crash into a hang).
+            # Past the budget the cut stops re-arming; the next external
+            # event (resize, value/range change) re-syncs naturally.
+            if cuts <= 256:
+                sdbg(
+                    f"OverlayScrollArea sync re-entered at depth={self._sync_depth} "
+                    f"(cut {cuts}, deferred re-sync queued)"
+                )
+                try:
+                    self._queue_scrollbar_sync()
+                except Exception:
+                    pass
+            else:
+                sdbg(
+                    f"OverlayScrollArea sync spin breaker tripped "
+                    f"(cuts={cuts}, no re-arm)"
+                )
+            return False
+        self._sync_depth += 1
+        try:
+            self._sync_entry_cuts = self._sync_cuts
+        except Exception:
+            pass
+        return True
+
+    def _exit_sync(self) -> None:
+        try:
+            self._sync_depth = max(0, self._sync_depth - 1)
+            # Budget renews only on a pass with zero cuts of its own.
+            if self._sync_depth == 0 and self._sync_cuts == self._sync_entry_cuts:
+                self._sync_cuts = 0
+        except Exception:
+            pass
+
     def _sync_steps_from_native(self):
-        native = self.verticalScrollBar()
-        self.custom_v_scrollbar.blockSignals(True)
-        self.custom_v_scrollbar.setRange(native.minimum(), native.maximum())
-        self.custom_v_scrollbar.setPageStep(native.pageStep())
-        self.custom_v_scrollbar.setSingleStep(native.singleStep())
-        self.custom_v_scrollbar.setValue(native.value())
-        self.custom_v_scrollbar.blockSignals(False)
-        self._update_scrollbar_visibility()
+        if not self._enter_sync():
+            return
+        try:
+            native = self.verticalScrollBar()
+            self.custom_v_scrollbar.blockSignals(True)
+            self.custom_v_scrollbar.setRange(native.minimum(), native.maximum())
+            self.custom_v_scrollbar.setPageStep(native.pageStep())
+            self.custom_v_scrollbar.setSingleStep(native.singleStep())
+            self.custom_v_scrollbar.setValue(native.value())
+            self.custom_v_scrollbar.blockSignals(False)
+            self._update_scrollbar_visibility()
+        finally:
+            self._exit_sync()
 
     def _sync_h_steps_from_native(self):
-        native = self.horizontalScrollBar()
-        self.custom_h_scrollbar.blockSignals(True)
-        self.custom_h_scrollbar.setRange(native.minimum(), native.maximum())
-        self.custom_h_scrollbar.setPageStep(native.pageStep())
-        self.custom_h_scrollbar.setSingleStep(native.singleStep())
-        self.custom_h_scrollbar.setValue(native.value())
-        self.custom_h_scrollbar.blockSignals(False)
-        self._update_scrollbar_visibility()
+        if not self._enter_sync():
+            return
+        try:
+            native = self.horizontalScrollBar()
+            self.custom_h_scrollbar.blockSignals(True)
+            self.custom_h_scrollbar.setRange(native.minimum(), native.maximum())
+            self.custom_h_scrollbar.setPageStep(native.pageStep())
+            self.custom_h_scrollbar.setSingleStep(native.singleStep())
+            self.custom_h_scrollbar.setValue(native.value())
+            self.custom_h_scrollbar.blockSignals(False)
+            self._update_scrollbar_visibility()
+        finally:
+            self._exit_sync()
 
     def _update_scrollbar_visibility(self, min_items_count=0):
         native_v = self.verticalScrollBar()
