@@ -158,7 +158,10 @@ from sli_ui_toolkit.ui.widgets.virtual_list import (
 from sli_ui_toolkit.ui.widgets.helpers import (
     apply_marquee,
     draw_marquee_text,
+    install_scrollbar_policy,
     MarqueeDriver,
+    register_widget_policy,
+    WidgetPolicyProxyStyle,
 )
 from sli_ui_toolkit.managers import (
     AnchoredFlyoutAutoHide,
@@ -260,8 +263,11 @@ __all__ = [
     "LabelConfig",
     "LabelVariantSpec",
     "MarqueeDriver",
+    "WidgetPolicyProxyStyle",
     "apply_marquee",
     "draw_marquee_text",
+    "install_scrollbar_policy",
+    "register_widget_policy",
     "IconAction",
     "IconActionFlyout",
     "IconListItem",
