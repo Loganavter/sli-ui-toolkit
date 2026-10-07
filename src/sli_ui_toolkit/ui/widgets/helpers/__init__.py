@@ -26,6 +26,11 @@ from sli_ui_toolkit.ui.widgets.helpers.underline_painter import (
 from sli_ui_toolkit.ui.widgets.helpers.wheel_scroll_policy import (
     WheelScrollPolicyMixin,
 )
+from sli_ui_toolkit.ui.widgets.helpers.scrollbar_policy import (
+    WidgetPolicyProxyStyle,
+    install_scrollbar_policy,
+    register_widget_policy,
+)
 
 __all__ = [
     "MarqueeDriver",
@@ -41,7 +46,10 @@ __all__ = [
     "draw_rounded_shadow",
     "ensure_marquee_driver",
     "RoundedClipEffect",
+    "WidgetPolicyProxyStyle",
     "hover_coordinator",
+    "install_scrollbar_policy",
+    "register_widget_policy",
     "register_hover_widget",
     "unregister_hover_widget",
 ]
