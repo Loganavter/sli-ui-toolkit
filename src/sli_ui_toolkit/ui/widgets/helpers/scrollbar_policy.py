@@ -6,11 +6,13 @@ look. This module is the enforcement half — a ``QProxyStyle`` that sees
 every widget at polish time and runs the registered substitution handlers,
 plus ``install_scrollbar_policy()`` wiring it into the application.
 
-Built-in policy (scrollbars): every ``QAbstractScrollArea`` that is not an
+Built-in policies (scrollbars): every ``QAbstractScrollArea`` that is not an
 ``OverlayScrollArea`` and whose bars are not already ``MinimalistScrollBar``
 gets its native bars replaced via ``setVerticalScrollBar`` /
 ``setHorizontalScrollBar``. Overlay areas keep their hidden mirrored native
-bars (swapping them would break the mirror wiring).
+bars (swapping them would break the mirror wiring) and get their native
+policies re-asserted to ``AlwaysOff`` — any other policy shows a second,
+native-looking scrollbar next to the custom one.
 
 Extension point for future widgets: ``register_widget_policy(cls, handler)``
 — ``handler(widget)`` runs once per matching widget. Handlers must be
@@ -155,11 +157,39 @@ def _enforce_scrollbar_policy(area: Any) -> None:
         pass
 
 
+def _enforce_overlay_native_hidden(area: Any) -> None:
+    """Keep OverlayScrollArea native bars hidden (widget invariant).
+
+    The overlay design mirrors hidden native bars with floating
+    MinimalistScrollBar thumbs: any other policy on the native bars shows
+    a second, native-looking scrollbar next to the custom one (proven by
+    leftover stock-era ``AsNeeded`` lines after call-site migration).
+    Re-asserts ``AlwaysOff`` on both native bars. Never raises.
+    """
+    try:
+        from PySide6.QtCore import Qt as _Qt2
+
+        for policy_name in ("setVerticalScrollBarPolicy", "setHorizontalScrollBarPolicy"):
+            try:
+                setter = getattr(area, policy_name, None)
+                if callable(setter):
+                    setter(_Qt2.ScrollBarPolicy.ScrollBarAlwaysOff)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
 def _register_builtin_policies() -> None:
     try:
         from PySide6.QtWidgets import QAbstractScrollArea as _ASA
 
+        from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
+            OverlayScrollArea as _OSA,
+        )
+
         register_widget_policy(_ASA, _enforce_scrollbar_policy, key="scrollbars")
+        register_widget_policy(_OSA, _enforce_overlay_native_hidden, key="overlay-native-hidden")
     except Exception:
         pass
 

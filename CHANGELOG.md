@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Scrollbar policy: `OverlayScrollArea` native bars re-hidden at polish (`overlay-native-hidden` rule)** — call-site migrations to `OverlayScrollArea` kept stock-era `AsNeeded` overrides, showing a native scrollbar next to the custom one (gallery Quick Look sidebar). The proxy now re-asserts `AlwaysOff` on both native bars of every overlay area; the mirrored bars themselves are untouched. Tests: +1 in `tests/test_scrollbar_policy.py`.
+
 ### Added
 
 - **Project-wide widget substitution: `WidgetPolicyProxyStyle` + `install_scrollbar_policy()` + `register_widget_policy()` (`ui.widgets.helpers.scrollbar_policy`, exported from `sli_ui_toolkit.widgets`)** — enforcement half for opt-in construction: a `QProxyStyle` that sees every widget at polish time and runs the registered substitution handlers (once per widget, all calls guarded). Built-in rule swaps every `QAbstractScrollArea`'s native bars for `MinimalistScrollBar` except `OverlayScrollArea` (its hidden mirrored native bars keep the mirror wiring) and areas already carrying minimalist bars. `install_scrollbar_policy()` is idempotent, uses a null-base proxy (dynamic delegation — steals no ownership; Qt deletes the previous style inside `setStyle`, so there is deliberately no uninstall), and sweeps pre-existing widgets; host apps call it once at startup. `register_widget_policy(cls, handler)` extends the same mechanism to future widget kinds (late registrations sweep live widgets). Proven during development: `QProxyStyle(base)` takes ownership of `base` (wrapping `app.style()` in a short-lived proxy segfaults on GC) and `setStyle` deletes the replaced style. Tests: new `tests/test_scrollbar_policy.py` (6: public surface, stock swap, overlay skip, idempotence, registry extension, install end-to-end); mypy clean.

@@ -61,6 +61,29 @@ def test_polish_skips_overlay_areas(qapp):
     host.close()
 
 
+def test_polish_rehides_overlay_native_bars(qapp):
+    """Leftover AsNeeded lines cannot resurrect the native look.
+
+    Regression: call-site migrations to OverlayScrollArea kept stock-era
+    policy overrides, showing a native scrollbar next to the custom one.
+    """
+    from PySide6.QtCore import Qt as _Qt
+
+    style = WidgetPolicyProxyStyle()
+    area = OverlayScrollArea()
+    host = _shown(qapp, area)
+    area.setVerticalScrollBarPolicy(_Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    area.setHorizontalScrollBarPolicy(_Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    style.polish(area)
+    qapp.processEvents()
+    assert area.verticalScrollBarPolicy() == _Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert area.horizontalScrollBarPolicy() == _Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    # The mirrored native bars themselves are untouched (still stock).
+    assert not isinstance(area.verticalScrollBar(), MinimalistScrollBar)
+    assert not isinstance(area.horizontalScrollBar(), MinimalistScrollBar)
+    host.close()
+
+
 def test_policy_is_idempotent(qapp):
     style = WidgetPolicyProxyStyle()
     area = QScrollArea()
