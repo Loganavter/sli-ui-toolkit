@@ -5,6 +5,7 @@
 ### Fixed
 
 - **Scrollbar policy: `OverlayScrollArea` native bars re-hidden at polish (`overlay-native-hidden` rule)** — call-site migrations to `OverlayScrollArea` kept stock-era `AsNeeded` overrides, showing a native scrollbar next to the custom one (gallery Quick Look sidebar). The proxy now re-asserts `AlwaysOff` on both native bars of every overlay area; the mirrored bars themselves are untouched. Tests: +1 in `tests/test_scrollbar_policy.py`.
+- **`OverlayScrollArea` sync re-entrancy guard + spin breaker** — layout feedback (margins → viewport → ranges) can re-emit `rangeChanged` mid-sync, and each nested pass costs dozens of frames, so ~25 nested passes exhaust the stack (production `RecursionError`, tripped inside an env-flag lookup). Sync passes are now cut at depth ≥ 1 with one deferred re-sync queued (the sync is idempotent); a 256-consecutive-cut budget stops re-arming so a never-settling driver degrades to external-event re-syncs instead of pinning the 0ms timer. Cuts are logged through the existing `sdbg` stream. Tests: +3 in `tests/test_scrollbar_policy.py` (cut + defer, Qt-delivered nesting cut exactly once, breaker stops re-arm); mypy clean.
 
 ### Added
 
