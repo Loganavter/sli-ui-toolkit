@@ -35,6 +35,9 @@ Combined geometry (global screen coordinates unless stated):
 - ``unionRect()`` — bounding rect of all *visible* members (null ``QRect``
   when empty/none visible); ``unionRectMappedTo(widget)`` maps it into
   another widget's coordinates; ``center()`` is the union center.
+- ``memberRectsMappedTo(widget)`` / ``memberRectMappedTo(button, widget)`` —
+  the same walk per member, so a host can place one overlay per member
+  without mapping each button by hand.
 - ``geometryChanged`` fires when any member moves, resizes, shows or hides,
   so hosts can re-pin overlays anchored to the family area.
 """
@@ -193,6 +196,37 @@ class ButtonFamily(QObject):
         if union.isNull():
             return QPoint()
         return union.center()
+
+    def memberRectsMappedTo(self, widget: QObject) -> dict["Button", QRect]:
+        """Per-member *visible* rects, in *widget*'s local coordinates.
+
+        ``unionRect()`` answers "where is the family as a whole"; this
+        answers "where is each member" — the data ``unionRect`` already
+        walks, so hosts that lay an overlay per member (or offset a badge
+        past a member's edge) do not map every button by hand. Hidden
+        members and failed mappings are omitted.
+        """
+        out: dict["Button", QRect] = {}
+        for button in list(self._buttons):
+            rect = self.memberRectMappedTo(button, widget)
+            if not rect.isNull():
+                out[button] = rect
+        return out
+
+    def memberRectMappedTo(self, button: "Button", widget: QObject) -> QRect:
+        """One member's rect in *widget*'s local coordinates.
+
+        Null ``QRect`` when *button* is not a visible member or the mapping
+        fails.
+        """
+        try:
+            if button not in self._buttons or not button.isVisible():
+                return QRect()
+            rect = QRect(button.rect())
+            top_left = widget.mapFromGlobal(button.mapToGlobal(rect.topLeft()))  # type: ignore[attr-defined]
+            return QRect(top_left, rect.size())
+        except Exception:
+            return QRect()
 
     # -------- internals --------
 

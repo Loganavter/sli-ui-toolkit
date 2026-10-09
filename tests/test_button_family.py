@@ -156,6 +156,22 @@ def test_union_rect_empty_family(qtbot):
     assert fam.unionRectMappedTo(host).isNull()
 
 
+def test_member_rects_mapped_to(qtbot):
+    host, b1, b2 = _pair(qtbot, pos2=(100, 50))
+    fam = ButtonFamily()
+    fam.addButton(b1)
+    fam.addButton(b2)
+    rects = fam.memberRectsMappedTo(host)
+    assert rects == {b1: QRect(10, 10, 60, 28), b2: QRect(100, 50, 60, 28)}
+    assert fam.memberRectMappedTo(b1, host) == QRect(10, 10, 60, 28)
+    # Non-member → null.
+    assert fam.memberRectMappedTo(Button(), host).isNull()
+    # Hidden members drop out of both forms.
+    b1.hide()
+    assert b1 not in fam.memberRectsMappedTo(host)
+    assert fam.memberRectMappedTo(b1, host).isNull()
+
+
 def test_geometry_changed_on_member_move(qtbot):
     host = QWidget()
     qtbot.addWidget(host)
