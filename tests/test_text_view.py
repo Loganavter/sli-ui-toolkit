@@ -779,3 +779,20 @@ def test_text_view_document_image_opens_lightbox(qapp):
     assert emitted == ["img.png"]
     assert view._lightbox is not None
     assert view._lightbox.isVisible()
+
+
+def test_line_at_maps_each_line_centre_to_its_own_index(qapp):
+    """Content identity: the y -> line mapping the code-mode paint uses resolves
+    each line's centre to its own index and text (a duplicated/off-by-one
+    mapping would fail). The code-mode paint had no such content check."""
+    from sli_ui_toolkit.ui.widgets.composite.text_view import constants
+
+    lines = ["alpha", "beta", "gamma", "delta", "epsilon"]
+    canvas = TextCanvas("\n".join(lines))
+    line_height = canvas._line_height
+    assert line_height > 0
+    for i, text in enumerate(lines):
+        y = constants.PAD + i * line_height + line_height // 2
+        index = canvas.line_at(y)
+        assert index == i
+        assert canvas.line_text(index) == text
