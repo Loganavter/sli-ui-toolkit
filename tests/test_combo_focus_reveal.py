@@ -31,6 +31,12 @@ def test_show_dropdown_focus_index_does_not_change_current(qtbot):
     row = combo.dropdown_row_widget(2)
     assert row is not None
     assert row._item_index == 2
+    # Content identity: each dropdown row shows ITS item's text, never a
+    # neighbour's (only _item_index was asserted before).
+    for idx, label in enumerate(("A", "B", "C")):
+        r = combo.dropdown_row_widget(idx)
+        assert r._item_index == idx
+        assert r._text == label
 
     combo.hideDropdown()
     assert combo._dropdown_focus_index is None

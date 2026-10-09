@@ -63,6 +63,34 @@ def test_single_tab_is_closable(qapp):
     assert strip.tabButton(0, QTabBar.ButtonPosition.RightSide) is not None
 
 
+def test_tab_titles_stay_bound_to_their_index(qapp):
+    """Content identity: index i always reports title i.
+
+    The close/geometry suites never checked tab content, so a remap that
+    shifted titles between indices (or a stale title after a close) passed.
+    """
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    titles = ["Alpha", "Beta", "Gamma", "Delta"]
+    for title in titles:
+        strip.addTab(title)
+    strip.resize(900, strip.sizeHint().height())
+    strip.show()
+    qapp.processEvents()
+
+    def current_titles():
+        return [strip.tabText(i) for i in range(strip.count())]
+
+    assert current_titles() == titles
+
+    strip.setCurrentIndex(2)
+    qapp.processEvents()
+    assert current_titles() == titles
+
+    strip.removeTab(1)
+    qapp.processEvents()
+    assert current_titles() == ["Alpha", "Gamma", "Delta"]
+
+
 def test_selected_tab_widths_never_change(qapp):
     strip = _strip()
     for title in ("Short", "A much longer workspace", "Third"):
