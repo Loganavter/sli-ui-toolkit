@@ -212,6 +212,15 @@ class RegionHandle:
     def id(self) -> str:
         return self._region_id
 
+    @property
+    def rect(self) -> QRectF:
+        """Live geometry of this region in the button's own coordinates.
+
+        Read-only: a ``ButtonRegion`` has no ``rect`` field, so assignment
+        raises (use ``button.set_regions(...)`` to change layout).
+        """
+        return self._button.region_rect(self._region_id)
+
     def _region(self) -> ButtonRegion:
         region = self._button._region_by_id(self._region_id)
         if region is None:

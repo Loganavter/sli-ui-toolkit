@@ -691,6 +691,30 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             raise ValueError(f"unknown button region id: {region_id!r}")
         return RegionHandle(self, region_id)
 
+    def region_rects(self) -> dict[str, QRectF]:
+        """Live per-region rects in the button's own coordinates (read-only).
+
+        Hosts that lay decorations/overlays over regions (or hit-test them)
+        should not poke the private ``_region_rects``. Recomputed on demand
+        when the button has not laid out yet; empty on any surprise.
+        """
+        try:
+            if not self._region_rects:
+                self._recompute_region_rects()
+            return dict(self._region_rects)
+        except Exception:
+            return {}
+
+    def region_rect(self, region_id: str) -> QRectF:
+        """Live rect of a single region (button coordinates).
+
+        Raises ``ValueError`` for an unknown region id (mirrors ``region()``).
+        """
+        rects = self.region_rects()
+        if region_id not in rects:
+            raise ValueError(f"unknown button region id: {region_id!r}")
+        return QRectF(rects[region_id])
+
     def update_region(self, region_id: str, **changes: Any) -> None:
         """Replace one or more static ``ButtonRegion`` fields for ``region_id``.
 

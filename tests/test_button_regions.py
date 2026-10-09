@@ -47,6 +47,28 @@ def test_button_vertical_regions_emit_region_clicked(qtbot):
     assert clicked == ["top", "bottom"]
 
 
+def test_region_rects_expose_live_geometry(qtbot):
+    button = _show(
+        Button(
+            regions=[
+                ButtonRegion(id="top", text="T", weight=1.0),
+                ButtonRegion(id="bottom", text="B", weight=1.0),
+            ],
+            split=VerticalSplit(),
+            size=(80, 40),
+        ),
+        qtbot,
+    )
+    rects = button.region_rects()
+    assert set(rects) == {"top", "bottom"}
+    assert rects["top"].height() == pytest.approx(20, abs=1)
+    assert rects["bottom"].top() == pytest.approx(20, abs=1)
+    assert button.region_rect("top") == rects["top"]
+    assert button.region("top").rect == rects["top"]
+    with pytest.raises(ValueError):
+        button.region_rect("nope")
+
+
 def test_disabled_region_does_not_emit_click(qtbot):
     button = _show(
         Button(

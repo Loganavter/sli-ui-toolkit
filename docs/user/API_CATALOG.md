@@ -239,9 +239,11 @@ btn = Button.from_spec(
 | `set_spec(ButtonSpec)` | Replace the full declarative control description at runtime |
 | `update_region(region_id, **changes)` | Replace one or more static `ButtonRegion` fields on a single region, leaving other regions and this region's runtime state untouched (see [BUTTON_API.md](BUTTON_API.md#updating-one-region-at-runtime)) |
 | `setRegionChecked(region_id, checked, emit=True)` | Set a region's CHECKED state from code — generalizes `setChecked()`, which is hardcoded to `"_main"` |
-| `region(region_id)` | Live `RegionHandle` exposing both static config and runtime state as plain attributes, e.g. `button.region("copy").checked = True` |
+| `region(region_id)` | Live `RegionHandle` exposing both static config and runtime state as plain attributes, e.g. `button.region("copy").checked = True`; `.rect` reads its live geometry |
 | `region_states(region_id)` | Read-only `frozenset[ButtonState]` snapshot for one region |
 | `regions()` | Copy of the current `list[ButtonRegion]` (mutating the returned list has no effect — use `update_region`/`set_regions`) |
+| `region_rects()` | Read-only `{region_id: QRectF}` of live region geometry in the button's own coordinates (recomputed on demand) |
+| `region_rect(region_id)` | Live `QRectF` for one region (`ValueError` on an unknown id) |
 | `setFlyoutOpen(bool)` | Visual state for attached flyout |
 
 **Underline scaling:** underline thickness, tongue reach, and arc radius scale proportionally with widget height (baseline: 32 px). This ensures visibility on high-DPI / large UI modes.

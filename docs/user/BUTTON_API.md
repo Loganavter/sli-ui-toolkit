@@ -270,6 +270,11 @@ Combined geometry:
 - `unionRect()` — bounding rect of visible members in global coordinates
   (null `QRect` when empty); `unionRectMappedTo(widget)` maps it into another
   widget's local coordinates; `center()` is the union center.
+- `memberRectsMappedTo(widget)` — `{button: QRect}` per visible member, in
+  `widget`'s local coordinates; `memberRectMappedTo(button, widget)` is the
+  single-member form (null `QRect` when not a visible member). Use these
+  when a host lays one overlay per member (e.g. a badge pinned past a
+  member's edge) instead of mapping each button by hand.
 - `geometryChanged` fires on member move/resize/show/hide, so hosts can
   re-pin overlays anchored to the family area.
 
