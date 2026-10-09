@@ -22,6 +22,21 @@ def test_no_filter_shows_all_rows(nav):
     assert nav.row_button(4) is not None
 
 
+def test_each_row_button_shows_its_own_item(nav):
+    """Content identity: row i's rendered button text equals item i's text.
+
+    The suites asserted ``item(i).text()`` (the model) but never the rendered
+    row, so a swap of text/icons between rows passed. Checked before and after
+    a filter remap (rows are reused in place).
+    """
+    for i in range(nav.count()):
+        assert nav.row_button(i)._text == nav.item(i).text()
+
+    nav.set_search_text("key")
+    assert nav.count() == 1
+    assert nav.row_button(0)._text == nav.item(0).text() == "Keyboard"
+
+
 def test_filter_hides_non_matching_rows_in_place(nav):
     nav.set_search_text("key")
     assert nav.count() == 1

@@ -209,6 +209,33 @@ def test_controller_scroll_rebinds_rows(qtbot):
     assert any(t.startswith("row-2") for t in texts)
 
 
+def test_controller_visible_rows_show_their_own_index(qtbot):
+    """Content identity: every materialized row's text equals its own index.
+
+    ``test_controller_scroll_rebinds_rows`` checked membership only; this
+    sweeps the live window at several scroll offsets so a pooled-row
+    off-by-one (row i showing row j's text) fails.
+    """
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(300, 300)
+    scroll, content, ctrl = _build_controller(host)
+    host.show()
+    qtbot.waitExposed(host)
+    ctrl.set_count(1000)
+    ctrl.rebind()
+    qtbot.wait(10)
+
+    for offset in (0, 300, 600, 15000):
+        scroll.verticalScrollBar().setValue(offset)
+        qtbot.wait(10)
+        for i in range(1000):
+            w = ctrl.widget_for_index(i)
+            if w is None or w.isHidden():
+                continue
+            assert w.text() == f"row-{i}", f"offset {offset}: row {i} shows {w.text()!r}"
+
+
 def test_controller_widget_for_index(qtbot):
     host = QWidget()
     qtbot.addWidget(host)

@@ -104,6 +104,26 @@ def test_scroll_rebinds_rows(qtbot):
     assert "item-400" in texts
 
 
+def test_every_visible_row_shows_its_own_item(qtbot):
+    """Content identity: every live row's text equals its own item.
+
+    The window/rebind tests checked a single row; this sweeps the whole live
+    window at several scroll offsets (a pooled-row rebind off-by-one would
+    surface here as a row showing a neighbour's text).
+    """
+    host, panel, items = _build_panel(qtbot, count=500)
+    pitch = panel._row_pitch()
+    for offset in (0, 137, 400, 480):
+        panel.scroll_area.verticalScrollBar().setValue(offset * pitch)
+        qtbot.wait(30)
+        live = _visible_rows(panel)
+        assert live, f"offset {offset}: no visible rows"
+        for w in live:
+            assert w.text() == f"item-{w.index}", (
+                f"offset {offset}: row {w.index} shows {w.text()!r}"
+            )
+
+
 def test_small_list_materializes_all_rows(qtbot):
     host, panel, items = _build_panel(qtbot, count=5)
     live = _visible_rows(panel)

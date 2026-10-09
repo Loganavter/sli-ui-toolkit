@@ -107,6 +107,29 @@ def test_widget_resizable_false_keeps_fixed_content(qtbot):
     assert area.custom_h_scrollbar.isVisible()
 
 
+def test_thumb_position_tracks_scroll_value(qtbot):
+    """Content identity: the painted handle position is the one implied by the
+    value — at min it hugs the groove start, at max the end, and it advances
+    monotonically. Geometry/value suites never checked the mapping, so a thumb
+    drawn at the wrong (mirrored/stale) position passed them."""
+    area, _ = _make_area(qtbot, 600, 100, area_w=300, area_h=200)
+    bar = area.custom_h_scrollbar
+    native = area.horizontalScrollBar()
+    assert native.maximum() > 0
+
+    handles = []
+    for value in (native.minimum(), native.maximum() // 2, native.maximum()):
+        native.setValue(value)
+        QApplication.processEvents()
+        QApplication.processEvents()
+        handles.append(bar._get_handle_rect())
+
+    first, mid, last = handles
+    assert first.left() < mid.left() < last.left(), handles
+    assert last.left() - first.left() > 10
+    assert first.left() >= 0 and last.right() <= bar.width(), handles
+
+
 def test_h_bar_autohides_and_reshows_on_scroll(qtbot):
     area, _ = _make_area(qtbot, 600, 100)
     bar = area.custom_h_scrollbar
