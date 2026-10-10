@@ -8,7 +8,7 @@ viewers.
 | `SidebarDialogShell` | Sidebar + stacked pages dialog container. |
 | `ScrollableDialogPage` | Ready-made scrollable page for dialog content. |
 | `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. Selected icons support `selected_icon_mode="invert"` (default color inversion) or `"replace"` with `selected_icon=` / `(normal_icon, selected_icon)` pairs. |
-| `MarkdownHelpDialog` / `MarkdownHelpSection` | Markdown→HTML help dialog (`QTextBrowser`) with anchors, TOC, and `help://slug#anchor` navigation. Useful for tests and simple HTML help. |
+| `MarkdownHelpDialog` / `MarkdownHelpSection` | Painted markdown help dialog: markdown is parsed by the toolkit text view (document mode) and rendered through the painter pipeline — no `QTextBrowser`/HTML. Anchors, TOC, `help://slug#anchor` navigation, and an optional `resolve_asset` for inline images. |
 | `HelpDocumentView` | Native widget-tree help page renderer (controlled markdown subset, figures, kbd, links). Prefer for illustrated manuals; see Improve-ImgSLI `docs/dev/HELP_SYSTEM.md`. |
 
 `TopTabBar` / `TopTabHost` are also frequently used inside dialog content —

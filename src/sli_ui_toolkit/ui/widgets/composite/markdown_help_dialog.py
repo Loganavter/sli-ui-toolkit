@@ -2,23 +2,27 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSize, Qt, QUrl
-from PySide6.QtGui import QColor, QDesktopServices, QFontMetrics, QPainter
-from PySide6.QtWidgets import (
-    QDialog,
-    QFrame,
-    QSizePolicy,
-    QTextBrowser,
-)
-from markdown import markdown
+from PySide6.QtGui import QColor, QDesktopServices, QFontMetrics, QPainter, QPixmap
+from PySide6.QtWidgets import QDialog
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     SurfaceScrollArea,
 )
 from sli_ui_toolkit.ui.widgets.composite.dialog_shell import SidebarDialogShell
+from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
+    HeadingBlock,
+    HelpBlock,
+    parse_help_blocks,
+)
+from sli_ui_toolkit.ui.widgets.composite.text_view.widget import TextView
+
+AssetResolver = Callable[[str], str | Path | QPixmap | None]
 
 @dataclass(frozen=True)
 class MarkdownHelpSection:
@@ -28,15 +32,9 @@ class MarkdownHelpSection:
     body_md: str
 
 _TITLE_ATTR_SUFFIX_RE = re.compile(r"\s*\{#[-a-zA-Z0-9_:.]+\}\s*$")
-_HEADING_TAG_RE = re.compile(
-    r"<h(?P<level>[1-6])(?P<attrs>[^>]*)>(?P<text>.*?)</h(?P=level)>",
-    re.IGNORECASE | re.DOTALL,
-)
-_HEADING_ID_RE = re.compile(r"""\sid\s*=\s*["'][^"']+["']""", re.IGNORECASE)
-_H3_WITH_ID_RE = re.compile(
-    r'<h3(?P<attrs>[^>]*)\sid="(?P<id>[^"]+)"[^>]*>(?P<text>.*?)</h3>',
-    re.IGNORECASE | re.DOTALL,
-)
+_MD_HEADING_RE = re.compile(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*$")
+_MD_LINK_LABEL_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_MD_INLINE_MARKUP_RE = re.compile(r"[*`]")
 
 def strip_heading_attr_suffix(text: str) -> str:
     return _TITLE_ATTR_SUFFIX_RE.sub("", text).strip()
@@ -47,106 +45,92 @@ def slugify_anchor(text: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_text).strip("-").lower()
     return slug
 
-def strip_html_tags(text: str) -> str:
-    return re.sub(r"<[^>]+>", "", text)
+def _heading_plain_text(title: str) -> str:
+    """Heading title with ``{#anchor}``, link labels and emphasis stripped —
+    the text ``slugify_anchor`` turns into an auto-generated anchor."""
+    text = strip_heading_attr_suffix(title)
+    text = _MD_LINK_LABEL_RE.sub(r"\1", text)
+    text = _MD_INLINE_MARKUP_RE.sub("", text)
+    return text.strip()
 
-def ensure_heading_ids(html: str, *, fallback_prefix: str) -> str:
+def inject_heading_anchors(md_text: str, *, fallback_prefix: str) -> str:
+    """Give every markdown heading an explicit ``{#anchor}`` so links and the
+    page TOC can target it.
+
+    Mirrors the old HTML pipeline's ``ensure_heading_ids``: headings that
+    already carry ``{#…}`` are left untouched; the rest get a slug derived
+    from their plain text (de-duplicated with ``-2``, ``-3`` …), with a
+    ``<fallback_prefix>-section-N`` fallback for slug-less titles.
+    """
     counters: dict[str, int] = {}
     generated_index = 0
-
-    def replace(match: re.Match[str]) -> str:
-        nonlocal generated_index
-        attrs = match.group("attrs") or ""
-        if _HEADING_ID_RE.search(attrs):
-            return match.group(0)
-
-        plain_text = strip_html_tags(match.group("text") or "")
-        base = slugify_anchor(plain_text)
+    out: list[str] = []
+    for line in md_text.splitlines():
+        stripped = line.strip()
+        match = _MD_HEADING_RE.match(stripped)
+        if not match:
+            out.append(line)
+            continue
+        title = match.group("title").strip()
+        if _TITLE_ATTR_SUFFIX_RE.search(title):
+            out.append(line)
+            continue
+        base = slugify_anchor(_heading_plain_text(title))
         if not base:
             base = f"{fallback_prefix}-section-{generated_index}"
             generated_index += 1
-
         count = counters.get(base, 0)
         counters[base] = count + 1
-        anchor_id = base if count == 0 else f"{base}-{count + 1}"
-        return f'<h{match.group("level")}{attrs} id="{anchor_id}">{match.group("text")}</h{match.group("level")}>'
+        anchor = base if count == 0 else f"{base}-{count + 1}"
+        out.append(f"{match.group('hashes')} {title} {{#{anchor}}}")
+    return "\n".join(out)
 
-    return _HEADING_TAG_RE.sub(replace, html)
-
-def build_page_toc(html: str, *, title: str) -> str:
+def _level3_anchors(blocks: tuple[HelpBlock, ...]) -> list[tuple[str, str]]:
     items: list[tuple[str, str]] = []
-    for match in _H3_WITH_ID_RE.finditer(html):
-        anchor_id = match.group("id").strip()
-        text = strip_html_tags(match.group("text") or "").strip()
-        if anchor_id and text:
-            items.append((anchor_id, text))
+    for block in blocks:
+        if isinstance(block, HeadingBlock) and block.level == 3 and block.anchor:
+            items.append((block.anchor, block.text))
+    return items
+
+def build_toc_markdown(md_text: str, *, title: str) -> str:
+    """Markdown table of contents for a page with ≥2 ``###`` headings.
+
+    Returns ``""`` when the page has fewer than two anchored level-3
+    headings (matching the old ``build_page_toc`` threshold).
+    """
+    blocks = parse_help_blocks(md_text)
+    items = _level3_anchors(blocks)
     if len(items) < 2:
         return ""
+    lines = [f"**{title}**", ""]
+    lines.extend(f"- [{text}](#{anchor})" for anchor, text in items)
+    lines.append("")
+    return "\n".join(lines)
 
-    links = "".join(
-        f'<li><a href="#{anchor_id}">{text}</a></li>'
-        for anchor_id, text in items
-    )
-    return (
-        '<nav class="help-toc">'
-        f'<div class="help-toc-title">{title}</div>'
-        f"<ul>{links}</ul>"
-        "</nav>"
-    )
+class MarkdownHelpPageView(TextView):
+    """Painted help page in document mode.
 
-class MarkdownHelpPageBrowser(QTextBrowser):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setOpenLinks(False)
-        self.setOpenExternalLinks(False)
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setReadOnly(True)
-        self.setLineWrapMode(QTextBrowser.LineWrapMode.WidgetWidth)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    The view is a ``TextView`` (painted ``TextCanvas``, no stock text
+    widget). It reports its parsed content height through
+    ``sizeHint``/``minimumSizeHint`` so the dialog's outer
+    ``SurfaceScrollArea`` scrolls the whole page rather than the view's own
+    (disabled) scrollbar.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self.setStyleSheet("background: transparent; border: none;")
-        self.document().setDocumentMargin(25)
-        layout = self.document().documentLayout()
-        if layout is not None:
-            layout.documentSizeChanged.connect(lambda _size: self.updateGeometry())
 
-    def sizeHint(self):
-        height = max(200, int(round(self.document().size().height())) + 8)
-        return QSize(400, height)
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(400, max(200, self.canvas().minimumHeight() + 8))
 
-    def minimumSizeHint(self):
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
         return self.sizeHint()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        viewport_width = max(1, self.viewport().width())
-        margin = self.document().documentMargin() * 2
-        self.document().setTextWidth(max(1.0, float(viewport_width - margin)))
-        self.updateGeometry()
-
     def anchor_vertical_offset(self, anchor: str) -> int | None:
-        anchor = (anchor or "").strip()
-        if not anchor:
-            return None
-
-        layout = self.document().documentLayout()
-        if layout is None:
-            return None
-
-        block = self.document().begin()
-        while block.isValid():
-            it = block.begin()
-            while not it.atEnd():
-                fragment = it.fragment()
-                if fragment.isValid():
-                    fmt = fragment.charFormat()
-                    if fmt.isAnchor() and anchor in fmt.anchorNames():
-                        rect = layout.blockBoundingRect(block)
-                        return max(0, int(round(rect.top())))
-                it += 1
-            block = block.next()
-        return None
+        """Back-compat shim for the old browser-based accessor — the
+        widget-space y of ``anchor`` (``None`` when absent)."""
+        return self.anchor_y(anchor)
 
 class MarkdownHelpDialog(QDialog):
     def __init__(
@@ -155,6 +139,7 @@ class MarkdownHelpDialog(QDialog):
         title: str = "Help",
         toc_title: str = "On this page",
         sections: tuple[MarkdownHelpSection, ...] | list[MarkdownHelpSection] = (),
+        resolve_asset: AssetResolver | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -162,9 +147,10 @@ class MarkdownHelpDialog(QDialog):
         self.theme_manager = ThemeManager.get_instance()
         self._dialog_surface_color = QColor("#000000")
         self._read_dialog_surface_color()
-        self._pages: list[MarkdownHelpPageBrowser] = []
+        self._pages: list[MarkdownHelpPageView] = []
         self._sections: tuple[MarkdownHelpSection, ...] = ()
         self._toc_title_text = str(toc_title)
+        self._resolve_asset: AssetResolver | None = resolve_asset
 
         self.setWindowTitle(title)
         self.setWindowFlags(
@@ -201,7 +187,12 @@ class MarkdownHelpDialog(QDialog):
 
     def set_toc_title(self, title: str) -> None:
         self._toc_title_text = str(title)
-        self._apply_styles()
+        self._render_pages()
+
+    def set_asset_resolver(self, resolver: AssetResolver | None) -> None:
+        """Set the inline-image resolver used by every page."""
+        self._resolve_asset = resolver
+        self._render_pages()
 
     def set_sections_from_directory(
         self,
@@ -213,6 +204,10 @@ class MarkdownHelpDialog(QDialog):
             toc_title_for_language,
         )
 
+        base = Path(directory)
+        self.set_asset_resolver(
+            lambda path: path if Path(path).is_absolute() else str(base / path)
+        )
         self.set_sections(read_markdown_help_sections(directory))
         if language is not None:
             self.set_toc_title(toc_title_for_language(language))
@@ -235,15 +230,30 @@ class MarkdownHelpDialog(QDialog):
         for section in self._sections:
             nav_item = self.nav_widget.add_item(section.title)
             nav_item.setSizeHint(QSize(0, 35))
-            content_page = MarkdownHelpPageBrowser()
-            content_page.anchorClicked.connect(self._on_anchor_clicked)
+            content_page = MarkdownHelpPageView()
+            content_page.linkActivated.connect(self._on_link_activated)
             self._pages.append(content_page)
 
         if self.nav_widget.count() > 0:
             self.nav_widget.setCurrentRow(0)
 
+        self._render_pages()
         self._update_nav_width()
         self._apply_styles()
+
+    def _render_section_markdown(self, section: MarkdownHelpSection) -> str:
+        md_text = inject_heading_anchors(
+            section.body_md, fallback_prefix=section.slug
+        )
+        toc_md = build_toc_markdown(md_text, title=self._toc_title_text)
+        return f"{toc_md}{md_text}" if toc_md else md_text
+
+    def _render_pages(self) -> None:
+        for page, section in zip(self._pages, self._sections):
+            page.set_markdown(
+                self._render_section_markdown(section),
+                resolve_asset=self._resolve_asset,
+            )
 
     def _update_nav_width(self) -> None:
         max_text_width = 0
@@ -254,94 +264,6 @@ class MarkdownHelpDialog(QDialog):
                 continue
             max_text_width = max(max_text_width, metrics.horizontalAdvance(item.text()))
         self.nav_widget.setMinimumWidth(max_text_width + 32)
-
-    def _normalize_markdown_lists(self, md_text: str) -> str:
-        lines = md_text.splitlines()
-        out: list[str] = []
-        for line in lines:
-            stripped = line.lstrip()
-            is_list_item = (
-                stripped.startswith("- ")
-                or stripped.startswith("* ")
-                or stripped.startswith("+ ")
-                or (
-                    len(stripped) > 2
-                    and stripped[0].isdigit()
-                    and stripped[1:3] == ". "
-                )
-            )
-            prev_is_list = False
-            if out:
-                prev_stripped = out[-1].lstrip()
-                prev_is_list = (
-                    prev_stripped.startswith("- ")
-                    or prev_stripped.startswith("* ")
-                    or prev_stripped.startswith("+ ")
-                    or (
-                        len(prev_stripped) > 2
-                        and prev_stripped[0].isdigit()
-                        and prev_stripped[1:3] == ". "
-                    )
-                )
-            if is_list_item and out and len(out[-1].strip()) > 0 and not prev_is_list:
-                out.append("")
-            out.append(line)
-        return "\n".join(out)
-
-    def _fallback_plainlist_to_html(self, md_text: str) -> str:
-        def is_bullet(s: str) -> bool:
-            s = s.lstrip()
-            if s.startswith("- ") or s.startswith("* ") or s.startswith("+ "):
-                return True
-            i = 0
-            while i < len(s) and s[i].isdigit():
-                i += 1
-            return i > 0 and i + 1 < len(s) and s[i] == "." and s[i + 1] == " "
-
-        html_parts: list[str] = []
-        in_list = False
-        list_tag = "ul"
-        for raw in md_text.splitlines():
-            line = raw.rstrip("\n")
-            if is_bullet(line):
-                s = line.lstrip()
-                i = 0
-                while i < len(s) and s[i].isdigit():
-                    i += 1
-                is_ordered = i > 0 and i + 1 < len(s) and s[i] == "." and s[i + 1] == " "
-                desired_tag = "ol" if is_ordered else "ul"
-                if not in_list or list_tag != desired_tag:
-                    if in_list:
-                        html_parts.append(f"</{list_tag}>")
-                    list_tag = desired_tag
-                    in_list = True
-                    html_parts.append(f"<{list_tag}>")
-                content = s[2:] if list_tag == "ul" else s[i + 2 :]
-                html_parts.append(f"<li>{content}</li>")
-            else:
-                if in_list:
-                    html_parts.append(f"</{list_tag}>")
-                    in_list = False
-                html_parts.append(f"<p>{line}</p>" if line.strip() else "")
-        if in_list:
-            html_parts.append(f"</{list_tag}>")
-        return "\n".join(html_parts)
-
-    def _render_section_html(self, section: MarkdownHelpSection) -> str:
-        md_text = self._normalize_markdown_lists(section.body_md)
-        html_content = markdown(
-            md_text,
-            extensions=["extra", "sane_lists", "smarty", "nl2br"],
-        )
-        if ("<ul" not in html_content and "<ol" not in html_content) and any(
-            l.lstrip().startswith(("- ", "* ", "+ "))
-            or (l.lstrip()[:1].isdigit() and ". " in l.lstrip())
-            for l in md_text.splitlines()
-        ):
-            html_content = self._fallback_plainlist_to_html(md_text)
-        html_content = ensure_heading_ids(html_content, fallback_prefix=section.slug)
-        toc_html = build_page_toc(html_content, title=self._toc_title_text)
-        return toc_html + html_content
 
     def change_page(self, index: int) -> None:
         if index < 0 or index >= len(self._pages):
@@ -356,23 +278,19 @@ class MarkdownHelpDialog(QDialog):
         self.scroll_area.setWidget(page)
         self._sync_page_width(page)
         page.show()
-        page.adjustSize()
         self.scroll_area.verticalScrollBar().setValue(0)
 
-    def _sync_page_width(self, page: MarkdownHelpPageBrowser | None) -> None:
+    def _sync_page_width(self, page: MarkdownHelpPageView | None) -> None:
         if page is None:
             return
         viewport_width = max(1, self.scroll_area.viewport().width())
         page.resize(viewport_width, page.height())
-        margin = page.document().documentMargin() * 2
-        page.document().setTextWidth(max(1.0, float(viewport_width - margin)))
         page.updateGeometry()
-        page.adjustSize()
 
     def eventFilter(self, watched, event):
         if watched is self.scroll_area.viewport() and event.type() == QEvent.Type.Resize:
             current = self.scroll_area.widget()
-            if isinstance(current, MarkdownHelpPageBrowser):
+            if isinstance(current, MarkdownHelpPageView):
                 self._sync_page_width(current)
         return super().eventFilter(watched, event)
 
@@ -399,18 +317,23 @@ class MarkdownHelpDialog(QDialog):
         if not (0 <= current < len(self._pages)):
             return
         page = self._pages[current]
-        y = page.anchor_vertical_offset(anchor)
+        y = page.anchor_y(anchor)
         if y is None:
             return
-        self.scroll_area.verticalScrollBar().setValue(y)
+        bar = self.scroll_area.verticalScrollBar()
+        bar.setValue(min(max(0, y), bar.maximum()))
 
-    def _on_anchor_clicked(self, url: QUrl) -> None:
-        if url.isRelative():
-            anchor = url.fragment().strip()
+    def _on_link_activated(self, href: str) -> None:
+        href = (href or "").strip()
+        if not href:
+            return
+        if href.startswith("#"):
+            anchor = href[1:].strip()
             if anchor:
                 self._scroll_current_page_to_anchor(anchor)
             return
 
+        url = QUrl(href)
         scheme = (url.scheme() or "").lower()
         if scheme in {"http", "https"}:
             QDesktopServices.openUrl(url)
@@ -454,105 +377,3 @@ class MarkdownHelpDialog(QDialog):
     def _apply_styles(self) -> None:
         self._read_dialog_surface_color()
         self.theme_manager.apply_theme_to_dialog(self)
-        tm = self.theme_manager
-        text_color = tm.get_color("dialog.text").name()
-        separator_color = tm.get_color("help.separator").name()
-        dialog_bg_color = tm.get_color("surface.background").name()
-
-        def _hex_to_rgb(h: str):
-            h = h.lstrip("#")
-            if len(h) == 8:
-                h = h[2:]
-            return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-
-        def _rgb_to_hex(r: int, g: int, b: int) -> str:
-            return f"#{max(0, min(255, r)):02X}{max(0, min(255, g)):02X}{max(0, min(255, b)):02X}"
-
-        def _luminance(r: int, g: int, b: int) -> float:
-            return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-        def _shade(r: int, g: int, b: int, amount: float) -> tuple[int, int, int]:
-            if amount >= 0:
-                nr = r + (255 - r) * amount
-                ng = g + (255 - g) * amount
-                nb = b + (255 - b) * amount
-            else:
-                nr = r * (1 + amount)
-                ng = g * (1 + amount)
-                nb = b * (1 + amount)
-            return int(round(nr)), int(round(ng)), int(round(nb))
-
-        bg_r, bg_g, bg_b = _hex_to_rgb(dialog_bg_color)
-        bg_lum = _luminance(bg_r, bg_g, bg_b)
-        code_bg_r, code_bg_g, code_bg_b = _shade(bg_r, bg_g, bg_b, -0.08 if bg_lum > 128 else 0.12)
-        code_border_r, code_border_g, code_border_b = _shade(bg_r, bg_g, bg_b, -0.18 if bg_lum > 128 else 0.18)
-        code_bg_color = _rgb_to_hex(code_bg_r, code_bg_g, code_bg_b)
-        code_border_color = _rgb_to_hex(code_border_r, code_border_g, code_border_b)
-
-        wrapper = f"""
-        <style>
-            body {{ font-size: 14px; color: {text_color}; }}
-            h2 {{ margin-bottom: 8px; border-bottom: 1px solid {separator_color}; padding-bottom: 4px; }}
-            h3 {{ margin: 12px 0 6px 0; }}
-            ul, ol {{ margin: 8px 0; padding-left: 24px; }}
-            li {{ margin: 0 0 6px 0; display: list-item; }}
-            p {{
-                overflow-wrap: anywhere;
-                word-break: normal;
-            }}
-            b, strong {{ color: {text_color}; }}
-            code {{
-                background-color: {code_bg_color};
-                color: {text_color};
-                padding: 2px 4px;
-                border-radius: 4px;
-                border: 1px solid {code_border_color};
-            }}
-            pre {{
-                background-color: {code_bg_color};
-                color: {text_color};
-                padding: 10px 12px;
-                border-radius: 6px;
-                white-space: pre-wrap;
-                border: 1px solid {code_border_color};
-            }}
-            pre code {{
-                background-color: transparent;
-                color: {text_color};
-                padding: 0;
-                border: none;
-            }}
-            kbd {{
-                background-color: {code_bg_color};
-                color: {text_color};
-                padding: 2px 6px;
-                border-radius: 4px;
-                border: 1px solid {code_border_color};
-                font-family: inherit;
-            }}
-            a {{
-                color: {tm.get_color("accent").name()};
-                text-decoration: none;
-            }}
-            .help-toc {{
-                margin: 0 0 16px 0;
-                padding: 10px 14px;
-                border: 1px solid {separator_color};
-                border-radius: 8px;
-            }}
-            .help-toc-title {{
-                font-weight: 600;
-                margin-bottom: 6px;
-            }}
-            .help-toc ul {{
-                margin: 0;
-                padding-left: 18px;
-            }}
-            .help-toc li {{
-                margin-bottom: 4px;
-            }}
-        </style>
-        """
-
-        for page, section in zip(self._pages, self._sections):
-            page.setHtml(wrapper + self._render_section_html(section))
