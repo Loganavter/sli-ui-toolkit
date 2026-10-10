@@ -20,8 +20,7 @@ def _qt_enum_value(value) -> int:
 class ProcessConsoleWidget(QWidget):
     """Interactive process console backed by the painted :class:`ConsoleView`.
 
-    Signals, the input row, and the ``output`` semantics are unchanged; only
-    the rendering swapped from ``QTextEdit`` to the toolkit painter pipeline.
+    Signals, the input row, and the ``output`` semantics are unchanged.
     """
 
     outputReceived = Signal(str)

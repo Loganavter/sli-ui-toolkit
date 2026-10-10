@@ -1,20 +1,17 @@
 """CustomLineEdit — painted single-line text input.
 
-No stock ``QLineEdit``: the field renders its own text through the toolkit
-painter pipeline (``ui_font`` / ``QPainter.drawText`` / ``QFontMetrics``),
-the same mechanism the painted text surfaces and button rows use. The native
-``QLineEdit`` has three traps this removes: QSS/palette interplay freezing
-``setFont``, ``minimumSizeHint`` reserving a full character, and
-``acceptDrops`` grabbing drags. Editing (caret, selection, clipboard, undo,
-IME) is implemented here on one ``TextSelection`` line.
+The field renders its own text through the toolkit painter pipeline
+(``ui_font`` / ``QPainter.drawText`` / ``QFontMetrics``) and implements its
+own editing (caret, selection, clipboard, undo, IME, horizontal scroll) on a
+single content line.
 
-Public surface mirrors the ``QLineEdit`` subset the app relies on
-(``text``/``setText``/``textChanged``/``editingFinished``/``returnPressed``,
-``setPlaceholderText``, ``setValidator``, ``setEchoMode``,
-``setClearButtonEnabled``, ``setReadOnly``, ``setMaxLength``,
+Public surface is the standard line-edit API call sites expect: ``text``/
+``setText``, ``textChanged``/``textEdited``/``editingFinished``/
+``returnPressed``, ``setPlaceholderText``, ``setValidator``,
+``setEchoMode``, ``setClearButtonEnabled``, ``setReadOnly``, ``setMaxLength``,
 ``selectAll``/``selectionStart``/``selectedText``/``setSelection``,
-``copy``/``cut``/``paste``/``undo``/``redo``, ``cursorPosition``), so call
-sites keep working. ``EchoMode`` matches ``QLineEdit.EchoMode``.
+``copy``/``cut``/``paste``/``undo``/``redo``, ``cursorPosition``.
+``EchoMode`` uses the standard integer values.
 """
 
 from __future__ import annotations
@@ -74,7 +71,7 @@ _MULTI_CLICK_DISTANCE_PX = 8
 
 
 class EchoMode:
-    """Mirror of ``QLineEdit.EchoMode`` (same integer values)."""
+    """Echo-mode constants (standard integer values)."""
 
     Normal = 0
     NoEcho = 1
@@ -83,7 +80,7 @@ class EchoMode:
 
 
 class CustomLineEdit(QWidget):
-    """Painted single-line text input (no ``QLineEdit``)."""
+    """Painted single-line text input."""
 
     inspect_spec: ClassVar[InspectSpec]
     widget_descriptor: ClassVar["WidgetDescriptor"]
@@ -203,7 +200,7 @@ class CustomLineEdit(QWidget):
     def fontMetrics(self) -> QFontMetrics:  # noqa: N802
         return QFontMetrics(self.font())
 
-    # -- state (QLineEdit-compatible subset) --------------------------------
+    # -- state (standard line-edit API) -------------------------------------
 
     def text(self) -> str:
         return self._text

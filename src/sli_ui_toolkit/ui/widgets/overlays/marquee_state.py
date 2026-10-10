@@ -1,8 +1,6 @@
 """In-paint marquee selection state (content-local, host-painted).
 
-THE single marquee mechanism in the toolkit. It replaces the deleted
-``MarqueeBandGesture`` + ``MarqueeBandOverlay`` pair (window-level overlay
-child + content-to-window rect mapping).
+THE single marquee mechanism in the toolkit.
 
 Split of responsibilities:
 
@@ -16,8 +14,8 @@ Split of responsibilities:
   would hide under opaque cards). The consumer converts its content-space
   rect to viewport space once per update; per move only ``set_band`` runs.
 
-Routing/motion match the deleted gesture exactly: moves with the left
-button held are consumed (``True``); the left-button release finishes
+Routing/motion: moves with the left button held are consumed (``True``);
+the left-button release finishes
 the gesture and then passes through (``False``) so Qt press-tracking
 never desyncs (see inv-gallery-hover-loss-2026-09-26); non-left
 press/release while active is ignored (context-menu interleaving

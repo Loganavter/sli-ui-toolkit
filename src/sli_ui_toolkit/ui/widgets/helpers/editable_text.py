@@ -22,9 +22,7 @@ class _EditableTextKeyFilter(QObject):
 
     Installed on the widget itself, not the app — Qt already only delivers
     this one widget's own key events here, so there is nothing to share.
-    Applies to any widget opted into ``apply_editable_text_behavior`` (the
-    painted ``CustomLineEdit`` handles Return itself too; this stays the
-    shared fallback for host widgets).
+    Applies to any widget opted into ``apply_editable_text_behavior``.
     """
 
     def __init__(self, widget: QWidget) -> None:

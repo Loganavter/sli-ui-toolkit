@@ -23,8 +23,8 @@ class LogConsoleEntry:
 class LogConsoleWidget(QWidget):
     """Level-colored log console backed by the painted :class:`ConsoleView`.
 
-    Public API is unchanged from the ``QTextEdit`` era; ``output`` is now a
-    :class:`ConsoleView` (hosts must not assume it is a ``QTextEdit``).
+    ``output`` is a :class:`ConsoleView`; use its API (not a stock
+    text-edit API).
     """
 
     def __init__(self, parent=None, *, max_entries: int = 1000):
