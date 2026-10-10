@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from enum import IntEnum
 from typing import Any
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, Signal
@@ -11,7 +12,7 @@ from PySide6.QtGui import (
     QPainter,
     QPen,
 )
-from PySide6.QtWidgets import QSizePolicy, QTabBar, QWidget
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
@@ -35,6 +36,18 @@ def _tabstrip_debug(message: str, *args) -> None:
     """Env-gated tab-strip trace line (already carries its ``[TAB-BAR]`` prefix)."""
     if _tabstrip_debug_enabled():
         logger.debug(message, *args)
+
+
+class ButtonPosition(IntEnum):
+    """Tab-button slot side (same integer values as the standard tab API)."""
+
+    LeftSide = 0
+    RightSide = 1
+
+
+def _position_key(position) -> int:
+    """Canonical int key for a button slot (accepts this enum or a host enum)."""
+    return int(getattr(position, "value", position))
 
 
 class _AdaptiveTabBar(QWidget):
@@ -64,7 +77,7 @@ class _AdaptiveTabBar(QWidget):
         self._focused_index = -1
         self._scroll_offset = 0
         self._keyboard_focus = False
-        # Each entry: {"text": str, "data": Any, "tooltip": str, "buttons": {QTabBar.ButtonPosition: QWidget|None}}
+        # Each entry: {"text": str, "data": Any, "tooltip": str, "buttons": {ButtonPosition: QWidget|None}}
         self._tabs: list[dict] = []
         self._rects: list[QRect] = []
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -89,7 +102,7 @@ class _AdaptiveTabBar(QWidget):
 
     def _resync_close_slots(self) -> None:
         for index in range(len(self._tabs)):
-            slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            slot = self.tabButton(index, ButtonPosition.RightSide)
             resync = getattr(slot, "resync", None)
             if callable(resync):
                 resync()
@@ -214,15 +227,16 @@ class _AdaptiveTabBar(QWidget):
     def tabButton(self, index: int, position) -> QWidget | None:  # noqa: N802
         if not (0 <= index < len(self._tabs)):
             return None
-        return self._tabs[index]["buttons"].get(position)
+        return self._tabs[index]["buttons"].get(_position_key(position))
 
     def setTabButton(self, index: int, position, widget: QWidget | None) -> None:  # noqa: N802
-        existing = self._tabs[index]["buttons"].get(position)
+        key = _position_key(position)
+        existing = self._tabs[index]["buttons"].get(key)
         if existing is not None and existing is not widget:
             existing.hide()
             existing.setParent(None)
             existing.deleteLater()
-        self._tabs[index]["buttons"][position] = widget
+        self._tabs[index]["buttons"][key] = widget
         if widget is not None:
             widget.setParent(self)
             widget.show()
@@ -424,7 +438,7 @@ class _AdaptiveTabBar(QWidget):
         super().mouseReleaseEvent(event)
 
     def _close_slot_contains(self, index: int, pos: QPoint) -> bool:
-        slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+        slot = self.tabButton(index, ButtonPosition.RightSide)
         if slot is None or not slot.isVisible():
             return False
         return slot.geometry().contains(pos)
@@ -446,7 +460,7 @@ class _AdaptiveTabBar(QWidget):
 
     def _update_close_slots(self) -> None:
         for index in range(len(self._tabs)):
-            slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            slot = self.tabButton(index, ButtonPosition.RightSide)
             if slot is not None:
                 slot.update()
                 button = getattr(slot, "button", None)
@@ -503,7 +517,7 @@ class _AdaptiveTabBar(QWidget):
 
     def _position_tab_buttons(self) -> None:
         for index in range(len(self._tabs)):
-            slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            slot = self.tabButton(index, ButtonPosition.RightSide)
             if slot is None:
                 continue
             tab_rect = self._painted_tab_rect(self.tabRect(index))
@@ -559,7 +573,7 @@ class _AdaptiveTabBar(QWidget):
                 painter.restore()
 
         text_right = tab_rect.right() - scaled_px(self._SIDE_PADDING)
-        close_slot = self.tabButton(index, QTabBar.ButtonPosition.RightSide)
+        close_slot = self.tabButton(index, ButtonPosition.RightSide)
         has_close = close_slot is not None and close_slot.isVisible()
         if has_close and close_slot is not None:
             text_right = min(text_right, close_slot.geometry().left() - scaled_px(self._CLOSE_GAP))
@@ -598,7 +612,7 @@ class _AdaptiveTabBar(QWidget):
 
     def close_slot_background_color(self, slot: QWidget) -> QColor | None:
         for index in range(self.count()):
-            if self.tabButton(index, QTabBar.ButtonPosition.RightSide) is not slot:
+            if self.tabButton(index, ButtonPosition.RightSide) is not slot:
                 continue
             if index == self.currentIndex():
                 return QColor(self._palette()["background"])
