@@ -18,17 +18,15 @@ widgets. See [BUTTON_API.md](BUTTON_API.md) for `Button` and
 | `ScrollableComboBox` | Combo box with mouse-wheel cycling. |
 | `TimeLineEdit` | Compact toolkit-painted `HH:mm` input with validation/normalization, two right-side repeatable step buttons, and no native `QTimeEdit` chrome. |
 
-`CustomLineEdit` is fully painted — it does not subclass `QLineEdit`, so
-there is no native text rendering to fight (QSS/palette no longer freeze
-`setFont`, `minimumSizeHint` no longer reserves a full character, and drags
-are not stolen via `acceptDrops`). Its public surface mirrors the
-`QLineEdit` subset the app uses: `text`/`setText`, `textChanged`/
-`textEdited`/`editingFinished`/`returnPressed`, `setPlaceholderText`,
+`CustomLineEdit` is a painted single-line editor (rendered by the toolkit
+painter pipeline; no stock text widget). Its public surface is the standard
+line-edit API: `text`/`setText`, `textChanged`/`textEdited`/
+`editingFinished`/`returnPressed`, `setPlaceholderText`,
 `setValidator`/`hasAcceptableInput`, `setEchoMode` (+ `EchoMode`),
 `setClearButtonEnabled`, `setReadOnly`, `setMaxLength`, `selectAll`/
 `selectionStart`/`selectedText`/`setSelection`, `copy`/`cut`/`paste`/
 `undo`/`redo`, and `cursorPosition`/`setCursorPosition`. `SpinBox`,
-`DoubleSpinBox` and `TimeLineEdit` build on it unchanged.
+`DoubleSpinBox` and `TimeLineEdit` build on it.
 
 Text inputs accept Qt alignment flags or string alignment values:
 

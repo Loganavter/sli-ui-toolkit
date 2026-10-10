@@ -40,7 +40,7 @@ class _TimeLineStepButton(Button):
 
 
 class TimeLineEdit(WheelScrollPolicyMixin, CustomLineEdit):
-    """Toolkit-painted HH:mm input without native QTimeEdit chrome."""
+    """Toolkit-painted HH:mm input."""
 
     STEP_BUTTON_WIDTH = 22
     STEP_BUTTON_GAP = 0

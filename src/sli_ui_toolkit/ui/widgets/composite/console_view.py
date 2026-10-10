@@ -1,12 +1,9 @@
 """ConsoleView — painted, read-only multi-line console surface.
 
-No stock ``QTextEdit``/``QPlainTextEdit``: the console renders its own text
-through the toolkit painter pipeline (``QPainter.drawText`` + ``QFontMetrics``),
-the same mechanism the painted text surfaces and rows use. This removes the
-native traps the old consoles carried (stock right-click menu, QSS/palette
-font freezing, native rendering) while keeping the host-facing behavior:
-word-wrapped lines, per-line color/bold/italic, a ``MinimalistScrollBar``,
-follow-the-tail auto-scroll, mouse selection and clipboard copy.
+The console renders its own text through the toolkit painter pipeline
+(``QPainter.drawText`` + ``QFontMetrics``) with word-wrapped lines,
+per-line color/bold/italic, a ``MinimalistScrollBar``, follow-the-tail
+auto-scroll, mouse selection and clipboard copy.
 
 The widget owns its own surface (background/border read from
 ``ThemeManager``), so it needs no QSS. Hosts append :class:`ConsoleLine`

@@ -336,8 +336,8 @@ class _CanvasEventsApi:
         event.accept()
 
     def inputMethodQuery(self, query) -> object:  # noqa: N802
-        """Feed the input context the same geometry/text it gets from
-        QLineEdit (cursor rect, font, surrounding text)."""
+        """Feed the input context the geometry/text a native text editor
+        exposes (cursor rect, font, surrounding text)."""
         if not getattr(self, "_editing", False):
             return QWidget.inputMethodQuery(self, query)  # type: ignore[arg-type]
         line, col = self._cursor

@@ -418,7 +418,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         if editing:
             self.setCursor(Qt.CursorShape.IBeamCursor)
             self.setFocus()
-            # Register as a real text-input client (QLineEdit/QTextEdit do
+            # Register as a real text-input client (native text editors do
             # this by default; custom painted widgets must opt in): the
             # platform input context then treats the widget as an editor
             # — IME hotkeys and keyboard-layout switching keep working
