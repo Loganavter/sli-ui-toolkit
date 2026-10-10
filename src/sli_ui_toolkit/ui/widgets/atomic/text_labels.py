@@ -5,12 +5,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QColor, QFontMetrics, QPainter
+from PySide6.QtGui import QColor, QContextMenuEvent, QFontMetrics, QPainter
 from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from sli_ui_toolkit.ui.widgets.atomic.label_context_menu import (
+    open_label_context_menu,
+)
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     draw_marquee_text,
     ensure_marquee_driver,
@@ -334,6 +337,20 @@ class Label(QLabel):
         # Reparent / style polish can wipe WA_SetPalette text colors.
         if et in (QEvent.Type.ParentChange, QEvent.Type.StyleChange):
             self._apply_style()
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
+        flags = self.textInteractionFlags()
+        interactive = flags & (
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+            | Qt.TextInteractionFlag.TextEditable
+        )
+        if interactive and self.text():
+            open_label_context_menu(self, event.globalPos())
+            event.accept()
+            return
+        # Non-selectable labels keep Qt's behavior (no menu).
+        super().contextMenuEvent(event)
 
     def sizeHint(self):
         hint = super().sizeHint()
