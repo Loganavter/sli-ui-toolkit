@@ -121,10 +121,9 @@ class _RadioIndicatorLayer(Layer):
 
 
 class RadioButtonGroup:
-    """Minimal ``QButtonGroup``-alike for ``RadioButton`` (see its docstring
-    for why ``QButtonGroup`` itself doesn't apply here). ``addButton()``
-    mirrors the one bit of ``QButtonGroup`` API this toolkit's host apps
-    actually use: unchecking every other member once one becomes checked.
+    """Exclusive group for ``RadioButton``: ``addButton()`` unchecks every
+    other member once one becomes checked (the only grouping behaviour host
+    apps need).
     """
 
     def __init__(self) -> None:
@@ -199,7 +198,7 @@ class RadioButton(Button):
             self.setChecked(True, emit=False)
 
     def isCheckable(self) -> bool:
-        # QRadioButton API parity: app-side Find Action code (see
+        # API parity: app-side Find Action code (see
         # ui/actions/flyout_contribute.py, plugins/settings/member_resolve.py)
         # branches on isCheckable()/autoExclusive() to select a radio rather
         # than blindly toggle it (which would uncheck an already-selected

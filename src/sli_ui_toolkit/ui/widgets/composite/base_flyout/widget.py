@@ -307,8 +307,7 @@ class BaseFlyout(
 
                 from sli_ui_toolkit.ui.widgets.buttons.button import Button
                 # Flyout rows (e.g. CsdMenuRow) are the toolkit's own Button,
-                # not QAbstractButton — it isn't a Qt button subclass, but it
-                # exposes a QAbstractButton.click()-parity method.
+                # not a Qt button subclass, but it exposes a click()-parity method.
                 if isinstance(focused, (QAbstractButton, Button)):
                     focused.click()
                     event.accept()

@@ -130,7 +130,7 @@ class _RowSpec:
 
 class _ListItem:
     """Лёгкая прокси-обёртка над строкой-Button, повторяет нужный кусок
-    QListWidgetItem-API (text/setIcon/data/setData/setSizeHint)."""
+    item-like API (text/setIcon/data/setData/setSizeHint)."""
 
     def __init__(self, owner: Any, row_index: int) -> None:
         self._owner = owner

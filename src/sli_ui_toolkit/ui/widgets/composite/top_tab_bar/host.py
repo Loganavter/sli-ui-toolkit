@@ -1,4 +1,4 @@
-"""TopTabHost — TopTabBar + bordered page stack (QTabWidget-ish API)."""
+"""TopTabHost — TopTabBar + bordered page stack (tab-host API)."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def _normalize_pane_radii(
 
 
 class TopTabHost(QWidget):
-    """Folder-tab host: ``TopTabBar`` + bordered content stack (QTabWidget-ish)."""
+    """Folder-tab host: ``TopTabBar`` + bordered content stack."""
 
     currentChanged = Signal(int)
     #: emitted when a tab's close (X) region is clicked — hosts decide what

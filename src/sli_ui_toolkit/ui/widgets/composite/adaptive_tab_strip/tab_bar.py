@@ -99,7 +99,7 @@ class _AdaptiveTabBar(QWidget):
         self.updateGeometry()
         self.update()
 
-    # -- tab collection management (QTabBar-compatible surface) --------
+    # -- tab collection management (tab-bar-compatible surface) --------
 
     def addTab(self, text: str) -> int:  # noqa: N802
         return self.insertTab(len(self._tabs), text)
