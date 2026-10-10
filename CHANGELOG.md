@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **Painted `ConsoleView`; `LogConsoleWidget` + `ProcessConsoleWidget` migrated off `QTextEdit`** — new `composite.console_view.ConsoleView(QWidget)` renders a read-only console through the toolkit painter pipeline (no stock text widget, no QSS): a `ConsoleLine(text, color, bold, italic)` model with `set_max_lines` trimming (oldest first), word-wrap to the viewport width, per-line color/emphasis, a vertical `MinimalistScrollBar`, follow-the-tail auto-scroll (only when already at bottom, else the scroll position is kept), mouse selection, `Ctrl+C`/`Ctrl+A` (and `Ctrl+Ins` copy), plus `lines()`/`text()`/`append()`/`clear()`/`set_font()`/`scroll_to_bottom()`/`is_at_bottom()`/`line_index_at(y)`/`visual_lines()` (wrapped rows bound to their source line). Both consoles keep their public API (`LogConsoleEntry`, `append_*`/`set_entries`/`entries`/`history`/`full_text`/`set_output_font`; `ProcessConsoleWidget` signals + input row); their `output` attribute is now a `ConsoleView` (not a `QTextEdit`). Level colors resolve through the theme tokens and recolor on `theme_changed`. Tests: new `tests/test_console_view.py` (9: per-visual-line content identity, wrap fidelity + width, `line_index_at`, trimming, tail-follow, scrolled-up position keep, `Ctrl+C`/`Ctrl+A`, `set_lines` scroll preservation); `tests/test_process_console_scale.py` still green; full suite green, mypy clean.
+
 ### Fixed
 
 - **Scrollbar policy: `OverlayScrollArea` native bars re-hidden at polish (`overlay-native-hidden` rule)** — call-site migrations to `OverlayScrollArea` kept stock-era `AsNeeded` overrides, showing a native scrollbar next to the custom one (gallery Quick Look sidebar). The proxy now re-asserts `AlwaysOff` on both native bars of every overlay area; the mirrored bars themselves are untouched. Tests: +1 in `tests/test_scrollbar_policy.py`.
