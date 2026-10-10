@@ -545,7 +545,8 @@ class CustomLineEdit(QWidget):
         x1 = start_x + fm.horizontalAdvance(self._display_text()[:hi])
         accent = QColor(self.theme_manager.get_color("accent"))
         accent.setAlpha(90)
-        painter.fillRect(QRect(int(x0), rect.top(), int(x1 - x0), rect.height()), accent)
+        line = self._text_line_rect(rect)
+        painter.fillRect(QRect(int(x0), line.top(), int(x1 - x0), line.height()), accent)
 
     def _paint_text(self, painter: QPainter, rect: QRect) -> None:
         fm = self.fontMetrics()
@@ -577,7 +578,10 @@ class CustomLineEdit(QWidget):
         start_x = self._text_start_x(rect)
         cx = start_x + fm.horizontalAdvance(self._text[: self._cursor])
         color = QColor(self.theme_manager.get_color("dialog.text"))
-        painter.fillRect(QRect(int(cx), rect.top(), max(1, scaled_px(1)), rect.height()), color)
+        line = self._text_line_rect(rect)
+        painter.fillRect(
+            QRect(int(cx), line.top(), max(1, scaled_px(1)), line.height()), color
+        )
 
     def _paint_clear_button(self, painter: QPainter) -> None:
         if not self._show_clear_button():
@@ -658,6 +662,13 @@ class CustomLineEdit(QWidget):
         if self._anchor == self._cursor:
             return None
         return (min(self._anchor, self._cursor), max(self._anchor, self._cursor))
+
+    def _text_line_rect(self, rect: QRect) -> QRect:
+        """Text-height band centred in *rect* (caret/selection, not full height)."""
+        fm = self.fontMetrics()
+        line_h = fm.ascent() + fm.descent()
+        y = rect.top() + (rect.height() - line_h) // 2
+        return QRect(rect.left(), y, rect.width(), line_h)
 
     def _clear_selection(self) -> None:
         self._anchor = None
@@ -931,6 +942,11 @@ class CustomLineEdit(QWidget):
         return super().event(event)
 
     def _claims_shortcut(self, event) -> bool:
+        # Plain printable input must be claimed too: otherwise a window-level
+        # single-letter shortcut (e.g. "e") wins the ShortcutOverride and the
+        # character is never typed into the focused field.
+        if self._is_typing_key(event):
+            return True
         if event.key() in (
             Qt.Key.Key_Left,
             Qt.Key.Key_Right,

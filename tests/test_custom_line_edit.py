@@ -183,3 +183,37 @@ def test_copy_paste_round_trip(qapp):
     edit.paste()
     assert edit.text() == "pasted"
     edit.deleteLater()
+
+
+def test_caret_and_selection_use_text_line_height(qapp):
+    """Caret/selection must be text-height, not the whole 32px field."""
+    _register_palettes(qapp)
+    edit = CustomLineEdit()
+    fm = QFontMetrics(edit.font())
+    line = edit._text_line_rect(edit._content_rect())
+    assert line.height() == fm.ascent() + fm.descent()
+    assert line.height() < edit.height()
+    edit.deleteLater()
+
+
+def test_shortcut_override_claims_plain_letters(qapp):
+    """A plain printable key must be claimed on ShortcutOverride.
+
+    Regression: the painted field did not claim ShortcutOverride for typing
+    keys, so a window-level single-letter shortcut (e.g. "e") won the event and
+    the character was never inserted into the focused field.
+    """
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    _register_palettes(qapp)
+    edit = CustomLineEdit()
+    ev = QKeyEvent(
+        QEvent.Type.ShortcutOverride,
+        Qt.Key.Key_E,
+        Qt.KeyboardModifier.NoModifier,
+        "e",
+    )
+    assert edit.event(ev) is True
+    assert ev.isAccepted()
+    edit.deleteLater()
