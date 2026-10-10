@@ -78,7 +78,7 @@ class ToolbarRowsSection:
     """Up/Down between toolbar rows, Left/Right between buttons in a row.
 
     ``NavigationManager`` leaves Left/Right to native widget handling by
-    default (QTabBar, QSpinBox, ...) — this section opts back in via
+    default (tab bars, spin boxes, ...) — this section opts back in via
     ``extra_keys`` so arrow navigation is symmetric: Down/Up cross rows,
     Left/Right move within the current row's focusable buttons, skipping
     disabled/hidden ones by construction (``_focusable`` already filters

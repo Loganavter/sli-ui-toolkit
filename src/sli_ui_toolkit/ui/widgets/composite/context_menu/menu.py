@@ -367,7 +367,7 @@ class ContextMenu(BaseFlyout):
                 if spec is not None and has_children:
                     self._schedule_submenu_hover(obj, spec)
                 elif self._open_submenu is not None:
-                    # Sibling leaf hovered: drop the open submenu (QMenu
+                    # Sibling leaf hovered: drop the open submenu (native-menu
                     # parity) so only one branch stays open at a time.
                     # Moving from the owner row straight into its submenu
                     # never hovers a sibling row, so this cannot steal the

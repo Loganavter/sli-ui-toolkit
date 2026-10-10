@@ -345,7 +345,7 @@ class _ButtonEvents:
     # -------- click flow --------
 
     def click(self) -> None:
-        """Programmatic activation (QAbstractButton.click parity).
+        """Programmatic activation (click parity).
 
         Used by host shortcut binders and tests. Prefer this over emitting
         ``clicked`` alone so toggles and ``defer_click`` stay consistent with

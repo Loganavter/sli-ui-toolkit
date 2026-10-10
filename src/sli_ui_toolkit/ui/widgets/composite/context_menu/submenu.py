@@ -271,7 +271,7 @@ def toggle_submenu(
 
 
 def _on_branch_hidden(menu: ContextMenu, submenu: ContextMenu) -> None:
-    """Hide the owner when its branch hid underneath it (QMenu parity).
+    """Hide the owner when its branch hid underneath it (native-menu parity).
 
     No-op when the owner already detached the branch (owner-driven close,
     leaf-triggered root hide, entries reset): those clear ``_open_submenu``
@@ -380,8 +380,8 @@ def _handle_submenu_forward(menu: ContextMenu, global_pos: QPoint) -> None:
 
     (a) over a sibling parent row -> schedule a switch with the existing
     hover-delay machinery; (b) over a sibling leaf row -> close immediately
-    (QMenu parity); (c) inside the open submenu branch, over the owner's
-    own non-row chrome, or outside both menus -> change nothing (QMenu
+    (native-menu parity); (c) inside the open submenu branch, over the owner's
+    own non-row chrome, or outside both menus -> change nothing (native-menu
     parity: aiming across the gap must never kill the submenu; it closes
     on sibling hover, outside click, Escape, or parent hide).
     """

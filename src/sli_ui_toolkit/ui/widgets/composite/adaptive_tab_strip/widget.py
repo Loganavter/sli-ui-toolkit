@@ -1,7 +1,7 @@
 """AdaptiveTabStrip — the thin host facade of the adaptive tab strip.
 
 Owns the row layout (tab bar + add button), the close-button policy and
-slots, and the QTabBar-like compatibility surface; everything about the bar
+slots, and the tab-bar-like compatibility surface; everything about the bar
 itself (tabs, painting, scrolling, hover) lives in ``_AdaptiveTabBar``
 (tab_bar.py) and the close-button machinery in ``close_button.py``.
 """
@@ -251,7 +251,7 @@ class AdaptiveTabStrip(QWidget):
                 self.tabCloseRequested.emit(index)
                 return
 
-    # QTabBar-like compatibility surface.
+    # Tab-bar compatibility surface.
     def addTab(self, text: str) -> int:  # noqa: N802
         index = self.tab_bar.addTab(text)
         self._row_layout().activate()

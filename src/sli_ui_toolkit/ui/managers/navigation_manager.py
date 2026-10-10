@@ -860,7 +860,7 @@ class NavigationManager(QObject):
             # owns the focused widget explicitly requests this key via
             # extra_keys. This covers both non-arrow extra keys (Enter/
             # Escape for flyouts) and Left/Right: by default Left/Right are
-            # left alone for native widget handlers (QTabBar, QSpinBox,
+            # left alone for native widget handlers (tab bars, spin boxes,
             # etc.), but a section can opt in (e.g. ToolbarRowsSection, to
             # move focus within a toolbar row) by listing them in
             # extra_keys — nothing changes for sections that don't.
