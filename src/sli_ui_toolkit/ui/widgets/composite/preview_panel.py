@@ -1,22 +1,36 @@
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QWheelEvent
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QSizePolicy, QTextEdit, QVBoxLayout, QWidget
+from __future__ import annotations
 
-from sli_ui_toolkit.ui.widgets.atomic import CustomGroupBuilder, MinimalistScrollBar
+from PySide6.QtGui import QWheelEvent
+from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
+
+from sli_ui_toolkit.ui.widgets.atomic import CustomGroupBuilder
 from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
 
 
-class NonPropagatingTextEdit(QTextEdit):
-    def wheelEvent(self, event: QWheelEvent):
-        scrollbar = self.verticalScrollBar()
-        is_at_top = scrollbar.value() == scrollbar.minimum()
-        is_at_bottom = scrollbar.value() == scrollbar.maximum()
+class NonPropagatingTextEdit(TextView):
+    """Painted :class:`TextView` that consumes the wheel at its scroll edges.
 
-        scrolling_down = event.angleDelta().y() < 0
-        scrolling_up = event.angleDelta().y() > 0
+    Legacy name kept for import compatibility (``sli_ui_toolkit.widgets``
+    re-exports it): the body is now the painted text view, not the stock Qt
+    text widget the class used to subclass. The behavior is the original
+    one — at the top scrolling up or at the bottom scrolling down the event
+    is accepted and NOT forwarded to the parent; anywhere else the wheel
+    scrolls this view.
+    """
 
-        if (scrolling_up and is_at_top) or (scrolling_down and is_at_bottom):
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
+        bar = self.verticalScrollBar()
+        at_top = bar.value() == bar.minimum()
+        at_bottom = bar.value() == bar.maximum()
+
+        delta = event.angleDelta().y()
+        if delta == 0:
+            delta = event.pixelDelta().y()
+        scrolling_down = delta < 0
+        scrolling_up = delta > 0
+
+        if (scrolling_up and at_top) or (scrolling_down and at_bottom):
             event.accept()
             return
 
@@ -35,7 +49,6 @@ class PreviewPanel(QWidget):
         parent=None,
     ):
         super().__init__(parent)
-        self.theme_manager = ThemeManager.get_instance()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -43,16 +56,10 @@ class PreviewPanel(QWidget):
         self.group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.group, 1)
 
+        # Painted text surface (no stock Qt text widget, no QSS): read-only
+        # by default, switched into edit mode through the same canvas.
         self.text_view = NonPropagatingTextEdit()
-        self.text_view.setObjectName("previewTextEdit")
-        self.text_view.setFrameShape(QFrame.Shape.NoFrame)
-        self.text_view.setReadOnly(True)
-        self.text_view.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        self.text_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
-        self.text_view.setVerticalScrollBar(
-            MinimalistScrollBar(Qt.Orientation.Vertical, self.text_view)
-        )
-        self.text_view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.text_view.setObjectName("previewTextView")
 
         group_layout.addWidget(self.text_view, 1)
 
@@ -67,11 +74,15 @@ class PreviewPanel(QWidget):
         group_layout.addLayout(self.actions_layout)
 
         self.set_actions_visible(show_actions)
-        self.theme_manager.theme_changed.connect(self._apply_styles)
-        self._apply_styles()
 
     def set_title(self, text: str) -> None:
         self.title.setText(text)
+
+    def set_text(self, text: str) -> None:
+        self.text_view.set_text(text)
+
+    def text(self) -> str:
+        return self.text_view.text()
 
     def set_action_texts(self, *, edit: str, save: str, revert: str) -> None:
         self.edit_button.setText(edit)
@@ -84,32 +95,11 @@ class PreviewPanel(QWidget):
         self.revert_button.setVisible(visible)
 
     def set_edit_mode(self, enabled: bool) -> None:
-        self.text_view.setReadOnly(not enabled)
         if enabled:
-            self.text_view.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
-            self.text_view.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+            self.text_view.enter_edit_mode()
         else:
-            self.text_view.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-            self.text_view.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+            self.text_view.exit_edit_mode()
 
         self.edit_button.setEnabled(not enabled)
         self.save_button.setEnabled(enabled)
         self.revert_button.setEnabled(enabled)
-
-    def _apply_styles(self) -> None:
-        text = self.theme_manager.get_color("dialog.text").name()
-        bg = self.theme_manager.get_color("surface.background").name(QColor.NameFormat.HexArgb)
-        border = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
-        self.text_view.setStyleSheet(f"""
-            QTextEdit#previewTextEdit {{
-                background: {bg};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 6px;
-                color: {text};
-            }}
-            QTextEdit#previewTextEdit QAbstractScrollArea::viewport {{
-                background: transparent;
-                border-radius: 6px;
-            }}
-        """)
