@@ -8,7 +8,7 @@ widgets. See [BUTTON_API.md](BUTTON_API.md) for `Button` and
 
 | Widget | Description |
 |--------|-------------|
-| `CustomLineEdit` | Themed line edit with rounded input paint, text padding, configurable text alignment, theme-updated text color, and focus normalization. |
+| `CustomLineEdit` | Painted single-line text input (no `QLineEdit`): the text is rendered by the toolkit painter pipeline, with caret, selection, clipboard, undo/redo and IME implemented in-widget. Rounded input paint, text padding, configurable alignment, theme-updated text color, placeholder, echo mode, validator, clear button. |
 | `CheckBox` | Custom-painted checkbox. |
 | `RadioButton` | Custom-painted radio button. |
 | `Slider` | Custom-painted slider with accent track. |
@@ -17,6 +17,18 @@ widgets. See [BUTTON_API.md](BUTTON_API.md) for `Button` and
 | `ComboBox` | Full custom-painted combo box with dropdown popup, type-to-search matching, and keyboard navigation. `showDropdown(focus_index=…)` scrolls a row into view without changing `currentIndex`; `dropdown_row_widget(index)` returns that row for Find Action pulse. |
 | `ScrollableComboBox` | Combo box with mouse-wheel cycling. |
 | `TimeLineEdit` | Compact toolkit-painted `HH:mm` input with validation/normalization, two right-side repeatable step buttons, and no native `QTimeEdit` chrome. |
+
+`CustomLineEdit` is fully painted — it does not subclass `QLineEdit`, so
+there is no native text rendering to fight (QSS/palette no longer freeze
+`setFont`, `minimumSizeHint` no longer reserves a full character, and drags
+are not stolen via `acceptDrops`). Its public surface mirrors the
+`QLineEdit` subset the app uses: `text`/`setText`, `textChanged`/
+`textEdited`/`editingFinished`/`returnPressed`, `setPlaceholderText`,
+`setValidator`/`hasAcceptableInput`, `setEchoMode` (+ `EchoMode`),
+`setClearButtonEnabled`, `setReadOnly`, `setMaxLength`, `selectAll`/
+`selectionStart`/`selectedText`/`setSelection`, `copy`/`cut`/`paste`/
+`undo`/`redo`, and `cursorPosition`/`setCursorPosition`. `SpinBox`,
+`DoubleSpinBox` and `TimeLineEdit` build on it unchanged.
 
 Text inputs accept Qt alignment flags or string alignment values:
 

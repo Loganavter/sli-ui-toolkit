@@ -4,7 +4,7 @@ from weakref import WeakKeyDictionary, ref
 
 import shiboken6
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, Qt, QTimer
-from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 def _is_alive(widget: QWidget | None) -> bool:
@@ -22,6 +22,9 @@ class _EditableTextKeyFilter(QObject):
 
     Installed on the widget itself, not the app — Qt already only delivers
     this one widget's own key events here, so there is nothing to share.
+    Applies to any widget opted into ``apply_editable_text_behavior`` (the
+    painted ``CustomLineEdit`` handles Return itself too; this stays the
+    shared fallback for host widgets).
     """
 
     def __init__(self, widget: QWidget) -> None:
@@ -31,8 +34,8 @@ class _EditableTextKeyFilter(QObject):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.KeyPress and watched is self._widget:
             key = getattr(event, "key", lambda: None)()
-            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and isinstance(watched, QLineEdit):
-                QTimer.singleShot(0, watched.clearFocus)
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                QTimer.singleShot(0, watched.clearFocus)  # type: ignore[attr-defined]
         return False
 
 
