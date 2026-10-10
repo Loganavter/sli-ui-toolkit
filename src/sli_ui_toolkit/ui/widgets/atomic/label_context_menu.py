@@ -1,9 +1,7 @@
 """Painted context menu for the toolkit :class:`Label`.
 
-Qt's stock ``QLabel`` installs a native Copy / Select-all menu on labels with
-selectable text. The toolkit replaces it with the painted
-:class:`ContextMenu` so the popup obeys the toolkit painter pipeline and the
-active theme instead of the platform style.
+Selectable labels show the toolkit :class:`ContextMenu` (Copy / Select all)
+so the popup obeys the painter pipeline and the active theme.
 
 Hosts can substitute their own entry builder via
 :func:`set_label_menu_builder` (e.g. to add "Copy all", translations, or

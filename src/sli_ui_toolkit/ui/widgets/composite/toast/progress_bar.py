@@ -18,8 +18,8 @@ from sli_ui_toolkit.theme import ThemeManager
 class ToastProgressBar(QWidget):
     """Painted toast progress track — accent fill, rounded ends, track background.
 
-    Not a ``QProgressBar``: Qt stylesheets cannot reliably round the chunk or
-    paint a distinct unfilled track across platforms.
+    Painted by the toolkit because Qt stylesheets cannot reliably round the
+    chunk or paint a distinct unfilled track across platforms.
     """
 
     def __init__(self, parent: QWidget | None = None, *, height: int = 6) -> None:

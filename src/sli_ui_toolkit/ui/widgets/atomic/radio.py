@@ -149,14 +149,12 @@ class RadioButtonGroup:
 
 
 class RadioButton(Button):
-    """Radio-style toggle, built on the shared ``Button`` painter pipeline
-    (was a standalone ``QRadioButton`` subclass — rebased so it picks up
-    ``FocusLayer``'s keyboard-focus ring like every other toolkit control).
+    """Radio-style toggle, built on the shared ``Button`` painter pipeline, so
+    it picks up ``FocusLayer``'s keyboard-focus ring like every other toolkit
+    control.
 
-    ``Button`` has no native "exclusive group" concept (unlike
-    ``QAbstractButton`` + ``QButtonGroup``, which ``QRadioButton`` used to
-    get for free) -- use :class:`RadioButtonGroup` instead of
-    ``QButtonGroup`` to keep a set of these mutually exclusive.
+    ``Button`` has no built-in exclusive-group concept -- use
+    :class:`RadioButtonGroup` to keep a set of these mutually exclusive.
 
     Clicking an already-checked radio must stay checked (only a sibling
     becoming checked may uncheck it) -- ``Button``'s own ``toggle=True``
