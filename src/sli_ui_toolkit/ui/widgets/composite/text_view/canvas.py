@@ -210,6 +210,21 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
     def is_document(self) -> bool:
         return self._document_blocks is not None
 
+    def anchor_y(self, anchor: str) -> int | None:
+        """Widget-space y of a heading anchor (``None`` when absent).
+
+        Document mode only. The layout stores anchors in content coordinates;
+        the canvas paints content at ``constants.PAD``, so the returned value
+        is the y a host scroll area should scroll to. Additive accessor —
+        existing read/edit behavior is untouched.
+        """
+        name = (anchor or "").strip()
+        if not name or self._document_layout is None:
+            return None
+        y = self._document_layout.anchors.get(name)
+        if y is None:
+            return None
+        return max(0, int(round(y)) + constants.PAD)
 
     def set_document(
         self, markdown: str, *, resolve_asset=None

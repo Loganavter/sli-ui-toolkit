@@ -140,6 +140,27 @@ class TextView(QScrollArea):
         self._canvas.set_document(markdown, resolve_asset=resolve_asset)
         self.verticalScrollBar().setValue(0)
 
+    def anchor_y(self, anchor: str) -> int | None:
+        """Document mode: widget-space y of a heading anchor.
+
+        ``None`` when the view is not showing a document or the anchor is
+        absent. Delegates to :meth:`TextCanvas.anchor_y`.
+        """
+        return self._canvas.anchor_y(anchor)
+
+    def scroll_to_anchor(self, anchor: str) -> bool:
+        """Document mode: scroll so ``anchor``'s heading sits at the top.
+
+        Returns ``True`` when the anchor exists and the scroll position was
+        set, ``False`` when the anchor is absent (no scrolling).
+        """
+        y = self._canvas.anchor_y(anchor)
+        if y is None:
+            return False
+        bar = self.verticalScrollBar()
+        bar.setValue(min(max(0, y), bar.maximum()))
+        return True
+
     def _on_image_activated(self, path: str) -> None:
         """Open the full-resolution image in the help lightbox (the plan's
         lightbox reuse); the ``imageActivated`` signal still fires so hosts
