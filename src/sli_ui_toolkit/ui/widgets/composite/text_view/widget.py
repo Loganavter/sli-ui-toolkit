@@ -105,6 +105,12 @@ class TextView(QScrollArea):
         self.viewport().setAutoFillBackground(False)
         self.viewport().setStyleSheet("background: transparent;")
         self._canvas.setAutoFillBackground(False)
+        # Transparency pin. ``setWidget`` / viewport re-polish flips the
+        # canvas auto-fill back on, and per-widget palette/attribute pins do
+        # not survive it — the widget stylesheet is the only override that
+        # holds (same transparency-plumbing case as ``SurfaceScrollArea``).
+        # This is not a visual style: the painter pipeline still owns the
+        # canvas output.
         self._canvas.setStyleSheet("background: transparent;")
         # Debug: who scrolls the view (wheel / bar drag / HoverCoordinator)
         if _textview_debug_enabled():

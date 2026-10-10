@@ -12,7 +12,7 @@ import math
 from typing import Any, ClassVar
 
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QTabBar, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.layout_settle import settle_layout
@@ -24,7 +24,7 @@ from .close_button import (
     _CloseButtonSlot,
     _CloseButtonTabBackgroundLayer,
 )
-from .tab_bar import _AdaptiveTabBar
+from .tab_bar import ButtonPosition, _AdaptiveTabBar
 
 
 class AdaptiveTabStrip(QWidget):
@@ -184,16 +184,16 @@ class AdaptiveTabStrip(QWidget):
             count = self.count()
             show_all = self._should_show_all_close_buttons()
             for index in range(count):
-                existing = self.tab_bar.tabButton(index, QTabBar.ButtonPosition.RightSide)
+                existing = self.tab_bar.tabButton(index, ButtonPosition.RightSide)
                 should_show = self._should_show_close_button(index, count, show_all)
                 if should_show and existing is None:
                     self.tab_bar.setTabButton(
                         index,
-                        QTabBar.ButtonPosition.RightSide,
+                        ButtonPosition.RightSide,
                         self._create_close_slot(),
                     )
                 elif not should_show and existing is not None:
-                    self.tab_bar.setTabButton(index, QTabBar.ButtonPosition.RightSide, None)
+                    self.tab_bar.setTabButton(index, ButtonPosition.RightSide, None)
         finally:
             self._updating_close_buttons = False
 
@@ -247,7 +247,7 @@ class AdaptiveTabStrip(QWidget):
 
     def _emit_close_for_slot(self, slot: QWidget) -> None:
         for index in range(self.count()):
-            if self.tab_bar.tabButton(index, QTabBar.ButtonPosition.RightSide) is slot:
+            if self.tab_bar.tabButton(index, ButtonPosition.RightSide) is slot:
                 self.tabCloseRequested.emit(index)
                 return
 
@@ -356,7 +356,7 @@ def _refresh_config_applied(live, applied: tuple[str, ...]) -> None:
         live.tab_bar.update()
         for index in range(live.count()):
             live.tab_bar.setTabButton(
-                index, QTabBar.ButtonPosition.RightSide, None
+                index, ButtonPosition.RightSide, None
             )
         live.refresh_close_buttons()
         live.updateGeometry()
