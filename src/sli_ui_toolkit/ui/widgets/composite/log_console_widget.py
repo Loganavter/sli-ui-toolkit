@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import html
 from dataclasses import dataclass, field
 from typing import Any
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import QFrame, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+from sli_ui_toolkit.ui.widgets.composite.console_view import ConsoleLine, ConsoleView
+
 
 @dataclass(frozen=True)
 class LogConsoleEntry:
@@ -20,57 +19,44 @@ class LogConsoleEntry:
     italic: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
+
 class LogConsoleWidget(QWidget):
+    """Level-colored log console backed by the painted :class:`ConsoleView`.
+
+    Public API is unchanged from the ``QTextEdit`` era; ``output`` is now a
+    :class:`ConsoleView` (hosts must not assume it is a ``QTextEdit``).
+    """
+
     def __init__(self, parent=None, *, max_entries: int = 1000):
         super().__init__(parent)
         self._max_entries = max(1, int(max_entries))
         self._entries: list[LogConsoleEntry] = []
         self.theme_manager = ThemeManager.get_instance()
+        self._info_color = QColor("#ffffff")
+        self._error_color = QColor("#FF0000")
+        self._status_color = QColor("#9E9E9E")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.output = QTextEdit(self)
+        self.output = ConsoleView(self, max_lines=self._max_entries)
         self.output.setObjectName("LogConsoleOutput")
-        self.output.setFrameShape(QFrame.Shape.NoFrame)
-        self.output.setReadOnly(True)
-        self.output.setAcceptRichText(False)
-        self.output.setUndoRedoEnabled(False)
-        self.output.setTabChangesFocus(True)
-        self.output.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.output.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        self.output.viewport().setCursor(Qt.CursorShape.IBeamCursor)
-        self.output.setCursorWidth(0)
-
-        scrollbar = MinimalistScrollBar(Qt.Orientation.Vertical, self.output)
-        self.output.setVerticalScrollBar(scrollbar)
-        self.output.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
 
         layout.addWidget(self.output)
 
-        self.theme_manager.theme_changed.connect(self._apply_styles)
         self._apply_styles()
+        self.theme_manager.theme_changed.connect(self._apply_styles)
 
     def set_max_entries(self, max_entries: int) -> None:
         self._max_entries = max(1, int(max_entries))
         self._entries = self._entries[-self._max_entries :]
+        self.output.set_max_lines(self._max_entries)
         self._rebuild()
 
     def set_output_font(self, font: QFont) -> None:
-        """Set the log text font.
-
-        Applied as the *document* font, not ``QTextEdit.setFont``: the
-        widget's own QSS (color/background/padding) makes Qt ignore
-        ``setFont()`` on the edit when painting, while the document font is
-        what actually renders the log lines.
-        """
-        self.output.document().setDefaultFont(QFont(font))
-        self.output.setFont(QFont(font))
+        """Set the log text font on the painted console."""
+        self.output.set_font(QFont(font))
 
     def clear(self) -> None:
         self._entries.clear()
@@ -108,10 +94,12 @@ class LogConsoleWidget(QWidget):
         )
         self._entries.append(entry)
         self._entries = self._entries[-self._max_entries :]
-        at_bottom = self._is_scrolled_to_bottom()
-        self.output.append(self._entry_to_html(entry))
-        if at_bottom:
-            self._scroll_to_bottom()
+        self.output.append(
+            entry.text,
+            color=self._entry_color(entry),
+            bold=self._entry_bold(entry),
+            italic=entry.italic,
+        )
         return entry
 
     def append_info(self, text: str, **kwargs) -> LogConsoleEntry:
@@ -135,28 +123,31 @@ class LogConsoleWidget(QWidget):
 
     def set_entries(self, entries: list[LogConsoleEntry]) -> None:
         self._entries = list(entries)[-self._max_entries :]
+        self.output.set_max_lines(self._max_entries)
         self._rebuild()
 
     def _rebuild(self) -> None:
-        at_bottom = self._is_scrolled_to_bottom()
-        prev_value = self.output.verticalScrollBar().value()
-        self.output.blockSignals(True)
-        self.output.clear()
-        for entry in self._entries:
-            self.output.append(self._entry_to_html(entry))
-        self.output.blockSignals(False)
-        if at_bottom:
-            self._scroll_to_bottom()
-        else:
-            self.output.verticalScrollBar().setValue(prev_value)
+        self.output.set_lines(self._entry_to_console_line(entry) for entry in self._entries)
 
-    def _is_scrolled_to_bottom(self) -> bool:
-        bar = self.output.verticalScrollBar()
-        return bar.value() >= bar.maximum() - 2
+    def _entry_to_console_line(self, entry: LogConsoleEntry) -> ConsoleLine:
+        return ConsoleLine(
+            entry.text,
+            self._entry_color(entry),
+            self._entry_bold(entry),
+            entry.italic,
+        )
 
-    def _scroll_to_bottom(self) -> None:
-        bar = self.output.verticalScrollBar()
-        bar.setValue(bar.maximum())
+    def _entry_color(self, entry: LogConsoleEntry) -> QColor:
+        if entry.color:
+            return QColor(entry.color)
+        if entry.level == "error":
+            return QColor(self._error_color)
+        if entry.level == "status":
+            return QColor(self._status_color)
+        return QColor(self._info_color)
+
+    def _entry_bold(self, entry: LogConsoleEntry) -> bool:
+        return entry.bold or entry.level == "error"
 
     def _normalize_level(self, level: str) -> str:
         return level if level in {"info", "error", "status"} else "info"
@@ -169,47 +160,8 @@ class LogConsoleWidget(QWidget):
         value = str(color).strip()
         return value or None
 
-    def _entry_to_html(self, entry: LogConsoleEntry) -> str:
-        classes = entry.level
-        styles: list[str] = []
-        if entry.color:
-            styles.append(f"color: {entry.color}")
-        if entry.bold:
-            styles.append("font-weight: bold")
-        if entry.italic:
-            styles.append("font-style: italic")
-        style_attr = f' style="{"; ".join(styles)}"' if styles else ""
-        return f'<span class="{classes}"{style_attr}>{html.escape(entry.text)}</span>'
-
     def _apply_styles(self) -> None:
-        info_color = self.theme_manager.get_color("dialog.text").name()
-        bg_color = self.theme_manager.get_color("surface.background").name(QColor.NameFormat.HexArgb)
-        border_color = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
-        error_color = "#D70000" if self.theme_manager.is_dark() else "#FF0000"
-        status_color = "#9E9E9E"
-
-        self.output.setStyleSheet(f"""
-            QTextEdit#LogConsoleOutput {{
-                background: {bg_color};
-                border: 1px solid {border_color};
-                border-radius: 6px;
-                padding: 6px;
-                color: {info_color};
-            }}
-            QTextEdit#LogConsoleOutput QAbstractScrollArea::viewport {{
-                background: transparent;
-                border-radius: 6px;
-            }}
-        """)
-
-        stylesheet = f"""
-        body {{ color: {info_color}; }}
-        .info {{ color: {info_color}; }}
-        .error {{ color: {error_color}; font-weight: bold; }}
-        .status {{ color: {status_color}; }}
-        """
-        self.output.document().setDefaultStyleSheet(stylesheet)
-        self.output.style().unpolish(self.output)
-        self.output.style().polish(self.output)
-        self.output.update()
+        self._info_color = QColor(self.theme_manager.get_color("dialog.text"))
+        self._error_color = QColor("#D70000" if self.theme_manager.is_dark() else "#FF0000")
+        self._status_color = QColor("#9E9E9E")
         self._rebuild()

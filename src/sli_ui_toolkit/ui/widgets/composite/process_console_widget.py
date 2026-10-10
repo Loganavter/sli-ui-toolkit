@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-import html
 import os
 
 from PySide6.QtCore import QProcess, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.managers import UiScale
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
+from sli_ui_toolkit.ui.widgets.composite.console_view import ConsoleLine, ConsoleView
 
 
 def _qt_enum_value(value) -> int:
@@ -19,6 +18,12 @@ def _qt_enum_value(value) -> int:
 
 
 class ProcessConsoleWidget(QWidget):
+    """Interactive process console backed by the painted :class:`ConsoleView`.
+
+    Signals, the input row, and the ``output`` semantics are unchanged; only
+    the rendering swapped from ``QTextEdit`` to the toolkit painter pipeline.
+    """
+
     outputReceived = Signal(str)
     errorReceived = Signal(str)
     commandSubmitted = Signal(str)
@@ -32,29 +37,21 @@ class ProcessConsoleWidget(QWidget):
         self._entries: list[tuple[str, str]] = []
         self.theme_manager = ThemeManager.get_instance()
         self._surface_color = QColor("#000000")
+        self._info_color = QColor("#ffffff")
+        self._error_color = QColor("#FF0000")
+        self._status_color = QColor("#9E9E9E")
+        self._command_color = QColor("#4A90D9")
         self.process = QProcess(self)
+        self._fixed_font = QFont()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        self.output = QTextEdit(self)
+        self.output = ConsoleView(self, max_lines=self._max_entries)
         self.output.setObjectName("ProcessConsoleOutput")
-        self.output.setFrameShape(QFrame.Shape.NoFrame)
-        self.output.setReadOnly(True)
-        self.output.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
-        self.output.viewport().setCursor(Qt.CursorShape.IBeamCursor)
         self._apply_fixed_font()
         UiScale.get_instance().scale_changed.connect(self._apply_fixed_font)
-
-        scrollbar = MinimalistScrollBar(Qt.Orientation.Vertical, self.output)
-        self.output.setVerticalScrollBar(scrollbar)
-        self.output.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
 
         self.input_row = QWidget(self)
         input_layout = QHBoxLayout(self.input_row)
@@ -82,15 +79,15 @@ class ProcessConsoleWidget(QWidget):
         self.process.finished.connect(self._on_finished)
         self.process.stateChanged.connect(self._on_state_changed)
 
-        self.theme_manager.theme_changed.connect(self._apply_styles)
         self._apply_styles()
+        self.theme_manager.theme_changed.connect(self._apply_styles)
 
     def _apply_fixed_font(self) -> None:
         """Resize the console's monospace font with the UI scale.
 
         The system FixedFont is design-sized; UiScale multiplies its size so
         the console text grows with the interface like every other label
-        (the monospace family is kept). Applies to both the output edit and
+        (the monospace family is kept). Applies to both the output view and
         the input line.
         """
         base = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
@@ -101,7 +98,7 @@ class ProcessConsoleWidget(QWidget):
         elif base.pixelSize() > 0:
             font.setPixelSize(max(1, int(round(base.pixelSize() * factor))))
         self._fixed_font = font
-        self.output.setFont(font)
+        self.output.set_font(font)
         input_edit = getattr(self, "input_edit", None)
         if input_edit is not None:
             input_edit.setFont(font)
@@ -109,6 +106,7 @@ class ProcessConsoleWidget(QWidget):
     def set_max_entries(self, max_entries: int) -> None:
         self._max_entries = max(1, int(max_entries))
         self._entries = self._entries[-self._max_entries :]
+        self.output.set_max_lines(self._max_entries)
         self._rebuild()
 
     def clear_output(self) -> None:
@@ -185,20 +183,27 @@ class ProcessConsoleWidget(QWidget):
         message = str(text)
         self._entries.append((safe_level, message))
         self._entries = self._entries[-self._max_entries :]
-        self.output.append(
-            f'<span class="{safe_level}">{html.escape(message)}</span>'
-        )
-        self.output.ensureCursorVisible()
+        color, bold = self._level_style(safe_level)
+        self.output.append(message, color=color, bold=bold)
+
+    def _level_style(self, level: str) -> tuple[QColor, bool]:
+        if level == "error":
+            return (QColor(self._error_color), True)
+        if level == "status":
+            return (QColor(self._status_color), False)
+        if level == "command":
+            return (QColor(self._command_color), True)
+        return (QColor(self._info_color), False)
+
+    def _entry_to_console_line(self, level: str, message: str) -> ConsoleLine:
+        color, bold = self._level_style(level)
+        return ConsoleLine(message, color, bold, False)
 
     def _rebuild(self) -> None:
-        self.output.blockSignals(True)
-        self.output.clear()
-        for level, message in self._entries:
-            self.output.append(
-                f'<span class="{level}">{html.escape(message)}</span>'
-            )
-        self.output.ensureCursorVisible()
-        self.output.blockSignals(False)
+        self.output.set_lines(
+            self._entry_to_console_line(level, message)
+            for level, message in self._entries
+        )
 
     def _on_stdout_ready(self) -> None:
         text = bytes(self.process.readAllStandardOutput().data()).decode(
@@ -208,10 +213,6 @@ class ProcessConsoleWidget(QWidget):
             return
         for line in text.splitlines():
             self._append_entry("info", line)
-        if text.endswith("\n") is False and text.strip():
-            trailing = text.splitlines()[-1] if text.splitlines() else text
-            if trailing and not text.endswith("\n"):
-                pass
         self.outputReceived.emit(text)
 
     def _on_stderr_ready(self) -> None:
@@ -245,38 +246,11 @@ class ProcessConsoleWidget(QWidget):
             )
         except Exception:
             self._surface_color = QColor(self.palette().window().color())
-        info_color = self.theme_manager.get_color("dialog.text").name()
-        bg_color = self.theme_manager.get_color("surface.background").name(QColor.NameFormat.HexArgb)
-        border_color = self.theme_manager.get_color("input.border.thin").name(QColor.NameFormat.HexArgb)
-        error_color = "#D70000" if self.theme_manager.is_dark() else "#FF0000"
-        status_color = "#9E9E9E"
-        command_color = self.theme_manager.get_color("accent").name()
-
-        self.output.setStyleSheet(f"""
-            QTextEdit#ProcessConsoleOutput {{
-                background: {bg_color};
-                border: 1px solid {border_color};
-                border-radius: 6px;
-                padding: 6px;
-                color: {info_color};
-            }}
-            QTextEdit#ProcessConsoleOutput QAbstractScrollArea::viewport {{
-                background: transparent;
-                border-radius: 6px;
-            }}
-        """)
-
-        stylesheet = f"""
-        body {{ color: {info_color}; }}
-        .info {{ color: {info_color}; }}
-        .error {{ color: {error_color}; font-weight: bold; }}
-        .status {{ color: {status_color}; }}
-        .command {{ color: {command_color}; font-weight: bold; }}
-        """
-        self.output.document().setDefaultStyleSheet(stylesheet)
-        self.output.style().unpolish(self.output)
-        self.output.style().polish(self.output)
-        self.output.update()
+        self._info_color = QColor(self.theme_manager.get_color("dialog.text"))
+        self._error_color = QColor("#D70000" if self.theme_manager.is_dark() else "#FF0000")
+        self._status_color = QColor("#9E9E9E")
+        self._command_color = QColor(self.theme_manager.get_color("accent"))
+        self._rebuild()
 
     def paintEvent(self, event) -> None:  # noqa: N802
         """Fill the widget surface from the ``dialog.background`` token.
