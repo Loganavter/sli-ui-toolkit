@@ -156,9 +156,9 @@ class _CheckIndicatorLayer(Layer):
 
 
 class CheckBox(Button):
-    """Checkbox toggle, built on the shared ``Button`` painter pipeline (was
-    a standalone ``QCheckBox`` subclass — rebased so it picks up
-    ``FocusLayer``'s keyboard-focus ring like every other toolkit control).
+    """Checkbox toggle, built on the shared ``Button`` painter pipeline, so it
+    picks up ``FocusLayer``'s keyboard-focus ring like every other toolkit
+    control.
 
     Two-state only (no ``Qt.CheckState.PartiallyChecked`` indeterminate) —
     nothing in this toolkit's host apps used tri-state, and ``Button``'s own

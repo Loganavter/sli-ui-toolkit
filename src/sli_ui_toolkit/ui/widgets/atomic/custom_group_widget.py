@@ -63,7 +63,7 @@ class CustomGroupWidget(QWidget):
       border (a fieldset legend). Content grows vertically, sized to fit
       (``Preferred``/``Fixed``) — settings pages, dialogs.
     - ``caption="bottom"``: caption centered at the bottom, straddling the
-      bottom border (was the standalone ``ButtonGroup``). Content is a
+      bottom border (toolbar button clusters). Content is a
       horizontal row, shrink-to-fit (``Fixed``/``Fixed``) — toolbar button
       clusters. ``set_corner_radii()`` supports squaring off corners so the
       border can dock flush with a panel shown directly below (see
@@ -303,8 +303,8 @@ class CustomGroupWidget(QWidget):
 
 
 class ButtonGroup(CustomGroupWidget):
-    """Back-compat wrapper for the old standalone ``ButtonGroup`` class —
-    a bottom-caption, fixed-size, horizontal :class:`CustomGroupWidget`.
+    """Back-compat subclass preserving the former ``ButtonGroup`` API — a
+    bottom-caption, fixed-size, horizontal :class:`CustomGroupWidget`.
     Kept as a real subclass (not a factory function) so existing
     ``-> ButtonGroup`` annotations and ``isinstance`` checks keep working.
     Prefer constructing :class:`CustomGroupWidget` directly in new code.
