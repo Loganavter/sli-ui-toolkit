@@ -176,6 +176,24 @@ class _FlyoutPlacementApi:
             position=position,
             offset=offset,
         )
+        # Full kwargs for a deferred replay (see FlyoutManager sequencing):
+        # unlike _last_align_kwargs (reposition's no-animation replay), this
+        # keeps the animation/focus args so a replayed show looks identical.
+        self._last_show_kwargs = dict(
+            anchor_widget=anchor_widget,
+            anchor_point=anchor_point,
+            flyout_point=flyout_point,
+            position=position,
+            offset=offset,
+            animation=animation,
+            animation_duration_ms=animation_duration_ms,
+            animation_distance=animation_distance,
+            animation_axis=animation_axis,
+            easing=easing,
+            focus_reason=focus_reason,
+            grab_focus=grab_focus,
+            register_nav_section=register_nav_section,
+        )
         self._anchor_widget = anchor_widget
         # Determine keyboard-focus state of the trigger.
         # Prefer explicit focus_reason parameter, then the anchor widget's
@@ -220,7 +238,11 @@ class _FlyoutPlacementApi:
                     self._anchor_keyboard_focus = getattr(anchor_widget, "_keyboard_focus", False)
         self._ensure_overlay_parent(anchor_widget)
 
-        self.flyout_manager.request_show(self)
+        if not self.flyout_manager.request_show(self):
+            # Deferred: another flyout is still closing (sequenced cycle).
+            # The manager replays this show (via _last_show_kwargs) once that
+            # flyout is fully hidden — do not place/show now.
+            return
 
         container_layout = self.container.layout()
         if container_layout is not None:
