@@ -861,8 +861,20 @@ row = ButtonRow(
     ratio=0.5,                                  # Height fraction of button
     h_align=Qt.AlignmentFlag.AlignHCenter,     # Horizontal alignment
     marquee=False,                              # Loop left→right when text overflows
+    elide=False,                                # Truncate with … when text overflows
+    wrap=False,                                 # Word-wrap onto multiple lines
 )
 ```
+
+`wrap=True` breaks the row across as many lines as needed at word
+boundaries within the region's available width instead of clipping (or
+eliding) on one line. The row reserves the extra line height, and `Button`
+reports the wrapped height through `hasHeightForWidth()`/`heightForWidth()`
+plus `sizeHint`/`minimumSizeHint`, so a host layout stretches the card. When
+`wrap=True` the rows are stacked at their natural (possibly multi-line)
+heights, so `ratio` is ignored for layout. `wrap=False` (the default) keeps
+the historic single-line rendering and metrics exactly. `marquee` wins over
+`wrap` when both are set on an overflowing row.
 
 `size=None` renders the row with the current default UI font
 (`ui_font()`, point-based) instead of an explicit pixel size — use it when the
