@@ -27,6 +27,7 @@ from PySide6.QtCore import (
     QPropertyAnimation,
     Qt,
     QVariantAnimation,
+    Signal,
 )
 from PySide6.QtGui import QBrush, QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QRhiWidget, QWidget
@@ -67,6 +68,18 @@ class BaseFlyout(
     # Inspector metadata assigned at module bottom.
     inspect_spec: ClassVar[InspectSpec]
     widget_descriptor: ClassVar[WidgetDescriptor]
+
+    #: Emitted once the flyout is fully hidden — after a fade-out completes
+    #: (or immediately for an instant hide). The FlyoutManager listens to it
+    #: to replay a show that was deferred while this flyout was still closing.
+    hidden = Signal()
+
+    #: Opt-in sequencing: when True and another flyout is still fading out,
+    #: ``FlyoutManager.request_show`` defers this flyout's show (``show_aligned``
+    #: bails) and replays it once the closing flyout emits ``hidden`` — one
+    #: flyout cycle closes before the next opens. Off by default so transient
+    #: popups (context menus) keep replacing each other instantly.
+    wait_for_close_before_show: ClassVar[bool] = False
 
     SHADOW_RADIUS = 8
     CONTENT_RADIUS = 8

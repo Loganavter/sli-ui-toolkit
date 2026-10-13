@@ -605,3 +605,86 @@ def test_hide_clears_stale_show_animation_reference(qtbot, qapp):
         _teardown(flyout, anchor, host)
     finally:
         pass
+
+
+def test_second_flyout_waits_for_outgoing_close(qtbot, qapp):
+    """A sequenced flyout waits for a closing one, then opens.
+
+    With ``wait_for_close_before_show``, showing B while A is still fading
+    out defers B's show until A is fully hidden (A emits ``hidden``), then
+    replays B — one flyout cycle closes before the next opens, so the two
+    fades never composite over each other.
+    """
+    host, anchor = _make_host()
+    try:
+        a = BaseFlyout(host)
+        a.wait_for_close_before_show = True
+        b = BaseFlyout(host)
+        b.wait_for_close_before_show = True
+
+        a.show_aligned(
+            anchor, "bottom-left", "top-left", offset=4,
+            animation="fade", animation_duration_ms=FADE_MS,
+        )
+        qtbot.wait(FADE_MS * 3)
+        assert a.isVisible()
+
+        a.hide()  # starts a hide fade; still visible until it finishes
+        assert a.isVisible() and a._fade.hide_fade_in_progress
+
+        b.show_aligned(
+            anchor, "bottom-left", "top-left", offset=4,
+            animation="fade", animation_duration_ms=FADE_MS,
+        )
+        # Deferred: b must NOT open while a is still closing.
+        assert not b.isVisible()
+
+        # Once a finishes its fade and hides, b is replayed automatically.
+        qtbot.waitUntil(lambda: b.isVisible(), timeout=FADE_MS * 12)
+        assert not a.isVisible()
+        _teardown(a, b, anchor, host)
+    finally:
+        pass
+
+
+def test_flyout_without_optin_replaces_immediately(qtbot, qapp):
+    """Default (no opt-in) keeps the old immediate replace — no deferral."""
+    host, anchor = _make_host()
+    try:
+        a = BaseFlyout(host)
+        b = BaseFlyout(host)
+        a.show_aligned(
+            anchor, "bottom-left", "top-left", offset=4,
+            animation="fade", animation_duration_ms=FADE_MS,
+        )
+        qtbot.wait(FADE_MS * 3)
+        a.hide()  # fading out
+        b.show_aligned(
+            anchor, "bottom-left", "top-left", offset=4,
+            animation="fade", animation_duration_ms=FADE_MS,
+        )
+        # No opt-in -> b opens right away (its own show animation runs).
+        assert b.isVisible()
+        _teardown(a, b, anchor, host)
+    finally:
+        pass
+
+
+def test_closing_detection_covers_popup_menu_fade(qapp):
+    """A closing popup context menu (its own fade flag) counts as closing.
+
+    Popup-surface context menus fade via ``_popup_fade_in_progress`` (not the
+    in-window ``_fade.hide_fade_in_progress``); the manager must treat both as
+    "still closing" so an opt-in flyout (e.g. Ask AI) waits for a menu that was
+    dismissed on action-click before its handler ran.
+    """
+    from types import SimpleNamespace
+
+    from sli_ui_toolkit.ui.managers.flyout_manager import FlyoutManager
+
+    mgr = FlyoutManager()
+    assert mgr._flyout_is_closing(SimpleNamespace(_popup_fade_in_progress=True)) is True
+    assert mgr._flyout_is_closing(SimpleNamespace(_popup_fade_in_progress=False)) is False
+    assert mgr._flyout_is_closing(
+        SimpleNamespace(_fade=SimpleNamespace(hide_fade_in_progress=True))
+    ) is True

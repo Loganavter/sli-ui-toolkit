@@ -75,6 +75,7 @@ class _FlyoutLifecycleApi:
     _fade: Any
     _show_animation: Any
     flyout_manager: Any
+    hidden: Any
     restore_focus_on_hide: Callable[[], bool]
     parentWidget: Any
     parent: Any
@@ -163,6 +164,12 @@ class _FlyoutLifecycleApi:
         # after the restore closes that window.
         self._unregister_nav_section()
         QWidget.hide(self)  # type: ignore[arg-type]
+        # The flyout is fully hidden (fade done / instant) — let the manager
+        # replay any show that was deferred while this one was closing.
+        try:
+            self.hidden.emit()
+        except Exception:
+            pass
 
         # hide() already called request_hide once (before the fade); re-run it
         # after the widget is actually hidden so FlyoutManager re-checks

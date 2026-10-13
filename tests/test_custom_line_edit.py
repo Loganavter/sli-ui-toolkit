@@ -217,3 +217,187 @@ def test_shortcut_override_claims_plain_letters(qapp):
     assert edit.event(ev) is True
     assert ev.isAccepted()
     edit.deleteLater()
+
+
+def _wheel_event(y_angle_delta: int):
+    """A vertical-wheel event over the field (positive = wheel up)."""
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+
+    return QWheelEvent(
+        QPointF(10, 10),
+        QPointF(10, 10),
+        QPoint(0, 0),
+        QPoint(0, y_angle_delta),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+
+
+def _overflowed_edit(qtbot, qapp, width: int = 120):
+    """A shown, focused field whose text overflows (scroll offset > 0)."""
+    _register_palettes(qapp)
+    edit = CustomLineEdit()
+    qtbot.addWidget(edit)
+    edit.resize(width, edit.height())
+    edit.show()
+    qtbot.waitExposed(edit)
+    edit.setFocus()
+    edit.setText("w" * 200)
+    assert edit._h_offset > 0, "precondition: text overflows the field"
+    return edit
+
+
+def test_wheel_scrolls_overflowed_text_horizontally(qtbot, qapp):
+    """The wheel pans an overflowed line (QLineEdit parity).
+
+    Falsification: pre-change the field has no wheelEvent override — the
+    offset never moves and the event stays ignored.
+    """
+    edit = _overflowed_edit(qtbot, qapp)
+    start = edit._h_offset
+
+    up = _wheel_event(120)
+    edit.wheelEvent(up)
+    assert up.isAccepted()
+    assert edit._h_offset < start
+
+    down = _wheel_event(-240)
+    edit.wheelEvent(down)
+    assert down.isAccepted()
+    assert edit._h_offset > 0
+    edit.deleteLater()
+
+
+def test_wheel_ignored_when_text_fits(qtbot, qapp):
+    """A fitting line lets the wheel bubble to an enclosing scroller."""
+    _register_palettes(qapp)
+    edit = CustomLineEdit()
+    qtbot.addWidget(edit)
+    edit.resize(300, edit.height())
+    edit.show()
+    qtbot.waitExposed(edit)
+    edit.setFocus()
+    edit.setText("short")
+
+    ev = _wheel_event(120)
+    edit.wheelEvent(ev)
+    assert not ev.isAccepted()
+    edit.deleteLater()
+
+
+def test_submit_preset_tab_accepts_placeholder(qtbot, qapp):
+    """Preset Tab turns an empty field's placeholder into starting text.
+
+    Falsification: pre-change there is no setSubmitPreset (AttributeError)
+    and Tab never adopts the placeholder.
+    """
+    _register_palettes(qapp)
+    edit = CustomLineEdit()
+    edit.setSubmitPreset(True)
+    qtbot.addWidget(edit)
+    edit.show()
+    qtbot.waitExposed(edit)
+    edit.setFocus()
+    edit.setPlaceholderText("Say something…")
+
+    QTest.keyClick(edit, Qt.Key.Key_Tab)
+    assert edit.text() == "Say something…"
+    assert edit.cursorPosition() == len("Say something…")
+    assert not edit.hasSelectedText()
+    edit.deleteLater()
+
+
+def test_submit_preset_tab_needs_empty_field(qtbot, qapp):
+    """Preset Tab with existing text keeps default behavior (no adopt)."""
+    _register_palettes(qapp)
+    edit = CustomLineEdit(submit_preset=True)
+    qtbot.addWidget(edit)
+    edit.show()
+    qtbot.waitExposed(edit)
+    edit.setFocus()
+    edit.setPlaceholderText("Say something…")
+    edit.setText("typed")
+
+    QTest.keyClick(edit, Qt.Key.Key_Tab)
+    assert edit.text() != "Say something…"
+    edit.deleteLater()
+
+
+def test_submit_preset_enter_submits_typed_text(qtbot, qapp):
+    """Preset Enter emits submitted with the stripped text."""
+    _register_palettes(qapp)
+    edit = CustomLineEdit()
+    edit.setSubmitPreset(True)
+    qtbot.addWidget(edit)
+    edit.show()
+    qtbot.waitExposed(edit)
+    edit.setFocus()
+    edit.setPlaceholderText("Say something…")
+    edit.setText("  hello  ")
+
+    got: list[str] = []
+    edit.submitted.connect(got.append)
+    QTest.keyClick(edit, Qt.Key.Key_Return)
+    assert got == ["hello"]
+    edit.deleteLater()
+
+
+def test_submit_preset_enter_falls_back_to_placeholder(qtbot, qapp):
+    """Preset Enter on an empty field submits the placeholder."""
+    _register_palettes(qapp)
+    edit = CustomLineEdit(submit_preset=True)
+    qtbot.addWidget(edit)
+    edit.show()
+    qtbot.waitExposed(edit)
+    edit.setFocus()
+    edit.setPlaceholderText("Say something…")
+
+    got: list[str] = []
+    edit.submitted.connect(got.append)
+    QTest.keyClick(edit, Qt.Key.Key_Enter)
+    assert got == ["Say something…"]
+    edit.deleteLater()
+
+
+def test_submit_preset_enter_rewinds_view_to_start(qtbot, qapp):
+    """Preset Enter resets the scroll offset and caret to the start.
+
+    Falsification: pre-change the view stays pinned to the end where the
+    caret was — the question's start is not visible after submit.
+    """
+    edit = _overflowed_edit(qtbot, qapp)
+    edit.setSubmitPreset(True)
+
+    got: list[str] = []
+    edit.submitted.connect(got.append)
+    QTest.keyClick(edit, Qt.Key.Key_Return)
+    assert len(got) == 1
+    assert edit.cursorPosition() == 0
+    assert edit._h_offset == 0
+    edit.deleteLater()
+
+
+def test_preset_off_keeps_plain_behavior(qtbot, qapp):
+    """Without the preset there is no submitted emission or Tab-adopt."""
+    _register_palettes(qapp)
+    edit = CustomLineEdit()
+    assert edit.isSubmitPreset() is False
+    qtbot.addWidget(edit)
+    edit.show()
+    qtbot.waitExposed(edit)
+    edit.setFocus()
+    edit.setPlaceholderText("Say something…")
+
+    got: list[str] = []
+    edit.submitted.connect(got.append)
+    pressed: list[bool] = []
+    edit.returnPressed.connect(lambda: pressed.append(True))
+    QTest.keyClick(edit, Qt.Key.Key_Return)
+    assert pressed == [True]
+    assert got == []
+    QTest.keyClick(edit, Qt.Key.Key_Tab)
+    assert edit.text() != "Say something…"
+    edit.deleteLater()

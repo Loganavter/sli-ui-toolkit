@@ -25,8 +25,24 @@ line-edit API: `text`/`setText`, `textChanged`/`textEdited`/
 `setValidator`/`hasAcceptableInput`, `setEchoMode` (+ `EchoMode`),
 `setClearButtonEnabled`, `setReadOnly`, `setMaxLength`, `selectAll`/
 `selectionStart`/`selectedText`/`setSelection`, `copy`/`cut`/`paste`/
-`undo`/`redo`, and `cursorPosition`/`setCursorPosition`. `SpinBox`,
+`undo`/`redo`, and `cursorPosition`/`setCursorPosition`. The wheel scrolls
+an overflowed line horizontally (ignoring the event when the text fits so
+an enclosing scroller can take it). `SpinBox`,
 `DoubleSpinBox` and `TimeLineEdit` build on it.
+
+Opt-in submit preset — the standard single-shot submit-field contract
+(`CustomLineEdit(submit_preset=True)` or `setSubmitPreset(True)`, off by
+default): `Tab` on an empty field accepts the placeholder as starting text
+(cursor at the end, no selection); `Enter` emits `submitted` with
+`text().strip()` (or the placeholder when empty) and rewinds the view and
+caret to the start. Plain fields keep exact `QLineEdit` behavior
+(`returnPressed`/`editingFinished`, no `submitted` emission).
+
+```python
+ask = CustomLineEdit(submit_preset=True)
+ask.setPlaceholderText("What matters here?")
+ask.submitted.connect(host.ask_question)
+```
 
 Text inputs accept Qt alignment flags or string alignment values:
 

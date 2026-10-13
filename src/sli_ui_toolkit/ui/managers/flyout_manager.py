@@ -38,6 +38,10 @@ class FlyoutManager(QObject):
         # within a layer needs registration order as a stable tie-break.
         self._registration_order: dict[ManagedFlyout, int] = {}
         self._registration_counter = 0
+        # Sequenced show cycles: a show requested while another flyout is still
+        # closing is parked here and replayed on that flyout's ``hidden``.
+        self._deferred_show: Optional[ManagedFlyout] = None
+        self._armed_closing: Optional[ManagedFlyout] = None
 
     @classmethod
     def get_instance(cls) -> "FlyoutManager":
@@ -202,6 +206,21 @@ class FlyoutManager(QObject):
                 except Exception:
                     continue
 
+            # Sequenced cycle (opt-in): after the dismissals above (which start
+            # the siblings' close animations), if any is still closing, do not
+            # start this show yet. The caller (show_aligned) bails on the False
+            # return; the manager replays this show once the closing flyout is
+            # fully hidden — one cycle closes before the next opens. This also
+            # catches a sibling that was already closing before this call (e.g.
+            # a popup context menu hidden on action-click, before its handler
+            # ran) — its own popup fade is tracked too.
+            if getattr(flyout, "wait_for_close_before_show", False):
+                closing = self._closing_flyout(exclude=flyout)
+                if closing is not None:
+                    self._deferred_show = flyout
+                    self._arm_deferred_flush(closing)
+                    return False
+
             if policy.should_claim_active(flyout, self._active_flyout):
                 self._active_flyout = flyout
             else:
@@ -220,6 +239,76 @@ class FlyoutManager(QObject):
         self.ensure_overlay_stacking(raised=flyout)
         self._reposition_children(flyout)
         return True
+
+    # -- sequenced show cycles ------------------------------------------------
+
+    @staticmethod
+    def _flyout_is_closing(flyout) -> bool:
+        """True while *flyout* is mid close animation.
+
+        Covers both an in-window ``BaseFlyout`` hide fade
+        (``_fade.hide_fade_in_progress``) and a popup-surface context menu's
+        own fade-out (``_popup_fade_in_progress``) — the two use separate fade
+        pipelines, so neither flag alone sees every closing flyout.
+        """
+        fade = getattr(flyout, "_fade", None)
+        if fade is not None and getattr(fade, "hide_fade_in_progress", False):
+            return True
+        return bool(getattr(flyout, "_popup_fade_in_progress", False))
+
+    def _closing_flyout(self, exclude=None):
+        """First registered flyout still mid close animation (hide pending)."""
+        for registered in list(self._registered_flyouts):
+            if registered is exclude:
+                continue
+            try:
+                if self._flyout_is_closing(registered):
+                    return registered
+            except RuntimeError:
+                self._registered_flyouts.discard(registered)
+            except Exception:
+                continue
+        return None
+
+    def _arm_deferred_flush(self, closing) -> None:
+        """Flush the deferred show once *closing* is fully hidden (or gone)."""
+        if getattr(self, "_armed_closing", None) is closing:
+            return
+        self._armed_closing = closing
+        # ``hidden`` (in-window fade end), ``aboutToHide`` (popup-menu fade
+        # end) and ``destroyed`` (torn down before either) — connect whatever
+        # the closing flyout offers.
+        for signal_name in ("hidden", "aboutToHide", "destroyed"):
+            sig = getattr(closing, signal_name, None)
+            if sig is None:
+                continue
+            try:
+                sig.connect(self._on_closing_done)
+            except Exception:
+                continue
+
+    def _on_closing_done(self, *_args) -> None:
+        self._armed_closing = None
+        self._flush_deferred_shows()
+
+    def _flush_deferred_shows(self) -> None:
+        """Replay the deferred show once no flyout is still closing."""
+        flyout = self._deferred_show
+        if flyout is None:
+            return
+        closing = self._closing_flyout(exclude=flyout)
+        if closing is not None:
+            # Another fade still running — wait for its ``hidden`` too.
+            self._arm_deferred_flush(closing)
+            return
+        self._deferred_show = None
+        replay = getattr(flyout, "_last_show_kwargs", None)
+        if not replay:
+            return
+        try:
+            flyout.show_aligned(**replay)  # type: ignore[attr-defined]
+        except Exception:
+            logger.exception("deferred flyout show replay failed")
 
     def ensure_overlay_stacking(self, raised: ManagedFlyout | None = None) -> None:
         """Keep higher-layer flyouts above every lower-layer in-window flyout.
