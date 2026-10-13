@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **Help TOC teardown hides before unparenting** — `_dispose_toc` detached the old TOC frame with `setParent(None)` while still visible, which spawns a transient toplevel and flashes the global busy cursor (the app's `test_no_visible_orphan_setparent` contract). It now calls `hide()` first, same as the hub's hover-widget teardown.
+
+### Fixed
+
 - **Help TOC keeps its frame after navigation** — `HelpDocumentView.set_blocks` tore the previous TOC frame down with `deleteLater` (deferred) and `_repolish` styled `findChild("HelpDocumentToc")`, which still returned the stale frame — so the freshly built TOC rendered border-less as soon as you followed a `help://` link to another page. The live frame is now tracked explicitly (`self._toc`), detached from the layout before `deleteLater`, and `_repolish` styles that frame. Tests: `tests/test_help_document_view.py` (`test_toc_stays_styled_after_page_navigation`, falsified against the pre-change base).
 
 ### Added

@@ -107,6 +107,10 @@ class HelpDocumentView(QWidget):
         self._toc = None
         if toc is not None:
             self._root.removeWidget(toc)
+            # Hide before unparenting: a still-visible widget detached from its
+            # parent spawns a transient toplevel and flashes the global busy
+            # cursor (app contract test_no_visible_orphan_setparent).
+            toc.hide()
             toc.setParent(None)
             toc.deleteLater()
 
