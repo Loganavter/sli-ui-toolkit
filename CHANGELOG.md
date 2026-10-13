@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`CustomLineEdit` submit preset + wheel scrolling** — one standard single-shot submit-field contract for hosts (opt-in `CustomLineEdit(submit_preset=True)` / `setSubmitPreset(True)`, off by default so plain fields keep exact `QLineEdit` behavior): `Tab` on an empty field accepts the placeholder as starting text (cursor at the end, no selection); `Enter` emits the new `submitted(str)` signal with `text().strip()` (or the placeholder when empty) and rewinds the view and caret to the start (previously the view stayed pinned to the end after submit). The wheel now scrolls an overflowed line horizontally (`QLineEdit` parity); when the text fits the event is ignored so an enclosing scroller can take it. Docs: `INPUTS_API.md`. Tests: `tests/test_custom_line_edit.py` (+8: wheel pan + bubble, Tab-accept on empty/non-empty, submit typed/placeholder-fallback, rewind-to-start, preset-off parity); full suite green, mypy clean.
+
 ### Changed
 
 - **`AdaptiveTabStrip` owns its `ButtonPosition` enum (no `QTabBar` dependency)** — the tab-button slot no longer references `QTabBar.ButtonPosition`: a toolkit `ButtonPosition(IntEnum)` (same values, exported from `adaptive_tab_strip`) is used internally, and `tabButton`/`setTabButton` normalize any host enum or int via its `.value`, so existing callers (including hosts passing `QTabBar.ButtonPosition.RightSide`) keep working unchanged. The toolkit source no longer imports `QTabBar`. Also documented the `TextView` canvas transparency-pin stylesheet as plumbing (not visual styling). No behavior change; full suite + mypy clean.

@@ -12,6 +12,13 @@ Public surface is the standard line-edit API call sites expect: ``text``/
 ``selectAll``/``selectionStart``/``selectedText``/``setSelection``,
 ``copy``/``cut``/``paste``/``undo``/``redo``, ``cursorPosition``.
 ``EchoMode`` uses the standard integer values.
+
+Opt-in submit preset (``submit_preset=True`` / ``setSubmitPreset``): the
+standard single-shot submit-field contract — ``Tab`` on an empty field accepts
+the placeholder as starting text (cursor at the end, no selection),
+``Enter`` emits ``submitted`` with ``text().strip() or placeholderText()``
+and resets the view to the start. Off by default: plain fields keep exact
+``QLineEdit`` behavior.
 """
 
 from __future__ import annotations
@@ -42,6 +49,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPen,
     QValidator,
+    QWheelEvent,
 )
 import time
 
@@ -90,6 +98,9 @@ class CustomLineEdit(QWidget):
     editingFinished = Signal()
     returnPressed = Signal()
     selectionChanged = Signal()
+    #: Submit-preset submit (see ``setSubmitPreset``): the resolved text —
+    #: ``text().strip()``, or the placeholder when the field is empty.
+    submitted = Signal(str)
 
     EchoMode = EchoMode
 
@@ -102,6 +113,9 @@ class CustomLineEdit(QWidget):
     # Caret blink period (half on / half off).
     BLINK_MS = 500
     CLEAR_BUTTON_EDGE = 16
+    # Wheel scroll step: pixels of horizontal travel per wheel-delta unit
+    # (one notch = 120 units ≈ 24 px).
+    WHEEL_PX_PER_DELTA = 0.2
 
     def __init__(
         self,
@@ -112,6 +126,7 @@ class CustomLineEdit(QWidget):
         underline_thickness: float | None = None,
         focused_underline_color: QColor | None = None,
         focused_underline_thickness: float | None = None,
+        submit_preset: bool = False,
     ):
         super().__init__(parent)
         self.theme_manager = ThemeManager.get_instance()
@@ -149,6 +164,7 @@ class CustomLineEdit(QWidget):
         self._undo: list[tuple[str, int]] = []
         self._redo: list[tuple[str, int]] = []
         self._text_on_focus = ""
+        self._submit_preset = bool(submit_preset)
 
         self._caret_on = True
         self._blink = QTimer(self)
@@ -271,6 +287,47 @@ class CustomLineEdit(QWidget):
 
     def isClearButtonEnabled(self) -> bool:  # noqa: N802
         return self._clear_button_enabled
+
+    # -- submit preset (standard single-shot submit-field contract) -------------
+
+    def setSubmitPreset(self, enabled: bool) -> None:  # noqa: N802
+        """Enable the submit preset: Tab-accept + submit-on-Enter.
+
+        With the preset on, ``Tab`` on an empty field accepts the
+        placeholder as starting text (cursor at the end, no selection) and
+        ``Enter`` emits :attr:`submitted` with ``text().strip()`` (or the
+        placeholder when empty), then resets the view to the start.
+        Off by default — plain fields keep exact ``QLineEdit`` behavior.
+        """
+        self._submit_preset = bool(enabled)
+
+    set_submit_preset = setSubmitPreset
+
+    def isSubmitPreset(self) -> bool:  # noqa: N802
+        return self._submit_preset
+
+    is_submit_preset = isSubmitPreset
+
+    def _accept_placeholder(self) -> bool:
+        """Preset Tab path: adopt the placeholder as starting text.
+
+        Returns True when adopted (caller accepts the event); False when
+        there is nothing to adopt (no preset / non-empty / no placeholder —
+        Tab keeps its default focus-travel meaning).
+        """
+        if not self._submit_preset or self._read_only:
+            return False
+        if self._text.strip() or not self._placeholder:
+            return False
+        self._apply_text(self._placeholder, cursor=len(self._placeholder), notify=True, edited=False)
+        return True
+
+    def _submit_resolved(self) -> None:
+        """Preset Enter path: emit the resolved text, rewind the view."""
+        self.submitted.emit(self._text.strip() or self._placeholder)
+        # Rewind so the text's start is visible after submit (the view
+        # otherwise stays pinned to the end where the caret was).
+        self.setCursorPosition(0)
 
     # -- alignment ----------------------------------------------------------
 
@@ -934,6 +991,35 @@ class CustomLineEdit(QWidget):
             return
         super().mouseDoubleClickEvent(event)
 
+    def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
+        """Scroll overflowed text horizontally (``QLineEdit`` parity).
+
+        A vertical wheel moves the line sideways; a horizontal (or
+        pixel-scrolling) delta pans directly. When the text fits — or the
+        offset is already at the bound in the scroll direction — the event
+        is ignored so an enclosing scroller can take it.
+        """
+        rect = self._content_rect()
+        total = self.fontMetrics().horizontalAdvance(self._display_text_painted())
+        span = total - rect.width()
+        if span <= 0:
+            event.ignore()
+            return
+        delta = event.pixelDelta()
+        if delta.isNull():
+            delta = event.angleDelta()
+        step = delta.x() if delta.x() else delta.y()
+        if not step:
+            event.ignore()
+            return
+        new_offset = max(0, min(span, self._h_offset - int(round(step * self.WHEEL_PX_PER_DELTA))))
+        if new_offset == self._h_offset:
+            event.ignore()
+            return
+        self._h_offset = new_offset
+        self.update()
+        event.accept()
+
     def event(self, event) -> bool:  # noqa: N802
         if event.type() == QEvent.Type.ShortcutOverride:
             if self._claims_shortcut(event):
@@ -1006,9 +1092,13 @@ class CustomLineEdit(QWidget):
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.returnPressed.emit()
             self.editingFinished.emit()
+            if self._submit_preset:
+                self._submit_resolved()
             QTimer.singleShot(0, self.clearFocus)
         elif key == Qt.Key.Key_Escape:
             self.clearFocus()
+        elif key == Qt.Key.Key_Tab and self._accept_placeholder():
+            pass
         elif self._is_typing_key(event):
             self._insert_user(event.text())
         else:
