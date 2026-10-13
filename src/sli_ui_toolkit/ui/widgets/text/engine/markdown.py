@@ -55,7 +55,7 @@ a widget-tree renderer, not a browser.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Iterable
 
@@ -75,10 +75,6 @@ _ATTR_RE = re.compile(r"(?P<key>[a-zA-Z_]+)\s*=\s*(?P<val>[^\s=]+)")
 _PIPE_ROW_RE = re.compile(r"^\s*\|.*\|\s*$")
 _PIPE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$")
 
-_INLINE_TOKEN_RE = re.compile(
-    r"(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))"
-)
-
 
 class InlineKind(str, Enum):
     TEXT = "text"
@@ -86,14 +82,18 @@ class InlineKind(str, Enum):
     ITALIC = "italic"
     CODE = "code"
     LINK = "link"
-    KBD = "kbd"
 
 
 @dataclass(frozen=True, slots=True)
 class InlineSpan:
+    """One inline run. ``bold`` carries the weight inherited from an
+    enclosing ``**…**`` when the run has its own kind (code/link/italic),
+    since the layout and selection index style by kind per character."""
+
     kind: InlineKind
     text: str
     href: str | None = None
+    bold: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,75 +163,155 @@ HelpBlock = (
 
 
 def parse_inline(text: str) -> tuple[InlineSpan, ...]:
-    """Split a line into inline spans (bold / italic / code / link / text)."""
+    """Split a line into inline spans (bold / italic / code / link / text).
+
+    Hand-written character scanner — no alternation regex, no key wordlist:
+
+    - ``**…**`` → bold; the body is parsed recursively so nested spans work
+      (``**a `b` c**`` gives bold text + bold code + bold text — the nested
+      spans carry ``bold=True`` for the layout / selection index).
+    - ``*…*`` → italic (body parsed recursively).
+    - `` `…` `` → inline code; scans to the next backtick, never nests.
+    - ``[label](href)`` → link (the label may itself contain inline spans).
+    - anything else → text.
+
+    An unterminated delimiter stays literal text; the scanner never raises
+    and always advances, so it cannot loop and there is no regex
+    backtracking.
+    """
+    spans, _, _ = _scan_spans(text, 0, end=None)
+    if not spans:
+        return (InlineSpan(InlineKind.TEXT, text),)
+    return tuple(spans)
+
+
+def _scan_spans(
+    text: str,
+    pos: int,
+    *,
+    end: str | None,
+) -> tuple[list[InlineSpan], int, bool]:
+    """Scan inline spans from ``pos`` until the ``end`` delimiter (or the end
+    of ``text``). Returns ``(spans, new_pos, terminated)``; ``terminated`` is
+    True only when the closing delimiter was found and consumed."""
     spans: list[InlineSpan] = []
-    pos = 0
-    for match in _INLINE_TOKEN_RE.finditer(text):
-        start, end = match.span()
-        if start > pos:
-            spans.extend(_text_spans(text[pos:start]))
-        token = match.group(0)
-        spans.append(_token_to_span(token))
-        pos = end
-    if pos < len(text):
-        spans.extend(_text_spans(text[pos:]))
-    return tuple(spans) if spans else (InlineSpan(InlineKind.TEXT, text),)
+    buf: list[str] = []
+    n = len(text)
+
+    def flush() -> None:
+        if buf:
+            spans.append(InlineSpan(InlineKind.TEXT, "".join(buf)))
+            buf.clear()
+
+    while pos < n:
+        if end is not None and text.startswith(end, pos):
+            flush()
+            return spans, pos + len(end), True
+        ch = text[pos]
+        if ch == "`":
+            close = text.find("`", pos + 1)
+            if close != -1:
+                flush()
+                spans.append(InlineSpan(InlineKind.CODE, text[pos + 1 : close]))
+                pos = close + 1
+                continue
+            buf.append(ch)
+            pos += 1
+            continue
+        if text.startswith("**", pos):
+            body, new_pos, terminated = _scan_spans(text, pos + 2, end="**")
+            if terminated and body:
+                flush()
+                spans.extend(_as_bold(body))
+                pos = new_pos
+                continue
+            buf.append("**")
+            pos += 2
+            continue
+        if ch == "*":
+            close = _find_single_star(text, pos + 1)
+            if close != -1:
+                body, _, _ = _scan_spans(text[pos + 1 : close], 0, end=None)
+                flush()
+                spans.extend(_as_italic(body))
+                pos = close + 1
+                continue
+            buf.append(ch)
+            pos += 1
+            continue
+        if ch == "[":
+            link = _parse_link(text, pos)
+            if link is not None:
+                link_spans, new_pos = link
+                flush()
+                spans.extend(link_spans)
+                pos = new_pos
+                continue
+            buf.append(ch)
+            pos += 1
+            continue
+        buf.append(ch)
+        pos += 1
+
+    flush()
+    return spans, pos, False
 
 
-def _text_spans(chunk: str) -> list[InlineSpan]:
-    if not chunk:
+def _find_single_star(text: str, start: int) -> int:
+    """Index of the next ``*`` that is NOT part of a ``**`` run, or -1.
+    Keeps ``**a*b**`` bold (the interior star stays literal)."""
+    n = len(text)
+    i = start
+    while i < n:
+        if text[i] == "*":
+            prev_star = i > 0 and text[i - 1] == "*"
+            next_star = i + 1 < n and text[i + 1] == "*"
+            if not prev_star and not next_star:
+                return i
+        i += 1
+    return -1
+
+
+def _as_bold(spans: list[InlineSpan]) -> list[InlineSpan]:
+    """Promote a parsed ``**…**`` body to bold runs."""
+    if not spans:
         return []
-    # Treat short backtick-free key chords written as Ctrl+S outside code
-    # as plain text; authors should use `Ctrl+S` for kbd styling.
-    return [InlineSpan(InlineKind.TEXT, chunk)]
+    if all(span.kind == InlineKind.TEXT and span.href is None for span in spans):
+        return [InlineSpan(InlineKind.BOLD, "".join(s.text for s in spans), bold=True)]
+    return [replace(span, bold=True) for span in spans]
 
 
-def _token_to_span(token: str) -> InlineSpan:
-    if token.startswith("**") and token.endswith("**") and len(token) >= 4:
-        return InlineSpan(InlineKind.BOLD, token[2:-2])
-    if token.startswith("*") and token.endswith("*") and len(token) >= 3:
-        return InlineSpan(InlineKind.ITALIC, token[1:-1])
-    if token.startswith("`") and token.endswith("`") and len(token) >= 2:
-        inner = token[1:-1]
-        if _looks_like_shortcut(inner):
-            return InlineSpan(InlineKind.KBD, inner)
-        return InlineSpan(InlineKind.CODE, inner)
-    if token.startswith("[") and "](" in token and token.endswith(")"):
-        label, _, rest = token[1:].partition("](")
-        return InlineSpan(InlineKind.LINK, label, href=rest[:-1])
-    return InlineSpan(InlineKind.TEXT, token)
+def _as_italic(spans: list[InlineSpan]) -> list[InlineSpan]:
+    """Promote a parsed ``*…*`` body to an italic run (plain bodies only;
+    nested kinds keep their own look)."""
+    if not spans:
+        return []
+    if all(span.kind == InlineKind.TEXT and span.href is None for span in spans):
+        return [InlineSpan(InlineKind.ITALIC, "".join(s.text for s in spans))]
+    return spans
 
 
-def _looks_like_shortcut(text: str) -> bool:
-    if not text:
-        return False
-    if "+" in text:
-        return True
-    lowered = text.lower()
-    return lowered in {
-        "esc",
-        "enter",
-        "return",
-        "tab",
-        "space",
-        "backspace",
-        "delete",
-        "f1",
-        "f2",
-        "f3",
-        "f4",
-        "f5",
-        "f6",
-        "f7",
-        "f8",
-        "f9",
-        "f10",
-        "f11",
-        "f12",
-        "lmb",
-        "rmb",
-        "mmb",
-    }
+def _parse_link(text: str, pos: int) -> tuple[list[InlineSpan], int] | None:
+    """Parse ``[label](href)`` at ``pos`` (0-based index of ``[``), or None
+    when the shape is not a link. The label is parsed as inline content."""
+    close_bracket = text.find("]", pos + 1)
+    if close_bracket == -1 or close_bracket + 1 >= len(text) or text[close_bracket + 1] != "(":
+        return None
+    close_paren = text.find(")", close_bracket + 2)
+    if close_paren == -1:
+        return None
+    label = text[pos + 1 : close_bracket]
+    href = text[close_bracket + 2 : close_paren]
+    body, _, _ = _scan_spans(label, 0, end=None)
+    if not body:
+        body = [InlineSpan(InlineKind.TEXT, label)]
+    out: list[InlineSpan] = []
+    for span in body:
+        if span.kind == InlineKind.TEXT and not span.bold:
+            out.append(InlineSpan(InlineKind.LINK, span.text, href=href))
+        else:
+            out.append(replace(span, href=href))
+    return out, close_paren + 1
 
 
 def _parse_attrs(raw: str | None) -> dict[str, str]:

@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# The installed editable package may point at a sibling checkout; force the
+# in-repo source onto the path so the suite tests the working tree.
+_SRC = Path(__file__).resolve().parent.parent / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
 import pytest
 from PySide6.QtWidgets import QApplication, QWidget
