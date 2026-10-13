@@ -1,51 +1,11 @@
-"""Pointer hit-testing on laid-out help document body."""
+"""Delegate (text-p2c): implementation moved to ``sli_ui_toolkit.ui.widgets.text.engine.layout.hit_test``."""
 
-from __future__ import annotations
-
-from PySide6.QtCore import QPointF
-
-from sli_ui_toolkit.ui.widgets.composite.text_view.layout.coords import (
+from sli_ui_toolkit.ui.widgets.text.engine.layout.hit_test import (  # noqa: F401
+    QPointF,
     fragment_layout_to_index,
     line_for_y,
+    LayoutResult,
+    hit_test_text_offset,
+    hit_test_link,
+    hit_test_pixmap,
 )
-from sli_ui_toolkit.ui.widgets.composite.text_view.layout.types import LayoutResult
-
-
-def hit_test_text_offset(
-    layout: LayoutResult,
-    pos: QPointF,
-) -> int | None:
-    for frag in layout.text_fragments:
-        if not frag.rect.contains(pos):
-            continue
-        local = pos - frag.rect.topLeft()
-        line = line_for_y(frag.layout, local.y())
-        if line is None or not line.isValid():
-            continue
-        rel = line.xToCursor(local.x())
-        if isinstance(rel, tuple):
-            rel = rel[0]
-        if rel < 0:
-            continue
-        offset = fragment_layout_to_index(frag, rel)
-        return max(frag.global_start, min(offset, frag.global_end))
-    return None
-
-
-def hit_test_link(layout: LayoutResult, pos: QPointF) -> str | None:
-    for frag in layout.text_fragments:
-        if not frag.rect.contains(pos):
-            continue
-        local = pos - frag.rect.topLeft()
-        for link in frag.links:
-            if link.rect.contains(local):
-                return link.href
-    return None
-
-
-def hit_test_pixmap(layout: LayoutResult, pos: QPointF) -> str | None:
-    """Return the source asset path for a help figure under *pos*, if any."""
-    for frag in reversed(layout.pixmaps):
-        if frag.rect.contains(pos) and frag.source_path:
-            return frag.source_path
-    return None
