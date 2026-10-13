@@ -32,6 +32,7 @@ class TextRoleKind(str, Enum):
 class CharStyle:
     kind: InlineKind
     href: str | None = None
+    bold: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,7 +189,7 @@ class _TextIndexBuilder:
     def _append_spans(self, spans: tuple[InlineSpan, ...]) -> None:
         for span in spans:
             role = TextRole(TextRoleKind.BODY)
-            style = CharStyle(span.kind, span.href)
+            style = CharStyle(span.kind, span.href, span.bold)
             self._append_plain(span.text, style=style, role=role)
 
     def add_block_separator(self) -> None:

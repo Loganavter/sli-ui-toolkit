@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- **Inline markdown is a hand-written scanner; the `kbd` wordlist is gone** — `parse_inline` no longer lexes with the single alternation regex `_INLINE_TOKEN_RE` (which could not nest, so `` **`Shift`+wheel** `` rendered with literal backticks and `[^*]+` broke on interior `*`) nor guesses keyboard keys via `_looks_like_shortcut` / `InlineKind.KBD` (unbounded — `F13`, `Page Up`, non-Latin keys — and wrong on `a+b`; markdown has no `kbd` concept). It now scans characters: `**…**` and `*…*` parse their bodies recursively so nested spans work (`` **a `b` c** `` → bold text + bold code + bold text), ``` `…` ``` scans to the next backtick and never nests, `[label](href)` links, and an unterminated delimiter stays literal — never raises, always advances. New `InlineSpan.bold` carries the inherited weight through `CharStyle` (selection index + layout) so nested code/link keep their own look and pick up bold; the layout bolds on `style.bold or kind == BOLD` and styles links by `href`. Inline code is always `InlineKind.CODE`; `spans_to_plain` / `blocks_to_plain_text` still strip markers. Tests: new `tests/test_markdown_inline.py` (9, all falsified against the pre-change base); the KBD cases in `tests/test_help_document_blocks.py` / `tests/test_help_document_view.py` are retargeted to code. Docs: `API_CATALOG.md` (`HelpDocumentView` no longer advertises kbd).
+
 ### Fixed
 
 - **Document hit-test is glyph-strict (one fix, both viewers)** — `hit_test_text_offset` resolved clicks anywhere in a fragment's full block width and clamped to the nearest offset, so empty space past the glyphs showed the I-beam and selected/caret-jumped to line end. It now misses past the last glyph (whitespace counts by advance), on empty lines, and below content — shared by `HelpDocumentBodyCanvas` and TextView document mode, hence identical everywhere. Tests: wrapped-lines anchor moved to the glyph end + new empty-space test (falsified pre-fix).

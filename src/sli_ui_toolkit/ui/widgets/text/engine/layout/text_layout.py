@@ -6,7 +6,6 @@ from typing import cast
 
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import (
-    QColor,
     QFont,
     QTextCharFormat,
     QTextLayout,
@@ -32,7 +31,7 @@ def styles_from_spans(
     styles: list[CharStyle] = []
     roles: list[TextRole] = []
     for span in spans:
-        style = CharStyle(span.kind, span.href)
+        style = CharStyle(span.kind, span.href, span.bold)
         role = TextRole(TextRoleKind.BODY)
         for _ch in span.text:
             styles.append(style)
@@ -97,9 +96,9 @@ def build_text_layout(
         fmt.setFont(base_font)
         if role.kind == TextRoleKind.HEADING:
             fmt.setFontWeight(QFont.Weight.Bold)
-        if style.kind == InlineKind.BOLD:
+        if style.bold or style.kind == InlineKind.BOLD:
             fmt.setFontWeight(QFont.Weight.Bold)
-        elif style.kind == InlineKind.ITALIC:
+        if style.kind == InlineKind.ITALIC:
             fmt.setFontItalic(True)
         elif style.kind == InlineKind.CODE:
             fmt.setFontFamilies(["monospace"])
@@ -110,9 +109,7 @@ def build_text_layout(
                 code_bg = theme.try_get_color("help.code.background")
                 if code_bg is not None and code_bg.isValid():
                     fmt.setBackground(code_bg)
-        elif style.kind == InlineKind.KBD:
-            _apply_kbd_format(fmt, theme, text_color)
-        elif style.kind == InlineKind.LINK and style.href:
+        if style.href:
             accent = theme.try_get_color("accent")
             if accent is not None and accent.isValid():
                 fmt.setForeground(accent)
@@ -166,18 +163,3 @@ def build_text_layout(
             )
 
     return layout, tuple(links)
-
-
-def _apply_kbd_format(
-    fmt: QTextCharFormat,
-    theme: ThemeManager,
-    text_color: QColor | None,
-) -> None:
-    border = theme.try_get_color("dialog.border")
-    bg = theme.try_get_color("surface.background")
-    if text_color is not None and text_color.isValid():
-        fmt.setForeground(text_color)
-    if bg is not None and bg.isValid():
-        fmt.setBackground(bg)
-    if border is not None and border.isValid():
-        fmt.setProperty(QTextCharFormat.Property.UserProperty + 1, border.name())

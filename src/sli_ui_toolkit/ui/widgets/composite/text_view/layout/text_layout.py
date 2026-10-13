@@ -4,7 +4,6 @@ from sli_ui_toolkit.ui.widgets.text.engine.layout.text_layout import (  # noqa: 
     cast,
     QPointF,
     QRectF,
-    QColor,
     QFont,
     QTextCharFormat,
     QTextLayout,
@@ -20,5 +19,4 @@ from sli_ui_toolkit.ui.widgets.text.engine.layout.text_layout import (  # noqa: 
     styles_from_spans,
     text_layout_height,
     build_text_layout,
-    _apply_kbd_format,
 )

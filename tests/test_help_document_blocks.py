@@ -67,15 +67,15 @@ def test_parse_headings_lists_and_links():
     assert "toolbar" in figures[0].caption.lower()
 
 
-def test_parse_inline_kbd_and_link():
+def test_parse_inline_code_and_link():
     spans = parse_inline("Press `Ctrl+S` or [Help](help://introduction)")
     kinds = [s.kind for s in spans]
-    assert InlineKind.KBD in kinds
+    assert InlineKind.CODE in kinds
     assert InlineKind.LINK in kinds
     link = next(s for s in spans if s.kind == InlineKind.LINK)
     assert link.href == "help://introduction"
-    kbd = next(s for s in spans if s.kind == InlineKind.KBD)
-    assert kbd.text == "Ctrl+S"
+    code = next(s for s in spans if s.kind == InlineKind.CODE)
+    assert code.text == "Ctrl+S"
 
 
 def test_standalone_image_block():
