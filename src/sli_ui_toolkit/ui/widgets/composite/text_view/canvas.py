@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QPointF, Qt, Signal
+from PySide6.QtCore import QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QFontDatabase, QFontMetrics, QKeySequence, QGuiApplication
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -82,6 +82,20 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._lines = text.split("\n") if text else [""]
         self._editing = False
         self._cursor: Position = (0, 0)
+        # The caret paints only while placed: an empty-space click clears
+        # the selection and drops the caret instead of jumping it to the
+        # nearest position; any text click / edit / arrow move re-places it.
+        self._caret_placed = True
+        # Caret blink (CustomLineEdit parity): toggled on a timer while
+        # focused + editing; the paint gate additionally requires it.
+        self._caret_on = True
+        self._caret_blink = QTimer(self)
+        self._caret_blink.setInterval(500)
+        try:
+            self._caret_blink.timeout.connect(self._toggle_caret_blink)
+        except Exception:
+            pass
+        self._hover_ibeam: bool | None = None
         self._selection = TextSelection()
         self._undo: list[tuple[str, Position]] = []
         self._chain_selecting: str | None = None
@@ -107,6 +121,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         # theme cache generation for canvas_paint invalidation
         self._theme_generation = 0
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -418,6 +433,13 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         if editing:
             self.setCursor(Qt.CursorShape.IBeamCursor)
             self.setFocus()
+            self._caret_placed = True
+            self._caret_on = True
+            if self.hasFocus():
+                try:
+                    self._caret_blink.start()
+                except Exception:
+                    pass
             # Register as a real text-input client (native text editors do
             # this by default; custom painted widgets must opt in): the
             # platform input context then treats the widget as an editor
@@ -430,10 +452,37 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             self._selection.clear()
             self._chain_selecting = None
             self._drag_extending = False
+            try:
+                self._caret_blink.stop()
+            except Exception:
+                pass
             self.unsetCursor()
             self.setAttribute(
                 Qt.WidgetAttribute.WA_InputMethodEnabled, False
             )
+        self.update()
+
+    def focusInEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._caret_on = True
+        if getattr(self, "_editing", False):
+            try:
+                self._caret_blink.start()
+            except Exception:
+                pass
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802 - Qt API
+        try:
+            self._caret_blink.stop()
+        except Exception:
+            pass
+        super().focusOutEvent(event)
+        self.update()
+
+    def _toggle_caret_blink(self) -> None:
+        """Blink tick: flip the caret phase (painted only when on)."""
+        self._caret_on = not self._caret_on
         self.update()
 
     def update(self, *args, **kwargs) -> None:  # noqa: N802  # debug probe for repaint storm

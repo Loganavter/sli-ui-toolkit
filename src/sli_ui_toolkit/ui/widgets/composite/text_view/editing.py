@@ -31,6 +31,7 @@ class _CanvasEditingApi:
     _lines: list[str]
     _editing: bool
     _cursor: Position
+    _caret_placed: bool
     _selection: TextSelection
     _undo: list[tuple[str, Position]]
     _chain_selecting: str | None
@@ -84,6 +85,7 @@ class _CanvasEditingApi:
         return ((lo_line, lo_col), (hi_line, hi_col))
 
     def _replace_or_insert(self, text: str) -> None:
+        self._caret_placed = True
         rng = self._selection_bounds()
         if rng is not None:
             (lo_line, lo_col), (hi_line, hi_col) = rng
@@ -115,6 +117,7 @@ class _CanvasEditingApi:
 
     def _move_cursor(self, dx: int, dy: int, event) -> None:
         line, col = self._cursor
+        self._caret_placed = True
         if not event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             self._selection.clear()
             self._chain_selecting = None

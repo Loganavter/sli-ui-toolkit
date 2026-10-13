@@ -308,17 +308,28 @@ class CustomLineEdit(QWidget):
 
     is_submit_preset = isSubmitPreset
 
-    def _accept_placeholder(self) -> bool:
+    def _accept_placeholder(self, event: QKeyEvent | None = None) -> bool:
         """Preset Tab path: adopt the placeholder as starting text.
 
         Returns True when adopted (caller accepts the event); False when
-        there is nothing to adopt (no preset / non-empty / no placeholder —
-        Tab keeps its default focus-travel meaning).
+        there is nothing to adopt (no preset / non-empty / no placeholder /
+        Ctrl+Alt+Meta held — Tab keeps its default focus-travel meaning).
         """
         if not self._submit_preset or self._read_only:
             return False
         if self._text.strip() or not self._placeholder:
             return False
+        if event is not None:
+            try:
+                modifiers = event.modifiers()
+            except Exception:
+                modifiers = Qt.KeyboardModifier.NoModifier
+            if modifiers & (
+                Qt.KeyboardModifier.ControlModifier
+                | Qt.KeyboardModifier.AltModifier
+                | Qt.KeyboardModifier.MetaModifier
+            ):
+                return False
         self._apply_text(self._placeholder, cursor=len(self._placeholder), notify=True, edited=False)
         return True
 
@@ -1097,7 +1108,7 @@ class CustomLineEdit(QWidget):
             QTimer.singleShot(0, self.clearFocus)
         elif key == Qt.Key.Key_Escape:
             self.clearFocus()
-        elif key == Qt.Key.Key_Tab and self._accept_placeholder():
+        elif key == Qt.Key.Key_Tab and self._accept_placeholder(event):
             pass
         elif self._is_typing_key(event):
             self._insert_user(event.text())

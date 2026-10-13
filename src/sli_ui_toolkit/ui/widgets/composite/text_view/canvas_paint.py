@@ -68,6 +68,8 @@ class _CanvasPaintApi:
     _lines: list[str]
     _editing: bool
     _cursor: Position
+    _caret_on: bool
+    _caret_placed: bool
     _selection: TextSelection
     _line_height: int
     _metrics: QFontMetrics
@@ -280,11 +282,15 @@ class _CanvasPaintApi:
         # The caret is hidden while a selection is active: during a drag
         # the cursor rides the mouse inside the selected range, and after
         # release the caret would sit at the selection's focus edge — the
-        # highlight alone should read as the selection.
+        # highlight alone should read as the selection. It is also hidden
+        # while blinked off and once an empty-space click drops it (until
+        # the next text click / edit / arrow move re-places it).
         if (
             self._editing
             and self.hasFocus()
             and not self._selection.active()
+            and getattr(self, "_caret_placed", True)
+            and getattr(self, "_caret_on", True)
             and self._cursor[0] == line_index
         ):
             cx = self._text_x() + self._metrics.horizontalAdvance(line[: self._cursor[1]])
