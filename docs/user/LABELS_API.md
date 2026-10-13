@@ -79,19 +79,30 @@ note = Text(config=TextConfig(text="Pinned", bold=True, selectable=True))
 
 - `mode="document"` renders markdown through the painted engine:
   `Text(md, mode="document", resolve_asset=...)`, `set_markdown(md)`,
-  `anchor_y(anchor)` (content y, `None` if absent), `selected_markdown(source)`.
-  Text never scrolls: wrap it in a `QScrollArea` and read `anchor_y` to scroll.
+  `set_blocks(blocks)`, `anchor_y(anchor)` (content y, `None` if absent),
+  `scroll_to_text(query)` (selects the first match, returns its content y or
+  `None`), `selected_markdown(source)`. `set_resolve_asset(fn)` replaces the
+  image resolver and re-lays out. Text never scrolls: wrap it in a
+  `QScrollArea`; a change in content height re-lays out the host.
 - `mode="code"` is the painted code editor: `Text(src, mode="code",
   editable=True)`, `set_editing(bool)`, `is_editing()`,
   `set_line_number_start(n)`.
 - Both engine modes share `selectedText()`, `hasSelectedText()`,
   `selectAll()`/`select_all_text()`, `clear_selection()` and
   `selected_plain_text()`. Forwarded signals: `textChanged` (code edits),
-  `linkActivated(str)`, `imageActivated(str)`.
+  `linkActivated(str)`, `imageActivated(str)`, `selectionChanged` (on value
+  change, either mode).
+- `textContextMenuRequested(QPoint)` (global position) fires on right-click in
+  every mode; the built-in label menu still opens for plain `selectable=True`.
+- `open_external_links` (default `True`, ctor kwarg / `TextConfig` field /
+  `set_open_external_links`): `http(s)` links in engine modes also open via
+  `QDesktopServices`; `linkActivated` is emitted either way.
+- Engine typography: code mode honors `pixel_size`, `bold`, `italic`,
+  `underline`, `strike_out`, `family` and the variant's `pixel_size`/`bold`;
+  document mode honors `pixel_size` and `family` for body text. `color` /
+  `color_token` set the code-mode base color (syntax colors stay).
 - Plain mode hover: I-beam only over glyphs, Arrow over empty space (for
   `selectable=True`).
-- Engine modes are hosted, not yet re-homed; typography kwargs are ignored in
-  those modes.
 - `selectable=True` adds mouse drag, double-click word selection, `Ctrl+A`,
   `Ctrl+C`, arrow/Home/End keys with Shift, and the right-click Copy / Select
   all menu. `selectionChanged` fires on each change.

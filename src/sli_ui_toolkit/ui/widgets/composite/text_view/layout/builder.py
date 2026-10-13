@@ -77,6 +77,8 @@ def layout_document(
     theme: ThemeManager,
     resolve_asset: AssetResolver | None = None,
     tab_stop_px: float = PARAGRAPH_TAB_STOP_PX,
+    body_pixel_size: int | None = None,
+    body_family: str | None = None,
 ) -> LayoutResult:
     builder = _LayoutBuilder(
         blocks=blocks,
@@ -85,6 +87,8 @@ def layout_document(
         resolve_asset=resolve_asset,
         text_index=text_index,
         tab_stop_px=tab_stop_px,
+        body_pixel_size=body_pixel_size,
+        body_family=body_family,
     )
     builder.layout_items(group_side_figures(blocks))
     return builder.finish()
@@ -98,6 +102,8 @@ class _LayoutBuilder:
     resolve_asset: AssetResolver | None
     text_index: DocumentTextIndex
     tab_stop_px: float = PARAGRAPH_TAB_STOP_PX
+    body_pixel_size: int | None = None
+    body_family: str | None = None
     y: float = 0.0
     text_fragments: list[TextFragment] = field(default_factory=list)
     pixmaps: list[PixmapFragment] = field(default_factory=list)
@@ -134,7 +140,10 @@ class _LayoutBuilder:
         # Design px — ui_font scales by the UiScale factor exactly once (and
         # pins the UI family), so the whole document grows with the interface
         # scale instead of freezing at its design size.
-        return ui_font(pixel_size=BODY_FONT_PX)
+        return ui_font(
+            pixel_size=self.body_pixel_size or BODY_FONT_PX,
+            family=self.body_family,
+        )
 
     def _bold_body_font(self) -> QFont:
         font = self._body_font()

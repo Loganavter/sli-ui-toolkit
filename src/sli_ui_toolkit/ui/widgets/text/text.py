@@ -10,10 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTextBoundaryFinder, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt, QTextBoundaryFinder, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
+    QDesktopServices,
     QFontMetrics,
     QGuiApplication,
     QKeyEvent,
@@ -80,6 +81,7 @@ class TextConfig:
     selectable: bool = False
     editable: bool = False
     resolve_asset: Any = None
+    open_external_links: bool = True
 
     def to_kwargs(self) -> dict[str, Any]:
         """Field values keyed by the ``Text.__init__`` kwarg they override."""
@@ -104,6 +106,7 @@ class TextConfig:
             "selectable": self.selectable,
             "editable": self.editable,
             "resolve_asset": self.resolve_asset,
+            "open_external_links": self.open_external_links,
         }
 
 
@@ -120,6 +123,8 @@ class Text(QWidget):
     textChanged = Signal()
     linkActivated = Signal(str)
     imageActivated = Signal(str)
+    #: right-click, global position (emitted in every mode)
+    textContextMenuRequested = Signal(QPoint)
 
     inspect_spec: ClassVar[InspectSpec]
     widget_descriptor: ClassVar[WidgetDescriptor]
@@ -150,6 +155,7 @@ class Text(QWidget):
         selectable: bool = False,
         editable: bool = False,
         resolve_asset: Any = None,
+        open_external_links: bool = True,
         config: TextConfig | None = None,
     ):
         if config is not None:
@@ -173,6 +179,7 @@ class Text(QWidget):
             selectable = config.selectable
             editable = config.editable
             resolve_asset = config.resolve_asset
+            open_external_links = config.open_external_links
 
         _require_mode(mode)
         super().__init__(parent)
@@ -202,6 +209,8 @@ class Text(QWidget):
         self._dragging = False
         self._hover_ibeam: bool | None = None
         self._applying_style = False
+        self._resolve_asset = resolve_asset
+        self._open_external_links = bool(open_external_links)
 
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
         UiFont.get_instance().font_changed.connect(self._apply_style)
@@ -220,10 +229,11 @@ class Text(QWidget):
         engine = TextCanvas("" if mode == "document" else text)
         engine.setParent(self)
         self._engine = engine
-        self._resolve_asset = resolve_asset
         engine.changed.connect(self.textChanged)
-        engine.linkActivated.connect(self.linkActivated)
+        engine.linkActivated.connect(self._on_engine_link)
         engine.imageActivated.connect(self.imageActivated)
+        engine.selectionChanged.connect(self.selectionChanged)
+        engine.contentHeightChanged.connect(self._on_engine_content_height)
         if mode == "document":
             engine.set_document(text, resolve_asset=resolve_asset)
         elif editable:
@@ -427,6 +437,34 @@ class Text(QWidget):
     def set_line_number_start(self, start: int | None) -> None:
         self._engine_for("code").set_line_number_start(start)
 
+    def set_blocks(self, blocks) -> None:
+        """Document mode: replace the content with parsed help blocks."""
+        self._engine_for("document").set_blocks(blocks, resolve_asset=self._resolve_asset)
+
+    def set_resolve_asset(self, resolver: Any) -> None:
+        """Asset resolver for inline images (ctor kwarg and setter agree)."""
+        self._resolve_asset = resolver
+        if self._engine is not None and self._mode == "document":
+            self._engine.set_asset_resolver(resolver)
+
+    def set_open_external_links(self, enabled: bool) -> None:
+        self._open_external_links = bool(enabled)
+
+    def scroll_to_text(self, query: str) -> int | None:
+        """Document mode: highlight the first match of ``query`` and return
+        the widget-space y to scroll to (``None`` when absent)."""
+        return self._engine_for("document").scroll_to_text(query)
+
+    def _on_engine_link(self, href: str) -> None:
+        self.linkActivated.emit(href)
+        if self._open_external_links and href.startswith(("http://", "https://")):
+            QDesktopServices.openUrl(QUrl(href))
+
+    def _on_engine_content_height(self) -> None:
+        if self._engine is not None:
+            self.setMinimumHeight(self._engine.minimumHeight())
+        self.updateGeometry()
+
     def minimumSizeHint(self):
         if self._engine is not None:
             return QSize(0, self._engine.minimumHeight())
@@ -608,6 +646,7 @@ class Text(QWidget):
         event.accept()
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
+        self.textContextMenuRequested.emit(event.globalPos())
         if self._selectable and self._display_text:
             # Menu helper is annotated QLabel but only uses the selection API Text mirrors.
             open_label_context_menu(self, event.globalPos())  # type: ignore[arg-type]
@@ -643,6 +682,9 @@ class Text(QWidget):
 
     def _on_theme_changed(self) -> None:
         """Theme flip: recolor only — skip font/geometry rebuild."""
+        if self._engine is not None:
+            self._engine.set_text_color(self._explicit_color())
+            return
         if self._applying_style:
             return
         self._applying_style = True
@@ -653,8 +695,52 @@ class Text(QWidget):
         finally:
             self._applying_style = False
 
+    def _apply_engine_style(self) -> None:
+        """Engine modes: typography and explicit color reach the painted engine.
+
+        Variant ``pixel_size``/``bold`` apply in code mode (its default size is
+        the variant's); document mode takes only explicit ``pixel_size``/
+        ``family`` because its body size is the document design size. Color is
+        explicit-only (``color``/``color_token``): the variant's token would
+        otherwise recolor the engine's default foreground.
+        """
+        engine = self._engine
+        if engine is None:
+            return
+        if self._mode == "document":
+            engine.set_body_style(
+                pixel_size=self._pixel_size_override, family=self._family_override
+            )
+        else:
+            spec = get_text_variant(self._variant_name)
+            engine.set_font_style(
+                family=self._family_override,
+                pixel_size=(
+                    self._pixel_size_override
+                    if self._pixel_size_override is not None
+                    else spec.pixel_size
+                ),
+                bold=(
+                    spec.bold if self._bold_override is None else bool(self._bold_override)
+                ),
+                italic=bool(self._italic_override),
+                underline=bool(self._underline_override),
+                strike_out=bool(self._strike_out_override),
+            )
+        engine.set_text_color(self._explicit_color())
+
+    def _explicit_color(self) -> QColor | None:
+        if self._color_override is not None:
+            return QColor(self._color_override)
+        if self._color_token_override:
+            return self.theme_manager.try_get_color(self._color_token_override)
+        return None
+
     def _apply_style(self) -> None:
-        if self._applying_style or self._engine is not None:
+        if self._engine is not None:
+            self._apply_engine_style()
+            return
+        if self._applying_style:
             return
         self._applying_style = True
         try:

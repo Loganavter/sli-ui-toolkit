@@ -85,6 +85,7 @@ class _CanvasPaintApi:
     rect: Any
     hasFocus: Any
     _selection_bounds: Callable[[], tuple[Position, Position] | None]
+    _text_color: QColor | None
 
     def paintEvent(self, event) -> None:  # noqa: N802
         # Debug probe: use WARNING so it shows with default host log level.
@@ -128,6 +129,8 @@ class _CanvasPaintApi:
             _cached_selection_color = sel
             _cached_theme_dark = cur_dark
         foreground = _cached_foreground
+        if self._text_color is not None:
+            foreground = self._text_color
         colors = _cached_span_colors  # type: ignore[assignment]
         selection_color = _cached_selection_color  # type: ignore[assignment]
         assert selection_color is not None  # set above when the cache fills
