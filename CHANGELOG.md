@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Help TOC keeps its frame after navigation** — `HelpDocumentView.set_blocks` tore the previous TOC frame down with `deleteLater` (deferred) and `_repolish` styled `findChild("HelpDocumentToc")`, which still returned the stale frame — so the freshly built TOC rendered border-less as soon as you followed a `help://` link to another page. The live frame is now tracked explicitly (`self._toc`), detached from the layout before `deleteLater`, and `_repolish` styles that frame. Tests: `tests/test_help_document_view.py` (`test_toc_stays_styled_after_page_navigation`, falsified against the pre-change base).
+
 ### Added
 
 - **`ButtonRow` word wrap (`wrap=True`) for long card text** — an opt-in `ButtonRow.wrap` field breaks an overflowing row across multiple lines at word boundaries within the region's available width instead of clipping/overflowing on one line. The row reserves the extra line height (`RowsContent.measure_height`) and `Button` exposes it through `hasHeightForWidth()`/`heightForWidth()` plus `sizeHint`/`minimumSizeHint`; a fixed design height (`size=(0, 76)`) is relaxed into a floor so a host layout can stretch the card past it. Wrapping rows lay out at their natural stacked heights (so `ratio` is ignored while wrapping); `marquee` still wins over `wrap` on an overflowing row. `wrap=False` (default) keeps the historic single-line rendering and metrics exactly. Reuses the toolkit plain-text layout engine (`build_layout`, the `Text` widget's word-break path) rather than re-implementing word breaking. Docs: `BUTTON_API.md` § ButtonRow API. Tests: `tests/test_button_row_wrap.py` (7; the wrap/height/paint assertions fail against the pre-change base).

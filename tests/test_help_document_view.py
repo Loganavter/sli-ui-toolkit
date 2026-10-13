@@ -995,3 +995,27 @@ def test_help_document_renders_pipe_table_with_borders(qapp, qtbot):
     text = view.plain_text()
     assert "Param" in text
     assert "allow alpha editing" in text
+
+
+def test_toc_stays_styled_after_page_navigation(qapp):
+    """The TOC frame must keep its border after a second set_blocks (help:// nav).
+
+    Regression: set_blocks tore the old frame down with deleteLater (deferred)
+    and _repolish styled findChild("HelpDocumentToc") — the *stale* frame — so
+    the freshly built TOC rendered border-less once you navigated past the
+    first page.
+    """
+    view = HelpDocumentView()
+    md = "## T\n\nintro\n\n### A {#a}\n\nx\n\n### B {#b}\n\ny\n"
+    view.set_blocks(parse_help_blocks(md))
+    first = view._toc
+    assert first is not None
+    assert "border" in first.styleSheet()
+
+    view.set_blocks(parse_help_blocks(md.replace("T", "T2")))
+    assert view._toc is not None and view._toc is not first
+    assert "border" in view._toc.styleSheet()
+
+    qapp.processEvents()
+    stale = [w for w in view.findChildren(QFrame, "HelpDocumentToc") if w is not view._toc]
+    assert stale == []
