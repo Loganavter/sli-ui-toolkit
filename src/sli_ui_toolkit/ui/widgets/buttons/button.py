@@ -196,6 +196,12 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     def minimumSizeHint(self):
         return _ButtonStyleApi.minimumSizeHint(self)
 
+    def hasHeightForWidth(self):
+        return _ButtonStyleApi.hasHeightForWidth(self)
+
+    def heightForWidth(self, width: int):
+        return _ButtonStyleApi.heightForWidth(self, width)
+
     @staticmethod
     def _drop_singleton_slots(pairs) -> None:
         """Drop app-lifetime singleton connections at C++ destruction.
@@ -552,6 +558,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self.set_spec(spec)
         else:
             self.set_regions(regions, split=split, divider=divider)
+        self._sync_wrap_height_policy()
 
     def on_scale_changed(self, _factor: float) -> None:
         if self._design_min_height is not None:
@@ -563,6 +570,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self.setFixedHeight(scaled_px(h))
         elif w > 0:
             self.setFixedWidth(scaled_px(w))
+        self._sync_wrap_height_policy()
         self._corner_radii_px = self._scaled_corner_radii()
         self.updateGeometry()
         self.update()
@@ -665,6 +673,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._detach_stale_region_capabilities(normalized)
         self._attach_region_capabilities(normalized)
         self._recompute_region_rects()
+        self._sync_wrap_height_policy()
         self.update()
 
     def set_spec(self, spec: ButtonSpec) -> None:
@@ -674,6 +683,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._detach_stale_region_capabilities(self._regions)
         self._attach_region_capabilities(self._regions)
         self._recompute_region_rects()
+        self._sync_wrap_height_policy()
         self.update()
 
     def regions(self) -> list[ButtonRegion]:

@@ -16,12 +16,14 @@ from typing import Any, Callable, cast
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QColor, QCursor, QFontMetrics
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.deprecations import BUTTON_PRIMARY_VARIANT, warn_deprecated
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
+
+from .content import RowsContent
 
 
 def normalize_content_padding(
@@ -66,6 +68,10 @@ class _ButtonStyleApi:
     _background_color: QColor | None
     _controller: Any
     _checked: bool
+    _rows: list[Any]
+    _rows_compact: bool
+    _design_fixed_size: tuple[int, int]
+    _design_min_height: int | None
     update_region: Callable[..., None]
     _region_by_id: Callable[[str | None], Any]
     update: Callable[[], None]
@@ -77,7 +83,11 @@ class _ButtonStyleApi:
     setMaximumHeight: Callable[[int], None]
     minimumHeight: Callable[[], int]
     setFixedSize: Callable[..., None]
+    setFixedWidth: Callable[[int], None]
+    setSizePolicy: Callable[..., None]
+    sizePolicy: Callable[[], QSizePolicy]
     updateGeometry: Callable[[], None]
+    width: Callable[[], int]
     rect: Callable[[], Any]
     mapFromGlobal: Callable[[Any], Any]
 
@@ -284,6 +294,7 @@ class _ButtonStyleApi:
         self._rows_compact = compact
         self._sync_main_region(rows=self._rows)
         self._apply_text_geometry(bool(rows))
+        self._sync_wrap_height_policy()
 
     def set_width_texts(self, texts: Sequence[str] | None) -> None:
         """Size hints follow the widest of these candidate labels.
@@ -397,8 +408,97 @@ class _ButtonStyleApi:
             h = max(scaled_px(32), fm.height() + scaled_px(16))
             if self._text_fit:
                 w = self._fit_width(w)
+            wrapped = self._wrapped_height_for_width(max(w, self.width()))
+            if wrapped > h:
+                h = wrapped
+            return QSize(w, h)
+        if self._has_wrapped_rows():
+            # Region-only content (no ``text``/``rows``): the historic 36×36
+            # floor stays, but wrapped rows lift the height so a host layout
+            # can stretch the card past its design height.
+            w = scaled_px(36)
+            h = max(scaled_px(36), self._wrapped_height_for_width(max(w, self.width())))
             return QSize(w, h)
         return QSize(scaled_px(36), scaled_px(36))
+
+    # -------- wrapped rows (height-for-width) --------
+
+    def _iter_content_rows(self) -> list[Any]:
+        """Every row reachable from this button (flat ``rows=`` + regions)."""
+        rows = list(getattr(self, "_rows", []) or [])
+        controller = getattr(self, "_controller", None)
+        if controller is not None:
+            for region in controller.regions:
+                rows.extend(region.rows or [])
+        return rows
+
+    def _has_wrapped_rows(self) -> bool:
+        return any(getattr(row, "wrap", False) for row in self._iter_content_rows())
+
+    def _wrapped_height_for_width(self, width: int) -> int:
+        """Painted height needed so wrapped rows are never clipped at ``width``.
+
+        ``0`` when nothing wraps (keeps every existing metric untouched). For
+        multi-region buttons the whole-button width is used for each region —
+        a close upper bound of the region's available width, which avoids
+        *under*-reserving height for the wrapping region.
+        """
+        if not self._has_wrapped_rows():
+            return 0
+        pad_l, pad_t, pad_r, pad_b = self._content_padding
+        inner = max(1, int(width) - int(pad_l) - int(pad_r))
+        compact = bool(getattr(self, "_rows_compact", False))
+        controller = getattr(self, "_controller", None)
+        row_groups: list[list[Any]] = []
+        if controller is not None:
+            for region in controller.regions:
+                rows = region.rows or (
+                    list(self._rows) if region.id == "_main" else []
+                )
+                row_groups.append(list(rows))
+        else:
+            row_groups.append(list(self._rows))
+        heights: list[int] = []
+        for rows in row_groups:
+            if not any(getattr(row, "wrap", False) for row in rows):
+                continue
+            content = RowsContent(rows=rows, compact=compact)
+            heights.append(content.measure_height(inner) + int(pad_t) + int(pad_b))
+        return max(heights) if heights else 0
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - QWidget virtual
+        return self._has_wrapped_rows()
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - QWidget virtual
+        return max(scaled_px(32), self._wrapped_height_for_width(int(width)))
+
+    def _sync_wrap_height_policy(self) -> None:
+        """Relax a fixed design height into a floor when rows wrap.
+
+        ``size=(0, 76)`` (and friends) historically call ``setFixedHeight``,
+        which forbids the card from ever growing. A wrapping row needs the
+        button to exceed that design height, so the fixed height becomes a
+        minimum and the vertical policy allows growth (``heightForWidth``
+        supplies the wrapped height to the layout).
+        """
+        if not self._has_wrapped_rows():
+            return
+        w, h = self._design_fixed_size
+        if h > 0:
+            self._design_min_height = max(self._design_min_height or 0, int(h))
+            self._design_fixed_size = (w, 0)
+        elif self._design_min_height is None:
+            self._design_min_height = max(32, self.minimumHeight())
+        self.setMinimumHeight(scaled_px(self._design_min_height))
+        self.setMaximumHeight(16777215)
+        w, _h = self._design_fixed_size
+        if w > 0:
+            self.setFixedWidth(scaled_px(w))
+        policy = self.sizePolicy()
+        policy.setHeightForWidth(True)
+        policy.setVerticalPolicy(QSizePolicy.Policy.Minimum)
+        self.setSizePolicy(policy)
+        self.updateGeometry()
 
     def _fit_width(self, natural: int) -> int:
         """``text_fit=True``: grow with the parent row up to the natural

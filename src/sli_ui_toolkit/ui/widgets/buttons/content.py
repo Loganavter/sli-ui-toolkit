@@ -36,6 +36,28 @@ ImageFill = Literal["cover", "contain", "stretch"]
 _IMAGE_FILLS = frozenset({"cover", "contain", "stretch"})
 
 
+def wrapped_line_count(font: QFont, text: str, max_width: int) -> int:
+    """Number of word-wrapped lines ``text`` takes at ``max_width`` pixels.
+
+    Reuses the toolkit's plain-text layout engine (``build_layout``, the same
+    ``QTextLayout``/``WordWrap`` path the ``Text`` widget uses) instead of
+    re-implementing word breaking, so the measured count matches what Qt
+    paints for a row drawn with ``Qt.TextFlag.TextWordWrap``. Returns 1 for
+    empty text or a non-positive width.
+
+    The import is function-local: ``text`` transitively imports the buttons
+    package, so importing it at module scope here would deadlock the cycle.
+    """
+    if not text:
+        return 1
+    from sli_ui_toolkit.ui.widgets.text.plain import build_layout
+
+    layout = build_layout(
+        text, font, max(1, int(max_width)), True, Qt.AlignmentFlag.AlignLeft
+    )
+    return max(1, layout.lineCount())
+
+
 def normalize_image_fill(value: str | None) -> ImageFill:
     fill = str(value or "cover").strip().lower()
     return fill if fill in _IMAGE_FILLS else "cover"  # type: ignore[return-value]
@@ -191,6 +213,13 @@ class ButtonRow:
     # truncate with an ellipsis via QFontMetrics.elidedText instead of
     # clipping. Static paint, no timers.
     elide: bool = False
+    # Opt-in word wrap. When True the row breaks the text across multiple
+    # lines at word boundaries within the region's available width instead of
+    # clipping/overflowing on one line; the row reserves the extra line
+    # height (``RowsContent.measure_height``), so the region/Button can grow
+    # via the usual sizeHint/minimumSizeHint path. Default False keeps the
+    # historic single-line rendering and metrics exactly.
+    wrap: bool = False
 
 
 @dataclass
@@ -359,12 +388,21 @@ class RowsContent(Content):
         )
 
     def _row_layout(self, padded: QRect, widget_h: int):
-        """Yield ``(row, y, height)`` in paint order (compact or ratio mode)."""
-        if self.compact:
+        """Yield ``(row, y, height)`` in paint order.
+
+        Compact mode and any content with a wrapping row use stacked natural
+        heights; otherwise the historic ratio distribution is kept verbatim.
+        """
+        if self.compact or self.has_wrap:
             heights = []
             for row in self.rows:
                 f = ui_font(pixel_size=row.size, bold=(row.weight == "bold"))
-                heights.append(QFontMetrics(f).lineSpacing())
+                fm = QFontMetrics(f)
+                if getattr(row, "wrap", False):
+                    lines = wrapped_line_count(f, row.text or "", padded.width())
+                else:
+                    lines = 1
+                heights.append(lines * fm.lineSpacing())
             total = sum(heights) + self.row_gap * max(0, len(self.rows) - 1)
             y = padded.y() + max(0, (widget_h - total) // 2)
             for row, lh in zip(self.rows, heights):
@@ -378,6 +416,30 @@ class RowsContent(Content):
                     continue
                 yield row, y, rh
                 y += rh
+
+    @property
+    def has_wrap(self) -> bool:
+        """True when any row opted into word wrap."""
+        return any(getattr(row, "wrap", False) for row in self.rows)
+
+    def measure_height(self, width: int) -> int:
+        """Natural pixel height needed to paint every row within ``width``.
+
+        Wrapping rows reserve ``lines × lineSpacing``; non-wrapping rows one
+        line. Row gaps included. ``Button`` uses this (via its size hints) to
+        grow the region so wrapped text is never clipped.
+        """
+        total = 0
+        for row in self.rows:
+            f = ui_font(pixel_size=row.size, bold=(row.weight == "bold"))
+            fm = QFontMetrics(f)
+            if getattr(row, "wrap", False):
+                lines = wrapped_line_count(f, row.text or "", width)
+            else:
+                lines = 1
+            total += lines * fm.lineSpacing()
+        total += self.row_gap * max(0, len(self.rows) - 1)
+        return total
 
     @staticmethod
     def _resolve_row(
@@ -434,16 +496,40 @@ class RowsContent(Content):
             draw_marquee_text(p, resolved.rect, resolved.row.text or "", phase)
             return True
         text = resolved.row.text or ""
-        if bool(getattr(resolved.row, "elide", False)):
+        RowsContent._paint_static_text(p, resolved, text)
+        return False
+
+    @staticmethod
+    def _paint_static_text(p: QPainter, resolved: _ResolvedRow, text: str) -> None:
+        """Paint a non-marquee row: word-wrapped, elided, or plain single line.
+
+        Shared by the hot draw path and the compat shim so both stay
+        pixel-identical by construction. The font is (re)set here so this
+        function owns a scale-resolved font for the text paint scan.
+        """
+        p.setFont(resolved.font)
+        p.setPen(resolved.pen)
+        row = resolved.row
+        if bool(getattr(row, "wrap", False)):
+            # Qt-native word wrap: breaks at word boundaries within the row
+            # rect and vertically centers the wrapped block. The row height
+            # is reserved by ``_row_layout``/``measure_height``.
+            flags = (
+                int(resolved.h_align)
+                | int(Qt.AlignmentFlag.AlignVCenter)
+                | int(Qt.TextFlag.TextWordWrap)
+            )
+            p.drawText(resolved.rect, flags, text)
+            return
+        if bool(getattr(row, "elide", False)):
             text = p.fontMetrics().elidedText(
                 text, Qt.TextElideMode.ElideRight, max(0, resolved.rect.width())
             )
         p.drawText(
             resolved.rect,
-            resolved.h_align | Qt.AlignmentFlag.AlignVCenter,
+            int(resolved.h_align) | int(Qt.AlignmentFlag.AlignVCenter),
             text,
         )
-        return False
 
     @staticmethod
     def _draw_row(
@@ -460,12 +546,10 @@ class RowsContent(Content):
         y: int,
         height: int,
     ) -> bool:
-        # Compat shim (no in-tree callers): resolves + paints one row with
-        # the same geometry/fonts/pens as the ``draw()`` hot path. The
-        # static branch issues ``drawText`` directly (mirroring
-        # ``_draw_resolved``) so the text-paint scan still sees this
-        # historic entry point as a drawText function — same resolve path
-        # as the hot paint, so both stay pixel-identical by construction.
+        # Compat shim (no in-tree callers): resolves + paints one row through
+        # the same resolve/paint path as the ``draw()`` hot path
+        # (``_resolve_row`` + ``_paint_static_text``), so both stay
+        # pixel-identical by construction.
         resolved = RowsContent._resolve_row(
             row,
             ctx,
@@ -485,15 +569,7 @@ class RowsContent(Content):
             draw_marquee_text(p, resolved.rect, resolved.row.text or "", phase)
             return True
         text = resolved.row.text or ""
-        if bool(getattr(resolved.row, "elide", False)):
-            text = p.fontMetrics().elidedText(
-                text, Qt.TextElideMode.ElideRight, max(0, resolved.rect.width())
-            )
-        p.drawText(
-            resolved.rect,
-            resolved.h_align | Qt.AlignmentFlag.AlignVCenter,
-            text,
-        )
+        RowsContent._paint_static_text(p, resolved, text)
         return False
 
 

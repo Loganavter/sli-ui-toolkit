@@ -71,10 +71,6 @@ _PAINT_FONT_ALLOWED: dict[tuple[str, str], str] = {
         "more apply_ui_font pin) -- paints with paint_font(widget) over the "
         "design-sized font, same as the rest of the button pipeline"
     ),
-    ("ui/widgets/buttons/content.py", "_draw_row"): (
-        "button text layers paint with paint_font(ctx.widget); buttons keep "
-        "the design-sized app font (no apply_ui_font)"
-    ),
     ("ui/widgets/buttons/content.py", "draw"): (
         "button text layers paint with paint_font(ctx.widget); buttons keep "
         "the design-sized app font (no apply_ui_font)"

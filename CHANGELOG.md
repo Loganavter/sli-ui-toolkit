@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`ButtonRow` word wrap (`wrap=True`) for long card text** — an opt-in `ButtonRow.wrap` field breaks an overflowing row across multiple lines at word boundaries within the region's available width instead of clipping/overflowing on one line. The row reserves the extra line height (`RowsContent.measure_height`) and `Button` exposes it through `hasHeightForWidth()`/`heightForWidth()` plus `sizeHint`/`minimumSizeHint`; a fixed design height (`size=(0, 76)`) is relaxed into a floor so a host layout can stretch the card past it. Wrapping rows lay out at their natural stacked heights (so `ratio` is ignored while wrapping); `marquee` still wins over `wrap` on an overflowing row. `wrap=False` (default) keeps the historic single-line rendering and metrics exactly. Reuses the toolkit plain-text layout engine (`build_layout`, the `Text` widget's word-break path) rather than re-implementing word breaking. Docs: `BUTTON_API.md` § ButtonRow API. Tests: `tests/test_button_row_wrap.py` (7; the wrap/height/paint assertions fail against the pre-change base).
+
 ### Fixed
 
 - **Document hit-test is glyph-strict (one fix, both viewers)** — `hit_test_text_offset` resolved clicks anywhere in a fragment's full block width and clamped to the nearest offset, so empty space past the glyphs showed the I-beam and selected/caret-jumped to line end. It now misses past the last glyph (whitespace counts by advance), on empty lines, and below content — shared by `HelpDocumentBodyCanvas` and TextView document mode, hence identical everywhere. Tests: wrapped-lines anchor moved to the glyph end + new empty-space test (falsified pre-fix).
