@@ -47,6 +47,7 @@ class _CanvasEventsApi:
     _lines: list[str]
     _editing: bool
     _cursor: Position
+    _caret_placed: bool
     _selection: TextSelection
     _chain_selecting: str | None
     _line_height: int
@@ -55,6 +56,8 @@ class _CanvasEventsApi:
     _text_x: Callable[[], int]
     _press_point: Any
     _drag_extending: bool
+    _hover_ibeam: bool | None
+    setCursor: Any
     _document_layout: Any
     update: Any
     setFocus: Any
@@ -118,8 +121,36 @@ class _CanvasEventsApi:
             col = idx + 1
         return (line, col)
 
+    def _hit_text(self, point) -> bool:
+        """True when *point* lands on actual glyphs (code mode).
+
+        The text zone is where characters stand — whitespace counts by
+        its advance width — not the full content width: past line end /
+        outside the lines is empty (clears the caret, Arrow cursor), so
+        the I-beam never promises selectable text that is not there.
+        """
+        lines = self._lines
+        if not lines:
+            return False
+        line_h = max(1, self._line_height)
+        line = (point.y() - constants.PAD) // line_h
+        if line < 0 or line >= len(lines):
+            return False
+        text = lines[line]
+        if not text:
+            return False
+        x = point.x() - self._text_x()
+        if x < 0:
+            return True
+        try:
+            width = self._metrics.horizontalAdvance(text)
+        except Exception:
+            return True
+        return x <= width
+
     def _click_select(self, pos: Position, count: int) -> None:
         """Apply a multi-click selection (1 = caret, 2 = word, 3 = line)."""
+        self._caret_placed = True
         line = self._lines[pos[0]]
         if count >= 3:
             rng = TextSelection.line_range(pos, line)
@@ -144,6 +175,16 @@ class _CanvasEventsApi:
             return
         self.setFocus()
         point = event.position().toPoint()
+        if not self._hit_text(point):
+            # Empty space: clear the selection and drop the caret instead
+            # of jumping it to the nearest position.
+            self._selection.clear()
+            self._caret_placed = False
+            self._chain_selecting = None
+            self._press_point = None
+            self._drag_extending = False
+            self.update()
+            return
         pos = self._pos_from_point(point)
         count = self._selection.press(pos, point=(point.x(), point.y()))
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
@@ -171,6 +212,15 @@ class _CanvasEventsApi:
         # chain count instead of forcing 2, so press 3 selects the line;
         # forcing 2 made a fast triple-click fall back to the word.
         point = event.position().toPoint()
+        if not self._hit_text(point):
+            self._selection.clear()
+            self._caret_placed = False
+            self._chain_selecting = None
+            self._press_point = None
+            self._drag_extending = False
+            self.update()
+            event.accept()
+            return
         pos = self._pos_from_point(point)
         count = self._selection.press(pos, point=(point.x(), point.y()))
         self._click_select(pos, count)
@@ -191,6 +241,27 @@ class _CanvasEventsApi:
             )
         if self._document_layout is not None:
             self._document_mouse_move(event)
+            QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
+            return
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            # Hover cursor follows the text hit-test (I-beam only where
+            # glyphs stand), so empty space never promises selectable text.
+            try:
+                want_beam = bool(
+                    self._editing and self._hit_text(event.position().toPoint())
+                )
+            except Exception:
+                want_beam = False
+            try:
+                if want_beam != getattr(self, "_hover_ibeam", None):
+                    self._hover_ibeam = want_beam
+                    self.setCursor(
+                        Qt.CursorShape.IBeamCursor
+                        if want_beam
+                        else Qt.CursorShape.ArrowCursor
+                    )
+            except Exception:
+                pass
             QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
             return
         if (

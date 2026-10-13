@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any, cast
 from weakref import WeakKeyDictionary, ref
 
 import shiboken6
@@ -18,11 +19,18 @@ def _is_alive(widget: QWidget | None) -> bool:
 
 
 class _EditableTextKeyFilter(QObject):
-    """Per-widget: Return/Enter clears focus.
+    """Per-widget: Return/Enter clears focus; preset Tab-adopt.
 
     Installed on the widget itself, not the app — Qt already only delivers
     this one widget's own key events here, so there is nothing to share.
     Applies to any widget opted into ``apply_editable_text_behavior``.
+
+    The Tab branch must live here, not only in the widget's
+    ``keyPressEvent``: ``QWidget.event()`` diverts Tab to focus travel
+    before ``keyPressEvent`` ever runs (in-flyout fields lose Tab to the
+    next button), while an event filter runs first and can still accept
+    it. Gated on the submit preset + empty field, so plain fields keep
+    native Tab travel.
     """
 
     def __init__(self, widget: QWidget) -> None:
@@ -34,7 +42,49 @@ class _EditableTextKeyFilter(QObject):
             key = getattr(event, "key", lambda: None)()
             if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 QTimer.singleShot(0, watched.clearFocus)  # type: ignore[attr-defined]
+            elif key == Qt.Key.Key_Tab and self._adopt_tab(event):
+                return True
         return False
+
+    def _adopt_tab(self, event: QEvent) -> bool:
+        """Submit-preset Tab-adopt: placeholder becomes starting text."""
+        widget = self._widget
+        try:
+            preset = getattr(widget, "isSubmitPreset", None)
+            if not callable(preset) or not preset():
+                return False
+            edit = cast(Any, widget)
+            if edit.isReadOnly():
+                return False
+            if (edit.text() or "").strip():
+                return False
+            placeholder = edit.placeholderText() or ""
+            if not placeholder:
+                return False
+            modifiers_fn = getattr(event, "modifiers", None)
+            modifiers = (
+                modifiers_fn()
+                if callable(modifiers_fn)
+                else Qt.KeyboardModifier.NoModifier
+            )
+            if modifiers & (
+                Qt.KeyboardModifier.ControlModifier
+                | Qt.KeyboardModifier.AltModifier
+                | Qt.KeyboardModifier.MetaModifier
+            ):
+                return False
+            edit.setText(placeholder)
+            try:
+                edit.deselect()
+            except Exception:
+                pass
+            try:
+                edit.setCursorPosition(len(placeholder))
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return False
 
 
 class _OutsideClickCoordinator(QObject):

@@ -401,3 +401,52 @@ def test_preset_off_keeps_plain_behavior(qtbot, qapp):
     QTest.keyClick(edit, Qt.Key.Key_Tab)
     assert edit.text() != "Say something…"
     edit.deleteLater()
+
+
+def test_tab_adopt_in_filter_before_focus_travel(qapp):
+    """The submit-preset Tab-adopt runs in the event filter, not keyPressEvent.
+
+    QWidget.event() diverts Tab to focus travel before keyPressEvent ever
+    runs (in-flyout fields lose Tab to the next button) — the installed
+    filter runs first and can still accept it.
+
+    Falsification: pre-change the filter ignores Tab (returns False).
+    """
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
+
+    _register_palettes(qapp)
+    edit = CustomLineEdit()
+    edit.setSubmitPreset(True)
+    edit.setPlaceholderText("Say something…")
+    filt = edit._editable_text_behavior
+
+    tab = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier
+    )
+    assert filt.eventFilter(edit, tab) is True
+    assert edit.text() == "Say something…"
+    assert edit.cursorPosition() == len("Say something…")
+    assert not edit.hasSelectedText()
+
+    # Declines: preset off, non-empty field, Ctrl held.
+    plain = CustomLineEdit()
+    plain_filt = plain._editable_text_behavior
+    tab2 = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier
+    )
+    assert plain_filt.eventFilter(plain, tab2) is False
+    edit.setText("typed")
+    tab3 = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.NoModifier
+    )
+    assert filt.eventFilter(edit, tab3) is False
+    assert edit.text() == "typed"
+    edit.setText("")
+    ctrl_tab = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Tab, Qt.KeyboardModifier.ControlModifier
+    )
+    assert filt.eventFilter(edit, ctrl_tab) is False
+    assert edit.text() == ""
+    edit.deleteLater()
+    plain.deleteLater()

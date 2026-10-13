@@ -359,8 +359,7 @@ def test_rapid_triple_click_selects_line(qapp):
 
 
 def test_line_selection_up_keeps_current_line(qapp):
-    """Regression: triple-click at the line's right edge (past the last
-    char) then Shift+Up must keep the whole current line selected and
+    """Regression: triple-click at the line's right edge then Shift+Up must keep the whole current line selected and
     extend into the line above — the anchor at the line start must not
     collapse the current line to an empty range. Shift+Down returns."""
     from PySide6.QtCore import QPoint, Qt
@@ -374,7 +373,7 @@ def test_line_selection_up_keeps_current_line(qapp):
     canvas = view.editor()
     adv = canvas._metrics.horizontalAdvance
     y = 8 + 7 + canvas._line_height  # line 1 ("    pass")
-    edge_x = 8 + adv("    pass") + 5  # past the last character
+    edge_x = 8 + adv("    pass")  # exactly at the last character (past it is empty space: clears, no select)
     QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(edge_x, y))
     QTest.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(edge_x, y))
     QTest.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(edge_x, y))
@@ -796,3 +795,114 @@ def test_line_at_maps_each_line_centre_to_its_own_index(qapp):
         index = canvas.line_at(y)
         assert index == i
         assert canvas.line_text(index) == text
+
+
+def _editing_canvas(qapp, text="alpha beta\ngamma\n"):
+    """A shown, editing canvas with focus (real mouse delivery)."""
+    from PySide6.QtCore import QPoint
+
+    view = TextView(text)
+    view.resize(400, 200)
+    view.show()
+    qapp.processEvents()
+    view.enter_edit_mode()
+    canvas = view.editor()
+    assert canvas is not None
+    return view, canvas
+
+
+def test_empty_click_clears_selection_and_caret(qapp):
+    """Clicking past the glyphs drops the selection AND the caret.
+
+    Falsification: pre-change the caret jumps to the nearest position
+    (clamped) instead of disappearing.
+    """
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    from sli_ui_toolkit.ui.widgets.composite.text_view import constants
+
+    view, canvas = _editing_canvas(qapp)
+    adv = canvas._metrics.horizontalAdvance
+    y0 = constants.PAD + canvas._line_height // 2
+    on_text = QPoint(canvas._text_x() + adv("alp"), y0)
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=on_text)
+    assert canvas._caret_placed is True
+    placed_cursor = canvas._cursor
+
+    # Far past the line end: no jump-to-end, no selection, caret gone.
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(390, y0))
+    assert canvas._selection.range() is None
+    assert canvas._caret_placed is False
+    assert canvas._cursor == placed_cursor
+
+    # Below the last line: same clearing.
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(390, 190))
+    assert canvas._selection.range() is None
+    assert canvas._caret_placed is False
+
+    # Back on text: the caret returns.
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=on_text)
+    assert canvas._caret_placed is True
+    view.exit_edit_mode()
+
+
+def test_caret_blinks_while_focused_editing(qapp):
+    """The caret toggles on a timer while focused + editing.
+
+    Falsification: pre-change there is no blink machinery (solid caret).
+    """
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    from sli_ui_toolkit.ui.widgets.composite.text_view import constants
+
+    view, canvas = _editing_canvas(qapp)
+    adv = canvas._metrics.horizontalAdvance
+    y0 = constants.PAD + canvas._line_height // 2
+    QTest.mouseClick(
+        canvas,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(canvas._text_x() + adv("alp"), y0),
+    )
+    qapp.processEvents()
+    assert canvas.hasFocus()
+    assert canvas._caret_blink.isActive()
+
+    canvas._caret_on = True
+    canvas.update()
+    qapp.processEvents()
+    lit = canvas.grab().toImage()
+    canvas._toggle_caret_blink()
+    assert canvas._caret_on is False
+    qapp.processEvents()
+    dark = canvas.grab().toImage()
+    assert lit != dark, "blink-off must remove the caret pixels"
+    canvas._toggle_caret_blink()
+    assert canvas._caret_on is True
+
+    view.exit_edit_mode()
+    assert not canvas._caret_blink.isActive()
+    view.exit_edit_mode()
+
+
+def test_hover_cursor_follows_text_hit(qapp):
+    """I-beam only where glyphs stand; Arrow over empty space.
+
+    Falsification: pre-change editing sets I-beam widget-wide, so empty
+    space promises selectable text that is not there.
+    """
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+    from sli_ui_toolkit.ui.widgets.composite.text_view import constants
+
+    view, canvas = _editing_canvas(qapp)
+    y0 = constants.PAD + canvas._line_height // 2
+    adv = canvas._metrics.horizontalAdvance
+    QTest.mouseMove(canvas, pos=QPoint(canvas._text_x() + adv("a"), y0))
+    qapp.processEvents()
+    assert QApplication.mouseButtons() == Qt.MouseButton.NoButton
+    assert canvas.cursor().shape() == Qt.CursorShape.IBeamCursor
+    QTest.mouseMove(canvas, pos=QPoint(390, y0))
+    qapp.processEvents()
+    assert canvas.cursor().shape() == Qt.CursorShape.ArrowCursor
+    view.exit_edit_mode()
