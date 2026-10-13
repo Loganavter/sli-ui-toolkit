@@ -77,7 +77,21 @@ caption = Text("Secondary status", variant="caption", elide=True)
 note = Text(config=TextConfig(text="Pinned", bold=True, selectable=True))
 ```
 
-- `mode="document"` and `mode="code"` raise `NotImplementedError` until P2.
+- `mode="document"` renders markdown through the painted engine:
+  `Text(md, mode="document", resolve_asset=...)`, `set_markdown(md)`,
+  `anchor_y(anchor)` (content y, `None` if absent), `selected_markdown(source)`.
+  Text never scrolls: wrap it in a `QScrollArea` and read `anchor_y` to scroll.
+- `mode="code"` is the painted code editor: `Text(src, mode="code",
+  editable=True)`, `set_editing(bool)`, `is_editing()`,
+  `set_line_number_start(n)`.
+- Both engine modes share `selectedText()`, `hasSelectedText()`,
+  `selectAll()`/`select_all_text()`, `clear_selection()` and
+  `selected_plain_text()`. Forwarded signals: `textChanged` (code edits),
+  `linkActivated(str)`, `imageActivated(str)`.
+- Plain mode hover: I-beam only over glyphs, Arrow over empty space (for
+  `selectable=True`).
+- Engine modes are hosted, not yet re-homed; typography kwargs are ignored in
+  those modes.
 - `selectable=True` adds mouse drag, double-click word selection, `Ctrl+A`,
   `Ctrl+C`, arrow/Home/End keys with Shift, and the right-click Copy / Select
   all menu. `selectionChanged` fires on each change.

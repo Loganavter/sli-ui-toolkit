@@ -290,7 +290,7 @@ presets: **[LABELS_API.md](LABELS_API.md)**.
 |--------|-------------|
 | `Label` / `LabelConfig` / `LabelVariantSpec` | Unified themed text label, its config object, and variant registry entry. |
 | `DropZoneLabel` | Label with drag-and-drop zone visuals and file accept logic. |
-| `Text` / `TextConfig` | Painted text display (P1: `mode="plain"` at `Label` parity; `document`/`code` arrive in P2). See [LABELS_API.md](LABELS_API.md#text-plain-mode). |
+| `Text` / `TextConfig` | Painted text display (`mode="plain"` at `Label` parity; `document`/`code` host the painted engine, P2 in progress). See [LABELS_API.md](LABELS_API.md#text-plain-mode). |
 
 ### Inputs & Other Atomic Controls
 

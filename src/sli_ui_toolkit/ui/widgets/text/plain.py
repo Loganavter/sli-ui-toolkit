@@ -66,6 +66,25 @@ def hit_test(layout: QTextLayout, local: QPointF) -> int:
     return int(last.textStart() + last.textLength())
 
 
+def hit_glyph(layout: QTextLayout, local: QPointF) -> bool:
+    """True when ``local`` (layout space) lands on a glyph's advance box.
+
+    Strict rule shared with the document/code engines (``_hit_text``): the
+    I-beam shows only where characters stand, never across the empty widget.
+    """
+    count = layout.lineCount()
+    if count == 0:
+        return False
+    for index in range(count):
+        line = layout.lineAt(index)
+        if local.y() < line.y() + line.height():
+            if local.y() < line.y() or line.textLength() == 0:
+                return False
+            left = line.x()
+            return left <= local.x() <= left + line.naturalTextWidth()
+    return False
+
+
 def _cursor_x(line: QTextLine, position: int) -> float:
     # PySide6 returns (x, adjusted_position); the stubs type it as object.
     x, _ = cast(tuple[float, int], line.cursorToX(position))
