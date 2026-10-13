@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QFontDatabase, QFontMetrics, QKeySequence, QGuiApplication
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFontDatabase, QFontMetrics, QKeySequence, QGuiApplication
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 import logging
@@ -64,6 +64,15 @@ def _textview_debug(message: str, *args) -> None:
 
 _update_counter = 0
 _last_update_ts = 0.0
+_SELECTION_EVENTS = frozenset(
+    {
+        QEvent.Type.MouseButtonPress,
+        QEvent.Type.MouseButtonDblClick,
+        QEvent.Type.MouseMove,
+        QEvent.Type.MouseButtonRelease,
+        QEvent.Type.KeyPress,
+    }
+)
 
 __all__ = ["TextCanvas", "Position"]
 
@@ -76,6 +85,10 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
     linkActivated = Signal(str)
     #: document mode: an image was clicked (source asset path)
     imageActivated = Signal(str)
+    #: selection (either mode) changed value; not emitted for no-op gestures
+    selectionChanged = Signal()
+    #: content height (minimum) changed — hosts in a scroll area re-layout
+    contentHeightChanged = Signal()
 
     def __init__(self, text: str):
         super().__init__()
@@ -130,6 +143,10 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._document_layout: Any = None
         self._document_asset_resolver: Any = None
         self._doc_selection = DocumentSelection()
+        self._body_pixel_size: int | None = None
+        self._body_family: str | None = None
+        self._text_color: QColor | None = None
+        self._last_selection_key: tuple[Any, Any] = (None, None)
         self._sync_height()
         try:
             ThemeManager.get_instance().theme_changed.connect(
@@ -220,16 +237,35 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         """Select the whole content in either mode."""
         if self._document_index is not None:
             self._doc_selection.select_all(len(self._document_index.text))
-            self.update()
-            return
-        self.select_all()
+        else:
+            self.select_all()
+        self._notify_selection()
+        self.update()
 
     def reset_selection(self) -> None:
         """Drop the selection in either mode (document or code)."""
         self._doc_selection.reset()
         self._selection.clear()
         self._chain_selecting = None
+        self._notify_selection()
         self.update()
+
+    def _selection_key(self) -> tuple[Any, Any]:
+        return (self._doc_selection.range(), self._selection.range())
+
+    def _notify_selection(self) -> None:
+        """Emit ``selectionChanged`` when the effective selection value moved."""
+        key = self._selection_key()
+        if key == self._last_selection_key:
+            return
+        self._last_selection_key = key
+        self.selectionChanged.emit()
+
+    def event(self, event) -> bool:  # noqa: N802 - Qt API
+        handled = super().event(event)
+        if event.type() in _SELECTION_EVENTS:
+            self._notify_selection()
+        return handled
 
     def set_text(self, text: str) -> None:
         self._lines = text.split("\n") if text else [""]
@@ -244,6 +280,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._doc_selection.reset()
         self._gutter_cache = None
         self._sync_height()
+        self._notify_selection()
         self.update()
 
     def is_document(self) -> bool:
@@ -269,6 +306,13 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self, markdown: str, *, resolve_asset=None
     ) -> None:
         """Switch to read-only document mode (markdown blocks)."""
+        self.set_blocks(
+            parse_help_blocks(markdown) if markdown else (),
+            resolve_asset=resolve_asset,
+        )
+
+    def set_blocks(self, blocks, *, resolve_asset=None) -> None:
+        """Switch to read-only document mode with already-parsed blocks."""
         self._lines = []
         self._cursor = (0, 0)
         self._last_edit_line = 0
@@ -276,7 +320,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._chain_selecting = None
         self._editing = False
         self._gutter_cache = None
-        self._document_blocks = parse_help_blocks(markdown) if markdown else ()
+        self._document_blocks = tuple(blocks)
         self._document_index = build_text_index(self._document_blocks)
         self._doc_selection.index = self._document_index
         self._document_asset_resolver = resolve_asset
@@ -284,6 +328,85 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
         self._doc_selection.reset()
         self.unsetCursor()
         self._relayout_document()
+        self._notify_selection()
+
+    def set_asset_resolver(self, resolver) -> None:
+        """Document mode: change the asset resolver and re-layout."""
+        self._document_asset_resolver = resolver
+        if self._document_blocks is not None:
+            self._relayout_document()
+
+    def set_body_style(self, *, pixel_size: int | None, family: str | None) -> None:
+        """Document mode: body text pixel size / family (``None`` keeps the
+        document's design size and UI family)."""
+        self._body_pixel_size = pixel_size
+        self._body_family = family
+        if self._document_blocks is not None:
+            self._relayout_document()
+
+    def set_font_style(
+        self,
+        *,
+        family: str | None,
+        pixel_size: int | None,
+        bold: bool,
+        italic: bool,
+        underline: bool,
+        strike_out: bool,
+    ) -> None:
+        """Code mode: the painted buffer's font (monospace base by default)."""
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        if family:
+            font.setFamily(family)
+        font.setPixelSize(pixel_size or constants.FONT_PIXEL_SIZE)
+        font.setBold(bold)
+        font.setItalic(italic)
+        font.setUnderline(underline)
+        font.setStrikeOut(strike_out)
+        self._font = font
+        self._metrics = QFontMetrics(font)
+        self._line_height = self._metrics.lineSpacing()
+        self._char_width = self._metrics.horizontalAdvance("0") or self._metrics.averageCharWidth() or 1
+        self._gutter_cache = None
+        self._sync_height()
+        self.update()
+
+    def set_text_color(self, color: QColor | None) -> None:
+        """Explicit base text color (``None`` keeps the theme foreground)."""
+        self._text_color = QColor(color) if color is not None else None
+        self.update()
+
+    def scroll_to_text(self, query: str) -> int | None:
+        """Document mode: select the first normalized match of ``query`` and
+        return its widget-space y (``None`` when absent or empty)."""
+        from sli_ui_toolkit.ui.widgets.comboboxes._search import (
+            find_normalized,
+            normalize_for_search,
+        )
+
+        hit = (
+            find_normalized(normalize_for_search(query), self._document_index.text)
+            if query and self._document_index is not None
+            else None
+        )
+        if hit is None:
+            self._doc_selection.reset()
+            self._notify_selection()
+            self.update()
+            return None
+        start, end, _norm_pos = hit
+        self._doc_selection.set_range(start, end)
+        self._notify_selection()
+        self.update()
+        return self._fragment_top(start)
+
+    def _fragment_top(self, offset: int) -> int | None:
+        if self._document_layout is None:
+            return None
+        for frag in self._document_layout.text_fragments:
+            if frag.global_start <= offset <= frag.global_end:
+                return max(0, int(round(frag.rect.top())) + constants.PAD)
+        return None
 
     def _doc_layout_pos(self, point) -> QPointF:
         return QPointF(point) - QPointF(constants.PAD, constants.PAD)
@@ -367,6 +490,8 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             width,
             ThemeManager.get_instance(),
             resolve_asset=self._document_asset_resolver,
+            body_pixel_size=self._body_pixel_size,
+            body_family=self._body_family,
         )
         self._sync_height()
         self.update()
@@ -484,6 +609,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             self.setAttribute(
                 Qt.WidgetAttribute.WA_InputMethodEnabled, False
             )
+        self._notify_selection()
         self.update()
 
     def focusInEvent(self, event) -> None:  # noqa: N802 - Qt API
@@ -555,6 +681,7 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
                     self._line_height,
                 )
         self.updateGeometry()
+        self.contentHeightChanged.emit()
         if _dbg and t0:
             dt = (time.perf_counter() - t0) * 1000
             if dt > 5:
