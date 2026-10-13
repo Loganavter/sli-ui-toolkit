@@ -165,3 +165,34 @@ rate-limited.
 - Accessibility: painted text loses native `QLabel` screen-reader
   exposure unless `QAccessibleInterface` is implemented — recorded
   here as P1/P2 scope, not a veto.
+
+## Audit findings (text-audit1, 2026-10-13 — accepted, cell removed)
+
+Full report preserved at `~/.cache/opencode/text-audit-REPORT-2026-10-13.md`
+(call-site tables omitted here; method documented in the report §8).
+Binding deltas for the contract above:
+
+- `alignment`: Qt flags, not strings (3 call sites; plan example
+  corrected) — P1 must accept `Qt.AlignmentFlag`.
+- QLabel getters on `Label` instances are load-bearing
+  (`setWordWrap`/`setAlignment`/`setTextInteractionFlags` + getters,
+  incl. tests): P1 `Text` must provide them (plain `QWidget` has
+  none).
+- `marquee`: zero callers in both repos — dropped from P1 scope.
+- `register_text_variant` rename must update the app-side
+  `icon_manager.py:17` import-time override (`group-title`).
+- Inspector descriptors (`inspect_spec`/`widget_descriptor`) required
+  on `Text`, or inspector registry tests break.
+- `word_wrap` needs `heightForWidth`; `selectable` changes meaning
+  (Qt-native → painted — 16 sites); `findChildren(QLabel)`
+  consumers stop seeing migrated widgets.
+- Document gaps for P2 (all nine, §2 table): public selection API
+  names, `textContextMenuRequested`, `open_external_links`,
+  `resolve_asset` ctor+setter, `scroll_to_text` (y-offset, not
+  QWidget), `set_blocks`, anchor API unified on y, lightbox
+  relocation, TOC single decision; plus `panel_fill`,
+  `size_hint_from_content`, `line_number_start`, wheel-edge policy.
+- P3 sizing: captions ≈92 sites + wrappers; documents 4 TextView +
+  1 HDV + package; app help 5 files. `DropZoneLabel`/`_LinkLabel`
+  need subclass-vs-compose decisions; `**kwargs` wrappers get
+  explicit signatures on migration.
