@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **Document hit-test is glyph-strict (one fix, both viewers)** — `hit_test_text_offset` resolved clicks anywhere in a fragment's full block width and clamped to the nearest offset, so empty space past the glyphs showed the I-beam and selected/caret-jumped to line end. It now misses past the last glyph (whitespace counts by advance), on empty lines, and below content — shared by `HelpDocumentBodyCanvas` and TextView document mode, hence identical everywhere. Tests: wrapped-lines anchor moved to the glyph end + new empty-space test (falsified pre-fix).
+
+### Fixed
+
 - **Submit-preset Tab-adopt runs in the event filter (before focus travel)** — `QWidget.event()` diverts Tab to focus navigation before `keyPressEvent` ever runs, so in-flyout fields lost Tab to the next button and the placeholder was never adopted live. `_EditableTextKeyFilter` (already installed on every `CustomLineEdit`) now adopts Tab itself when the submit preset is on and the field is empty (Ctrl/Alt/Meta held keeps native travel); the `keyPressEvent` branch stays as the direct-invocation path. No behavior change for plain fields. Tests: `tests/test_custom_line_edit.py` (+1 filter-level, falsified pre-fix).
 - **TextView caret blinks; empty click clears instead of jumping to nearest** — the code-mode caret was a solid non-blinking band (now a 500 ms blink while focused + editing, `CustomLineEdit` parity). Clicking past the glyphs (or below the last line) clears the selection and drops the caret instead of clamping it to the nearest position; any text click / edit / arrow move re-places it. Hover cursor follows the same glyph hit-test (I-beam only where characters stand — whitespace counts by width — Arrow elsewhere), so empty space no longer promises selectable text. Tests: `tests/test_text_view.py` (+3, falsified pre-fix; one legacy triple-click expectation moved from past-end to line-end).
 

@@ -15,12 +15,39 @@ def hit_test_text_offset(
     layout: LayoutResult,
     pos: QPointF,
 ) -> int | None:
+    """Offset of the glyph under *pos*, or None on empty space.
+
+    The text zone is where glyphs stand — not the fragment's full block
+    width: past the last glyph (whitespace counts by its advance width),
+    on an empty line, or below the content is a miss. Both document
+    viewers (help body, TextView document mode) share this, so hover
+    cursor and click selection behave identically everywhere.
+    """
     for frag in layout.text_fragments:
         if not frag.rect.contains(pos):
             continue
         local = pos - frag.rect.topLeft()
         line = line_for_y(frag.layout, local.y())
         if line is None or not line.isValid():
+            continue
+        try:
+            line_len = int(line.textLength())
+        except Exception:
+            line_len = 1
+        if line_len <= 0:
+            continue
+        try:
+            span_top = float(line.y())
+            span_h = float(line.height())
+        except Exception:
+            span_top, span_h = 0.0, 0.0
+        if span_h > 0 and not (span_top <= local.y() < span_top + span_h):
+            continue
+        try:
+            end_x = float(line.naturalTextWidth())
+        except Exception:
+            end_x = None
+        if end_x is not None and local.x() > end_x:
             continue
         rel = line.xToCursor(local.x())
         if isinstance(rel, tuple):
