@@ -515,8 +515,8 @@ def test_help_document_single_click_does_not_select_word(qapp, qtbot):
     view.deleteLater()
 
 
-def test_help_document_selection_includes_kbd_shortcut(qapp, qtbot):
-    """KBD spans (`Ctrl+V`) must be part of the selection model and paint pass."""
+def test_help_document_selection_includes_code_span(qapp, qtbot):
+    """Inline-code spans (`Ctrl+V`) must be part of the selection model and paint pass."""
     from PySide6.QtGui import QImage, QPainter
 
     from sli_ui_toolkit.theme import ThemeManager
