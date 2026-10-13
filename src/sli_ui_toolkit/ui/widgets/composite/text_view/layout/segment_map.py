@@ -1,18 +1,7 @@
-"""Map text-index segments to layout builder lookups."""
+"""Delegate (text-p2c): implementation moved to ``sli_ui_toolkit.ui.widgets.text.engine.layout.segment_map``."""
 
-from __future__ import annotations
-
-from sli_ui_toolkit.ui.widgets.composite.text_view.text_index import (
+from sli_ui_toolkit.ui.widgets.text.engine.layout.segment_map import (  # noqa: F401
     DocumentTextIndex,
     TextSegment,
+    build_segment_map,
 )
-
-
-def build_segment_map(
-    text_index: DocumentTextIndex,
-) -> dict[tuple[int, int | None, bool], TextSegment]:
-    out: dict[tuple[int, int | None, bool], TextSegment] = {}
-    for segment in text_index.segments:
-        key = (segment.block_index, segment.list_item_index, segment.caption)
-        out[key] = segment
-    return out

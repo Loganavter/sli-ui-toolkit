@@ -37,8 +37,8 @@ from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     ensure_marquee_driver,
     text_overflows,
 )
-from sli_ui_toolkit.ui.widgets.composite.help_document.canvas import markdown_for_selection
-from sli_ui_toolkit.ui.widgets.composite.text_view.canvas import TextCanvas
+from sli_ui_toolkit.ui.widgets.text.engine.canvas import TextCanvasCore
+from sli_ui_toolkit.ui.widgets.text.engine.document_canvas import markdown_for_selection
 from sli_ui_toolkit.ui.widgets.text.plain import (
     build_layout,
     hit_glyph,
@@ -185,7 +185,7 @@ class Text(QWidget):
         super().__init__(parent)
         self.theme_manager = ThemeManager.get_instance()
         self._mode = mode
-        self._engine: TextCanvas | None = None
+        self._engine: TextCanvasCore | None = None
         self._variant_name = variant
         self._family_override = family
         self._pixel_size_override = pixel_size
@@ -224,9 +224,9 @@ class Text(QWidget):
     def _build_engine(
         self, mode: str, text: str, editable: bool, resolve_asset: Any
     ) -> None:
-        """Host the painted engine (``TextCanvas``) as the single child that
+        """Host the painted engine (``TextCanvasCore``) as the single child that
         fills this widget. Scrolling stays with the host."""
-        engine = TextCanvas("" if mode == "document" else text)
+        engine = TextCanvasCore("" if mode == "document" else text)
         engine.setParent(self)
         self._engine = engine
         engine.changed.connect(self.textChanged)
@@ -241,7 +241,7 @@ class Text(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         engine.setGeometry(self.rect())
 
-    def _engine_for(self, mode: str) -> TextCanvas:
+    def _engine_for(self, mode: str) -> TextCanvasCore:
         if self._engine is None or self._mode != mode:
             raise RuntimeError(f'operation requires mode="{mode}", not "{self._mode}"')
         return self._engine

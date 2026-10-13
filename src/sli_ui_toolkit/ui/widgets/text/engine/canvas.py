@@ -1,0 +1,693 @@
+"""TextCanvas — the painted text surface that IS the editor.
+
+The same painted widget switches between read and edit modes, so both look
+identical by construction. Edit mode adds a caret, selection, and
+keyboard/mouse input; the host ``TextView`` scrolls it and draws the rounded
+frame around the visible area.
+
+The class keeps only construction, state, document-mode delegation glue, and
+Qt-required method names it doesn't delegate; the concerns live in sibling
+mixin modules (same pattern as ``base_flyout``/``buttons``):
+
+- ``editing.py``      — ``_CanvasEditingApi``  buffer/cursor/undo/selection mutation
+- ``events.py``        — ``_CanvasEventsApi``   mouse/keyboard/IME event handling
+- ``canvas_paint.py``  — ``_CanvasPaintApi``     paintEvent + gutter/fold/line rendering
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFontDatabase, QFontMetrics, QKeySequence, QGuiApplication
+from PySide6.QtWidgets import QSizePolicy, QWidget
+
+import logging
+import time
+import traceback
+
+from sli_ui_toolkit.core.debug_flags import any_flag
+from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from . import constants
+from .document import build_text_index, layout_document, parse_help_blocks
+from .selection import DocumentSelection, TextSelection
+from sli_ui_toolkit.ui.widgets.text.engine.layout.hit_test import (
+    hit_test_link,
+    hit_test_pixmap,
+    hit_test_text_offset,
+)
+from .canvas_paint import _CanvasPaintApi
+from .editing import Position, _CanvasEditingApi
+from .events import _CanvasEventsApi
+
+_canvas_logger = logging.getLogger(__name__)
+
+# Canonical toolkit var for TextCanvas repaint/scroll/height traces.
+# ``IMGSLI_TRACE`` is the legacy host alias read at these same sites, kept
+# so one env var enables both sides of the same trace. Call-time check,
+# ``[textview]`` prefix on every line, off by default even under host
+# ``--debug``. Never mutates logger levels at import time.
+_TEXTVIEW_DEBUG_VARS = ("SLI_TEXTVIEW_DEBUG", "IMGSLI_TRACE")
+
+
+def _textview_debug_enabled() -> bool:
+    """True when TextCanvas tracing was opted in via env."""
+    return any_flag(*_TEXTVIEW_DEBUG_VARS)
+
+
+def _textview_debug(message: str, *args) -> None:
+    """Env-gated TextCanvas trace line (already carries its ``[textview]`` prefix)."""
+    if _textview_debug_enabled():
+        _canvas_logger.debug(message, *args)
+
+
+_update_counter = 0
+_last_update_ts = 0.0
+_SELECTION_EVENTS = frozenset(
+    {
+        QEvent.Type.MouseButtonPress,
+        QEvent.Type.MouseButtonDblClick,
+        QEvent.Type.MouseMove,
+        QEvent.Type.MouseButtonRelease,
+        QEvent.Type.KeyPress,
+    }
+)
+
+__all__ = ["TextCanvasCore", "Position"]
+
+
+class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
+    """Painted monospace text surface with a line-based editing model."""
+
+    changed = Signal()
+    #: document mode: a link was clicked (href)
+    linkActivated = Signal(str)
+    #: document mode: an image was clicked (source asset path)
+    imageActivated = Signal(str)
+    #: selection (either mode) changed value; not emitted for no-op gestures
+    selectionChanged = Signal()
+    #: content height (minimum) changed — hosts in a scroll area re-layout
+    contentHeightChanged = Signal()
+
+    def __init__(self, text: str):
+        super().__init__()
+        self._lines = text.split("\n") if text else [""]
+        self._editing = False
+        self._cursor: Position = (0, 0)
+        # The caret paints only while placed: an empty-space click clears
+        # the selection and drops the caret instead of jumping it to the
+        # nearest position; any text click / edit / arrow move re-places it.
+        self._caret_placed = True
+        # Caret blink (CustomLineEdit parity): toggled on a timer while
+        # focused + editing; the paint gate additionally requires it.
+        self._caret_on = True
+        self._caret_blink = QTimer(self)
+        self._caret_blink.setInterval(500)
+        try:
+            self._caret_blink.timeout.connect(self._toggle_caret_blink)
+        except Exception:
+            pass
+        self._hover_ibeam: bool | None = None
+        self._selection = TextSelection()
+        self._undo: list[tuple[str, Position]] = []
+        self._chain_selecting: str | None = None
+        self._press_point = None
+        self._drag_extending = False
+        self._line_number_start: int | None = None
+        self._line_number_map: dict[int, str] | None = None
+        self._fold_lines: set[int] | None = None
+        #: display line of the last edit (``_after_edit``) — lets hosts
+        #: track dirty state incrementally instead of re-splitting the
+        #: whole buffer per keystroke
+        self._last_edit_line = 0
+        #: cached ``_gutter_width`` — the width depends only on the map /
+        #: start / fold set / metrics, and recomputing it by walking the
+        #: whole line-number map is O(N) per call (paint calls ``_text_x()``
+        #: twice per visible line, so a 5000-line map cost ~20 ms per frame)
+        self._gutter_cache: int | None = None
+        self._font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        self._font.setPixelSize(constants.FONT_PIXEL_SIZE)
+        self._metrics = QFontMetrics(self._font)
+        self._line_height = self._metrics.lineSpacing()
+        self._char_width = self._metrics.horizontalAdvance("0") or self._metrics.averageCharWidth() or 1
+        # theme cache generation for canvas_paint invalidation
+        self._theme_generation = 0
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMouseTracking(True)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self._document_blocks: Any = None
+        self._document_index: Any = None
+        self._document_layout: Any = None
+        self._document_asset_resolver: Any = None
+        self._doc_selection = DocumentSelection()
+        self._body_pixel_size: int | None = None
+        self._body_family: str | None = None
+        self._text_color: QColor | None = None
+        self._last_selection_key: tuple[Any, Any] = (None, None)
+        self._sync_height()
+        try:
+            ThemeManager.get_instance().theme_changed.connect(
+                self._on_theme_changed
+            )
+        except Exception:
+            pass
+        try:
+            UiScale.get_instance().scale_changed.connect(
+                self._on_scale_changed
+            )
+        except Exception:
+            pass
+
+    def _on_theme_changed(self, *_args) -> None:
+        # Invalidate theme color cache in canvas_paint
+        try:
+            import sli_ui_toolkit.ui.widgets.text.engine.canvas_paint as _cp
+
+            _cp._cached_foreground = None
+            _cp._cached_span_colors = None
+            _cp._cached_selection_color = None
+        except Exception:
+            pass
+        if self._document_blocks is not None:
+            self._relayout_document()
+        else:
+            self.update()
+
+    def _on_scale_changed(self, *_args) -> None:
+        # Scale may affect font metrics; refresh cached widths
+        try:
+            self._metrics = QFontMetrics(self._font)
+            self._line_height = self._metrics.lineSpacing()
+            self._char_width = self._metrics.horizontalAdvance("0") or self._metrics.averageCharWidth() or 1
+            self._gutter_cache = None
+        except Exception:
+            pass
+        if self._document_blocks is not None:
+            # The singleton connections outlive the widget: a canvas whose
+            # C++ side is already deleted (GC'd wrapper, scale test teardown)
+            # must not raise from the signal into the emitting test.
+            try:
+                self._relayout_document()
+            except RuntimeError:
+                pass
+        else:
+            self._sync_height()
+            self.update()
+
+    # -- state --------------------------------------------------------------
+
+    def text(self) -> str:
+        return "\n".join(self._lines)
+
+    def line_count(self) -> int:
+        """Number of display lines — O(1) (avoids re-joining the buffer)."""
+        return len(self._lines)
+
+    def line_text(self, index: int) -> str:
+        """The display line at ``index`` — O(1) for hosts that need to
+        re-check a single edited line."""
+        if 0 <= index < len(self._lines):
+            return self._lines[index]
+        return ""
+
+    def last_edit_line(self) -> int:
+        """Display line of the most recent edit (``_after_edit``), for
+        incremental dirty tracking. 0 before any edit."""
+        return self._last_edit_line
+
+    def plain_text(self) -> str:
+        """Full plain text of the current content (document or code)."""
+        if self._document_index is not None:
+            return self._document_index.text
+        return self.text()
+
+    def selected_plain_text(self) -> str:
+        """Selected plain text in either mode ("" when nothing is selected)."""
+        if self._document_index is not None:
+            rng = self._doc_selection.copy_range()
+            if rng is None:
+                return ""
+            return self._document_index.slice_plain(rng[0], rng[1])
+        return self._selected_text() or ""
+
+    def select_all_text(self) -> None:
+        """Select the whole content in either mode."""
+        if self._document_index is not None:
+            self._doc_selection.select_all(len(self._document_index.text))
+        else:
+            self.select_all()
+        self._notify_selection()
+        self.update()
+
+    def reset_selection(self) -> None:
+        """Drop the selection in either mode (document or code)."""
+        self._doc_selection.reset()
+        self._selection.clear()
+        self._chain_selecting = None
+        self._notify_selection()
+        self.update()
+
+    def _selection_key(self) -> tuple[Any, Any]:
+        return (self._doc_selection.range(), self._selection.range())
+
+    def _notify_selection(self) -> None:
+        """Emit ``selectionChanged`` when the effective selection value moved."""
+        key = self._selection_key()
+        if key == self._last_selection_key:
+            return
+        self._last_selection_key = key
+        self.selectionChanged.emit()
+
+    def event(self, event) -> bool:  # noqa: N802 - Qt API
+        handled = super().event(event)
+        if event.type() in _SELECTION_EVENTS:
+            self._notify_selection()
+        return handled
+
+    def set_text(self, text: str) -> None:
+        self._lines = text.split("\n") if text else [""]
+        self._cursor = (0, 0)
+        self._last_edit_line = 0
+        self._selection.clear()
+        self._chain_selecting = None
+        self._document_blocks = None
+        self._document_index = None
+        self._document_layout = None
+        self._document_asset_resolver = None
+        self._doc_selection.reset()
+        self._gutter_cache = None
+        self._sync_height()
+        self._notify_selection()
+        self.update()
+
+    def is_document(self) -> bool:
+        return self._document_blocks is not None
+
+    def anchor_y(self, anchor: str) -> int | None:
+        """Widget-space y of a heading anchor (``None`` when absent).
+
+        Document mode only. The layout stores anchors in content coordinates;
+        the canvas paints content at ``constants.PAD``, so the returned value
+        is the y a host scroll area should scroll to. Additive accessor —
+        existing read/edit behavior is untouched.
+        """
+        name = (anchor or "").strip()
+        if not name or self._document_layout is None:
+            return None
+        y = self._document_layout.anchors.get(name)
+        if y is None:
+            return None
+        return max(0, int(round(y)) + constants.PAD)
+
+    def set_document(
+        self, markdown: str, *, resolve_asset=None
+    ) -> None:
+        """Switch to read-only document mode (markdown blocks)."""
+        self.set_blocks(
+            parse_help_blocks(markdown) if markdown else (),
+            resolve_asset=resolve_asset,
+        )
+
+    def set_blocks(self, blocks, *, resolve_asset=None) -> None:
+        """Switch to read-only document mode with already-parsed blocks."""
+        self._lines = []
+        self._cursor = (0, 0)
+        self._last_edit_line = 0
+        self._selection.clear()
+        self._chain_selecting = None
+        self._editing = False
+        self._gutter_cache = None
+        self._document_blocks = tuple(blocks)
+        self._document_index = build_text_index(self._document_blocks)
+        self._doc_selection.index = self._document_index
+        self._document_asset_resolver = resolve_asset
+        self._document_layout = None
+        self._doc_selection.reset()
+        self.unsetCursor()
+        self._relayout_document()
+        self._notify_selection()
+
+    def set_asset_resolver(self, resolver) -> None:
+        """Document mode: change the asset resolver and re-layout."""
+        self._document_asset_resolver = resolver
+        if self._document_blocks is not None:
+            self._relayout_document()
+
+    def set_body_style(self, *, pixel_size: int | None, family: str | None) -> None:
+        """Document mode: body text pixel size / family (``None`` keeps the
+        document's design size and UI family)."""
+        self._body_pixel_size = pixel_size
+        self._body_family = family
+        if self._document_blocks is not None:
+            self._relayout_document()
+
+    def set_font_style(
+        self,
+        *,
+        family: str | None,
+        pixel_size: int | None,
+        bold: bool,
+        italic: bool,
+        underline: bool,
+        strike_out: bool,
+    ) -> None:
+        """Code mode: the painted buffer's font (monospace base by default)."""
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        if family:
+            font.setFamily(family)
+        font.setPixelSize(pixel_size or constants.FONT_PIXEL_SIZE)
+        font.setBold(bold)
+        font.setItalic(italic)
+        font.setUnderline(underline)
+        font.setStrikeOut(strike_out)
+        self._font = font
+        self._metrics = QFontMetrics(font)
+        self._line_height = self._metrics.lineSpacing()
+        self._char_width = self._metrics.horizontalAdvance("0") or self._metrics.averageCharWidth() or 1
+        self._gutter_cache = None
+        self._sync_height()
+        self.update()
+
+    def set_text_color(self, color: QColor | None) -> None:
+        """Explicit base text color (``None`` keeps the theme foreground)."""
+        self._text_color = QColor(color) if color is not None else None
+        self.update()
+
+    def scroll_to_text(self, query: str) -> int | None:
+        """Document mode: select the first normalized match of ``query`` and
+        return its widget-space y (``None`` when absent or empty)."""
+        from sli_ui_toolkit.ui.widgets.comboboxes._search import (
+            find_normalized,
+            normalize_for_search,
+        )
+
+        hit = (
+            find_normalized(normalize_for_search(query), self._document_index.text)
+            if query and self._document_index is not None
+            else None
+        )
+        if hit is None:
+            self._doc_selection.reset()
+            self._notify_selection()
+            self.update()
+            return None
+        start, end, _norm_pos = hit
+        self._doc_selection.set_range(start, end)
+        self._notify_selection()
+        self.update()
+        return self._fragment_top(start)
+
+    def _fragment_top(self, offset: int) -> int | None:
+        if self._document_layout is None:
+            return None
+        for frag in self._document_layout.text_fragments:
+            if frag.global_start <= offset <= frag.global_end:
+                return max(0, int(round(frag.rect.top())) + constants.PAD)
+        return None
+
+    def _doc_layout_pos(self, point) -> QPointF:
+        return QPointF(point) - QPointF(constants.PAD, constants.PAD)
+
+    def _doc_offset_at(self, event) -> int | None:
+        if self._document_layout is None:
+            return None
+        return hit_test_text_offset(
+            self._document_layout, self._doc_layout_pos(event.position().toPoint())
+        )
+
+    def _document_mouse_press(self, event) -> None:
+        """Press/double-click in document mode: one handler for both, the
+        unified chain counter resolves double = word, triple = segment."""
+        self._doc_selection.press(
+            self._doc_offset_at(event), event.position().toPoint()
+        )
+        self.setFocus()
+        self.update()
+
+    def _document_mouse_move(self, event) -> None:
+        sel = self._doc_selection
+        if (
+            event.buttons() & Qt.MouseButton.LeftButton
+            and sel.press_offset is not None
+            and sel.selection is not None
+        ):
+            if not sel.dragged:
+                if not sel.should_drag(event.position().toPoint()):
+                    return
+                sel.dragged = True
+            offset = self._doc_offset_at(event)
+            if offset is not None:
+                sel.extend(offset)
+                self.update()
+
+    def _document_mouse_release(self, event) -> None:
+        sel = self._doc_selection
+        if sel.dragged:
+            sel.end_gesture()
+            return
+        if self._document_layout is None:
+            sel.end_gesture()
+            return
+        pos = self._doc_layout_pos(event.position().toPoint())
+        href = hit_test_link(self._document_layout, pos)
+        if href:
+            self.linkActivated.emit(href)
+            sel.end_gesture()
+            return
+        path = hit_test_pixmap(self._document_layout, pos)
+        if path:
+            self.imageActivated.emit(path)
+        sel.end_gesture()
+
+    def _document_key(self, event) -> bool:
+        """Handle keys in document mode; True if consumed."""
+        if event.matches(QKeySequence.StandardKey.SelectAll):
+            if self._document_index is not None:
+                self._doc_selection.select_all(len(self._document_index.text))
+                self.update()
+            return True
+        if event.matches(QKeySequence.StandardKey.Copy):
+            rng = self._doc_selection.copy_range()
+            if rng is not None and self._document_index is not None:
+                lo, hi = rng
+                QGuiApplication.clipboard().setText(
+                    self._document_index.slice_plain(lo, hi)
+                )
+            return True
+        return False
+
+    def _relayout_document(self) -> None:
+        """(Re)build the document layout for the current width."""
+        if self._document_blocks is None:
+            return
+        width = max(1, self.width() - 2 * constants.PAD)
+        self._document_layout = layout_document(
+            self._document_blocks,
+            self._document_index,
+            width,
+            ThemeManager.get_instance(),
+            resolve_asset=self._document_asset_resolver,
+            body_pixel_size=self._body_pixel_size,
+            body_family=self._body_family,
+        )
+        self._sync_height()
+        self.update()
+
+    def is_editing(self) -> bool:
+        return self._editing
+
+    def set_line_number_start(self, start: int | None) -> None:
+        """VS Code-style line-number gutter: the number of the first
+        visible line (e.g. the class's line in its source file); ``None``
+        disables the gutter. Code mode only — document mode never shows it.
+        """
+        self._line_number_start = start
+        self._gutter_cache = None
+        self.update()
+
+    def set_line_number_map(self, mapping: dict[int, str] | None) -> None:
+        """Explicit gutter text per display line (e.g. real file line
+        numbers in a view with collapsed gaps). Lines not in the map fall
+        back to ``start + index``. ``None`` clears the override."""
+        self._line_number_map = dict(mapping) if mapping else None
+        self._gutter_cache = None
+        self.update()
+
+    def set_fold_lines(self, lines: set[int] | None) -> None:
+        """Display lines that carry a gutter disclosure arrow (collapsed
+        code regions, VS Code style — arrow left of the line number). An
+        empty set keeps folding enabled (the constant arrow offset stays
+        reserved); ``None`` disables it entirely."""
+        self._fold_lines = set(lines) if lines is not None else None
+        self._gutter_cache = None
+        self.update()
+
+    def line_at(self, y: int) -> int:
+        """Display line index for a y coordinate in widget space."""
+        return max(
+            0,
+            min(
+                len(self._lines) - 1,
+                (int(y) - constants.PAD) // max(1, self._line_height),
+            ),
+        )
+
+    def _gutter_text(self, index: int) -> str:
+        if self._line_number_map is not None and index in self._line_number_map:
+            return self._line_number_map[index]
+        start = self._line_number_start
+        return str(start + index) if start is not None else ""
+
+    def _gutter_width(self) -> int:
+        """Width of the line-number gutter (0 when disabled).
+
+        Sized from the widest label — with numeric labels (file line
+        numbers, gap boundary numbers) the width is identical in every
+        collapse state, so the text's left offset never jumps.
+
+        Cached: the width depends only on the map / start / fold set /
+        metrics, so walking the whole map again on every call would be
+        O(N) per painted line (``_text_x`` runs twice per visible line)."""
+        cached = self._gutter_cache
+        if cached is not None:
+            return cached
+        if self._line_number_start is None:
+            return 0
+        digits = 2
+        if self._line_number_map is not None:
+            for label in self._line_number_map.values():
+                digits = max(digits, len(label))
+        else:
+            last = self._line_number_start + max(1, len(self._lines)) - 1
+            digits = max(digits, len(str(last)))
+        width = (
+            digits * self._metrics.horizontalAdvance("0")
+            + 2 * constants.GUTTER_PAD
+            + self._fold_arrow_reserve()
+        )
+        self._gutter_cache = width
+        return width
+
+    def _text_x(self) -> int:
+        """Left edge of the code text: page padding + line-number gutter."""
+        return constants.PAD + self._gutter_width()
+
+    def set_editing(self, editing: bool) -> None:
+        if editing == self._editing:
+            return
+        self._editing = editing
+        if editing:
+            self.setCursor(Qt.CursorShape.IBeamCursor)
+            self.setFocus()
+            self._caret_placed = True
+            self._caret_on = True
+            if self.hasFocus():
+                try:
+                    self._caret_blink.start()
+                except Exception:
+                    pass
+            # Register as a real text-input client (native text editors do
+            # this by default; custom painted widgets must opt in): the
+            # platform input context then treats the widget as an editor
+            # — IME hotkeys and keyboard-layout switching keep working
+            # while it has focus.
+            self.setAttribute(
+                Qt.WidgetAttribute.WA_InputMethodEnabled, True
+            )
+        else:
+            self._selection.clear()
+            self._chain_selecting = None
+            self._drag_extending = False
+            try:
+                self._caret_blink.stop()
+            except Exception:
+                pass
+            self.unsetCursor()
+            self.setAttribute(
+                Qt.WidgetAttribute.WA_InputMethodEnabled, False
+            )
+        self._notify_selection()
+        self.update()
+
+    def focusInEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._caret_on = True
+        if getattr(self, "_editing", False):
+            try:
+                self._caret_blink.start()
+            except Exception:
+                pass
+        super().focusInEvent(event)
+        self.update()
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802 - Qt API
+        try:
+            self._caret_blink.stop()
+        except Exception:
+            pass
+        super().focusOutEvent(event)
+        self.update()
+
+    def _toggle_caret_blink(self) -> None:
+        """Blink tick: flip the caret phase (painted only when on)."""
+        self._caret_on = not self._caret_on
+        self.update()
+
+    def update(self, *args, **kwargs) -> None:  # noqa: N802  # debug probe for repaint storm
+        # Call-time env gate, logger only — no file IO on hot path
+        if _textview_debug_enabled():
+            global _update_counter, _last_update_ts
+            _update_counter += 1
+            now = time.perf_counter()
+            interval = (now - _last_update_ts) * 1000 if _last_update_ts else 0
+            _last_update_ts = now
+            if _update_counter % 10 == 0 or (interval < 20 and interval != 0):
+                stack = "".join(traceback.format_stack()[-7:-3])
+                _textview_debug(
+                    "[textview] TextCanvas update#%d interval=%.1fms stack:\n%s",
+                    _update_counter,
+                    interval,
+                    stack,
+                )
+        super().update(*args, **kwargs)
+
+    def repaint(self, *args, **kwargs) -> None:  # noqa: N802
+        if _textview_debug_enabled():
+            stack = "".join(traceback.format_stack()[-6:-2])
+            _textview_debug("[textview] TextCanvas repaint stack:\n%s", stack)
+        super().repaint(*args, **kwargs)
+
+    def _sync_height(self) -> None:
+        # The content height is a MINIMUM, not a fixed size: the host scroll
+        # area stretches the canvas to its viewport (the text view fills the
+        # window and only scrolls when the content exceeds it) — a fixed
+        # height forced the renderer to expand to the whole document.
+        _dbg = _textview_debug_enabled()
+        t0 = time.perf_counter() if _dbg else 0
+        if self._document_layout is not None:
+            h = int(self._document_layout.height) + 2 * constants.PAD
+            self.setMinimumHeight(h)
+        else:
+            lines = max(1, len(self._lines))
+            h = self._line_height * lines + 2 * constants.PAD
+            self.setMinimumHeight(h)
+            if _dbg and lines > 1000:
+                _textview_debug(
+                    "[textview] TextCanvas _sync_height N=%d h=%d line_h=%d",
+                    lines,
+                    h,
+                    self._line_height,
+                )
+        self.updateGeometry()
+        self.contentHeightChanged.emit()
+        if _dbg and t0:
+            dt = (time.perf_counter() - t0) * 1000
+            if dt > 5:
+                _textview_debug("[textview] TextCanvas _sync_height dt=%.2fms", dt)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if self._document_blocks is not None:
+            self._relayout_document()
