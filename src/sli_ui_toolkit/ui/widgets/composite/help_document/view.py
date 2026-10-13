@@ -67,6 +67,11 @@ class HelpDocumentView(QWidget):
         self._toc_title = toc_title
         self._blocks: tuple[HelpBlock, ...] = ()
         self._source_markdown: str = ""
+        # The live TOC frame, tracked explicitly: the previous one is torn
+        # down with deleteLater (deferred), so findChild() would keep
+        # returning the stale frame and _repolish would style a doomed
+        # widget, leaving the fresh TOC border-less after navigation.
+        self._toc: QFrame | None = None
 
         self._root = QVBoxLayout(self)
         self._root.setContentsMargins(20, 16, 20, 24)
@@ -96,12 +101,19 @@ class HelpDocumentView(QWidget):
         """See ``HelpDocumentBodyCanvas.set_tab_stop_px``."""
         self._canvas.set_tab_stop_px(px)
 
+    def _dispose_toc(self) -> None:
+        """Detach and schedule deletion of the current TOC frame."""
+        toc = self._toc
+        self._toc = None
+        if toc is not None:
+            self._root.removeWidget(toc)
+            toc.setParent(None)
+            toc.deleteLater()
+
     def clear(self) -> None:
         self._blocks = ()
         self._source_markdown = ""
-        toc = self.findChild(QFrame, "HelpDocumentToc")
-        if toc is not None:
-            toc.deleteLater()
+        self._dispose_toc()
         self._canvas.set_blocks(())
 
     def set_markdown(self, markdown: str) -> None:
@@ -139,9 +151,7 @@ class HelpDocumentView(QWidget):
 
     def set_blocks(self, blocks: tuple[HelpBlock, ...] | list[HelpBlock]) -> None:
         self._blocks = tuple(blocks)
-        toc = self.findChild(QFrame, "HelpDocumentToc")
-        if toc is not None:
-            toc.deleteLater()
+        self._dispose_toc()
         if self._show_toc:
             self._maybe_add_toc()
         self._canvas.set_blocks(self._blocks)
@@ -203,6 +213,7 @@ class HelpDocumentView(QWidget):
             return
         frame = QFrame(self)
         frame.setObjectName("HelpDocumentToc")
+        self._toc = frame
         frame.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
@@ -260,7 +271,7 @@ class HelpDocumentView(QWidget):
     def _repolish(self, *_args) -> None:
         self._read_surface_color()
         self.update()
-        toc = self.findChild(QFrame, "HelpDocumentToc")
+        toc = self._toc
         if toc is not None:
             sep = self._theme.try_get_color("help.separator")
             if sep is None or not sep.isValid():
