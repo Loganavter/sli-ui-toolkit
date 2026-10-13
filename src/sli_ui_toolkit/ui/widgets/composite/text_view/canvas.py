@@ -207,6 +207,30 @@ class TextCanvas(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidget):
             return self._document_index.text
         return self.text()
 
+    def selected_plain_text(self) -> str:
+        """Selected plain text in either mode ("" when nothing is selected)."""
+        if self._document_index is not None:
+            rng = self._doc_selection.copy_range()
+            if rng is None:
+                return ""
+            return self._document_index.slice_plain(rng[0], rng[1])
+        return self._selected_text() or ""
+
+    def select_all_text(self) -> None:
+        """Select the whole content in either mode."""
+        if self._document_index is not None:
+            self._doc_selection.select_all(len(self._document_index.text))
+            self.update()
+            return
+        self.select_all()
+
+    def reset_selection(self) -> None:
+        """Drop the selection in either mode (document or code)."""
+        self._doc_selection.reset()
+        self._selection.clear()
+        self._chain_selecting = None
+        self.update()
+
     def set_text(self, text: str) -> None:
         self._lines = text.split("\n") if text else [""]
         self._cursor = (0, 0)

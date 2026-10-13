@@ -207,11 +207,9 @@ def test_config_is_frozen():
 
 
 @pytest.mark.parametrize("mode", ["document", "code"])
-def test_document_and_code_modes_are_p2_stubs(qapp, mode):
-    with pytest.raises(NotImplementedError, match="P2"):
-        Text("body", mode=mode)
-    with pytest.raises(NotImplementedError, match="P2"):
-        Text(config=TextConfig(text="body", mode=mode))
+def test_engine_modes_construct_and_report_mode(qapp, mode):
+    assert Text("body", mode=mode).mode() == mode
+    assert Text(config=TextConfig(text="body", mode=mode)).mode() == mode
 
 
 def test_unknown_mode_is_rejected(qapp):
@@ -406,3 +404,147 @@ def test_context_menu_opens_only_for_selectable_text(qapp, monkeypatch):
     plain = Text("menu me")
     QApplication.sendEvent(plain, QContextMenuEvent(QContextMenuEvent.Reason.Mouse, QPointF(5, 5).toPoint()))
     assert opened == [selectable]
+
+
+def test_hover_cursor_is_ibeam_only_over_glyphs(qapp):
+    """Plain mode follows the glyph-hit rule: I-beam over characters, Arrow
+    over the empty widget space to their right.
+
+    Falsification: the pre-change ``setSelectable`` sets I-beam widget-wide,
+    so the empty-space assertion fails on the old code.
+    """
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+
+    widget = Text("hello", selectable=True)
+    widget.resize(260, 30)
+    widget.show()
+    QApplication.processEvents()
+    x0 = widget.contentsRect().x()
+    y = widget.contentsRect().height() // 2
+    QTest.mouseMove(widget, pos=QPoint(x0 + 3, y))
+    QApplication.processEvents()
+    assert widget.cursor().shape() == Qt.CursorShape.IBeamCursor
+    QTest.mouseMove(widget, pos=QPoint(240, y))
+    QApplication.processEvents()
+    assert widget.cursor().shape() == Qt.CursorShape.ArrowCursor
+
+
+def test_plain_glyph_hit_rule_bounds():
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QFont
+
+    from sli_ui_toolkit.ui.widgets.text.plain import build_layout, hit_glyph
+
+    font = QFont()
+    layout = build_layout("ab\ncd", font, 400, False, Qt.AlignmentFlag.AlignLeft)
+    first = layout.lineAt(0)
+    assert hit_glyph(layout, QPointF(first.x() + 1, first.y() + 1)) is True
+    assert hit_glyph(layout, QPointF(first.x() + first.naturalTextWidth() + 50, first.y() + 1)) is False
+    assert hit_glyph(layout, QPointF(first.x() + 1, -5)) is False
+    assert hit_glyph(build_layout("", font, 400, False, Qt.AlignmentFlag.AlignLeft), QPointF(1, 1)) is False
+
+
+def test_text_has_inspector_descriptor(qapp):
+    assert Text.inspect_spec.family == "Text"
+    assert Text.widget_descriptor.family == "Text"
+    assert Text.widget_descriptor.inspect.docs == "docs/user/LABELS_API.md"
+
+
+_DOC = "# Title\n\nSome **bold** words and a [link](help://x).\n"
+
+
+def test_document_mode_pixels_match_the_engine_it_hosts(qapp):
+    """Parity: ``Text(mode="document")`` paints exactly what a bare TextCanvas
+    paints for the same markdown at the same size (delegation is transparent).
+
+    Falsification: a Text that hosts no engine, or sizes it wrongly, paints
+    nothing or differs by pixels.
+    """
+    from sli_ui_toolkit.ui.widgets.composite.text_view.canvas import TextCanvas
+
+    widget = Text(_DOC, mode="document")
+    widget.resize(360, 200)
+    widget.show()
+    QApplication.processEvents()
+
+    reference = TextCanvas("")
+    reference.set_document(_DOC)
+    reference.resize(360, 200)
+    reference.show()
+    QApplication.processEvents()
+
+    assert widget.text().startswith("Title")
+    painted = _grab(reference)
+    assert any(
+        painted.pixelColor(x, y) != _WHITE
+        for x in range(0, painted.width(), 3)
+        for y in range(0, painted.height(), 3)
+    )
+    assert _pixel_diff(_grab(widget), painted) == 0
+
+
+def test_document_selection_api(qapp):
+    widget = Text(_DOC, mode="document", selectable=True)
+    widget.resize(360, 200)
+    widget.show()
+    QApplication.processEvents()
+    assert widget.hasSelectedText() is False
+    widget.select_all_text()
+    assert widget.hasSelectedText() is True
+    assert "bold" in widget.selected_plain_text()
+    assert "bold" in widget.selectedText()
+    widget.clear_selection()
+    assert widget.selected_plain_text() == ""
+
+
+def test_document_set_markdown_replaces_content(qapp):
+    widget = Text("", mode="document")
+    widget.set_markdown("# Other\n\nbody")
+    assert "body" in widget.text()
+    widget.setText("# Third\n\nlast")
+    assert "last" in widget.text()
+
+
+def test_document_signals_forward_from_engine(qapp):
+    widget = Text(_DOC, mode="document")
+    links: list[str] = []
+    images: list[str] = []
+    widget.linkActivated.connect(links.append)
+    widget.imageActivated.connect(images.append)
+    widget._engine.linkActivated.emit("help://x")
+    widget._engine.imageActivated.emit("img.png")
+    assert links == ["help://x"]
+    assert images == ["img.png"]
+
+
+def test_code_mode_edit_switch_and_selection(qapp):
+    widget = Text("a = 1\nb = 2", mode="code", editable=True)
+    widget.resize(260, 120)
+    widget.show()
+    QApplication.processEvents()
+    assert widget.is_editing() is True
+    widget.selectAll()
+    assert widget.selectedText() == "a = 1\nb = 2"
+    widget.set_editing(False)
+    assert widget.is_editing() is False
+    assert Text("x", mode="code").is_editing() is False
+
+
+def test_engine_fills_the_widget_and_plain_mode_hosts_none(qapp):
+    widget = Text("body", mode="code")
+    widget.resize(200, 80)
+    widget.show()
+    QApplication.processEvents()
+    assert widget._engine.geometry() == widget.rect()
+    assert Text("body")._engine is None
+
+
+def test_mode_guards_reject_wrong_mode_calls(qapp):
+    with pytest.raises(RuntimeError, match='mode="document"'):
+        Text("x", mode="code").set_markdown("# y")
+    with pytest.raises(RuntimeError, match='mode="code"'):
+        Text(_DOC, mode="document").set_editing(True)
+    with pytest.raises(RuntimeError, match='mode="document"'):
+        Text("plain").anchor_y("title")
+    assert Text(_DOC, mode="document").anchor_y("no-such-anchor") is None

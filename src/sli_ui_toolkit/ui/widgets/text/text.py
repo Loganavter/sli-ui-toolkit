@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import QEvent, QPointF, QRect, QSize, Qt, QTextBoundaryFinder, Signal
 from PySide6.QtGui import (
@@ -25,6 +25,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from sli_ui_toolkit.ui.widgets.atomic.label_context_menu import (
@@ -35,15 +36,21 @@ from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     ensure_marquee_driver,
     text_overflows,
 )
+from sli_ui_toolkit.ui.widgets.composite.help_document.canvas import markdown_for_selection
+from sli_ui_toolkit.ui.widgets.composite.text_view.canvas import TextCanvas
 from sli_ui_toolkit.ui.widgets.text.plain import (
     build_layout,
+    hit_glyph,
     hit_test,
     selection_rects,
 )
 from sli_ui_toolkit.ui.widgets.text.variants import TextVariantSpec, get_text_variant
 
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
+
 _PLAIN = "plain"
-_P2_MODES = ("document", "code")
+_ENGINE_MODES = ("document", "code")
 _NO_WRAP_EXTENT = 1 << 20
 
 
@@ -71,6 +78,8 @@ class TextConfig:
     expanding: bool | None = None
     word_wrap: bool | None = None
     selectable: bool = False
+    editable: bool = False
+    resolve_asset: Any = None
 
     def to_kwargs(self) -> dict[str, Any]:
         """Field values keyed by the ``Text.__init__`` kwarg they override."""
@@ -93,23 +102,27 @@ class TextConfig:
             "expanding": self.expanding,
             "word_wrap": self.word_wrap,
             "selectable": self.selectable,
+            "editable": self.editable,
+            "resolve_asset": self.resolve_asset,
         }
 
 
-def _require_plain_mode(mode: str) -> None:
-    if mode == _PLAIN:
+def _require_mode(mode: str) -> None:
+    if mode == _PLAIN or mode in _ENGINE_MODES:
         return
-    if mode in _P2_MODES:
-        raise NotImplementedError(
-            f'Text mode "{mode}" is not implemented yet (P2); use mode="plain"'
-        )
-    raise ValueError(f'unknown Text mode {mode!r}; expected "plain"')
+    raise ValueError(f'unknown Text mode {mode!r}; expected "plain", "document" or "code"')
 
 
 class Text(QWidget):
     """Painted text display. Plain mode matches ``Label`` typography and behavior."""
 
     selectionChanged = Signal()
+    textChanged = Signal()
+    linkActivated = Signal(str)
+    imageActivated = Signal(str)
+
+    inspect_spec: ClassVar[InspectSpec]
+    widget_descriptor: ClassVar[WidgetDescriptor]
 
     def __init__(
         self,
@@ -135,6 +148,8 @@ class Text(QWidget):
         expanding: bool | None = None,
         word_wrap: bool | None = None,
         selectable: bool = False,
+        editable: bool = False,
+        resolve_asset: Any = None,
         config: TextConfig | None = None,
     ):
         if config is not None:
@@ -156,11 +171,14 @@ class Text(QWidget):
             expanding = config.expanding
             word_wrap = config.word_wrap
             selectable = config.selectable
+            editable = config.editable
+            resolve_asset = config.resolve_asset
 
-        _require_plain_mode(mode)
+        _require_mode(mode)
         super().__init__(parent)
         self.theme_manager = ThemeManager.get_instance()
         self._mode = mode
+        self._engine: TextCanvas | None = None
         self._variant_name = variant
         self._family_override = family
         self._pixel_size_override = pixel_size
@@ -182,22 +200,58 @@ class Text(QWidget):
         self._sel_anchor = 0
         self._sel_cursor = 0
         self._dragging = False
+        self._hover_ibeam: bool | None = None
         self._applying_style = False
 
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
         UiFont.get_instance().font_changed.connect(self._apply_style)
         UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        if mode in _ENGINE_MODES:
+            self._build_engine(mode, text, editable, resolve_asset)
         self._apply_style()
-        if selectable:
+        if selectable and self._engine is None:
             self.setSelectable(True)
+
+    def _build_engine(
+        self, mode: str, text: str, editable: bool, resolve_asset: Any
+    ) -> None:
+        """Host the painted engine (``TextCanvas``) as the single child that
+        fills this widget. Scrolling stays with the host."""
+        engine = TextCanvas("" if mode == "document" else text)
+        engine.setParent(self)
+        self._engine = engine
+        self._resolve_asset = resolve_asset
+        engine.changed.connect(self.textChanged)
+        engine.linkActivated.connect(self.linkActivated)
+        engine.imageActivated.connect(self.imageActivated)
+        if mode == "document":
+            engine.set_document(text, resolve_asset=resolve_asset)
+        elif editable:
+            engine.set_editing(True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        engine.setGeometry(self.rect())
+
+    def _engine_for(self, mode: str) -> TextCanvas:
+        if self._engine is None or self._mode != mode:
+            raise RuntimeError(f'operation requires mode="{mode}", not "{self._mode}"')
+        return self._engine
 
     def mode(self) -> str:
         return self._mode
 
     def text(self) -> str:
+        if self._engine is not None:
+            return self._engine.plain_text()
         return self._display_text
 
     def setText(self, text: str) -> None:
+        if self._engine is not None:
+            if self._mode == "document":
+                self._engine.set_document(text, resolve_asset=self._resolve_asset)
+            else:
+                self._engine.set_text(text)
+            self.update()
+            return
         self._original_text = text
         self._clear_selection()
         self._update_display_text()
@@ -297,9 +351,13 @@ class Text(QWidget):
         self._selectable = bool(enabled)
         if self._selectable:
             self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-            self.setCursor(Qt.CursorShape.IBeamCursor)
+            self.setMouseTracking(True)
+            self._hover_ibeam = None
+            self._update_hover_cursor(QPointF(-1, -1))
         else:
             self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            self.setMouseTracking(False)
+            self._hover_ibeam = None
             self.unsetCursor()
             self._clear_selection()
 
@@ -307,12 +365,33 @@ class Text(QWidget):
         return self._selectable
 
     def hasSelectedText(self) -> bool:
+        if self._engine is not None:
+            return bool(self._engine.selected_plain_text())
         start, end = self._selection_bounds()
         return start != end
 
     def selectedText(self) -> str:
+        if self._engine is not None:
+            return self._engine.selected_plain_text()
         start, end = self._selection_bounds()
         return self._display_text[start:end]
+
+    def selected_plain_text(self) -> str:
+        return self.selectedText()
+
+    def selected_markdown(self, source_markdown: str) -> str:
+        """Document mode: the source-markdown slice covering the selection."""
+        self._engine_for("document")
+        return markdown_for_selection(self.selected_plain_text(), source_markdown)
+
+    def select_all_text(self) -> None:
+        self.selectAll()
+
+    def clear_selection(self) -> None:
+        if self._engine is not None:
+            self._engine.reset_selection()
+            return
+        self._clear_selection()
 
     def setSelection(self, start: int, length: int) -> None:
         text_length = len(self._display_text)
@@ -322,9 +401,35 @@ class Text(QWidget):
         self._set_selection_range(start, min(text_length, start + length))
 
     def selectAll(self) -> None:
+        if self._engine is not None:
+            self._engine.select_all_text()
+            return
         self.setSelection(0, len(self._display_text))
 
+    def set_markdown(self, markdown: str, *, resolve_asset: Any = None) -> None:
+        """Document mode: replace the content with markdown blocks."""
+        engine = self._engine_for("document")
+        if resolve_asset is not None:
+            self._resolve_asset = resolve_asset
+        engine.set_document(markdown, resolve_asset=self._resolve_asset)
+
+    def anchor_y(self, anchor: str) -> int | None:
+        """Document mode: content y of a heading anchor (``None`` if absent)."""
+        return self._engine_for("document").anchor_y(anchor)
+
+    def is_editing(self) -> bool:
+        return self._engine is not None and self._engine.is_editing()
+
+    def set_editing(self, editing: bool) -> None:
+        """Code mode: switch the painted buffer between read and edit."""
+        self._engine_for("code").set_editing(bool(editing))
+
+    def set_line_number_start(self, start: int | None) -> None:
+        self._engine_for("code").set_line_number_start(start)
+
     def minimumSizeHint(self):
+        if self._engine is not None:
+            return QSize(0, self._engine.minimumHeight())
         if self._word_wrap:
             size = self._widest_word_size()
         else:
@@ -334,6 +439,8 @@ class Text(QWidget):
         return size
 
     def sizeHint(self):
+        if self._engine is not None:
+            return QSize(0, self._engine.minimumHeight())
         size = self._text_size(-1, 0)
         if self._uses_elide():
             width = max(
@@ -351,6 +458,8 @@ class Text(QWidget):
         return self._text_size(max(0, width), flags).height()
 
     def paintEvent(self, event) -> None:  # noqa: N802
+        if self._engine is not None:
+            return
         painter = QPainter(self)
         rect = self.contentsRect()
         text = self._display_text
@@ -436,7 +545,23 @@ class Text(QWidget):
             self._extend_selection_to(self._hit(event.position()))
             event.accept()
             return
+        if self._selectable:
+            self._update_hover_cursor(event.position())
         super().mouseMoveEvent(event)
+
+    def _update_hover_cursor(self, position: QPointF) -> None:
+        """I-beam iff the pointer is over a glyph, Arrow otherwise."""
+        rect = self.contentsRect()
+        layout = self._layout(rect.width())
+        origin = QPointF(rect.x(), self._text_top(rect, self._text_flags()))
+        local = QPointF(position.x() - origin.x(), position.y() - origin.y())
+        want_beam = self._display_text != "" and hit_glyph(layout, local)
+        if want_beam == self._hover_ibeam:
+            return
+        self._hover_ibeam = want_beam
+        self.setCursor(
+            Qt.CursorShape.IBeamCursor if want_beam else Qt.CursorShape.ArrowCursor
+        )
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         self._dragging = False
@@ -492,6 +617,9 @@ class Text(QWidget):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if self._engine is not None:
+            self._engine.setGeometry(self.rect())
+            return
         self._update_display_text()
 
     def hideEvent(self, event) -> None:  # noqa: N802
@@ -526,7 +654,7 @@ class Text(QWidget):
             self._applying_style = False
 
     def _apply_style(self) -> None:
-        if self._applying_style:
+        if self._applying_style or self._engine is not None:
             return
         self._applying_style = True
         try:
@@ -702,3 +830,30 @@ class Text(QWidget):
 
     def _clear_selection(self) -> None:
         self._set_selection_range(0, 0)
+
+
+Text.inspect_spec = InspectSpec(
+    family="Text",
+    state=(
+        SpecField("text", "get_original_text"),
+        SpecField("mode", "mode"),
+        SpecField("variant", "variant"),
+        SpecField("marquee", "marquee"),
+    ),
+    token_family=("dialog.text",),
+    docs="docs/user/LABELS_API.md",
+)
+
+from sli_ui_toolkit.ui.widget_descriptor import InspectSection, WidgetDescriptor  # noqa: E402
+
+Text.widget_descriptor = WidgetDescriptor(
+    family=Text.inspect_spec.family,
+    inspect=InspectSection(
+        config=getattr(Text.inspect_spec, "config", ()),
+        state=Text.inspect_spec.state,
+        token_family=getattr(Text.inspect_spec, "token_family", ()),
+        regions=getattr(Text.inspect_spec, "regions", False),
+        layers=getattr(Text.inspect_spec, "layers", False),
+        docs=getattr(Text.inspect_spec, "docs", ""),
+    ),
+)
