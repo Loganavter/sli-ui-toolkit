@@ -69,6 +69,7 @@ from sli_ui_toolkit.ui.widgets.buttons import (
     set_default_underline_fade,
     set_ripple_duration_ms,
 )
+from sli_ui_toolkit.ui.widgets.text import Text, TextConfig
 from sli_ui_toolkit.ui.widgets.composite import (
     TextView,
     python_line_spans,
@@ -255,6 +256,8 @@ __all__ = [
     "DoubleSpinBox",
     "Switch",
     "Label",
+    "Text",
+    "TextConfig",
     "MeasuredHeights",
     "RowPool",
     "VirtualListController",
