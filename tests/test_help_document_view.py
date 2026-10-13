@@ -571,7 +571,17 @@ def test_help_document_hit_test_spans_wrapped_lines(qapp, qtbot):
     frag = canvas._layout.text_fragments[0]
     assert frag.layout.lineCount() >= 2
     start = frag.rect.topLeft() + QPointF(2, 2)
-    end = QPointF(frag.rect.right() - 2, frag.rect.bottom() - 2)
+    # End of the LAST laid-out line (glyph end, not the block corner:
+    # past-glyph clicks are empty space since the strict hit-test).
+    last = None
+    for i in range(frag.layout.lineCount()):
+        line = frag.layout.lineAt(i)
+        if line.isValid():
+            last = line
+    assert last is not None
+    end = frag.rect.topLeft() + QPointF(
+        last.naturalTextWidth() - 1, last.y() + last.height() / 2
+    )
     start_off = hit_test_text_offset(canvas._layout, start)
     end_off = hit_test_text_offset(canvas._layout, end)
     assert start_off is not None
@@ -581,6 +591,37 @@ def test_help_document_hit_test_spans_wrapped_lines(qapp, qtbot):
     selected = view.selected_plain_text()
     assert len(selected) > 20
     assert "длинный абзац" in selected
+    view.deleteLater()
+
+
+def test_help_document_hit_test_misses_empty_space(qapp, qtbot):
+    """Past the last glyph is empty space: no offset, no I-beam promise.
+
+    Falsification: pre-change the fragment's full block width hits and
+    clamps to the nearest offset.
+    """
+    from PySide6.QtCore import QPointF
+
+    from sli_ui_toolkit.ui.widgets.composite.text_view.layout.hit_test import (
+        hit_test_text_offset,
+    )
+
+    view = HelpDocumentView(show_toc=False)
+    qtbot.addWidget(view)
+    view.resize(260, 600)
+    view.show()
+    qtbot.waitExposed(view)
+    view.set_markdown("Коротко.\n")
+    qapp.processEvents()
+    canvas = _canvas(view)
+    frag = canvas._layout.text_fragments[0]
+    first = frag.layout.lineAt(0)
+    assert first.isValid()
+    y_mid = frag.rect.topLeft().y() + first.y() + first.height() / 2
+    on_glyph = QPointF(frag.rect.left() + 2, y_mid)
+    past_end = QPointF(frag.rect.right() - 2, y_mid)
+    assert hit_test_text_offset(canvas._layout, on_glyph) is not None
+    assert hit_test_text_offset(canvas._layout, past_end) is None
     view.deleteLater()
 
 
