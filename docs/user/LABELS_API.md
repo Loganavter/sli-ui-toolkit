@@ -62,3 +62,27 @@ and look it up with `get_label_variant(name)`.
 | `DropZoneLabel` | Label with drag-and-drop zone visuals and file accept logic. |
 
 See also [API_CATALOG.md](API_CATALOG.md) for the full widget index.
+
+## Text (plain mode)
+
+`Text` is the replacement for `Label` in the unified text work (contract:
+`docs/text-unification-plan`, `docs/dev/TEXT_UNIFICATION.md`). P1 ships `mode="plain"` only, at `Label`
+parity: same keyword options, same variant registry, same pixels for unselected
+text.
+
+```python
+from sli_ui_toolkit.widgets import Text, TextConfig
+
+caption = Text("Secondary status", variant="caption", elide=True)
+note = Text(config=TextConfig(text="Pinned", bold=True, selectable=True))
+```
+
+- `mode="document"` and `mode="code"` raise `NotImplementedError` until P2.
+- `selectable=True` adds mouse drag, double-click word selection, `Ctrl+A`,
+  `Ctrl+C`, arrow/Home/End keys with Shift, and the right-click Copy / Select
+  all menu. `selectionChanged` fires on each change.
+- Known gap vs `Label`: `sizeHint()` of a wrapped text is the single-line
+  width, not `QLabel`'s area-balanced hint. Layouts should rely on
+  `heightForWidth()`, which matches `Label`.
+- Variants and `register_label_variant` are shared with `Label` until `Label`
+  is retired; `register_text_variant` is the same registry under the new name.
