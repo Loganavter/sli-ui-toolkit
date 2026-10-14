@@ -9,6 +9,7 @@ from PySide6.QtCore import QPoint, QRect, QTimer
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
+from sli_ui_toolkit.i18n import get_current_language
 from sli_ui_toolkit.ui.in_window_surface import (
     clamp_surface_rect,
     surface_anchor_rect,
@@ -217,6 +218,12 @@ def toggle_submenu(
     )
     submenu.actionTriggered.connect(menu.actionTriggered)
     submenu._owner_menu = menu
+    # Inherit the owner's translator so a branch opened later (after the
+    # owning menu was bound) resolves its keyed entries in the live language.
+    owner_translator = getattr(menu, "_sli_translator", None)
+    if callable(owner_translator):
+        submenu.set_translator(owner_translator)
+        submenu.retranslate(get_current_language())
     # Outside-click parity: a Qt popup grab natively hides only the topmost
     # popup, so an outside press would orphan the owner (still visible with
     # a stale ``_open_submenu``). QMenu dismisses the whole chain instead —

@@ -12,6 +12,21 @@ from sli_ui_toolkit import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _restore_i18n_backend(qapp):
+    """configure_i18n state is process-wide; restore it after every test."""
+    mgr = TranslationManager()
+    saved = (
+        getattr(mgr, "_custom_translator", None),
+        getattr(mgr, "_language_provider", None),
+        mgr._current_lang,
+    )
+    yield
+    mgr._custom_translator = saved[0]
+    mgr._language_provider = saved[1]
+    mgr._current_lang = saved[2]
+
+
 def test_translation_events_singleton():
     a = translation_events()
     b = translation_events()
@@ -111,3 +126,26 @@ def test_translatable_defers_when_hidden(qapp, qtbot):
     qtbot.waitUntil(lambda: label.isVisible(), timeout=1000)
     qtbot.waitUntil(lambda: label.text() == "zh", timeout=1000)
     assert "zh" in seen
+
+
+def test_configure_i18n_wires_custom_translator(qapp):
+    """The ``translator=`` backend is no longer ignored (was a silent no-op)."""
+    from sli_ui_toolkit.i18n import configure_i18n
+
+    configure_i18n(translator=lambda key, lang: f"<{lang}>{key}")
+    assert tr("k", language="ru") == "<ru>k"
+    assert tr("k") == f"<{get_current_language()}>k"
+    # ``default=`` still applies when the custom backend returns the key.
+    assert tr("k", default="fallback", language="ru") == "<ru>k"
+
+
+def test_configure_i18n_wires_language_provider(qapp):
+    """The ``language_provider=`` hook now sources the reported language."""
+    from sli_ui_toolkit.i18n import configure_i18n
+
+    configure_i18n(language_provider=lambda: "fr")
+    assert get_current_language() == "fr"
+    # A falsy provider value falls back to the tracked language.
+    configure_i18n(language_provider=lambda: "")
+    emit_language_changed("ru")
+    assert get_current_language() == "ru"

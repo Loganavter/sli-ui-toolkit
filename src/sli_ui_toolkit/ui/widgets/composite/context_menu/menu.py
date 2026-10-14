@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.config import get_context_menu_surface
 from sli_ui_toolkit.core.debug_flags import any_flag
+from sli_ui_toolkit.i18n import translator_for
 from sli_ui_toolkit.ui.widgets.buttons.feedback import get_ripple_duration_ms
 from sli_ui_toolkit.ui.popup_surface import (
     bind_popup_transient_parent,
@@ -148,6 +149,45 @@ class ContextMenu(BaseFlyout):
         return None
 
     # -------- entries (content.py) --------
+
+    def set_translator(self, tr_func, *, defer_when_hidden: bool = False) -> None:
+        """Duck-typed protocol hook used by ``bind_translator``/``install_translator``."""
+        self._sli_translator = tr_func
+        self._sli_defer_when_hidden = defer_when_hidden
+
+    def retranslate(self, lang: str) -> None:
+        """Re-resolve every keyed row's text/tooltip, then refresh metrics/layout.
+
+        Entries are retained on each row (``row._spec``), so this never rebuilds
+        the menu — it mutates the live rows and re-runs the width pass.
+        """
+        tr_func = translator_for(self)
+        changed = False
+        for row in list(self._rows):
+            spec = getattr(row, "_spec", None)
+            if spec is None:
+                continue
+            text_key = getattr(spec, "text_key", None)
+            if text_key:
+                # Rows paint ``widget._text`` directly (``_RowContentLayer``);
+                # set it and refresh metrics without a full ``setText`` (which
+                # would flip the row's text geometry policy).
+                row._text = tr_func(text_key, lang)
+                row._has_text = bool(row._text)
+                row.refresh_metrics()
+                row.update()
+                changed = True
+            tooltip_key = getattr(spec, "tooltip_key", None)
+            if tooltip_key:
+                row.setToolTip(tr_func(tooltip_key, lang))
+        if changed:
+            self._relayout_widths()
+        submenu = getattr(self, "_open_submenu", None)
+        if submenu is not None:
+            try:
+                submenu.retranslate(lang)
+            except (RuntimeError, SystemError):
+                pass
 
     def set_entries(self, entries: Iterable[ContextMenuEntry]) -> None:
         content_ops.set_entries(self, entries)

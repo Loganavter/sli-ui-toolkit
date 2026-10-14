@@ -371,6 +371,8 @@ or `parent` — those apply to the whole `Button`, not one region.
 | `z_index` | `int` | `0` |
 | `corner_radii` | `tuple[int, int, int, int] \| None` | `None` — rounds the region **background**; when `pixmap=` is set, also **clips** the image (crop radii) |
 | `group` | `str \| None` | `None` |
+| `text_key` | `str \| None` | `None` — declarative translation key for this region's `text` (non-`_main` regions only; `_main` uses `Button.text_key`) |
+| `badge_key` | `str \| None` | `None` — declarative translation key for this region's `badge` |
 
 Note that `checked` is **not** a `ButtonRegion` field — a region's checked
 state is runtime-only (see below), not part of its static config.
@@ -638,11 +640,13 @@ Need scroll-wheel-driven behavior on a region? Attach a custom
 Button(
     icon: Any = None,
     text: str = "",
+    text_key: str | None = None,
     rows: list[ButtonRow] | None = None,
     toggle: bool = False,
     long_press: bool = False,
     long_press_ms: int = 600,
     badge: int | None = None,
+    badge_key: str | None = None,
     show_underline: bool = False,
     menu: list[tuple[str, Any]] | None = None,
     size: tuple[int, int] = (36, 36),
@@ -669,11 +673,13 @@ Button(
 |-----------|------|---------|-------------|
 | `icon` | `Any` | `None` | Icon name or tuple of (unchecked, checked) |
 | `text` | `str` | `""` | Single-line text content |
-| `rows` | `list[ButtonRow]` | `None` | Multi-line text with individual styling |
+| `text_key` | `str \| None` | `None` | Declarative translation key for the `_main` text. When set (and a translator is bound via [`install_translator`](CONFIGURATION.md#4-translations--configure_i18n)), the key wins over `text` on every language change; a miss paints the key. See [Translations](#translations). |
+| `rows` | `list[ButtonRow]` | `None` | Multi-line text with individual styling. Each row may carry its own `text_key`. |
 | `toggle` | `bool` | `False` | Toggleable button (on/off state) |
 | `long_press` | `bool` | `False` | Detect press-and-hold |
 | `long_press_ms` | `int` | `600` | Time (ms) before long-press triggers |
 | `badge` | `int` | `None` | Number badge (top-right corner) |
+| `badge_key` | `str \| None` | `None` | Declarative translation key for the badge; re-resolved on each language change (numeric/plain badges are untouched). |
 | `show_underline` | `bool` | `False` | Show underline decoration |
 | `underline_color` | `QColor \| list[QColor]` | `None` | Underline color, or a list to split it into equal-width colored zones |
 | `underline_thickness` | `float` | `None` | Underline thickness in px. Uncapped — never overflows the button's rounding regardless of value |
@@ -695,6 +701,37 @@ Button(
 | `spec` | `ButtonSpec` | `None` | Declarative control description. Prefer `Button.from_spec(spec)` for new complex controls. |
 | `config` | `ButtonConfig` | `None` | Use ButtonConfig dataclass instead of params |
 | `parent` | `QWidget` | `None` | Parent widget |
+
+### Translations
+
+Declarative keys are re-resolved on every `language_changed` for a subtree
+bound with [`install_translator`](CONFIGURATION.md#4-translations--configure_i18n)
+(or `bind_translator` for one widget). The key **wins** over the literal text
+on each retranslate, and a lookup **miss paints the key** so a gap is visible
+(never silent English). `translatable_text` is a silent no-op on a rows button
+(rows are painted from `_rows`, not `setText`) — use the key fields instead.
+
+```python
+from sli_ui_toolkit import install_translator
+
+btn = Button(
+    rows=[ButtonRow(text="Project", text_key="card.project", size=13, weight="bold")],
+    badge_key="card.count",
+)
+install_translator(window, lambda key, lang: tr(key, language=lang))
+```
+
+Runtime surface on `Button`:
+
+| Method | Effect |
+|--------|--------|
+| `setTextKey(key)` | Set/clear the `_main` text key (`None` clears; the last resolved string stays). |
+| `setBadgeKey(key)` | Set/clear the badge key. |
+| `set_translator(tr_func, *, defer_when_hidden=False)` | Duck-typed protocol hook used by `install_translator`/`bind_translator`. |
+| `retranslate(lang)` | Re-resolve `text_key`/`badge_key`/region keys and every keyed `ButtonRow` (re-applied via `setRows`/`update_region`). |
+
+`ButtonRegion` also accepts `text_key`/`badge_key` for its own text/badge
+(`_main` keys flow through the `Button` ctor kwargs).
 
 ## Signals
 
@@ -871,8 +908,14 @@ row = ButtonRow(
     marquee=False,                              # Loop left→right when text overflows
     elide=False,                                # Truncate with … when text overflows
     wrap=False,                                 # Word-wrap onto multiple lines
+    text_key=None,                              # Declarative translation key (wins over text)
 )
 ```
+
+`text_key` re-resolves the row's painted text on each `language_changed` when a
+translator is bound to the owning `Button` (or an ancestor) — the only path that
+works for rows, since the painter reads `ButtonRow.text` rather than
+`Button.setText`. A lookup miss paints the key.
 
 `wrap=True` breaks the row across as many lines as needed at word
 boundaries within the region's available width instead of clipping (or

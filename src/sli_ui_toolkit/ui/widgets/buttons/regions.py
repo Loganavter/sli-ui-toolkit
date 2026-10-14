@@ -72,6 +72,12 @@ class ButtonRegion:
     # (e.g. a split button whose digit backdrop must not bleed into a
     # sibling region).
     clip_content: bool | None = None
+    # Declarative translation keys for a region's own text / badge. When set
+    # and a translator is bound to the owning ``Button`` (or an ancestor), the
+    # region's text/badge re-resolve on every language change; a miss shows the
+    # key itself. ``_main`` keys flow through ``Button.text_key``/``badge_key``.
+    text_key: str | None = None
+    badge_key: str | None = None
 
 
 class SplitLayout(Protocol):

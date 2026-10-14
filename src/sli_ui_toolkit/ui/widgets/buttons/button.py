@@ -41,6 +41,7 @@ from sli_ui_toolkit.deprecations import (
     BUTTON_SET_CHECKED_EMIT_SIGNAL,
     warn_deprecated,
 )
+from sli_ui_toolkit.i18n import get_current_language, translator_for
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 
@@ -247,10 +248,12 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         *,
         text: str = "",
         rows: list[ButtonRow] | None = None,
+        text_key: str | None = None,
         toggle: bool = False,
         long_press: bool = False,
         long_press_ms: int = 600,
         badge: int | str | None = None,
+        badge_key: str | None = None,
         show_underline: bool = False,
         underline_color: Any = None,
         underline_thickness: float | None = None,
@@ -433,6 +436,8 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._hover_color: QColor | None = None
         self._hover_compose: str = "replace"
         self._badge = badge
+        self._text_key: str | None = None
+        self._badge_key: str | None = None
         self._flyout_open = False
 
         if underline_color is not None:
@@ -549,6 +554,8 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
                     long_press=long_press,
                     long_press_ms=long_press_ms,
                     badge=badge,
+                    badge_key=badge_key,
+                    text_key=text_key,
                     variant=variant,
                     custom_bg_color=background_color,
                     show_underline=show_underline,
@@ -563,6 +570,110 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         else:
             self.set_regions(regions, split=split, divider=divider)
         self._sync_wrap_height_policy()
+        self._text_key = text_key
+        self._badge_key = badge_key
+        if self._has_translation_keys():
+            # Resolve declarative keys immediately (mirrors ``setTextKey``);
+            # a miss paints the key so the gap is visible, never silent English.
+            self.retranslate(get_current_language())
+
+    def _has_translation_keys(self) -> bool:
+        if self._text_key is not None or self._badge_key is not None:
+            return True
+        for region in self._controller.regions:
+            if region.text_key is not None or region.badge_key is not None:
+                return True
+            if any(getattr(row, "text_key", None) for row in (region.rows or [])):
+                return True
+        return False
+
+    # -------- public API: translation keys --------
+
+    def setTextKey(self, key: str | None) -> None:
+        """Attach (or clear) the declarative translation key for ``_main`` text.
+
+        The key wins over the literal ``text`` on every retranslate; clearing it
+        leaves the last resolved string in place.
+        """
+        self._text_key = key
+        if key is not None:
+            self.retranslate(get_current_language())
+
+    def setBadgeKey(self, key: str | None) -> None:
+        """Attach (or clear) the declarative translation key for the badge."""
+        self._badge_key = key
+        if key is not None:
+            self.retranslate(get_current_language())
+
+    def set_translator(self, tr_func, *, defer_when_hidden: bool = False) -> None:
+        """Duck-typed protocol hook used by ``bind_translator``/``install_translator``."""
+        self._sli_translator = tr_func
+        self._sli_defer_when_hidden = defer_when_hidden
+
+    def retranslate(self, lang: str) -> None:
+        """Re-resolve every keyed text/badge from ``translator_for(self)`` at *lang*.
+
+        ``translatable_text`` silently no-ops on a rows button (the painter
+        reads ``_rows``, not ``setText``); this updates the actual rows.
+        """
+        tr_func = translator_for(self)
+        main_text_key = self._text_key
+        main_badge_key = self._badge_key
+
+        for region in list(self._controller.regions):
+            if region.id == "_main":
+                if main_text_key is None:
+                    main_text_key = region.text_key
+                if main_badge_key is None:
+                    main_badge_key = region.badge_key
+                continue
+            if region.text_key is not None:
+                self.update_region(region.id, text=tr_func(region.text_key, lang))
+            if region.badge_key is not None:
+                self.update_region(region.id, badge=tr_func(region.badge_key, lang))
+
+        if main_text_key is not None:
+            self.setText(tr_func(main_text_key, lang))
+        if main_badge_key is not None:
+            self.setBadge(tr_func(main_badge_key, lang))
+
+        self._retranslate_rows(tr_func, lang)
+
+    def _retranslate_rows(self, tr_func, lang: str) -> None:
+        main_rows = list(getattr(self, "_rows", None) or [])
+        if main_rows:
+            new_rows = self._rows_with_translations(main_rows, tr_func, lang)
+            if new_rows is not main_rows:
+                self.setRows(new_rows, compact=bool(getattr(self, "_rows_compact", False)))
+        for region in list(self._controller.regions):
+            if region.id == "_main" and main_rows:
+                continue
+            rows = list(region.rows or [])
+            if not rows:
+                continue
+            new_rows = self._rows_with_translations(rows, tr_func, lang)
+            if new_rows is not rows:
+                self.update_region(region.id, rows=new_rows)
+
+    @staticmethod
+    def _rows_with_translations(rows: list[ButtonRow], tr_func, lang: str) -> list[ButtonRow]:
+        """Return *rows* with every ``text_key`` row re-resolved, else *rows*.
+
+        Identity is preserved when nothing has a key (or nothing changed), so
+        callers can skip the ``setRows``/``update_region`` re-apply.
+        """
+        changed = False
+        out: list[ButtonRow] = []
+        for row in rows:
+            key = getattr(row, "text_key", None)
+            if key:
+                text = tr_func(key, lang)
+                if text != getattr(row, "text", None):
+                    out.append(dataclasses.replace(row, text=text))
+                    changed = True
+                    continue
+            out.append(row)
+        return out if changed else rows
 
     def on_scale_changed(self, _factor: float) -> None:
         if self._design_min_height is not None:
