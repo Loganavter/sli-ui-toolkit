@@ -234,6 +234,7 @@ btn = Button.from_spec(
 | `set_bg_locked(bool)` | When True, paint base only (no hover/pressed overlays) |
 | `set_hover_color(QColor \| None)` | Widget/`_main` local hover overlay (`None` = standard) |
 | `set_hover_compose("replace"\|"stack")` | Apply hover compose mode to every region |
+| `setHoverHost(host)` | Composite-card hover: while the pointer is inside `host` (the enclosing card), the button reads hovered (`HoverCoordinator`); `None` clears |
 | `set_background_color(QColor)` | Custom seed → derived palette |
 | `set_regions(list[ButtonRegion], split=..., divider=...)` | Replace region geometry/content at runtime. Reconciles by region id — same-id regions keep their hover/ripple/capability state, not a full reset |
 | `set_spec(ButtonSpec)` | Replace the full declarative control description at runtime |
