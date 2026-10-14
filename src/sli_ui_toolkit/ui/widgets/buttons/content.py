@@ -220,6 +220,11 @@ class ButtonRow:
     # via the usual sizeHint/minimumSizeHint path. Default False keeps the
     # historic single-line rendering and metrics exactly.
     wrap: bool = False
+    # Declarative translation key for this row. When set, a bound translator
+    # (see ``install_translator`` / ``bind_translator``) re-resolves the row's
+    # painted text on every language change; the key wins over ``text`` on each
+    # retranslate and a miss paints the key itself (never silent English).
+    text_key: str | None = None
 
 
 @dataclass

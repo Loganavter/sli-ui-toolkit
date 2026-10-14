@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QContextMenuEvent, QFontMetrics, QPainter
 from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.i18n import get_current_language, translator_for
 from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 from sli_ui_toolkit.ui.widgets.atomic.label_context_menu import (
@@ -56,6 +57,7 @@ class LabelConfig:
     expanding: bool | None = None
     word_wrap: bool | None = None
     selectable: bool = False
+    text_key: str | None = None
 
 
 _DEFAULT_VARIANTS: list[LabelVariantSpec] = [
@@ -132,6 +134,7 @@ class Label(QLabel):
         expanding: bool | None = None,
         word_wrap: bool | None = None,
         selectable: bool = False,
+        text_key: str | None = None,
         config: LabelConfig | None = None,
     ):
         if config is not None:
@@ -152,6 +155,7 @@ class Label(QLabel):
             expanding = config.expanding
             word_wrap = config.word_wrap
             selectable = config.selectable
+            text_key = config.text_key
 
         super().__init__(parent)
         self.theme_manager = ThemeManager.get_instance()
@@ -171,6 +175,7 @@ class Label(QLabel):
         self._word_wrap_override = word_wrap
         self._original_text = text
         self._preferred_width_cache: int | None = None
+        self._text_key: str | None = None
 
         self.setAlignment(alignment)
         self.setWordWrap(bool(word_wrap) if word_wrap is not None else False)
@@ -189,6 +194,8 @@ class Label(QLabel):
         # scale_changed re-runs _apply_style directly.
         UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
         self._apply_style()
+        if text_key is not None:
+            self.setTextKey(text_key)
 
     def _on_scale_changed(self, _factor: float) -> None:
         self._preferred_width_cache = None
@@ -278,6 +285,25 @@ class Label(QLabel):
 
     def get_original_text(self) -> str:
         return self._original_text
+
+    # -------- public API: declarative translation key --------
+
+    def setTextKey(self, key: str | None) -> None:
+        """Attach (or clear) a translation key; the key wins over the literal."""
+        self._text_key = key
+        if key is not None:
+            self.retranslate(get_current_language())
+
+    def set_translator(self, tr_func, *, defer_when_hidden: bool = False) -> None:
+        """Duck-typed protocol hook used by ``bind_translator``/``install_translator``."""
+        self._sli_translator = tr_func
+        self._sli_defer_when_hidden = defer_when_hidden
+
+    def retranslate(self, lang: str) -> None:
+        """Re-resolve ``text_key`` through ``translator_for(self)`` at *lang*."""
+        if self._text_key is None:
+            return
+        self.setText(translator_for(self)(self._text_key, lang))
 
     def invalidate_size_cache(self) -> None:
         self._preferred_width_cache = None

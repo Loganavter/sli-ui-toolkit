@@ -45,6 +45,12 @@ class ContextMenuAction:
     # hide+emit+on_triggered by the ripple duration instead, same rationale
     # as ``Button(defer_click=DEFER_CLICK_AWAIT_RIPPLE)``.
     defer_trigger: bool = False
+    # Declarative translation keys. When set and a translator is bound to the
+    # owning ``ContextMenu`` (``set_translator``/``bind_translator``), the row's
+    # text/tooltip re-resolve on every language change; the key wins over the
+    # literal and a miss shows the key itself.
+    text_key: str | None = None
+    tooltip_key: str | None = None
 
 
 @dataclass(slots=True)

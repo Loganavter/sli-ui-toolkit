@@ -26,6 +26,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.i18n import get_current_language, translator_for
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
@@ -82,6 +83,7 @@ class TextConfig:
     editable: bool = False
     resolve_asset: Any = None
     open_external_links: bool = True
+    text_key: str | None = None
 
     def to_kwargs(self) -> dict[str, Any]:
         """Field values keyed by the ``Text.__init__`` kwarg they override."""
@@ -107,6 +109,7 @@ class TextConfig:
             "editable": self.editable,
             "resolve_asset": self.resolve_asset,
             "open_external_links": self.open_external_links,
+            "text_key": self.text_key,
         }
 
 
@@ -156,6 +159,7 @@ class Text(QWidget):
         editable: bool = False,
         resolve_asset: Any = None,
         open_external_links: bool = True,
+        text_key: str | None = None,
         config: TextConfig | None = None,
     ):
         if config is not None:
@@ -180,6 +184,7 @@ class Text(QWidget):
             editable = config.editable
             resolve_asset = config.resolve_asset
             open_external_links = config.open_external_links
+            text_key = config.text_key
 
         _require_mode(mode)
         super().__init__(parent)
@@ -203,6 +208,7 @@ class Text(QWidget):
         self._alignment = alignment
         self._original_text = text
         self._display_text = text
+        self._text_key: str | None = None
         self._selectable = False
         self._sel_anchor = 0
         self._sel_cursor = 0
@@ -220,6 +226,8 @@ class Text(QWidget):
         self._apply_style()
         if selectable and self._engine is None:
             self.setSelectable(True)
+        if text_key is not None:
+            self.setTextKey(text_key)
 
     def _build_engine(
         self, mode: str, text: str, editable: bool, resolve_asset: Any
@@ -270,6 +278,25 @@ class Text(QWidget):
 
     def get_original_text(self) -> str:
         return self._original_text
+
+    # -------- public API: declarative translation key --------
+
+    def setTextKey(self, key: str | None) -> None:
+        """Attach (or clear) a translation key; the key wins over the literal."""
+        self._text_key = key
+        if key is not None:
+            self.retranslate(get_current_language())
+
+    def set_translator(self, tr_func, *, defer_when_hidden: bool = False) -> None:
+        """Duck-typed protocol hook used by ``bind_translator``/``install_translator``."""
+        self._sli_translator = tr_func
+        self._sli_defer_when_hidden = defer_when_hidden
+
+    def retranslate(self, lang: str) -> None:
+        """Re-resolve ``text_key`` through ``translator_for(self)`` at *lang*."""
+        if self._text_key is None:
+            return
+        self.setText(translator_for(self)(self._text_key, lang))
 
     def invalidate_size_cache(self) -> None:
         self.updateGeometry()

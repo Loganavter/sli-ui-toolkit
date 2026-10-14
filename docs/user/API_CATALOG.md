@@ -20,10 +20,11 @@ Exports:
 - `Label`, `LabelConfig`, `LabelVariantSpec`, `register_label_variant`, `get_label_variant`
 - `GenericWorker`, `WorkerSignals`
 - `ThemeManager`
-- `TranslationManager`, `ToolkitTranslationEvents`
+- `TranslationManager`, `ToolkitTranslationEvents`, `Translator`
 - `WidgetStyleTokens`, `read_widget_style`, `update_widget_style`
 - `configure_i18n`, `configure_toolkit`, `FlyoutTimingConfig`
 - `tr`, `get_current_language`, `emit_language_changed`, `translation_events`
+- `install_translator`, `bind_translator`, `translator_for`
 - `get_log_directory`, `get_unique_filepath`, `resource_path`
 - `setup_logging`, `setup_simple_logging`
 - `install_application_tooltips`, `set_application_tooltips_enabled`, `application_tooltips_enabled`
@@ -443,11 +444,23 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 |------|-------------|
 | `I18nStateError` | Raised when code tries to mutate translation state outside the supported API. |
 | `TranslationManager` | Singleton: loads `<i18n_root>/<lang>/*.json`, merges with `en/` fallback, caches per language. |
-| `configure_i18n(i18n_root=...)` | Set path to i18n directory. |
-| `tr(key, language=None, default=None)` | Pure translation lookup for a dotted key (e.g. `"dialog.save.title"`). Passing `language=` reads that language without changing global UI state. |
-| `get_current_language()` | Return currently loaded language code. |
+| `configure_i18n(i18n_root=..., translator=..., language_provider=..., events=...)` | Set the i18n directory; register a custom translator backend (replaces the JSON lookup for `tr`/`translator_for`) and/or a custom current-language provider; swap the event bus. |
+| `tr(key, language=None, default=None)` | Pure translation lookup for a dotted key (e.g. `"dialog.save.title"`). Passing `language=` reads that language without changing global UI state. Honours a `configure_i18n(translator=...)` backend; a miss returns `key` (or `default`). |
+| `get_current_language()` | Return currently loaded language code (honours `configure_i18n(language_provider=...)`). |
 | `translation_events()` | Return `ToolkitTranslationEvents` with guarded `language_changed(str)` signal. Connect/disconnect are public; direct `.emit(...)` is blocked because it desynchronizes translation state. |
 | `emit_language_changed(lang)` | Official path for global UI language changes; updates current language and emits `language_changed`. |
+| `Translator` | Type alias: `Callable[[str, str], str]` — `(key, language) -> text`, the same convention as `translatable_*`. |
+| `install_translator(root, tr_func, *, events=None, defer_when_hidden=False)` | Bind `tr_func` to `root` and every current **and future** descendant implementing `set_translator(...)`/`retranslate(lang)`; one `language_changed` subscription fans out `retranslate(lang)`, auto-detaches on `destroyed`. `events=` isolates a subtree on a tab-owned bus. |
+| `bind_translator(widget, tr_func, *, events=None, defer_when_hidden=False)` | Bind `tr_func` to a single widget (`set_translator` + `retranslate` on each language change); stored on the widget so `translator_for` resolves it for descendants. |
+| `translator_for(widget) -> Translator` | Nearest translator bound to `widget` or an ancestor (walking `parent()`), else the global `tr`. |
+
+Declarative keys (key wins over the literal on each retranslate; a miss paints the
+key so a gap is visible): `Button(text_key=..., badge_key=...)` (+ `setTextKey` /
+`setBadgeKey`), `ButtonRow.text_key`, `ButtonRegion.text_key`/`badge_key`,
+`Label(text_key=...)`/`Text(text_key=...)`, and
+`ContextMenuAction.text_key`/`tooltip_key`. The lower-level
+`translatable_text` / `translatable_tooltip` / `translatable_placeholder` /
+`translatable_callback` helpers remain the escape hatch for arbitrary setters.
 
 ---
 
@@ -509,7 +522,7 @@ reference:
 | `set_ripple_duration_ms(ms)` / `get_ripple_duration_ms()` | `sli_ui_toolkit` / `widgets` | Process-wide Material ripple length (keeps `RippleEffect.DURATION_MS` in sync). |
 | `set_default_defer_click(value)` / `get_default_defer_click()` | `sli_ui_toolkit` / `widgets` | Process-wide default for `Button(defer_click=None)`. Use `DEFER_CLICK_AWAIT_RIPPLE` to await the system ripple. |
 | `configure_icon_resolver(resolver=..., named_icons=...)` | `sli_ui_toolkit.icons` | Icon resolution strategy. |
-| `configure_i18n(i18n_root=...)` | `sli_ui_toolkit.i18n` | Path to JSON translation directory. |
+| `configure_i18n(i18n_root=..., translator=..., language_provider=..., events=...)` | `sli_ui_toolkit.i18n` | Path to JSON translation directory; optional custom translator backend / current-language provider; optional event bus. |
 | `ThemeManager.get_instance().register_palettes(light_palette=..., dark_palette=...)` / `.set_theme(name, app)` | `sli_ui_toolkit.theme` | Register color tokens and pick the active light/dark theme. |
 | `setup_logging(app_name, debug_enabled=False, debug_env_var=None)` | `sli_ui_toolkit` | Route toolkit log records into the host app's logger/handlers. Convention: [../dev/LOGGING.md](../dev/LOGGING.md). |
 | `install_application_tooltips(app)` | `sli_ui_toolkit` | Install the toolkit's themed hover-tooltip event filter app-wide. |

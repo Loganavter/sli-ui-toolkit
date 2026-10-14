@@ -221,14 +221,34 @@ configure_i18n(
 | Param | Type | Meaning |
 |---|---|---|
 | `i18n_root` | `str \| Path` | Directory containing your `<lang>.json` translation files, read by `tr(key)`. |
-| `translator` | `Callable[[str, str \| None], str]` | Reserved for a fully custom translation backend instead of the built-in JSON loader. |
-| `language_provider` | `Callable[[], str]` | Reserved for sourcing the current language from app state instead of the toolkit's own tracked value. |
+| `translator` | `Callable[[str, str \| None], str]` | Custom translation backend. When set it replaces the built-in JSON lookup for every `tr(key)` and for `translator_for(...)`; it receives `(key, language)` and should return `key` on a miss. `None` (default) keeps the JSON loader. |
+| `language_provider` | `Callable[[], str]` | Source the current language from app state instead of the toolkit's own tracked value. `get_current_language()` returns the provider's truthy value, falling back to the tracked language. `None` (default) uses the tracked value. |
 | `events` | `ToolkitTranslationEvents` | Swap in a custom event bus if you need `language_changed` routed through your own signal object. |
 
 Switching the active language at runtime goes through
 `emit_language_changed(lang_code)` — the only call that should emit
 `language_changed`; widgets bound via `_bind_widget`/`tr` re-render
 automatically on that signal.
+
+Declarative keys bind a whole subtree once instead of per-widget callbacks:
+
+```python
+from sli_ui_toolkit import install_translator
+
+install_translator(main_window, lambda key, lang: tr(key, language=lang))
+# or isolate a tab on its own bus:
+install_translator(tab, tab_tr, events=tab_events)
+```
+
+Every descendant implementing `set_translator(...)` / `retranslate(lang)`
+(current and future) then re-renders on `language_changed`. Widgets carry keys
+directly — `Button(text_key=..., badge_key=...)`, `ButtonRow(text_key=...)`,
+`Label(text_key=...)`, `ContextMenuAction(text_key=..., tooltip_key=...)` — and
+a lookup miss paints the **key** so a translation gap is visible, never silent
+English. `bind_translator(widget, tr)` binds a single widget, and
+`translator_for(widget)` reads the governing translator (nearest bound
+ancestor, else the global `tr`). The lower-level `translatable_*` helpers stay
+available as an escape hatch.
 
 **If skipped:** `tr(key)` returns lookup misses as the raw key (or your
 `default=` argument), since there's no translation directory to load from.
