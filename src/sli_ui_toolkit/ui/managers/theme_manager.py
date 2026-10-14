@@ -683,3 +683,41 @@ class ThemeManager(QObject):
         dialog.setPalette(q_palette)
         dialog.updateGeometry()
         dialog.update()
+
+
+def refresh_theme_subtree(root: QWidget) -> None:
+    """Refresh theme state across ``root`` and its widget descendants in pre-order.
+
+    Parents are visited before children: for each widget exposing a callable
+    ``on_theme_changed``, it is invoked once; otherwise ``widget.update()`` is
+    called. Idempotent and cheap.
+    """
+    if root is None or not isinstance(root, QWidget):
+        return
+    seen: set[int] = set()
+    stack: list[QWidget] = [root]
+    while stack:
+        widget = stack.pop()
+        wid = id(widget)
+        if wid in seen:
+            continue
+        seen.add(wid)
+        try:
+            hook = getattr(widget, "on_theme_changed", None)
+            if callable(hook):
+                hook()
+            else:
+                widget.update()
+            children = [
+                child
+                for child in widget.children()
+                if isinstance(child, QWidget)
+            ]
+        except RuntimeError:
+            continue
+        for child in reversed(children):
+            if id(child) not in seen:
+                stack.append(child)
+
+
+__all__ = ["ThemeManager", "refresh_theme_subtree"]

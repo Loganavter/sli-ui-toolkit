@@ -106,3 +106,105 @@ def test_apply_theme_to_app_has_no_mid_process_events(qapp, monkeypatch):
 
     tm.apply_theme_to_app(qapp)
     assert calls == []
+
+
+def test_themed_container_order_derived_then_children_then_super(qapp, qtbot, monkeypatch):
+    from PySide6.QtWidgets import QWidget
+    from sli_ui_toolkit.ui.widgets import ThemedContainer, ThemedWidget
+
+    events: list[str] = []
+
+    class _SampleContainer(ThemedContainer, QWidget):
+        def on_theme_derived(self) -> None:
+            events.append("derived")
+
+        def on_theme_children(self) -> None:
+            events.append("children")
+
+        def update(self, *args) -> None:  # type: ignore[override]
+            events.append("super_update")
+            super().update(*args)
+
+    w = _SampleContainer()
+    qtbot.addWidget(w)
+    assert events == ["derived", "children", "super_update"]
+
+    events.clear()
+    w.on_theme_changed()
+    assert events == ["derived", "children", "super_update"]
+
+    # Existing ThemedWidget subclasses keep their plain update() contract.
+    plain_events: list[str] = []
+
+    class _PlainThemed(ThemedWidget, QWidget):
+        def update(self, *args) -> None:  # type: ignore[override]
+            plain_events.append("plain_update")
+            super().update(*args)
+
+    plain = _PlainThemed()
+    qtbot.addWidget(plain)
+    assert plain_events == ["plain_update"]
+
+
+def test_refresh_theme_subtree_preorder_and_idempotent(qapp, qtbot):
+    from PySide6.QtWidgets import QWidget
+    from sli_ui_toolkit.ui.managers.theme_manager import refresh_theme_subtree
+    from sli_ui_toolkit.ui.widgets import ThemedContainer, ThemedWidget
+
+    order: list[str] = []
+
+    class _Root(ThemedContainer, QWidget):
+        def __init__(self, name: str, parent: QWidget | None = None) -> None:
+            self._name = name
+            super().__init__(parent)
+
+        def on_theme_derived(self) -> None:
+            order.append(f"{self._name}:derived")
+
+        def on_theme_children(self) -> None:
+            order.append(f"{self._name}:children")
+
+    class _ThemedLeaf(ThemedWidget, QWidget):
+        def __init__(self, name: str, parent: QWidget | None = None) -> None:
+            self._name = name
+            super().__init__(parent)
+
+        def on_theme_changed(self) -> None:
+            order.append(f"{self._name}:theme")
+            super().on_theme_changed()
+
+    class _PlainNode(QWidget):
+        def __init__(self, name: str, parent: QWidget | None = None) -> None:
+            super().__init__(parent)
+            self._name = name
+
+        def update(self, *args) -> None:  # type: ignore[override]
+            order.append(f"{self._name}:update")
+            super().update(*args)
+
+    root = _Root("root")
+    qtbot.addWidget(root)
+    branch_a = _Root("branch_a", root)
+    leaf_a1 = _ThemedLeaf("leaf_a1", branch_a)
+    leaf_a2 = _PlainNode("leaf_a2", branch_a)
+    branch_b = _PlainNode("branch_b", root)
+    leaf_b1 = _ThemedLeaf("leaf_b1", branch_b)
+    _ = (leaf_a1, leaf_a2, leaf_b1)
+
+    order.clear()
+    refresh_theme_subtree(root)
+    first_pass = list(order)
+    assert first_pass == [
+        "root:derived",
+        "root:children",
+        "branch_a:derived",
+        "branch_a:children",
+        "leaf_a1:theme",
+        "leaf_a2:update",
+        "branch_b:update",
+        "leaf_b1:theme",
+    ]
+
+    order.clear()
+    refresh_theme_subtree(root)
+    assert order == first_pass

@@ -25,12 +25,14 @@ from sli_ui_toolkit.i18n import (
 from sli_ui_toolkit.utils.file_utils import get_unique_filepath
 from sli_ui_toolkit.utils.paths import resource_path
 from sli_ui_toolkit.workers.generic_worker import GenericWorker, WorkerSignals
-from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.theme import ThemeManager, refresh_theme_subtree
 from sli_ui_toolkit.widgets import (
     DEFER_CLICK_AWAIT_RIPPLE,
     Label,
     LabelConfig,
     LabelVariantSpec,
+    ThemedContainer,
+    ThemedWidget,
     application_tooltips_enabled,
     get_default_defer_click,
     get_default_underline_fade,
@@ -68,6 +70,9 @@ __all__ = [
     "GenericWorker",
     "WorkerSignals",
     "ThemeManager",
+    "ThemedContainer",
+    "ThemedWidget",
+    "refresh_theme_subtree",
     "Label",
     "LabelConfig",
     "LabelVariantSpec",

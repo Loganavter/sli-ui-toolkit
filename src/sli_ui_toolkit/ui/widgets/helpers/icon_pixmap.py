@@ -20,6 +20,13 @@ def normalized_icon_pixmap(icon_value, size: int | QSize) -> QPixmap:
     appropriately for the intended display size. There is no content-aware
     cropping or rescaling.
 
+    Non-``QIcon`` values (including :func:`sli_ui_toolkit.icons.lazy_icon`
+    handles and zero-arg callables) are resolved through :func:`resolve_icon`
+    *before* computing the cache key, so the cache keys on the resolved
+    ``QIcon.cacheKey()``. Lazy providers must return a stable (cached) ``QIcon``
+    per theme so repeated paints hit the same cache entry instead of churning
+    the pixmap cache on every paint.
+
     The cache key includes the current ``UiScale`` factor: two different
     factors that happen to round to the same target px (e.g. 0.75 vs 1.0
     for small icons) must not serve each other's pixmaps.

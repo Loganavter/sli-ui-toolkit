@@ -39,3 +39,27 @@ class ThemedWidget(_Base):
 
     def on_theme_changed(self) -> None:
         self.update()
+
+
+class ThemedContainer(ThemedWidget):
+    """Themed widget with an explicit chrome-first refresh contract.
+
+    Splits :meth:`on_theme_changed` into three ordered steps:
+    1. :meth:`on_theme_derived` — recompute cached colours/assets (chrome first).
+    2. :meth:`on_theme_children` — re-drive child state after chrome is fresh.
+    3. ``super().on_theme_changed()`` — schedule a repaint (``update()``).
+    """
+
+    def on_theme_changed(self) -> None:
+        self.on_theme_derived()
+        self.on_theme_children()
+        super().on_theme_changed()
+
+    def on_theme_derived(self) -> None:
+        pass
+
+    def on_theme_children(self) -> None:
+        pass
+
+
+__all__ = ["ThemedContainer", "ThemedWidget"]
