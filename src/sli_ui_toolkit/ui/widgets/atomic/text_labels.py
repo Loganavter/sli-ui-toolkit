@@ -134,8 +134,10 @@ class Label(QLabel):
         expanding: bool | None = None,
         word_wrap: bool | None = None,
         selectable: bool = False,
-        text_key: str | None = None,
         config: LabelConfig | None = None,
+        # Appended AFTER ``config`` so an existing positional ``config=`` call
+        # site keeps its slot (new params are append-only).
+        text_key: str | None = None,
     ):
         if config is not None:
             text = config.text
