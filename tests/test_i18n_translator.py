@@ -319,6 +319,46 @@ def test_global_bus_still_drives_default_install(qapp, qtbot):
     assert label.text() == "ru:g.key"
 
 
+def test_install_covers_widget_added_to_existing_descendant(qapp, qtbot):
+    """A widget added later to an EXISTING descendant (not root) is covered.
+
+    Red-before: the ChildAdded watcher was installed on ``root`` only, so a
+    widget parented to a descendant that predates the install (e.g. a card
+    menu popup parented to a card) never re-translated on a language change.
+    """
+    from PySide6.QtWidgets import QWidget
+
+    root = QWidget()
+    qtbot.addWidget(root)
+    mid = QWidget(root)  # exists BEFORE install
+    install_translator(root, _lang_prefix)
+
+    deep = Label("English literal", text_key="deep.key", parent=mid)
+    qtbot.addWidget(deep)
+
+    emit_language_changed("zz")
+    qapp.processEvents()
+    assert deep.text() == "zz:deep.key"
+
+
+def test_install_covers_descendant_of_later_child(qapp, qtbot):
+    """New child (of root) + a grandchild under it are both covered."""
+    from PySide6.QtWidgets import QWidget
+
+    root = QWidget()
+    qtbot.addWidget(root)
+    install_translator(root, _lang_prefix)
+
+    mid = QWidget(root)
+    deep = Label("English literal", text_key="d2.key", parent=mid)
+    qtbot.addWidget(deep)
+
+    qapp.processEvents()
+    emit_language_changed("yy")
+    qapp.processEvents()
+    assert deep.text() == "yy:d2.key"
+
+
 # ---------------------------------------------------------------------------
 # configure_i18n wiring is covered in tests/test_i18n.py
 # ---------------------------------------------------------------------------

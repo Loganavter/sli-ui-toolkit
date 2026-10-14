@@ -621,14 +621,35 @@ def install_translator(
     are driven. A single ``language_changed`` subscription (on *events*, or the
     global ``translation_events()`` by default) fans out ``retranslate(lang)``
     to the whole subtree, and the current language is applied immediately on
-    install (mirrors ``_bind_widget``). Future children are picked up through a
-    ``QEvent.Type.ChildAdded`` watcher installed as a dedicated event-filter
-    object (never ``installEventFilter(self)``). The subscription auto-detaches
-    when *root* is destroyed; dead C++ children are dropped defensively.
+    install (mirrors ``_bind_widget``). Future descendants are picked up through
+    a ``QEvent.Type.ChildAdded`` watcher installed as a dedicated event-filter
+    object on EVERY covered node (never ``installEventFilter(self)``) — watching
+    only ``root`` would miss a widget added later to an existing descendant.
+    The subscription auto-detaches when *root* is destroyed; dead C++ children
+    are dropped defensively.
     """
     bus = events if events is not None else translation_events()
     setattr(root, "_sli_translator", tr_func)
     covered: list[Any] = []
+
+    def _watch(obj: Any) -> None:
+        """Install the ``ChildAdded`` watcher on *obj* (once).
+
+        The watcher must live on EVERY covered node, not only ``root``:
+        ``QEvent.ChildAdded`` is delivered to the new child's DIRECT parent, so
+        watching only ``root`` misses a widget added later to an EXISTING
+        descendant (a popup/chip parented to a card that predates the install).
+        """
+        if getattr(obj, "_sli_i18n_watched", False):
+            return
+        try:
+            obj.installEventFilter(filter_obj)
+        except (RuntimeError, SystemError, AttributeError):
+            return
+        try:
+            setattr(obj, "_sli_i18n_watched", True)
+        except Exception:
+            pass
 
     def _covered(obj: Any) -> bool:
         return any(existing is obj for existing in covered)
@@ -636,6 +657,7 @@ def install_translator(
     def _cover(obj: Any) -> None:
         if obj is None or not _object_alive(obj):
             return
+        _watch(obj)
         if callable(getattr(obj, "set_translator", None)):
             try:
                 _apply_widget_translator(obj, tr_func, defer_when_hidden=defer_when_hidden)
