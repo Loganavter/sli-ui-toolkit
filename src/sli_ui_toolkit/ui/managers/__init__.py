@@ -32,7 +32,10 @@ from sli_ui_toolkit.ui.managers.navigation_sections import (
     ToolbarRowsSection,
 )
 from sli_ui_toolkit.ui.managers.settle_gate import SettleGate
-from sli_ui_toolkit.ui.managers.theme_manager import ThemeManager
+from sli_ui_toolkit.ui.managers.theme_manager import (
+    ThemeManager,
+    refresh_theme_subtree,
+)
 from sli_ui_toolkit.ui.widget_descriptor import (
     InspectSection,
     WidgetDescriptor,
@@ -81,6 +84,7 @@ __all__ = [
     "declare_toolbar_navigation",
     "SettleGate",
     "ThemeManager",
+    "refresh_theme_subtree",
     "ToolbarRowsSection",
     "WidgetDescriptor",
     "WidgetRegistry",

@@ -38,3 +38,20 @@ def test_style_module_exports():
     assert sli_ui_toolkit.WidgetStyleTokens is style.WidgetStyleTokens
     assert sli_ui_toolkit.read_widget_style is style.read_widget_style
     assert sli_ui_toolkit.update_widget_style is style.update_widget_style
+
+
+def test_theme_refresh_and_lazy_icon_exports():
+    import sli_ui_toolkit
+    from sli_ui_toolkit import icons, theme, widgets
+    from sli_ui_toolkit.ui import widgets as ui_widgets
+    from sli_ui_toolkit.ui.managers import theme_manager
+    from sli_ui_toolkit.ui.widgets import themed
+
+    assert hasattr(icons, "lazy_icon")
+    assert ui_widgets.ThemedContainer is themed.ThemedContainer
+    assert widgets.ThemedContainer is themed.ThemedContainer
+    assert sli_ui_toolkit.ThemedContainer is themed.ThemedContainer
+    assert ui_widgets.refresh_theme_subtree is theme_manager.refresh_theme_subtree
+    assert widgets.refresh_theme_subtree is theme_manager.refresh_theme_subtree
+    assert theme.refresh_theme_subtree is theme_manager.refresh_theme_subtree
+    assert sli_ui_toolkit.refresh_theme_subtree is theme_manager.refresh_theme_subtree
