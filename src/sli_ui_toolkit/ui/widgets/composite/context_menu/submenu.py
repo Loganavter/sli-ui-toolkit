@@ -341,8 +341,18 @@ def _is_forwarded_obj(menu: ContextMenu, obj: object) -> bool:
     submenu = menu._open_submenu
     if submenu is None or obj is None:
         return False
+    # The menu installs itself as an APP-WIDE event filter while open
+    # (base_flyout/lifecycle.py ``_grab_focus``), so ``eventFilter`` also
+    # receives non-widget objects — notably the ``QWindow`` backing a
+    # popup/native surface, which still gets MouseMove/HoverMove. Only the
+    # ``QWidget`` overload of ``isAncestorOf`` exists, so calling it with a
+    # ``QWindow`` raises ``TypeError`` (only ``RuntimeError`` is caught
+    # below). Gate on the type first; mirrors
+    # ``flyout_manager._is_inside_active_flyout``.
+    if not isinstance(obj, QWidget):
+        return False
     try:
-        if obj is submenu or submenu.isAncestorOf(obj):  # type: ignore[arg-type]
+        if obj is submenu or submenu.isAncestorOf(obj):
             return True
     except RuntimeError:
         return False
@@ -351,7 +361,7 @@ def _is_forwarded_obj(menu: ContextMenu, obj: object) -> bool:
     nested = getattr(submenu, "_open_submenu", None)
     while nested is not None:
         try:
-            if obj is nested or nested.isAncestorOf(obj):  # type: ignore[arg-type]
+            if obj is nested or nested.isAncestorOf(obj):
                 return True
         except RuntimeError:
             return False
@@ -361,10 +371,12 @@ def _is_forwarded_obj(menu: ContextMenu, obj: object) -> bool:
 
 def _branch_contains(menu: ContextMenu, widget: object) -> bool:
     """True when *widget* sits inside the open submenu branch (any depth)."""
+    if not isinstance(widget, QWidget):
+        return False
     submenu = menu._open_submenu
     while submenu is not None:
         try:
-            if widget is submenu or submenu.isAncestorOf(widget):  # type: ignore[arg-type]
+            if widget is submenu or submenu.isAncestorOf(widget):
                 return True
         except RuntimeError:
             return False

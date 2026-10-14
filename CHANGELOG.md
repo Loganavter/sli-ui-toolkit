@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- **Context-menu submenu filter tolerates non-widget objects (`QWindow`)** — the menu installs an app-wide event filter while open (`base_flyout/lifecycle.py` `_grab_focus`), so `eventFilter` also receives the `QWindow` backing a popup/native surface and its forwarded MouseMove/HoverMove. `_is_forwarded_obj` called `submenu.isAncestorOf(obj)`, whose only overload takes a `QWidget`, raising an uncaught `TypeError` (`'PySide6.QtWidgets.QWidget.isAncestorOf' called with wrong argument types: (QWindow)`) — only `RuntimeError` was caught. `_is_forwarded_obj` (and `_branch_contains`) now gate on `isinstance(obj, QWidget)` first, mirroring `flyout_manager._is_inside_active_flyout`; behavior for widget objects is unchanged. Tests: new `tests/test_context_menu_forward_guard.py` (3 of 4 fail against the pre-change base with the exact `TypeError`).
+
+### Fixed
+
 - **Help TOC teardown hides before unparenting** — `_dispose_toc` detached the old TOC frame with `setParent(None)` while still visible, which spawns a transient toplevel and flashes the global busy cursor (the app's `test_no_visible_orphan_setparent` contract). It now calls `hide()` first, same as the hub's hover-widget teardown.
 
 ### Fixed
