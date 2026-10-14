@@ -148,7 +148,8 @@ from sli_ui_toolkit.ui.widgets.overlays import (
     paint_marquee_band,
     resolve_band_rects,
 )
-from sli_ui_toolkit.ui.widgets.themed import ThemedWidget
+from sli_ui_toolkit.ui.managers.theme_manager import refresh_theme_subtree
+from sli_ui_toolkit.ui.widgets.themed import ThemedContainer, ThemedWidget
 from sli_ui_toolkit.ui.widgets.virtual_list import (
     MeasuredHeights,
     RowPool,
@@ -338,7 +339,9 @@ __all__ = [
     "marquee_dirty_rect",
     "paint_marquee_band",
     "resolve_band_rects",
+    "ThemedContainer",
     "ThemedWidget",
+    "refresh_theme_subtree",
     "WidgetStyleTokens",
     "read_widget_style",
     "update_widget_style",

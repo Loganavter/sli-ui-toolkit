@@ -19,7 +19,7 @@ Exports:
 
 - `Label`, `LabelConfig`, `LabelVariantSpec`, `register_label_variant`, `get_label_variant`
 - `GenericWorker`, `WorkerSignals`
-- `ThemeManager`
+- `ThemeManager`, `refresh_theme_subtree`, `ThemedContainer`, `ThemedWidget`
 - `TranslationManager`, `ToolkitTranslationEvents`, `Translator`
 - `WidgetStyleTokens`, `read_widget_style`, `update_widget_style`
 - `configure_i18n`, `configure_toolkit`, `FlyoutTimingConfig`
@@ -469,6 +469,8 @@ key so a gap is visible): `Button(text_key=..., badge_key=...)` (+ `setTextKey` 
 | Name | Description |
 |------|-------------|
 | `ThemeManager` | Palette + QSS theme application singleton. `set_theme` batches top-level updates across apply + `theme_changed`; `suspend_widget_updates()` is available for nested wrappers. |
+| `refresh_theme_subtree(root)` | Pre-order walk of `root` and its `QWidget` descendants (parents before children): calls `on_theme_changed()` once on each widget that exposes it, else `update()`. Exported from `sli_ui_toolkit.ui.widgets`, `sli_ui_toolkit.widgets`, `sli_ui_toolkit.theme`, and `sli_ui_toolkit.managers`. |
+| `ThemedWidget` / `ThemedContainer` | Theme-change mixins (`sli_ui_toolkit.ui.widgets` / `sli_ui_toolkit.widgets`). `ThemedWidget` connects `theme_changed` to `on_theme_changed()` (`update()`); `ThemedContainer(ThemedWidget)` splits refresh into `on_theme_derived()` (chrome first) → `on_theme_children()` → `super().on_theme_changed()`. |
 | `UiFont` | Process-wide UI typeface resolver. `resolve(pixel_size=..., point_size=...)` takes **design px** — the current `UiScale` factor is applied exactly once inside; `apply(widget, ...)` keeps the widget in sync with both `font_changed` and `scale_changed`. |
 | `UiScale` | Process-wide interface scale factor. `factor()` / `set_factor(value)` (clamped to 0.5–2.5), `scaled_px(design)` → rendered px (`max(1, round(design * factor))`), `scale_changed(float)` signal. Widgets subscribe to `scale_changed` → `updateGeometry()` + `update()` (same idiom as `ThemedWidget`) for live reflow. Also exported as the module-level `scaled_px(...)` helper. |
 | `FlyoutManager` | Ensures only one registered flyout is active at a time. |
@@ -502,7 +504,8 @@ key so a gap is visible): `Button(text_key=..., badge_key=...)` (+ `setTextKey` 
 | Name | Description |
 |------|-------------|
 | `configure_icon_resolver(resolver=..., named_icons=...)` | Set icon resolution strategy and named icon map. |
-| `resolve_icon(name_or_enum)` | Resolve an icon name/enum to QIcon. |
+| `lazy_icon(provider)` | Wrap a zero-arg `Callable[[], QIcon]` in an opaque lazy handle resolved at paint time against the active theme (`provider` must return a stable cached `QIcon` per theme so `normalized_icon_pixmap` hits its cache). |
+| `resolve_icon(name_or_enum)` | Resolve an icon name/enum, `lazy_icon` handle, or zero-arg callable to `QIcon`. |
 | `get_named_icon(name)` | Get QIcon by semantic name. |
 | `get_icon_by_name(name)` / `get_icon_by_path(path)` | Direct icon lookup. |
 | `get_themed_icon(name)` | Get theme-aware icon variant. |

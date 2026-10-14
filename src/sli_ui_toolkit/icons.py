@@ -16,6 +16,44 @@ from sli_ui_toolkit.ui.managers.icon_manager import get_icon_by_path, get_themed
 _icon_resolver: Callable[[Any], QIcon] | None = None
 _named_icons: dict[str, Any] = {}
 
+
+class _LazyIcon:
+    """Opaque lazy icon handle resolved at paint time against the active theme.
+
+    ``provider`` must return a stable (cached) ``QIcon`` per theme (such as
+    ``IconService.get_icon(...)`` or ``get_icon_by_path(...)``) so
+    ``normalized_icon_pixmap`` can key on ``icon.cacheKey()`` without churning
+    the pixmap cache on every paint.
+    """
+
+    __slots__ = ("_provider",)
+
+    def __init__(self, provider: Callable[[], QIcon]) -> None:
+        if not callable(provider):
+            raise TypeError(
+                f"lazy_icon provider must be callable, got {type(provider).__name__}"
+            )
+        self._provider = provider
+
+    def __call__(self) -> QIcon:
+        return self._provider()
+
+    def __repr__(self) -> str:
+        return f"lazy_icon({self._provider!r})"
+
+
+def lazy_icon(provider: Callable[[], QIcon]) -> object:
+    """Return an opaque lazy icon handle resolved at paint time.
+
+    ``resolve_icon`` calls ``provider()`` at resolve time (paint time) so the
+    returned ``QIcon`` reflects the current theme without re-creating the
+    handle. ``provider`` MUST return a stable (cached) ``QIcon`` per theme
+    (``IconService`` already does); returning a fresh ``QIcon`` on every call
+    changes ``icon.cacheKey()`` and busts the pixmap cache on every paint.
+    """
+    return _LazyIcon(provider)
+
+
 def configure_icon_resolver(
     resolver: Callable[[Any], QIcon] | None,
     *,
@@ -30,6 +68,19 @@ def resolve_icon(icon: Any) -> QIcon:
         return QIcon()
     if isinstance(icon, QIcon):
         return icon
+    if isinstance(icon, _LazyIcon) or (callable(icon) and not isinstance(icon, type)):
+        try:
+            provided = icon()
+        except Exception:
+            logger.warning(
+                "lazy icon provider raised for %r; returning blank icon",
+                icon,
+                exc_info=True,
+            )
+            return QIcon()
+        if provided is icon:
+            return QIcon()
+        return resolve_icon(provided)
     if isinstance(icon, str):
         mapped = _named_icons.get(icon)
         if mapped is not None:
@@ -91,5 +142,6 @@ __all__ = [
     "get_icon_service",
     "get_named_icon",
     "get_themed_icon",
+    "lazy_icon",
     "resolve_icon",
 ]
