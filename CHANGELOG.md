@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **`Button.setHoverHost(host)` — composite-card hover for an embedded action button** — `HoverCoordinator` lit a widget only from its own area (`top_widget is widget or widget.isAncestorOf(top_widget)`), so an action button nested in a card (e.g. the clean-review filmstrip cell's Restore) did not light when the pointer hovered the card. A button can now declare a `hover_host`: the coordinator treats the host's area as the button's area (skipping the strict region hit-test, since the pointer is outside the button's own regions), and `setHoverActive(True)` lights the primary region when the live cursor is inside the host. `None` (default) keeps the historic per-widget hover. Tests: `tests/test_hover_host.py` (2, falsified against the pre-change base).
+
 ### Fixed
 
 - **Context-menu submenu filter tolerates non-widget objects (`QWindow`)** — the menu installs an app-wide event filter while open (`base_flyout/lifecycle.py` `_grab_focus`), so `eventFilter` also receives the `QWindow` backing a popup/native surface and its forwarded MouseMove/HoverMove. `_is_forwarded_obj` called `submenu.isAncestorOf(obj)`, whose only overload takes a `QWidget`, raising an uncaught `TypeError` (`'PySide6.QtWidgets.QWidget.isAncestorOf' called with wrong argument types: (QWindow)`) — only `RuntimeError` was caught. `_is_forwarded_obj` (and `_branch_contains`) now gate on `isinstance(obj, QWidget)` first, mirroring `flyout_manager._is_inside_active_flyout`; behavior for widget objects is unchanged. Tests: new `tests/test_context_menu_forward_guard.py` (3 of 4 fail against the pre-change base with the exact `TypeError`).

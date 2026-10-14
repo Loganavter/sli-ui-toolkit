@@ -58,6 +58,7 @@ class _ButtonEvents:
     _hovered_region: str | None
     _flyout_open: bool
     _has_toggle: bool
+    hover_host: Any
     get_capability: Callable[..., Any]
     _sync_region_aliases: Callable[[], None]
     _dispatch_region_behavior: Callable[..., None]
@@ -154,6 +155,43 @@ class _ButtonEvents:
             self._set_region_state(region_id, ButtonState.HOVERED, True)
             return
         self._update_hover_region(pos)
+        if self._hovered_region is None:
+            self._light_region_from_hover_host()
+
+    def setHoverHost(self, host: QWidget | None = None) -> None:
+        """Declare a hover host: while the pointer is inside *host*, this
+        button reads as hovered (HoverCoordinator contract).
+
+        Use for an embedded action button inside a composite card so the whole
+        card is one hover surface: ``HoverCoordinator`` marks us active from
+        the host's area (the pointer may be outside our own regions), so
+        ``setHoverActive(True)`` lights the primary region instead of finding
+        no region under the cursor. ``None`` clears it.
+        """
+        self.hover_host = host
+
+    def _light_region_from_hover_host(self) -> None:
+        """Light the primary region when activated via ``hover_host``.
+
+        Only reached when the normal cursor region-pick found nothing, i.e.
+        the coordinator lit us because the pointer is somewhere on the host
+        card but outside our own regions. The host is the affordance, so the
+        primary region reads hovered.
+        """
+        host = self.hover_host
+        if host is None or not self._regions:
+            return
+        try:
+            local = QPointF(host.mapFromGlobal(QCursor.pos()))
+            if not QRectF(host.rect()).contains(local):
+                return
+        except (AttributeError, RuntimeError):
+            return
+        region_id = self._regions[0].id
+        if region_id == self._hovered_region:
+            return
+        self._hovered_region = region_id
+        self._set_region_state(region_id, ButtonState.HOVERED, True)
 
     def mouseMoveEvent(self, event: QMouseEvent):
         self._update_hover_region(event.position())

@@ -97,6 +97,14 @@ widget) keeps the previous hover sticky: clearing would flash the shared row
 wash. `hoverHitTest` likewise treats the full widget rect as hovered so
 `HoverCoordinator` does not deactivate mid-gap.
 
+A button embedded in a composite card lights from the card's area with
+`setHoverHost(card)`: while the pointer is anywhere inside `card`, the button
+reads hovered (`HoverCoordinator` treats the host's area as the button's, and
+the primary region lights even though the pointer is outside the button's own
+regions). This makes the whole card one hover surface — the mirror of the rule
+that keeps a card lit while the pointer is over its children. `None` (default)
+keeps the historic per-widget hover.
+
 ```python
 from sli_ui_toolkit.widgets import Button, ButtonRegion, HorizontalSplit
 from sli_ui_toolkit.ui.widgets.buttons import ButtonRow

@@ -461,6 +461,10 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
 
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        # Hover host (HoverCoordinator contract): an embedded action button
+        # inside a composite card sets it via setHoverHost() so the whole card
+        # is one hover surface. None → normal per-widget hover.
+        self.hover_host: QWidget | None = None
         register_hover_widget(self)
         self.theme_manager = ThemeManager.get_instance()
         theme_sig = self.theme_manager.theme_changed

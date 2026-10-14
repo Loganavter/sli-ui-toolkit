@@ -174,13 +174,33 @@ class HoverCoordinator(QObject):
             self._set_hover(widget, has_set_hover, False)
             return
 
+        in_host = self._in_hover_host(widget, top_widget)
         active = top_widget is not None and (
-            top_widget is widget or widget.isAncestorOf(top_widget)
+            top_widget is widget or widget.isAncestorOf(top_widget) or in_host
         )
-        if active and has_hit_test:
+        # A host-lit widget is hovered because the pointer is somewhere on its
+        # host card, which may be outside its own regions — the strict
+        # hit-test would clear it, so it is skipped while on the host.
+        if active and has_hit_test and not in_host:
             local = widget.mapFromGlobal(global_pos)
             active = bool(widget.hoverHitTest(QPointF(local)))  # type: ignore[attr-defined]
         self._set_hover(widget, has_set_hover, active)
+
+    @staticmethod
+    def _in_hover_host(widget: QWidget, top_widget: QWidget | None) -> bool:
+        """True when *top_widget* sits inside the widget's declared hover host.
+
+        A composite card declares ``hover_host`` on an embedded action button
+        (``Button.setHoverHost``) so hovering anywhere on the card lights the
+        button, mirroring the ``widget.isAncestorOf(top_widget)`` rule that
+        keeps a card lit while the pointer is over its children.
+        """
+        if top_widget is None:
+            return False
+        host = getattr(widget, "hover_host", None)
+        if not isinstance(host, QWidget) or not _is_alive(host):
+            return False
+        return host is top_widget or host.isAncestorOf(top_widget)
 
     @staticmethod
     def _is_reconcilable(widget: QWidget) -> bool:
