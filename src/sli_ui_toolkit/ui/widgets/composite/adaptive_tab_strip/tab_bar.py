@@ -16,7 +16,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
+from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 
 logger = logging.getLogger(__name__)
@@ -90,11 +90,28 @@ class _AdaptiveTabBar(QWidget):
         # and width math stay at the design size while the strip grows.
         apply_ui_font(self)
         UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        # ``apply_ui_font`` re-applies a LATER font change (startup font
+        # correction) via ``UiFont.apply``, but that only calls ``setFont`` —
+        # the cached ``_rects`` (paint + hit-test) are recomputed ONLY in
+        # ``_relayout``. Without this connection the tab rects stayed at the
+        # transient fallback font's width until an unrelated relayout — the
+        # "first tab too small for ~0.5 s, then grows" report.
+        try:
+            UiFont.get_instance().font_changed.connect(self._on_font_changed)
+        except Exception:
+            pass
 
     def _on_scale_changed(self, _factor: float) -> None:
         # The close slots bake their size from the button at creation;
         # re-fit them BEFORE the relayout positions them, so the buttons
         # stay inside their tabs at the new factor.
+        self._resync_close_slots()
+        self._relayout()
+        self.updateGeometry()
+        self.update()
+
+    def _on_font_changed(self) -> None:
+        """Re-fit rects when the UI font lands/changes (see __init__)."""
         self._resync_close_slots()
         self._relayout()
         self.updateGeometry()
