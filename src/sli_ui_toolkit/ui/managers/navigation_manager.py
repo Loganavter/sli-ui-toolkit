@@ -30,6 +30,22 @@ _ARROWS = frozenset({Qt.Key.Key_Down, Qt.Key.Key_Up, Qt.Key.Key_Left, Qt.Key.Key
 _EXIT_DOWN = frozenset({Qt.Key.Key_Down})
 _EXIT_UP = frozenset({Qt.Key.Key_Up})
 _HORIZONTAL = frozenset({Qt.Key.Key_Left, Qt.Key.Key_Right})
+# Bare modifier keys are NOT keyboard navigation: holding Ctrl to move the
+# window (Ctrl+drag) or take a screenshot (Ctrl+Print) fires a KeyPress, but the
+# user is not navigating. Counting it flipped ``_last_input_keyboard`` and made
+# the next programmatic focus grant (window activation / post-move restore) pick
+# ``OtherFocusReason`` and flash the focus ring on the first/last widget.
+_MODIFIER_KEYS = frozenset(
+    {
+        Qt.Key.Key_Control,
+        Qt.Key.Key_Shift,
+        Qt.Key.Key_Alt,
+        Qt.Key.Key_Meta,
+        Qt.Key.Key_AltGr,
+        Qt.Key.Key_CapsLock,
+        Qt.Key.Key_NumLock,
+    }
+)
 
 
 # ------------------------------------------------------------------
@@ -823,8 +839,13 @@ class NavigationManager(QObject):
         if event.type() != QEvent.Type.KeyPress:
             return False
 
-        self._last_input_keyboard = True
         key = event.key()
+        if key in _MODIFIER_KEYS:
+            # A bare modifier press is not keyboard navigation (see
+            # ``_MODIFIER_KEYS``) — leave the input modality unchanged so a
+            # Ctrl-held window move / screenshot never lights the focus ring.
+            return False
+        self._last_input_keyboard = True
         _debug = nav_debug_enabled()
 
         # Whether this press already realigned focus onto the last click
