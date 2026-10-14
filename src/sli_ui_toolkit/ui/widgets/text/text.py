@@ -159,8 +159,10 @@ class Text(QWidget):
         editable: bool = False,
         resolve_asset: Any = None,
         open_external_links: bool = True,
-        text_key: str | None = None,
         config: TextConfig | None = None,
+        # Appended AFTER ``config`` so an existing positional ``config=`` call
+        # site keeps its slot (new params are append-only).
+        text_key: str | None = None,
     ):
         if config is not None:
             text = config.text
