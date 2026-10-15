@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`ToolbarRowsSection` no longer traps focus in a text field.** Left/Right on a `QLineEdit`/`CustomLineEdit` were accepted by the field (caret movement) and the section returned "consumed" without moving — so focus could never leave the field at the row edge ("[nav] consumed (no movement)", e.g. the gallery filter edit). The section now yields Left/Right when the caret is at that key's edge and there is no selection (new `_caret_at_boundary` duck-typed on `cursorPosition()/text()/hasSelectedText()`), so the row is exited; mid-text it still lets the field move the caret.
+
 ### Added
 
 - **Theme-refresh primitives: `lazy_icon`, `ThemedContainer`, `refresh_theme_subtree`** — (1) `sli_ui_toolkit.icons.lazy_icon(provider: Callable[[], QIcon])` returns an opaque lazy handle, and `resolve_icon(icon)` now resolves lazy handles and zero-arg callables at paint time so icons track the active theme without re-assigning handles; `normalized_icon_pixmap` resolves through `resolve_icon` before keying on `icon.cacheKey()`, preserving pixmap cache hits across paints when `provider` returns a cached `QIcon` per theme. (2) `ThemedContainer(ThemedWidget)` (`sli_ui_toolkit.ui.widgets` / `sli_ui_toolkit.widgets`) formalizes chrome-first theme refresh as `on_theme_derived()` → `on_theme_children()` → `super().on_theme_changed()` without altering existing `ThemedWidget` subclasses. (3) `refresh_theme_subtree(root)` (`sli_ui_toolkit.ui.managers.theme_manager`, re-exported from `sli_ui_toolkit.ui.widgets`, `sli_ui_toolkit.widgets`, `sli_ui_toolkit.theme`, and `sli_ui_toolkit.managers`) walks `root` and its `QWidget` descendants in pre-order (parents before children), calling `on_theme_changed()` once when present else `update()`. Docs: `API_CATALOG.md`. Tests: `tests/test_icons.py` (+3), `tests/test_theme.py` (+2), `tests/test_public_api.py` (+1).
