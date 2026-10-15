@@ -907,21 +907,21 @@ class NavigationManager(QObject):
             if focused is None:
                 return False
 
-        if realigned:
-            # The ring was invisible before this press (mouse click
-            # suppresses it -- see MouseButtonPress handling above), so the
-            # user has no idea where realignment just silently placed real
-            # Qt focus. Also stepping navigate() in this same press would
-            # look like the ring jumped two items from the click instead of
-            # one -- there's nothing visible to anchor "one step" against
-            # yet. Consume this press as reveal-only; a second press then
-            # steps normally from the now-visible ring.
-            if _debug:
-                nav_debug(
-                    "[nav] %s: reveal-only after click realign, ring at %s",
-                    _key_name(key), widget_label(focused),
-                )
-            return True
+        if realigned and _debug:
+            # Re-anchored onto the last click. This same press now navigates
+            # from the freshly-anchored widget, which is what
+            # ClickRealignCoordinator's docstring has always described
+            # ("re-anchors the ring ... then lets that same key press navigate
+            # from there"). It used to be consumed as reveal-only, which made
+            # the first arrow after *every* mouse click a dead keypress --
+            # two presses to move one step, and in a section whose realign
+            # target is its own container the revealed ring landed on a
+            # non-item, so the first press looked like it did nothing at all.
+            nav_debug(
+                "[nav] %s realigned to click, navigating from %s",
+                _key_name(key),
+                widget_label(focused),
+            )
 
         for owner, spec in self._sections:
             if not self._safe_owns(spec, focused):
