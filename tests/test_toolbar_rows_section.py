@@ -87,3 +87,47 @@ def test_focus_first_still_always_picks_top_row(window):
     assert section.focus_first(ref_x, reason=Qt.FocusReason.OtherFocusReason) is True
     assert QApplication.focusWidget() is btn_row0
     assert QApplication.focusWidget() is not btn_row1
+
+
+def _make_line_edit(row: QWidget, x: int = 60) -> "object":
+    from PySide6.QtWidgets import QLineEdit
+
+    edit = QLineEdit(row)
+    edit.setGeometry(x, 5, 120, 20)
+    edit.setText("abc")
+    edit.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    edit.show()
+    return edit
+
+
+def test_left_from_text_field_at_caret_start_exits_row(window):
+    """A line edit must not TRAP Left: at the caret start the row is exited.
+
+    Regression (gallery filter "consumed (no movement)"): the field accepted
+    Left for caret movement and the section returned consumed, so focus could
+    never leave the field leftward.
+    """
+    row = _make_row(window, y=0)
+    left_btn = _make_focusable(row, x=10, y=5)
+    edit = _make_line_edit(row)
+
+    section = ToolbarRowsSection(rows_provider=lambda: [row])
+
+    edit.setFocus(Qt.FocusReason.OtherFocusReason)
+    edit.setCursorPosition(0)
+    assert section.navigate(Qt.Key.Key_Left, edit) is True
+    assert QApplication.focusWidget() is left_btn
+
+
+def test_left_from_text_field_mid_caret_stays_and_moves_caret(window):
+    """With the caret inside the text, Left is caret movement — focus stays."""
+    row = _make_row(window, y=0)
+    _make_focusable(row, x=10, y=5)
+    edit = _make_line_edit(row)
+
+    section = ToolbarRowsSection(rows_provider=lambda: [row])
+
+    edit.setFocus(Qt.FocusReason.OtherFocusReason)
+    edit.setCursorPosition(2)
+    assert section.navigate(Qt.Key.Key_Left, edit) is True
+    assert QApplication.focusWidget() is edit

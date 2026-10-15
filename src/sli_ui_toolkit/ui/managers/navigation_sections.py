@@ -147,6 +147,33 @@ class ToolbarRowsSection:
         widget.keyPressEvent(event)
         return event.isAccepted()
 
+    @staticmethod
+    def _caret_at_boundary(key: int, widget: QWidget) -> bool:
+        """True when a text-entry widget's caret sits at *key*'s edge.
+
+        A line edit (stock ``QLineEdit`` or a ``CustomLineEdit``) accepts
+        Left/Right to move the caret; at the edge it must yield to navigation so
+        the row can be exited. Duck-typed so the toolkit stays generic. Returns
+        False for any widget without a caret (so non-text controls keep the
+        "widget handled it" behaviour), or when a selection exists (Left/Right
+        then collapse the selection — that is caret movement, not an exit).
+        """
+        try:
+            if widget.hasSelectedText():
+                return False
+        except Exception:
+            return False
+        try:
+            pos = int(widget.cursorPosition())
+            end = len(str(widget.text()))
+        except Exception:
+            return False
+        if key == Qt.Key.Key_Left:
+            return pos <= 0
+        if key == Qt.Key.Key_Right:
+            return pos >= end
+        return False
+
     def _focus_first_in(self, row: QWidget, reason: Qt.FocusReason) -> bool:
         items = self._focusable(row)
         if not items:
@@ -247,7 +274,12 @@ class ToolbarRowsSection:
             # Left/Right themselves to adjust value — don't steal focus.
             # Same trial-dispatch as Up/Down above.
             if self._widget_handles(key, widget):
-                return True
+                # Text-entry widgets accept Left/Right for caret movement — but
+                # at the caret edge (and with no selection) they must YIELD so
+                # the row can be exited; otherwise focus is trapped in the field
+                # forever ("[nav] consumed (no movement)", gallery filter edit).
+                if not self._caret_at_boundary(key, widget):
+                    return True
             items = self._focusable(row)
             if widget not in items:
                 return False
