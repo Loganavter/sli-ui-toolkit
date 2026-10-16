@@ -162,7 +162,6 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
             pass
 
     def _on_theme_changed(self, *_args) -> None:
-        # Invalidate theme color cache in canvas_paint
         try:
             import sli_ui_toolkit.ui.widgets.text.engine.canvas_paint as _cp
 

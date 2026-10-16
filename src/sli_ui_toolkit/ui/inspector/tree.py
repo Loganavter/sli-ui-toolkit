@@ -383,7 +383,6 @@ class _TreeHoverFilter(QObject):
             try:
                 if _inspector_debug_enabled():
                     try:
-                        # global pos for this event
                         if hasattr(event, "globalPosition"):
                             gpos_dbg = event.globalPosition().toPoint()  # type: ignore[attr-defined]
                         elif hasattr(event, "globalPos"):
@@ -394,7 +393,6 @@ class _TreeHoverFilter(QObject):
                             gpos_dbg = QCursor.pos()
                     except Exception:
                         gpos_dbg = None
-                    # childAt raw details
                     w_at_raw = w
                     w_at_geo = w_at_raw.geometry() if w_at_raw else None
                     w_at_y_in_tree = None
@@ -403,7 +401,6 @@ class _TreeHoverFilter(QObject):
                             w_at_y_in_tree = w_at_raw.mapTo(self._tree, w_at_raw.rect().topLeft()).y()
                     except Exception:
                         pass
-                    # row details
                     row_label = getattr(row, "_label", None) if isinstance(row, _TreeNodeRow) else None
                     row_depth = getattr(row, "_depth", None) if isinstance(row, _TreeNodeRow) else None
                     row_geo = row.geometry() if isinstance(row, _TreeNodeRow) else None
@@ -639,7 +636,6 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
         y_gaps: list[tuple[int, int]] = []
         try:
             h = tree.height()
-            # Build intervals of visible rows in tree coords
             intervals: list[tuple[int, int]] = []
             for r in rows:
                 try:
@@ -649,7 +645,6 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
                 except Exception:
                     pass
             intervals.sort()
-            # Scan for uncovered y
             uncovered_start = None
             for y in range(h):
                 covered = any(y0 <= y <= y1 for y0, y1 in intervals)
@@ -693,9 +688,7 @@ def _log_tree_gaps(tree: QWidget, *, prefix: str = "tree") -> None:
                     pass
             except Exception:
                 pass
-        # Use set to dedup container messages
         uniq_containers = sorted(set(containers))
-        # Detailed Y-gap dump
         y_gap_str = f" y_uncovered={y_gaps}" if y_gaps else " y_covered_fully"
         _inspector_debug(
             "[inspector] %s gaps: spacing=%s margins=%s visible_rows=%s gaps=%s tree_geo=%s h=%s details=%s containers=%s%s",
