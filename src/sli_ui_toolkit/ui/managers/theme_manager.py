@@ -60,7 +60,6 @@ def _apply_derive(base: QColor, func: str, amount_str: str) -> QColor | None:
         return c.darker(factor)
     if func_l == "alpha":
         raw = amount_str.strip()
-        # percent case: "60%"
         if raw.endswith("%"):
             pct = _parse_amount(raw, for_alpha=True)
             if pct is None:
@@ -115,7 +114,6 @@ def _resolve_palette_value(
     if not isinstance(raw, str):
         return None
     s = raw.strip()
-    # derive?
     m = _DERIVE_RE.match(s)
     if m:
         func, base_token, amount = m.group(1), m.group(2).strip(), m.group(3).strip()
@@ -148,7 +146,6 @@ def _resolve_palette_value(
             return None
         derived = _apply_derive(base_color, func, amount)
         return derived
-    # plain color literal?
     cand = QColor(s)
     if cand.isValid():
         return cand

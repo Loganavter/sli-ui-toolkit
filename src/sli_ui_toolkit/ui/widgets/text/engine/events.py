@@ -188,7 +188,6 @@ class _CanvasEventsApi:
         pos = self._pos_from_point(point)
         count = self._selection.press(pos, point=(point.x(), point.y()))
         if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            # extend from the existing anchor
             self._cursor = pos
             if self._selection.anchor is None:
                 self._selection.anchor = pos
