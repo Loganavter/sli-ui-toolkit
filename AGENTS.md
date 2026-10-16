@@ -69,6 +69,13 @@ Read these files before changing code:
   why, following the existing examples in `ui/widgets/buttons/events.py` and
   `ui/widgets/composite/gpu_fill/widget.py`.
 
+## Comments — keep why, prune restatement, keep them code-true
+
+An outdated comment is a **correctness defect** (agents execute prose as truth).
+Keep *why* / constraints / plan-id (`plan-…`, `#<pr>`) notes — docstring **and**
+inline; prune only pure restatement of the code (`# increment i`, in doubt ⇒
+keep); change a comment in the SAME commit as the code it describes.
+
 ## Project Shape
 
 - `src/sli_ui_toolkit/` — package source.
