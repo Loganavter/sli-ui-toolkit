@@ -60,7 +60,6 @@ def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, conten
     # Fail-closed placeholder: a theme-token fill, never a neighbor pixmap.
     placeholder = timeline_theme.build_theme_colors(widget)["track_bg"]
     if _timeline_debug_enabled():
-        # Check if strip is actually visible in widget
         _timeline_paint_debug("draw_strip id=%s vis=%s width=%s start_x=%s end_x=%s logical=%s slot=%s base=%s fpb=%.2f draw_w=%.2f blocks=%s first=%s last=%s total=%s thumb_n=%s thumb_ids=%s strip_top=%s height=%s isVisible=%s", id(widget), widget.isVisible(), width, start_x, end_x, logical_width, slot_width, base_tile, frames_per_block, draw_w, len(blocks), first_rep, last_rep, widget._total_frames, len(widget._thumbnails), sorted(list(widget._thumbnails.keys()))[:12], strip_top, widget.height(), widget.isVisible())
         # Coverage audit: per-block exact-match verdict (rep, hit_exact,
         # missing) plus geometry tiling of the visible span. A gap here is
