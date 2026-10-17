@@ -106,8 +106,14 @@ class _TooltipInterceptor(QObject):
                         QCursor.pos(), text, delay_ms=0
                     )
             return False
+        if t == QEvent.Type.Leave:
+            # Qt sends Leave(old) then Enter(new) synchronously while handling
+            # one mouse move, so only SCHEDULE the close: a neighbour's Enter
+            # in the same dispatch still finds the tooltip up and hands over
+            # instantly. With no Enter the close completes on the next tick.
+            PathTooltip.get_instance().defer_hide_tooltip()
+            return False
         if t in (
-            QEvent.Type.Leave,
             QEvent.Type.Hide,
             QEvent.Type.Close,
             QEvent.Type.MouseButtonPress,
@@ -142,8 +148,13 @@ class _ApplicationTooltipInterceptor(QObject):
                         QCursor.pos(), text, delay_ms=0
                     )
             return False
+        if t == QEvent.Type.Leave:
+            # Same as the per-widget filter: Qt delivers Leave(old) before
+            # Enter(new) in one dispatch, so defer the close to keep the
+            # hand-over instant.
+            PathTooltip.get_instance().defer_hide_tooltip()
+            return False
         if t in (
-            QEvent.Type.Leave,
             QEvent.Type.Hide,
             QEvent.Type.Close,
             QEvent.Type.MouseButtonPress,
@@ -195,11 +206,14 @@ def application_tooltips_enabled() -> bool:
 class PathTooltip(QObject):
     _instance = None
     DEFAULT_SHOW_DELAY_MS = 500
-    #: A tooltip "session": once a tooltip is shown, while the cursor keeps
-    #: travelling over tooltip targets the NEXT tooltip appears INSTANTLY —
-    #: no re-delay (the naive per-widget wake-up made a 2px move to a neighbour
-    #: pay the whole delay again). The session ends after this idle window with
-    #: nothing shown, so the normal delay is paid again for a fresh hover.
+    #: A tooltip "session": once a tooltip is SHOWN, the next target's tooltip
+    #: appears INSTANTLY while the cursor travels between targets (the naive
+    #: per-widget wake-up made a 2px move to a neighbour pay the whole delay
+    #: again). The session is only a hand-over aid: a COMPLETED close ends it,
+    #: so the next hover after a close pays the full show delay again — the
+    #: uniform behaviour the product owner asked for. ``SESSION_IDLE_MS`` is
+    #: the upper bound on how long a shown-but-not-yet-closed tooltip keeps the
+    #: session armed; the close itself ends it immediately.
     SESSION_IDLE_MS = 1500
 
     @classmethod
@@ -224,6 +238,12 @@ class PathTooltip(QObject):
         self._show_timer.timeout.connect(self._show_pending_tooltip)
         #: Monotonic ms until which a shown tooltip keeps the "session" alive.
         self._session_until_ms = 0.0
+        #: Deferred close for the hand-over: ``defer_hide_tooltip`` only
+        #: schedules ``hide_tooltip`` for the next event-loop tick so a
+        #: same-dispatch ``Enter`` on a neighbour can still show instantly.
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self._complete_deferred_hide)
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._apply_style)
 
@@ -232,10 +252,12 @@ class PathTooltip(QObject):
         return time.monotonic() * 1000.0
 
     def session_active(self) -> bool:
-        """True while a tooltip was shown recently (cursor still travelling).
+        """True while a shown tooltip may still hand over to a neighbour.
 
         A caller may use this to show the next tooltip INSTANTLY (``delay_ms=0``)
-        instead of re-paying the whole wake-up delay.
+        instead of re-paying the whole wake-up delay. The session starts when a
+        tooltip is shown and ends when that tooltip's close completes — a
+        closed tooltip does not keep the session alive.
         """
         return self._now_ms() < self._session_until_ms
 
@@ -330,6 +352,9 @@ class PathTooltip(QObject):
         label.setGeometry(rect)
         label.show()
         label.raise_()
+        # A show supersedes any close still pending from a Leave: cancel it so
+        # the hand-over bubble is not hidden under us.
+        self._hide_timer.stop()
         # Arm/extend the session: the cursor is now "in" tooltip territory.
         self._session_until_ms = self._now_ms() + self.SESSION_IDLE_MS
 
@@ -350,10 +375,13 @@ class PathTooltip(QObject):
             return
 
         delay = self._show_delay_ms if delay_ms is None else max(0, int(delay_ms))
-        # A live session (cursor travelling between tooltip targets) shows the
-        # next tooltip INSTANTLY — no re-creation gap.
+        # A live session (hand-over from a tooltip that is still up) shows the
+        # next tooltip INSTANTLY — no re-creation gap. A completed close has
+        # ended the session, so a fresh hover pays ``_show_delay_ms`` again.
         if delay_ms is None and self.session_active():
             delay = 0
+        # A new show supersedes a close still pending from a Leave.
+        self._hide_timer.stop()
         self._pending_pos = QPoint(pos)
         self._pending_text = str(text)
         self._pending_delay_ms = delay
@@ -366,6 +394,7 @@ class PathTooltip(QObject):
         self._show_timer.start(delay)
 
     def hide_tooltip(self):
+        self._hide_timer.stop()
         self._show_timer.stop()
         self._pending_pos = None
         self._pending_text = ""
@@ -374,11 +403,26 @@ class PathTooltip(QObject):
             self._label.hide()
         else:
             self._label = None
-        # The cursor may be travelling to the neighbour target — keep the
-        # session alive briefly so the next tooltip still shows instantly.
-        self._session_until_ms = max(
-            self._session_until_ms, self._now_ms() + self.SESSION_IDLE_MS
-        )
+        # A completed close ENDS the session: the next tooltip pays the full
+        # show delay again (the product owner's rule). The hand-over is not
+        # lost — `defer_hide_tooltip` keeps the session alive until the
+        # same-dispatch Enter on the neighbour target has been handled.
+        self._session_until_ms = 0.0
+
+    def defer_hide_tooltip(self) -> None:
+        """Schedule ``hide_tooltip()`` for the end of the current tick.
+
+        Qt's ``QApplicationPrivate::dispatchEnterLeave`` sends ``Leave(old)``
+        and then ``Enter(new)`` synchronously while handling a single mouse
+        move. Deferring the close by one tick keeps the session (and the
+        bubble) alive across that dispatch, so the neighbour's ``Enter`` still
+        hands over instantly; when no ``Enter`` follows, the close completes on
+        the next tick and the session ends.
+        """
+        self._hide_timer.start(0)
+
+    def _complete_deferred_hide(self) -> None:
+        self.hide_tooltip()
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = bool(enabled)
@@ -395,13 +439,18 @@ class PathTooltip(QObject):
         return int(self._show_delay_ms)
 
     def eventFilter(self, watched, event):
-        if watched is self._host and event.type() in (
-            QEvent.Type.Resize,
-            QEvent.Type.Move,
-            QEvent.Type.Hide,
-            QEvent.Type.Close,
-            QEvent.Type.WindowStateChange,
-            QEvent.Type.Leave,
-        ):
-            self.hide_tooltip()
+        if watched is self._host:
+            t = event.type()
+            if t == QEvent.Type.Leave:
+                # The cursor left the host window; defer like a widget Leave so
+                # a same-dispatch Enter on the destination still hands over.
+                self.defer_hide_tooltip()
+            elif t in (
+                QEvent.Type.Resize,
+                QEvent.Type.Move,
+                QEvent.Type.Hide,
+                QEvent.Type.Close,
+                QEvent.Type.WindowStateChange,
+            ):
+                self.hide_tooltip()
         return super().eventFilter(watched, event)
