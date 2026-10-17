@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 from PySide6.QtCore import QEasingCurve, Qt, QVariantAnimation
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.config import get_flyout_timings
 
@@ -108,6 +108,16 @@ class FlyoutFadeController:
         the snapshot, so live children take over seamlessly).
         """
         hidden = self.opacity < 1.0
+        if hidden and self.hide_fade_in_progress:
+            # Hiding a child that currently holds the keyboard focus makes Qt
+            # fall back to the window's first tab-order widget (the CSD menu
+            # trigger) for the rest of the fade — the focus-ring hop on every
+            # keyboard-driven close (measured live 2026-10-18). Hand focus to
+            # the flyout itself first: it is still visible and StrongFocus, and
+            # _finish_hide restores the anchor once the fade completes.
+            focused = QApplication.focusWidget()
+            if focused is not None and flyout.isAncestorOf(focused):
+                flyout.setFocus(Qt.FocusReason.OtherFocusReason)
         # isHidden() (each widget's own mark), not isVisible(): during the
         # first show the flyout itself is still hidden, so isVisible() is
         # False regardless and the sync would be skipped — then Qt would
