@@ -147,7 +147,51 @@ dedicated widget test module, wiring in the same helper) whenever you add
 or touch a `keyPressEvent` override that mentions Up/Down or Left/Right —
 this is what would have caught `SpinBox`'s bug before it shipped.
 
-## 4. Checklists
+## 4. Modal sections — overlays that own the keyboard
+
+A section can claim *all* keyboard input for its window while it is up by
+declaring an optional `modal` property (an attribute/property, never a
+method):
+
+```python
+class VeilSection:
+    @property
+    def modal(self) -> bool:
+        """True while this section must own ALL keyboard input for its window."""
+        return True
+```
+
+While such a section is registered and its (QWidget) `owner` is visible, the
+manager treats it as a **ceiling**:
+
+- every arrow key, the section's `extra_keys`, and `Tab`/`Backtab` are routed
+  into the ceiling section. A declined arrow at its edge is **consumed** —
+  never handed to the neighbouring section and never bubbled natively to the
+  widget behind the veil;
+- `Tab`/`Backtab` cycle inside the owner's focus chain (owner + its
+  descendants, filtered to `isVisible() and isEnabled() and TabFocus`),
+  wrapping at the ends; an owner with no tab-focusable widget falls back to
+  the section's `focus_first`. Tab/Backtab are **always** consumed;
+- if a foreign widget behind the ceiling steals focus, the manager pulls it
+  back with the section's `focus_first` after one event-loop turn (a widget in
+  another top-level window is exempt);
+- non-arrow `extra_keys` (`Esc`-like) are still offered to native handling
+  *inside* the overlay.
+
+Registration order is the veil boundary: sections registered **after** the
+modal section sit **above** it and keep their normal behaviour, so a flyout
+opened from inside the overlay still works; sections registered **before** it
+are behind the veil and cannot be focused or navigated into. A section without
+the attribute is non-modal (`getattr(spec, "modal", False)`). Hiding the modal
+owner — or unregistering it — turns modality off again.
+
+There is no public API for this: hosts only declare `modal`, while the ceiling
+lookup (`_modal_ceiling`), effective-index resolution
+(`_effective_section_index`), Tab ring (`_modal_tab_ring`) and deferred reclaim
+(`_reclaim_modal_focus`) are private manager internals. Behaviour with no modal
+section registered is unchanged.
+
+## 5. Checklists
 
 **Adding a new widget with its own arrow-key handling:**
 
@@ -169,3 +213,11 @@ this is what would have caught `SpinBox`'s bug before it shipped.
       make sure those rows go through `builder.extend(...)` — a
       contributor that adds widgets straight to a layout without going
       through the builder is invisible to keyboard navigation.
+
+**Adding a modal overlay section:**
+
+- [ ] Declare `modal` (property) returning `True` while the overlay is up,
+      and give the section a `focus_first` that lands on a real control so the
+      focus-reclaim has somewhere to go.
+- [ ] Register it so anything that must stay reachable above it (a flyout
+      opened from inside) is registered *after* it.
