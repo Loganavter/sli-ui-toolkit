@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import time
+
 import shiboken6
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer
-from PySide6.QtGui import QPainter, QPen
+from PySide6.QtGui import QCursor, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -93,6 +95,17 @@ class _TooltipInterceptor(QObject):
                 PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
                 return True
             return False
+        if t == QEvent.Type.Enter:
+            # Cursor moved onto a NEW tooltip target while a session is live:
+            # show instantly instead of re-paying the whole hover delay (Qt
+            # re-delays the next widget's ToolTip event).
+            if _should_handle_tooltip_widget(watched):
+                text = watched.toolTip() if hasattr(watched, "toolTip") else ""
+                if text and PathTooltip.get_instance().session_active():
+                    PathTooltip.get_instance().show_tooltip(
+                        QCursor.pos(), text, delay_ms=0
+                    )
+            return False
         if t in (
             QEvent.Type.Leave,
             QEvent.Type.Hide,
@@ -120,6 +133,14 @@ class _ApplicationTooltipInterceptor(QObject):
                 )
                 PathTooltip.get_instance().show_tooltip(global_pos, tooltip_text)
                 return True
+            return False
+        if t == QEvent.Type.Enter:
+            if _should_handle_tooltip_widget(watched):
+                text = watched.toolTip() if hasattr(watched, "toolTip") else ""
+                if text and PathTooltip.get_instance().session_active():
+                    PathTooltip.get_instance().show_tooltip(
+                        QCursor.pos(), text, delay_ms=0
+                    )
             return False
         if t in (
             QEvent.Type.Leave,
@@ -174,6 +195,12 @@ def application_tooltips_enabled() -> bool:
 class PathTooltip(QObject):
     _instance = None
     DEFAULT_SHOW_DELAY_MS = 500
+    #: A tooltip "session": once a tooltip is shown, while the cursor keeps
+    #: travelling over tooltip targets the NEXT tooltip appears INSTANTLY —
+    #: no re-delay (the naive per-widget wake-up made a 2px move to a neighbour
+    #: pay the whole delay again). The session ends after this idle window with
+    #: nothing shown, so the normal delay is paid again for a fresh hover.
+    SESSION_IDLE_MS = 1500
 
     @classmethod
     def get_instance(cls):
@@ -195,8 +222,22 @@ class PathTooltip(QObject):
         self._show_timer = QTimer(self)
         self._show_timer.setSingleShot(True)
         self._show_timer.timeout.connect(self._show_pending_tooltip)
+        #: Monotonic ms until which a shown tooltip keeps the "session" alive.
+        self._session_until_ms = 0.0
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._apply_style)
+
+    @staticmethod
+    def _now_ms() -> float:
+        return time.monotonic() * 1000.0
+
+    def session_active(self) -> bool:
+        """True while a tooltip was shown recently (cursor still travelling).
+
+        A caller may use this to show the next tooltip INSTANTLY (``delay_ms=0``)
+        instead of re-paying the whole wake-up delay.
+        """
+        return self._now_ms() < self._session_until_ms
 
     def _is_alive(self, widget: QWidget | None) -> bool:
         if widget is None:
@@ -289,6 +330,8 @@ class PathTooltip(QObject):
         label.setGeometry(rect)
         label.show()
         label.raise_()
+        # Arm/extend the session: the cursor is now "in" tooltip territory.
+        self._session_until_ms = self._now_ms() + self.SESSION_IDLE_MS
 
     def _show_pending_tooltip(self) -> None:
         pos = self._pending_pos
@@ -307,6 +350,10 @@ class PathTooltip(QObject):
             return
 
         delay = self._show_delay_ms if delay_ms is None else max(0, int(delay_ms))
+        # A live session (cursor travelling between tooltip targets) shows the
+        # next tooltip INSTANTLY — no re-creation gap.
+        if delay_ms is None and self.session_active():
+            delay = 0
         self._pending_pos = QPoint(pos)
         self._pending_text = str(text)
         self._pending_delay_ms = delay
@@ -327,6 +374,11 @@ class PathTooltip(QObject):
             self._label.hide()
         else:
             self._label = None
+        # The cursor may be travelling to the neighbour target — keep the
+        # session alive briefly so the next tooltip still shows instantly.
+        self._session_until_ms = max(
+            self._session_until_ms, self._now_ms() + self.SESSION_IDLE_MS
+        )
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = bool(enabled)
