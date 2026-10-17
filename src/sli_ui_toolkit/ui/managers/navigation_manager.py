@@ -55,7 +55,34 @@ _MODIFIER_KEYS = frozenset(
 
 @runtime_checkable
 class NavigationSection(Protocol):
-    """Protocol for a navigable UI section."""
+    """Protocol for a navigable UI section.
+
+    Optional ``modal`` member
+    -------------------------
+    A section MAY declare a ``modal`` property/attribute (never a method)::
+
+        @property
+        def modal(self) -> bool:
+            '''True while this section must own ALL keyboard input for its window.
+
+            While such a section is registered and its (QWidget) owner is visible, the
+            manager routes every arrow key, the section's ``extra_keys``, and Tab/Backtab
+            into it, never hands keys or focus to a section behind it, and pulls focus
+            back when a foreign widget steals it. Sections registered *after* a modal
+            section sit above it and keep normal behavior (e.g. flyouts opened from
+            inside the overlay). Missing attribute -> False.
+            '''
+            return False
+
+    The manager reads it only via ``getattr(spec, "modal", False)`` (same
+    pattern as ``extra_keys`` for callers, but optional here), so the member
+    is *not* enforced structurally: every existing section that omits it keeps
+    working unchanged. It is declared in this docstring rather than as a
+    Protocol member because a structural Protocol member would make mypy
+    require it of every section passed to ``register()`` — including sections
+    in out-of-scope modules — turning an optional host affordance into a
+    breaking type requirement.
+    """
 
     def owns(self, widget: QWidget) -> bool:
         """Return ``True`` if *widget* belongs to this section."""
@@ -154,6 +181,11 @@ class NavigationManager(QObject):
         # realign is still pending) -- see ClickRealignCoordinator's own
         # docstring in realign.py for the full rationale.
         self._realign = ClickRealignCoordinator()
+        # True while a deferred modal focus-reclaim is scheduled (see
+        # _reclaim_modal_focus). Prevents a burst of foreign FocusIn events
+        # from queueing one reclaim each; reset when the callback runs and
+        # when the modal ceiling owner leaves the registry.
+        self._modal_reclaim_pending = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -343,7 +375,18 @@ class NavigationManager(QObject):
         if not shiboken6.isValid(self):  # type: ignore[attr-defined]
             return
         prev_count = len(self._sections)
+        removed = [(o, s) for o, s in self._sections if o is owner]
         self._sections = [(o, s) for o, s in self._sections if o is not owner]
+        if removed and self._modal_reclaim_pending:
+            # The modal ceiling just left the registry (explicit unregister
+            # or its destroyed hook): a deferred reclaim aimed at it must
+            # not fire later, and the stale pending flag would otherwise
+            # suppress the next legitimate reclaim.
+            try:
+                if any(getattr(s, "modal", False) for _o, s in removed):
+                    self._modal_reclaim_pending = False
+            except Exception:
+                self._modal_reclaim_pending = False
         if len(self._sections) != prev_count:
             nav_debug(
                 "[nav] unregistered section %s total=%d",
@@ -590,6 +633,134 @@ class NavigationManager(QObject):
             target += direction
         return None
 
+    # ------------------------------------------------------------------
+    # Modal sections
+    # ------------------------------------------------------------------
+
+    def _modal_ceiling(self) -> tuple[int, QWidget, NavigationSection] | None:
+        """Last registered modal section whose QWidget owner is live+visible.
+
+        The ceiling index splits the registry: sections at or below it are
+        behind the modal overlay (their widgets must not receive keys or
+        focus), sections registered after it sit above and keep their normal
+        behaviour. ``None`` when no modal section is currently visible.
+        """
+        result: tuple[int, QWidget, NavigationSection] | None = None
+        for idx, (owner, spec) in enumerate(self._sections):
+            if not getattr(spec, "modal", False):
+                continue
+            if not isinstance(owner, QWidget):
+                continue
+            # shiboken6.isValid() guards a widget whose C++ side was deleted
+            # without a matching unregister() — same reason as _neighbor.
+            if not shiboken6.isValid(owner):  # type: ignore[attr-defined]
+                continue
+            if owner.isVisible():
+                result = (idx, owner, spec)
+        return result
+
+    def _effective_section_index(self, focused: QWidget | None) -> int | None:
+        """Last registry index that claims *focused* (owns() or bare owner).
+
+        "Last" matters for modal handling: a widget claimed by several
+        sections belongs to the topmost one, and that section's
+        ceiling/normal-behaviour decision should win.
+        """
+        if focused is None:
+            return None
+        result: int | None = None
+        for idx, (owner, spec) in enumerate(self._sections):
+            if focused is owner or self._safe_owns(spec, focused):
+                result = idx
+        return result
+
+    def _modal_tab_ring(
+        self, owner: QWidget, *, backward: bool = False
+    ) -> list[QWidget]:
+        """Move focus to the next/previous tab-focusable widget inside *owner*.
+
+        Walks the window focus chain from *owner*, keeping owner itself and
+        its descendants. An empty ring falls back to the section's own
+        ``focus_first``; either way the caller consumes the Tab/Backtab.
+        Returns the ring as built.
+        """
+        ring: list[QWidget] = []
+        seen: set[int] = set()
+        current: QWidget | None = owner
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            try:
+                if (
+                    (current is owner or owner.isAncestorOf(current))
+                    and current.isVisible()
+                    and current.isEnabled()
+                    and bool(current.focusPolicy() & Qt.FocusPolicy.TabFocus)
+                ):
+                    ring.append(current)
+                current = current.nextInFocusChain()
+            except Exception:
+                break
+            if current is owner:
+                break
+        if not ring:
+            for candidate_owner, spec in self._sections:
+                if candidate_owner is owner:
+                    spec.focus_first(reason=self.current_focus_reason())
+                    break
+            return ring
+        focused = QApplication.focusWidget()
+        if focused is not None and focused in ring:
+            step = -1 if backward else 1
+            target = ring[(ring.index(focused) + step) % len(ring)]
+        else:
+            target = ring[-1] if backward else ring[0]
+        target.setFocus(self.current_focus_reason())
+        # Scroll the ring target into view, reusing the sections' own helper
+        # (imported lazily — navigation_sections imports this module).
+        from .navigation_sections import _ensure_visible
+
+        _ensure_visible(target)
+        return ring
+
+    def _reclaim_modal_focus(self, owner: QObject, spec: NavigationSection) -> None:
+        """Pull focus back inside the modal ceiling after a foreign FocusIn.
+
+        Deferred one event-loop tick so the stealing widget finishes its own
+        focus handling first; guarded by ``_modal_reclaim_pending`` so a
+        burst of FocusIn events schedules at most one reclaim.
+        """
+        if self._modal_reclaim_pending:
+            return
+        self._modal_reclaim_pending = True
+
+        def _reclaim() -> None:
+            self._modal_reclaim_pending = False
+            if not shiboken6.isValid(self):  # type: ignore[attr-defined]
+                return
+            ceiling = self._modal_ceiling()
+            if ceiling is None:
+                return
+            ceiling_idx, ceiling_owner, ceiling_spec = ceiling
+            if ceiling_owner is not owner or ceiling_spec is not spec:
+                # Ceiling moved (owner unregistered or replaced) — stale.
+                return
+            focused = QApplication.focusWidget()
+            if not isinstance(focused, QWidget):
+                return
+            if focused.window() is not ceiling_owner.window():
+                return
+            if focused is ceiling_owner or self._safe_owns(ceiling_spec, focused):
+                return
+            effective = self._effective_section_index(focused)
+            if effective is not None and effective > ceiling_idx:
+                return  # above the ceiling — normal behaviour
+            ceiling_spec.focus_first(reason=self.current_focus_reason())
+
+        try:
+            QTimer.singleShot(0, _reclaim)
+        except Exception:
+            self._modal_reclaim_pending = False
+
     def _track_keyboard_focus(self, widget: QWidget) -> None:
         try:
             if getattr(widget, "_keyboard_focus", False):
@@ -747,6 +918,21 @@ class NavigationManager(QObject):
                                 )
             except Exception:
                 pass
+            # Modal sections own focus for their window while visible: a
+            # foreign widget behind the ceiling stealing focus is pulled
+            # back (deferred — see _reclaim_modal_focus). Widgets in another
+            # window and widgets owned by a section registered after the
+            # ceiling are exempt.
+            if widget is not None:
+                ceiling = self._modal_ceiling()
+                if ceiling is not None:
+                    ceiling_idx, ceiling_owner, ceiling_spec = ceiling
+                    if widget.window() is ceiling_owner.window():
+                        inside = self._safe_owns(ceiling_spec, widget) or widget is ceiling_owner
+                        if not inside:
+                            effective = self._effective_section_index(widget)
+                            if effective is None or effective <= ceiling_idx:
+                                self._reclaim_modal_focus(ceiling_owner, ceiling_spec)
             return False  # never consume FocusIn
 
         if event.type() == QEvent.Type.FocusOut:
@@ -875,6 +1061,50 @@ class NavigationManager(QObject):
                 len(self._sections),
                 [(type(s).__name__, type(o).__name__) for o, s in self._sections],
             )
+
+        # Modal ceiling (see NavigationSection.modal): while a visible modal
+        # section owns the window, no key or focus may leave it. Placed after
+        # the realign block (a realign is itself focus movement, which the
+        # ceiling check below must see) and before the extra_keys/arrow
+        # dispatch, which would otherwise hand the key to a neighbour.
+        ceiling = self._modal_ceiling()
+        if ceiling is not None:
+            ceiling_idx, ceiling_owner, ceiling_spec = ceiling
+            focused = QApplication.focusWidget()
+            effective = self._effective_section_index(focused)
+            if effective is None or effective <= ceiling_idx:
+                if _debug:
+                    nav_debug("[nav] modal ceiling=%s", type(ceiling_owner).__name__)
+                modal_keys = (
+                    _ARROWS
+                    | getattr(ceiling_spec, "extra_keys", frozenset())
+                    | {Qt.Key.Key_Tab, Qt.Key.Key_Backtab}
+                )
+                if key in modal_keys:
+                    if key in (Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+                        self._modal_tab_ring(
+                            ceiling_owner, backward=key == Qt.Key.Key_Backtab
+                        )
+                        return True
+                    inside = focused is not None and (
+                        focused is ceiling_owner
+                        or self._safe_owns(ceiling_spec, focused)
+                    )
+                    if not inside:
+                        # Focus is outside (or nowhere): pull it in on THIS
+                        # press rather than trusting a redelivery.
+                        ceiling_spec.focus_first(reason=self.current_focus_reason())
+                        return True
+                    if self._safe_navigate(ceiling_spec, key, focused):
+                        return True
+                    if key in _ARROWS:
+                        # Modal edge: never hand off to a neighbour and never
+                        # let the key bubble natively — the tab behind the
+                        # veil must see nothing.
+                        return True
+                    # Non-arrow extra key (Esc-like): stays native inside the
+                    # overlay, same as the non-modal path.
+                    return self._realign.yield_to_native(focused, event, realigned)
 
         if key not in _ARROWS or key in _HORIZONTAL:
             # Not a plain vertical arrow — only intercept if a section that
