@@ -118,6 +118,13 @@ class FlyoutFadeController:
             focused = QApplication.focusWidget()
             if focused is not None and flyout.isAncestorOf(focused):
                 flyout.setFocus(Qt.FocusReason.OtherFocusReason)
+                # ...but the flyout is a container, not the control the user
+                # focused: mute its own ring (it would otherwise wrap the whole
+                # panel in a ring beside the focused row's, reported 2026-10-18).
+                try:
+                    flyout.drop_focus_ring()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
         # isHidden() (each widget's own mark), not isVisible(): during the
         # first show the flyout itself is still hidden, so isVisible() is
         # False regardless and the sync would be skipped — then Qt would
