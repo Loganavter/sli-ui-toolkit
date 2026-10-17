@@ -52,6 +52,11 @@ def test_fade_out_keeps_focus_inside_the_closing_flyout(qtbot, qapp):
     qtbot.wait(FADE_MS * 3)
     row.setFocus(Qt.FocusReason.OtherFocusReason)
     assert QApplication.focusWidget() is row, "precondition: the row holds the keyboard focus"
+    # The close is keyboard-driven (Esc): the ring resolver keys off the input
+    # device, so without the mute the handed-off flyout WOULD paint the ring.
+    from sli_ui_toolkit.managers import NavigationManager
+
+    NavigationManager.get_instance()._last_input_keyboard = True
 
     # The hide fade's first step: children hidden, snapshot-only composite.
     flyout._fade.hide_fade_in_progress = True
@@ -64,6 +69,10 @@ def test_fade_out_keeps_focus_inside_the_closing_flyout(qtbot, qapp):
         f"{focused!r} (the window's first element is {early!r})"
     )
     assert focused is not early, "focus hopped to the window's first tab-order widget"
+    assert getattr(flyout, "_keyboard_focus", False) is False, (
+        "the closing flyout must not paint its own ring (it would wrap the whole "
+        "panel beside the selected row's ring — reported 2026-10-18)"
+    )
 
     flyout._fade.hide_fade_in_progress = False
     for widget in (flyout, early, anchor, host):

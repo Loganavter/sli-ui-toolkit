@@ -221,6 +221,21 @@ class BaseFlyout(
         self._focus_ring_color = color
         self.update()
 
+    def drop_focus_ring(self) -> None:
+        """Clear this flyout's own focus ring without moving focus.
+
+        The hide fade hands keyboard focus to the flyout itself so Qt cannot
+        fall back to the window's first tab-order widget while the children are
+        hidden (see ``animation.sync_container_visibility``). The flyout is a
+        bare container, not a control the user focused — the ring belongs on the
+        row they were on (or, after the fade, on the restored anchor) — so it
+        must not paint the whole panel in a ring while it closes (reported
+        2026-10-18: the panel ring appeared in parallel with the selected cell).
+        """
+        self._keyboard_focus = False
+        self._last_focus_reason = Qt.FocusReason.MouseFocusReason
+        self.update()
+
     def focusInEvent(self, event) -> None:  # noqa: N802
         # Ring modality resolved centrally via NavigationManager (4.2.4):
         # input device is the source of truth, reason is only a hint.
