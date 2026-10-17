@@ -161,7 +161,10 @@ class _FlyoutLifecycleApi:
         # and _restore_focus_policies() above only corrected it ~100ms
         # later once the fade completed, producing a visible CsdMenuTrigger
         # flash on every keyboard-driven close (e.g. Escape). Running it
-        # after the restore closes that window.
+        # after the restore closes that window. (The mid-fade jump itself came
+        # from FlyoutFadeController.sync_container_visibility hiding the
+        # focused child — that path now hands focus to the flyout before
+        # hiding; see animation.sync_container_visibility, measured 2026-10-18.)
         self._unregister_nav_section()
         QWidget.hide(self)  # type: ignore[arg-type]
         # The flyout is fully hidden (fade done / instant) — let the manager
