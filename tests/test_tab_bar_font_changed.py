@@ -16,11 +16,14 @@ from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip.tab_bar import (
 )
 
 
-def test_tab_bar_relayouts_on_font_changed(qtbot) -> None:
+def test_tab_bar_relayouts_on_font_changed(qapp, qtbot) -> None:
     bar = _AdaptiveTabBar(close_button_width=20)
     qtbot.addWidget(bar)
     bar.addTab("A reasonably long tab title")
     calls: list[int] = []
     bar._relayout = lambda: calls.append(1)  # type: ignore[method-assign]
-    UiFont.get_instance().font_changed.emit()
+    # The unified metrics channel coalesces through a zero-timer (see
+    # ui_metrics), so the re-fit lands on the next event-loop turn.
+    UiFont.get_instance().sync_from_application()
+    qapp.processEvents()
     assert calls, "tab bar did not re-fit rects on font_changed"

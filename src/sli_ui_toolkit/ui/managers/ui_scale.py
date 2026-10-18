@@ -19,6 +19,8 @@ from typing import Optional
 
 from PySide6.QtCore import QObject, Signal
 
+from sli_ui_toolkit.ui.managers.ui_metrics import UiMetrics
+
 #: Hard safety clamp for ``set_factor``. The app-side settings UI restricts
 #: the user to 0.75–2.0; this wider clamp only guards against nonsense values.
 MIN_FACTOR = 0.5
@@ -62,6 +64,9 @@ class UiScale(QObject):
             return
         self._factor = new_factor
         self.scale_changed.emit(self._factor)
+        # Feed the unified metrics channel (UiMetrics.changed); coalesced with
+        # a same-turn font change into one slot call (see ui_metrics).
+        UiMetrics.get_instance()._on_source_changed()
 
     def scaled_px(self, value: int | float) -> int:
         """Multiply *value* by the factor, rounding to whole px (min 1)."""
