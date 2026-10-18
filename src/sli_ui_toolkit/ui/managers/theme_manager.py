@@ -9,6 +9,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
+from sli_ui_toolkit.ui.managers.ui_metrics import UiMetrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
 theme_logger = logging.getLogger("ThemeManager")
@@ -378,6 +379,11 @@ class ThemeManager(QObject):
         with self.suspend_widget_updates(app):
             self._apply_theme()
             self.theme_changed.emit()
+            # Feed the appearance bus: theme is one axis of the one
+            # coalesced channel. theme_changed above stays a thin alias —
+            # existing subscribers keep working unchanged; bus consumers
+            # are fanned out (coalesced, with the axes payload) next tick.
+            UiMetrics.get_instance().emit_appearance({"theme"})
 
     def get_current_theme(self) -> str:
         return self._current_theme
@@ -492,6 +498,10 @@ class ThemeManager(QObject):
             else:
                 self._apply_theme()
             self.theme_changed.emit()
+            # Feed the appearance bus (same contract as set_color above):
+            # theme_changed is the synchronous alias, the bus fans out with
+            # the "theme" axis once the current turn has settled.
+            UiMetrics.get_instance().emit_appearance({"theme"})
 
     def _load_qss_template(self):
         templates = []
