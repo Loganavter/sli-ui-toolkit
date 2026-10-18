@@ -16,7 +16,8 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import OverlayScrollArea
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.comboboxes._search import (
@@ -128,7 +129,7 @@ class IconListWidget(QWidget):
             ThemeManager.get_instance().theme_changed.connect(self._on_theme_changed)
         except Exception:
             pass
-        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        connect_ui_metrics(self, self._on_scale_changed, axes=frozenset({AXIS_SCALE}))
 
     def paintEvent(self, event) -> None:  # noqa: N802
         """Fill the list surface with the ``dialog.background`` token.
@@ -181,7 +182,7 @@ class IconListWidget(QWidget):
         super().showEvent(event)
         schedule_layout_debug(self, "show")
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         self._host_layout.setContentsMargins(
             scaled_px(8), scaled_px(4), scaled_px(8), scaled_px(4)
         )

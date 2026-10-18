@@ -9,6 +9,7 @@ from PySide6.QtGui import QBrush, QColor, QCursor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSlider
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
 
@@ -82,9 +83,9 @@ class Slider(WheelScrollPolicyMixin, QSlider):
 
         self.valueChanged.connect(self._update_hover_from_cursor)
         register_hover_widget(self)
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+        connect_ui_metrics(self, self.on_scale_changed, axes=frozenset({AXIS_SCALE}))
 
-    def on_scale_changed(self, _factor: float) -> None:
+    def on_scale_changed(self, *_args: object) -> None:
         self.updateGeometry()
         self.update()
 

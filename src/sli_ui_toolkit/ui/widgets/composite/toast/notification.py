@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWi
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, apply_ui_font
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.widgets.buttons import Button
 
 from .progress_bar import ToastProgressBar
@@ -110,7 +110,11 @@ class ToastNotification(QWidget):
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
         try:
-            UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+            # Width/height are fitted from the label's font metrics
+            # (``adjustSize``) → a font change must re-fit, not only scale.
+            connect_ui_metrics(
+                self, self._on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+            )
         except Exception:
             pass
         self._apply_message_typography()
@@ -131,7 +135,7 @@ class ToastNotification(QWidget):
         self.progress_bar.update()
         self.adjustSize()
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         # Interface-scale resync: fonts re-resolve through UiFont, then the
         # toast re-flows (fixed widths were computed in old design px, so
         # re-fit via adjustSize + geometry round-trip like show_message).

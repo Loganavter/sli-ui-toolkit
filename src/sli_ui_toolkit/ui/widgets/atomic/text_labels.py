@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.i18n import get_current_language, translator_for
-from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, ui_font
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.widgets.atomic.label_context_menu import (
     open_label_context_menu,
 )
@@ -189,17 +189,19 @@ class Label(QLabel):
         QLabel.setText(self, text)
         self._applying_style = False
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
-        UiFont.get_instance().font_changed.connect(self._apply_style)
-        # Live UI-scale changes do NOT fire ApplicationFontChange (the app
-        # font itself never changes — only the UiScale factor does), so
-        # font_changed alone would leave every Label at the old size.
-        # scale_changed re-runs _apply_style directly.
-        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        # One subscription for both metrics sources. A live UI-scale change
+        # does NOT fire ApplicationFontChange (the app font itself never
+        # changes — only the UiScale factor does), and a font landing after
+        # construction must re-resolve the label's own font too; the bus
+        # wires both and clears the width cache on either.
+        connect_ui_metrics(
+            self, self._on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
         self._apply_style()
         if text_key is not None:
             self.setTextKey(text_key)
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         self._preferred_width_cache = None
         self._apply_style()
 

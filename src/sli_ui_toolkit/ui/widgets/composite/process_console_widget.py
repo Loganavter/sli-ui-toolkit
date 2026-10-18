@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.managers import UiScale
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -50,7 +51,8 @@ class ProcessConsoleWidget(QWidget):
         self.output = ConsoleView(self, max_lines=self._max_entries)
         self.output.setObjectName("ProcessConsoleOutput")
         self._apply_fixed_font()
-        UiScale.get_instance().scale_changed.connect(self._apply_fixed_font)
+        # The monospace size is the system FixedFont × the scale factor.
+        connect_ui_metrics(self, self._apply_fixed_font, axes=frozenset({AXIS_SCALE}))
 
         self.input_row = QWidget(self)
         input_layout = QHBoxLayout(self.input_row)

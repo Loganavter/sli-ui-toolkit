@@ -39,6 +39,8 @@ def test_ui_font_sync_notifies_labels(qapp):
 
         app.setFont(QFont("Sans Serif", 12))
         manager.set_family("Sans Serif")
+        # The metrics bus coalesces its flush onto the next event-loop turn.
+        qapp.processEvents()
         assert label.font().family() == "Sans Serif"
         label.deleteLater()
     finally:

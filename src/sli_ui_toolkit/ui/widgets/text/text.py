@@ -28,8 +28,8 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.i18n import get_current_language, translator_for
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
-from sli_ui_toolkit.ui.managers.ui_font import UiFont, apply_text_color, ui_font
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, ui_font
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.widgets.atomic.label_context_menu import (
     open_label_context_menu,
 )
@@ -221,8 +221,11 @@ class Text(QWidget):
         self._open_external_links = bool(open_external_links)
 
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
-        UiFont.get_instance().font_changed.connect(self._apply_style)
-        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        # One subscription: both font and scale must re-resolve the text
+        # style (``_apply_style`` reads ``ui_font()`` per call).
+        connect_ui_metrics(
+            self, self._on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
         if mode in _ENGINE_MODES:
             self._build_engine(mode, text, editable, resolve_asset)
         self._apply_style()
@@ -706,7 +709,7 @@ class Text(QWidget):
         if et in (QEvent.Type.ParentChange, QEvent.Type.StyleChange):
             self._apply_style()
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         self._apply_style()
 
     def _on_theme_changed(self) -> None:

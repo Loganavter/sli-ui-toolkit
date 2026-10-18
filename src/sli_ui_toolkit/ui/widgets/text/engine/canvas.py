@@ -28,7 +28,10 @@ import traceback
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
+# Re-exported by the ``text_view.canvas`` compatibility shim; keep the name
+# importable from this module (noqa: the shim is the only consumer).
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale  # noqa: F401
 from . import constants
 from .document import build_text_index, layout_document, parse_help_blocks
 from .selection import DocumentSelection, TextSelection
@@ -155,8 +158,9 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         except Exception:
             pass
         try:
-            UiScale.get_instance().scale_changed.connect(
-                self._on_scale_changed
+            # The cached font metrics are re-derived from the canvas font.
+            connect_ui_metrics(
+                self, self._on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
             )
         except Exception:
             pass

@@ -6,7 +6,8 @@ from PySide6.QtGui import QColor, QDoubleValidator, QFocusEvent, QIntValidator
 from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit, TextAlignment
 from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
@@ -56,9 +57,9 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._update_style)
         self._update_style()
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+        connect_ui_metrics(self, self.on_scale_changed, axes=frozenset({AXIS_SCALE}))
 
-    def on_scale_changed(self, _factor: float) -> None:
+    def on_scale_changed(self, *_args: object) -> None:
         self.setFixedHeight(scaled_px(32))
         self.updateGeometry()
         self.update()

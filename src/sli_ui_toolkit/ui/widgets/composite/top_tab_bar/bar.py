@@ -9,7 +9,8 @@ from PySide6.QtGui import QColor, QCursor, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import DrawContext, Layer
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
 from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import CloseButtonPolicy
@@ -138,7 +139,11 @@ class TopTabBar(QWidget):
         except Exception:
             pass
         try:
-            UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+            # Tab widths re-fit from ``sizeHint()`` (painted text metrics), so
+            # a font landing late must re-flow too, not only a scale change.
+            connect_ui_metrics(
+                self, self._on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+            )
         except Exception:
             pass
 
@@ -398,7 +403,7 @@ class TopTabBar(QWidget):
         """Design ``close_size`` resolved through the live ``UiScale`` factor."""
         return scaled_px(self._close_size)
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         # Interface-scale resync: tab buttons were fixed at construction in
         # old design px — re-stamp heights, re-fit widths from the (now
         # scale-resolved) size hints, then re-flow the strip like a theme

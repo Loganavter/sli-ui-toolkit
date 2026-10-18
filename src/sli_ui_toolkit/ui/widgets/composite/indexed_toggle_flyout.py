@@ -9,7 +9,8 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.managers import AnchoredFlyoutAutoHide
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 
@@ -45,7 +46,8 @@ class IndexedToggleFlyout(BaseFlyout):
         self.h_layout.setContentsMargins(0, 0, 0, 0)
         self.h_layout.setSpacing(scaled_px(6))
         self.content_layout.addLayout(self.h_layout)
-        UiScale.get_instance().scale_changed.connect(self._refresh_layout)
+        # Spacing + panel size are design px → the scale axis only.
+        connect_ui_metrics(self, self._refresh_layout, axes=frozenset({AXIS_SCALE}))
 
         self._auto_hide = AnchoredFlyoutAutoHide(
             flyout=self,

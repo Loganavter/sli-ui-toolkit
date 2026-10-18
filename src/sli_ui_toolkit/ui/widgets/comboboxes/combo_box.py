@@ -16,7 +16,8 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer, RippleLayer
 from sli_ui_toolkit.ui.widgets.comboboxes._layers import (
@@ -116,10 +117,15 @@ class ComboBox(Button):
         self.attach_capability(self._gear)
 
         self.clicked.connect(self._on_field_clicked)
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+        connect_ui_metrics(
+            self, self.on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
 
-    def on_scale_changed(self, _factor: float) -> None:
-        super().on_scale_changed(_factor)
+    def on_scale_changed(self, *_args: object) -> None:
+        # ``Button.on_scale_changed`` re-derives from the live ``UiScale`` and
+        # reads no payload; the bus hands the merged axes frozenset, so the
+        # factor forwarded below is a no-op.
+        super().on_scale_changed(1.0)
         self._gear.drag_threshold_px = scaled_px(self.GEAR_DRAG_THRESHOLD_PX)
         self.updateGeometry()
         self.update()

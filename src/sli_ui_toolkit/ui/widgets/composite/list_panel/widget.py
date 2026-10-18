@@ -25,7 +25,8 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from sli_ui_toolkit.config import get_dragdrop_service
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic import OverlayScrollArea
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     OverlayScrollbarConfig,
@@ -175,7 +176,8 @@ class ListPanel(QWidget):
 
         self._apply_style()
         self.theme_manager.theme_changed.connect(self._apply_style)
-        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        # Row pitch/gaps are design px; rows themselves rebuild per open.
+        connect_ui_metrics(self, self._on_scale_changed, axes=frozenset({AXIS_SCALE}))
 
     # -------- row factory --------
 
@@ -219,7 +221,7 @@ class ListPanel(QWidget):
         self._controller.set_x_margin(scaled_px(self._content_margin_px))
         self._controller.set_y_margin(scaled_px(self._content_margin_px))
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         # Panel persists across opens (rows rebuild per open); keep the row
         # gaps in step with the interface scale.
         self._reapply_scale_padding()

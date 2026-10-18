@@ -34,7 +34,8 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
     MinimalistScrollBar,
@@ -115,7 +116,11 @@ class ConsoleView(QWidget):
         except Exception:
             pass
         try:
-            UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+            # Pads/scroll reserve are design px (``scaled_px``); the painted
+            # font is owned by ``set_font``, not the metrics bus → scale axis.
+            connect_ui_metrics(
+                self, self._on_scale_changed, axes=frozenset({AXIS_SCALE})
+            )
         except Exception:
             pass
 

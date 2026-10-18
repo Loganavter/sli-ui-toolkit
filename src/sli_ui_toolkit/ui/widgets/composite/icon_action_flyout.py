@@ -11,7 +11,8 @@ from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.icons import resolve_icon
 from sli_ui_toolkit.managers import AnchoredFlyoutAutoHide
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import AnimationAxis, BaseFlyout
 
@@ -65,11 +66,11 @@ class IconActionFlyout(BaseFlyout):
         self.h_layout.setContentsMargins(0, 0, 0, 0)
         self.h_layout.setSpacing(scaled_px(6))
         self.content_layout.addLayout(self.h_layout)
-        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        connect_ui_metrics(self, self._on_scale_changed, axes=frozenset({AXIS_SCALE}))
 
         self.set_actions(actions or [])
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         if not sip.isValid(self):  # type: ignore[attr-defined]
             return
         h_layout = getattr(self, "h_layout", None)

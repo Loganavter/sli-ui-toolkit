@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font, ui_font
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 
 if TYPE_CHECKING:
@@ -111,10 +112,14 @@ class CustomGroupWidget(QWidget):
         )
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self.update)
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+        # The title metrics derive from ``paint_font``, so the margins must
+        # re-derive on a font change too, not only on a scale change.
+        connect_ui_metrics(
+            self, self.on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
         self._apply_layout_metrics()
 
-    def on_scale_changed(self, _factor: float) -> None:
+    def on_scale_changed(self, *_args: object) -> None:
         self._apply_layout_metrics()
         self.updateGeometry()
         self.update()
