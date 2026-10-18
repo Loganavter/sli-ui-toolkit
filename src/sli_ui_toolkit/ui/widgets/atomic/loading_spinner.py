@@ -6,7 +6,8 @@ from PySide6.QtGui import QColor, QConicalGradient, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
@@ -30,7 +31,10 @@ class LoadingSpinner(QWidget):
         self._resume_on_show = False
         self._apply_scale_size()
         try:
-            UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+            # The fixed square is design px → the scale axis only.
+            connect_ui_metrics(
+                self, self._on_scale_changed, axes=frozenset({AXIS_SCALE})
+            )
         except Exception:
             pass
 
@@ -71,7 +75,7 @@ class LoadingSpinner(QWidget):
         side = scaled_px(self.SIZE_PX)
         self.setFixedSize(side, side)
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         self._apply_scale_size()
         self.updateGeometry()
         self.update()

@@ -17,101 +17,66 @@ from pathlib import Path
 
 _PACKAGE_ROOT = Path(__file__).resolve().parent.parent / "src" / "sli_ui_toolkit"
 
-#: Not-yet-migrated raw-signal subscribers (plan offender inventory, 2026-10-18
-#: audit). Each entry must carry a reason; removing one means the file now
-#: uses the bus. Ratchet: never grow this list without a recorded reason.
+#: Raw-signal subscribers that genuinely cannot use the bus (T2b swept the
+#: 25 migratable offenders from the plan's 2026-10-18 inventory to
+#: ``connect_ui_metrics``; see ``MIGRATED_OFFENDERS``). Each entry below must
+#: carry a reason. Ratchet: never grow this list without a recorded reason.
 EXEMPTIONS: dict[str, str] = {
-    # --- scale-only subscribers (plan inventory A; T2b migration pending) ---
-    "ui/widgets/atomic/custom_group_widget.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/atomic/custom_line_edit.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/atomic/loading_spinner.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/atomic/slider.py": "scale-only subscriber; T2b migration pending",
-    "ui/widgets/atomic/spinbox.py": "scale-only subscriber; T2b migration pending",
-    "ui/widgets/atomic/switch.py": "scale-only subscriber; T2b migration pending",
-    "ui/widgets/comboboxes/combo_box.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/base_flyout/widget.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/console_view.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/dialog_shell.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/icon_action_flyout.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/indexed_toggle_flyout.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/list_panel/widget.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/process_console_widget.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/sidebar_nav_list/widget.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/simple_options_flyout/row.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/simple_options_flyout/widget.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/timeline_widget/interaction.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/timeline_widget/widget.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/toast/notification.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/composite/top_tab_bar/bar.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/text/engine/canvas.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/widgets/text/engine/document_canvas.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/windows/custom_title_bar/widget.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    "ui/windows/window_chrome.py": (
-        "scale-only subscriber; T2b migration pending"
-    ),
-    # --- internal plumbing (managers, not widget geometry consumers) ---
     "ui/managers/theme_manager.py": (
-        "internal: re-scales host QSS px literals on a scale change; "
-        "singleton lifetime, not a derived-geometry consumer"
+        "internal: re-scales host QSS px literals on a scale change; a QObject "
+        "singleton (never a QWidget), so the bus's widget-keyed wiring does not "
+        "apply"
     ),
     "ui/managers/ui_font.py": (
-        "internal: apply() live-resync wiring connects both raw signals to "
-        "one closure"
-    ),
-    # --- both raw signals, still direct (T2b migration pending) ---
-    "ui/widgets/atomic/text_labels.py": (
-        "connects font_changed + scale_changed directly; T2b migration pending"
+        "internal: apply()'s live-resync wiring; the two raw connects ARE the "
+        "resync hook (the producer side of the bus, not a consumer)"
     ),
     "ui/widgets/buttons/button.py": (
         "connects theme+font+scale with its own destroyed-hook teardown "
-        "(documented stale-slot crash class); T2b migration pending"
+        "(documented stale-slot crash class: a dead Button's slot once fired as "
+        "a QSpacerItem); the theme connect cannot go through the metrics bus"
     ),
-    "ui/widgets/text/text.py": (
-        "connects font_changed + scale_changed directly; T2b migration pending"
+    "ui/widgets/composite/timeline_widget/interaction.py": (
+        "the raw connect/disconnect pair is the close->reshow transient "
+        "teardown hook; the bus's per-(widget, slot) idempotency cache returns "
+        "the same (already dropped) connection on rebind, so it cannot express "
+        "unbind/rebind"
+    ),
+    "ui/widgets/composite/timeline_widget/widget.py": (
+        "the __init__ raw connect is the counterpart of the transient "
+        "bind/unbind pair in timeline_widget/interaction.py"
     ),
 }
+
+#: The plan-inventory offenders T2b migrated to the bus. Recorded so the
+#: ratchet is two-sided: a migrated file must NOT come back into EXEMPTIONS.
+MIGRATED_OFFENDERS: tuple[str, ...] = (
+    "ui/widgets/atomic/custom_group_widget.py",
+    "ui/widgets/atomic/custom_line_edit.py",
+    "ui/widgets/atomic/loading_spinner.py",
+    "ui/widgets/atomic/slider.py",
+    "ui/widgets/atomic/spinbox.py",
+    "ui/widgets/atomic/switch.py",
+    "ui/widgets/atomic/text_labels.py",
+    "ui/widgets/comboboxes/combo_box.py",
+    "ui/widgets/composite/base_flyout/widget.py",
+    "ui/widgets/composite/console_view.py",
+    "ui/widgets/composite/dialog_shell.py",
+    "ui/widgets/composite/icon_action_flyout.py",
+    "ui/widgets/composite/indexed_toggle_flyout.py",
+    "ui/widgets/composite/list_panel/widget.py",
+    "ui/widgets/composite/process_console_widget.py",
+    "ui/widgets/composite/sidebar_nav_list/widget.py",
+    "ui/widgets/composite/simple_options_flyout/row.py",
+    "ui/widgets/composite/simple_options_flyout/widget.py",
+    "ui/widgets/composite/toast/notification.py",
+    "ui/widgets/composite/top_tab_bar/bar.py",
+    "ui/widgets/text/engine/canvas.py",
+    "ui/widgets/text/engine/document_canvas.py",
+    "ui/widgets/text/text.py",
+    "ui/windows/custom_title_bar/widget.py",
+    "ui/windows/window_chrome.py",
+)
 
 _RAW_SIGNAL_NAMES = frozenset({"font_changed", "scale_changed"})
 
@@ -214,8 +179,8 @@ def test_exemption_list_is_recorded_and_current() -> None:
     """The ratchet list: every entry exists, carries a reason, and the
     plan's offender inventory is actually recorded.
     """
-    assert len(EXEMPTIONS) == 30, (
-        f"expected the 30 not-yet-migrated offenders recorded, got "
+    assert len(EXEMPTIONS) == 5, (
+        f"expected the 5 non-migratable raw subscribers recorded, got "
         f"{len(EXEMPTIONS)} — migrate files to the bus (and drop their "
         "entry) instead of letting the list drift"
     )
@@ -223,13 +188,21 @@ def test_exemption_list_is_recorded_and_current() -> None:
         assert (_PACKAGE_ROOT / rel).is_file(), f"exempt file missing: {rel}"
         assert reason.strip(), f"exemption without a recorded reason: {rel}"
     for rel in (
-        "ui/widgets/atomic/switch.py",
-        "ui/widgets/composite/timeline_widget/widget.py",
         "ui/widgets/buttons/button.py",
         "ui/managers/theme_manager.py",
         "ui/managers/ui_font.py",
     ):
         assert rel in EXEMPTIONS, f"plan offender not recorded in the exemption list: {rel}"
+
+
+def test_migrated_offenders_stay_off_the_exemption_list() -> None:
+    """The 25 T2b-migrated offenders must never come back into EXEMPTIONS."""
+    assert len(MIGRATED_OFFENDERS) == 25
+    for rel in MIGRATED_OFFENDERS:
+        assert (_PACKAGE_ROOT / rel).is_file(), f"migrated file missing: {rel}"
+        assert rel not in EXEMPTIONS, (
+            f"{rel} was migrated to the bus in T2b — do not re-exempt it"
+        )
 
 
 def test_detector_flags_a_raw_connect_outside_the_bus() -> None:

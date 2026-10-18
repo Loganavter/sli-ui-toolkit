@@ -10,6 +10,7 @@ from PySide6.QtGui import QBrush, QFont, QPainter, QPen
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from sli_ui_toolkit.ui.managers.ui_font import rebase_family, rebase_font
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -117,7 +118,9 @@ class _SimpleRow(Button):
             pass
         self._apply_label_style()
         self.clicked.connect(lambda: self.rowClicked.emit(self.index))
-        UiScale.get_instance().scale_changed.connect(self._apply_scale)
+        connect_ui_metrics(
+            self, self._apply_scale, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
 
     def sizeHint(self) -> QSize:
         row_layout = self.layout()
@@ -144,7 +147,7 @@ class _SimpleRow(Button):
         self.label.setFont(rebase_family(self.label.font()))
         self.label.setProperty("class", "option-label")
 
-    def _apply_scale(self, _factor: float) -> None:
+    def _apply_scale(self, *_args: object) -> None:
         # Re-resolve the design font at the new factor; keeps the row's text
         # (and its sizeHint, via the scaled label) live with the UI scale.
         self.label.setFont(rebase_font(self._design_font))

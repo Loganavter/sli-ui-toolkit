@@ -29,7 +29,8 @@ from PySide6.QtWidgets import (
 
 from sli_ui_toolkit.config import get_flyout_timings
 from sli_ui_toolkit.ui.layout_settle import settle_layout
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.managers.ui_font import UiFont, rebase_font, ui_font
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import (
@@ -79,7 +80,11 @@ class SimpleOptionsFlyout(BaseFlyout):
         # interface-scale changes instead of freezing at first-open size.
         self._item_font_design = _design_font(self._item_font)
         self._max_visible_items = self.MAX_VISIBLE_ITEMS
-        UiScale.get_instance().scale_changed.connect(self._on_ui_scale_changed)
+        # The design row font is re-resolved from the UI face, so a font
+        # landing late must re-fit too, not only a scale change.
+        connect_ui_metrics(
+            self, self._on_ui_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
         timings = get_flyout_timings()
         self._move_duration_ms = timings.flyout_animation_duration_ms
         self._move_easing = QEasingCurve.Type.OutQuad
@@ -231,12 +236,12 @@ class SimpleOptionsFlyout(BaseFlyout):
             rows.append(row)
         self._set_rows_raw(rows, connect_click=False)
 
-    def _on_ui_scale_changed(self, _factor: float) -> None:
+    def _on_ui_scale_changed(self, *_args: object) -> None:
         self._item_font = rebase_font(self._item_font_design)
         # Row gaps are design px; re-apply so they grow with the rows (the
         # flyout is cached across opens, so build-time values would freeze).
         self._rows_layout.setSpacing(scaled_px(2))
-        # Rows re-resolve their own label fonts in their own scale_changed
+        # Rows re-resolve their own label fonts in their own metrics
         # handlers; defer so this re-fit runs after them and sees fresh
         # sizeHints (connection order alone would run us first).
         QTimer.singleShot(0, self._deferred_update_size)

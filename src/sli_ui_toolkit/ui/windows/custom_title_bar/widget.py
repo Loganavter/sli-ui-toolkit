@@ -18,6 +18,7 @@ from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -107,7 +108,13 @@ class CustomTitleBar(
         self._theme_manager.theme_changed.connect(self._on_theme_changed)
 
         self._scale = UiScale.get_instance()
-        self._scale.scale_changed.connect(self.on_scale_changed)
+        # The ``on_scale_changed`` handler lives in the layout mixin
+        # (zones.py) and keeps its raw-signal signature; adapt the bus
+        # payload to it here. Font is on the axes because the zone balance
+        # re-runs after the centered title Label re-derives its font.
+        connect_ui_metrics(
+            self, self._on_metrics_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
         self._design_height = int(self.HEIGHT)
         self._design_button_width = int(self.BUTTON_WIDTH)
         self._design_icon_slot = int(self.APP_ICON_SLOT)
@@ -219,6 +226,10 @@ class CustomTitleBar(
 
     def window_controls(self) -> WindowControlsHandle:
         return self._controls_handle
+
+    def _on_metrics_changed(self) -> None:
+        """Bus adapter: the mixin's handler takes the raw factor argument."""
+        self.on_scale_changed(self._scale.factor())
 
     # -- keyboard focus helpers --------------------------------------------
 

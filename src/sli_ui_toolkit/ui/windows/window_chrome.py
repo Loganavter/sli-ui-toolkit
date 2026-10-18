@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, cast
 
-from PySide6.QtCore import QEvent, QMetaObject, QObject, Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QDialog, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.windows.csd_helpers import (
     CsdRoundedBackground,
     TitleBarGeometryFilter,
@@ -61,9 +62,8 @@ class WindowChrome:
         self._bg_layer = bg_layer
         self._bg_token = bg_token
         # Set post-construction by install(): snapshot of the layout margins
-        # before CSD compensation, and the UiScale re-sync connection.
+        # before CSD compensation.
         self._base_layout_margins: tuple[int, int, int, int] | None = None
-        self._csd_scale_connection: QMetaObject.Connection | None = None
         self._theme_manager = ThemeManager.get_instance()
         self._theme_manager.theme_changed.connect(self._on_theme_changed)
         window.destroyed.connect(self._disconnect_theme)
@@ -208,7 +208,7 @@ class WindowChrome:
         # by CsdRoundedBackground / the dialog paintEvent.
         window.clearMask()
 
-        def _resync_csd_scale(_factor) -> None:
+        def _resync_csd_scale(*_args: object) -> None:
             try:
                 from sli_ui_toolkit.ui.windows.frameless.geometry import resolve_csd_band
 
@@ -238,25 +238,9 @@ class WindowChrome:
                 # signal still lives — drop the stale re-sync silently.
                 return
 
-        chrome._csd_scale_connection = UiScale.get_instance().scale_changed.connect(
-            _resync_csd_scale
-        )
-
-        def _drop_csd_scale_resync() -> None:
-            # Best-effort teardown: at shutdown the sender (UiScale) may
-            # already be destroyed; shiboken warns instead of raising.
-            import warnings
-
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                try:
-                    UiScale.get_instance().scale_changed.disconnect(
-                        chrome._csd_scale_connection
-                    )
-                except (RuntimeError, TypeError):
-                    pass
-
-        window.destroyed.connect(_drop_csd_scale_resync)
+        # Band/geometry are design px (``scaled_px``) → the scale axis only;
+        # the bus drops the subscription when the window is destroyed.
+        connect_ui_metrics(window, _resync_csd_scale, axes=frozenset({AXIS_SCALE}))
 
         if band > 0:
             # ``apply_frameless`` already installed the geometry patch (via

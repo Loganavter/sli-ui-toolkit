@@ -10,7 +10,8 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from sli_ui_toolkit.i18n import get_current_language, tr, translation_events
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
 
 if TYPE_CHECKING:
@@ -62,11 +63,14 @@ class Switch(QWidget):
         self._theme.theme_changed.connect(self.update)
         register_hover_widget(self)
         # State text (On/Off) is painted natively with widget.font(); pin the
-        # scaled UI face and re-resolve on font_changed / scale_changed.
+        # scaled UI face and re-resolve on a metrics change — the track/knob
+        # scale with the factor and the state text with the UI font.
         apply_ui_font(self)
-        UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+        connect_ui_metrics(
+            self, self.on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
 
-    def on_scale_changed(self, _factor: float) -> None:
+    def on_scale_changed(self, *_args: object) -> None:
         self.updateGeometry()
         self.update()
 

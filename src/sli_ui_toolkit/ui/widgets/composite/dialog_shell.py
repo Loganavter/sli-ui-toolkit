@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import IconListWidget
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 
 class ScrollableDialogPage(QWidget):
     def __init__(
@@ -203,14 +204,14 @@ class SidebarDialogShell(QWidget):
             self.splitter = None
             self.main_layout.addWidget(sidebar_widget)
             self.main_layout.addWidget(self.content_area, 1)
-        UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        connect_ui_metrics(self, self._on_scale_changed, axes=frozenset({AXIS_SCALE}))
 
     def _apply_sidebar_width(self) -> None:
         if self.sidebar_column is not None:
             self.sidebar_column.setMinimumWidth(scaled_px(self._sidebar_width))
         self.sidebar.setMinimumWidth(scaled_px(self._sidebar_width))
 
-    def _on_scale_changed(self, _factor: float) -> None:
+    def _on_scale_changed(self, *_args: object) -> None:
         # The sidebar is the fixed divider between nav and content: at a
         # bigger factor the nav rows (fonts/icons) grow, so the width must
         # grow with them or the row text clips.

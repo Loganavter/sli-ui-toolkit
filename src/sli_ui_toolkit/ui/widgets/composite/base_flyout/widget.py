@@ -193,16 +193,22 @@ class BaseFlyout(
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._focus_guard_installed = False
         # Фокус-кольцо — библиотечный токен + масштаб (как у Button FocusLayer)
-        from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px as _sp
+        from sli_ui_toolkit.ui.managers.ui_metrics import (
+            AXIS_SCALE,
+            connect_ui_metrics,
+        )
+        from sli_ui_toolkit.ui.managers.ui_scale import scaled_px as _sp
 
         self._focus_ring_base_width = 2
         self._focus_ring_width = _sp(2)
         self._focus_ring_color = None  # lazy resolve via ThemeManager
         self._keyboard_focus = False
         self._last_focus_reason: Qt.FocusReason | None = None
-        UiScale.get_instance().scale_changed.connect(self._on_scale_for_focus_ring)
+        connect_ui_metrics(
+            self, self._on_scale_for_focus_ring, axes=frozenset({AXIS_SCALE})
+        )
 
-    def _on_scale_for_focus_ring(self, _factor: float | None = None) -> None:
+    def _on_scale_for_focus_ring(self, *_args: object) -> None:
         from sli_ui_toolkit.ui.managers.ui_scale import scaled_px as _sp
 
         base = getattr(self, "_focus_ring_base_width", 2)

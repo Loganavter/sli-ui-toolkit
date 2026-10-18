@@ -58,7 +58,8 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, apply_ui_font
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.helpers import (
     UnderlineConfig,
     apply_editable_text_behavior,
@@ -188,13 +189,15 @@ class CustomLineEdit(QWidget):
         except Exception:
             pass
         try:
-            UiScale.get_instance().scale_changed.connect(self.on_scale_changed)
+            # Height/margins are design px (``scaled_px``); the text font is
+            # owned by ``apply_ui_font``'s own resync → the scale axis only.
+            connect_ui_metrics(self, self.on_scale_changed, axes=frozenset({AXIS_SCALE}))
         except Exception:
             pass
 
     # -- fonts / scale / theme ---------------------------------------------
 
-    def on_scale_changed(self, _factor: float) -> None:
+    def on_scale_changed(self, *_args: object) -> None:
         self._set_hmargins(self._margins[0], self._margins[2])
         self.setFixedHeight(scaled_px(self.HEIGHT))
         self.updateGeometry()

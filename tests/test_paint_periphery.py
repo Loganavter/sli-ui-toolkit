@@ -137,9 +137,12 @@ def test_spinner_size_follows_ui_scale(qapp, qtbot, hermetic_theme):
     qtbot.addWidget(spinner)
     assert spinner.width() == 40
     UiScale.get_instance().set_factor(1.5)
+    # The metrics bus coalesces its flush onto the next event-loop turn.
+    qapp.processEvents()
     assert spinner.width() == 60
     assert spinner.sizeHint().width() == 60
     UiScale.get_instance().set_factor(1.0)
+    qapp.processEvents()
     assert spinner.width() == 40
     spinner.start()
     spinner.grab()  # paint smoke

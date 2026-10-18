@@ -30,7 +30,10 @@ def _help_debug(message: str, *args) -> None:
         logger.debug(message, *args)
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
+# Re-exported by the ``help_document.canvas`` compatibility shim; keep the
+# name importable from this module (noqa: the shim is the only consumer).
+from sli_ui_toolkit.ui.managers.ui_scale import UiScale  # noqa: F401
 from sli_ui_toolkit.ui.widgets.text.engine.markdown import HelpBlock
 from sli_ui_toolkit.ui.widgets.text.engine.layout.builder import (
     layout_document,
@@ -100,9 +103,11 @@ class HelpDocumentBodyCore(QWidget):
 
         self._theme.theme_changed.connect(self._relayout)
         # Document fonts resolve through ui_font() per layout pass; re-layout
-        # on UiScale changes so text, headings and captions grow live with
-        # the interface scale.
-        UiScale.get_instance().scale_changed.connect(self._relayout)
+        # on a font or scale change so text, headings and captions grow live
+        # with the interface sizing.
+        connect_ui_metrics(
+            self, self._relayout, axes=frozenset({AXIS_FONT, AXIS_SCALE})
+        )
         self.customContextMenuRequested.connect(self._emit_context_menu)
 
     def set_asset_resolver(self, resolver: AssetResolver | None) -> None:
