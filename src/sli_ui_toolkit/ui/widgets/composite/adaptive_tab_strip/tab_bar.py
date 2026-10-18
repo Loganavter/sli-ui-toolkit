@@ -69,9 +69,16 @@ class _AdaptiveTabBar(QWidget):
     tabContextMenuRequested = Signal(int, QPoint)
     tabCloseRequested = Signal(int)
 
-    def __init__(self, *, close_button_width: int, parent=None):
+    def __init__(self, *, close_button_design_width: int, parent=None):
         super().__init__(parent)
-        self._close_button_width = int(close_button_width)
+        # DESIGN px (1.0-factor baseline), never a scaled snapshot: the tab
+        # width resolves the close reservation through ``scaled_px`` at use
+        # time (``_close_reserve_width``). A scaled value cached here at
+        # construction went stale the moment UiScale changed afterwards —
+        # the slots rescale (``_CloseButtonSlot.resync``) while every tab
+        # stayed (new − old) px too narrow, i.e. the owner's "tab shrinks
+        # after the app applies its saved scale" report.
+        self._close_button_design_width = max(0, int(close_button_design_width))
         self._visual_tab_height = 36
         self._hover_index = -1
         self._current_index = -1
@@ -104,8 +111,14 @@ class _AdaptiveTabBar(QWidget):
 
         The close slots bake their size from the button at creation; re-fit
         them BEFORE the relayout positions them, so the buttons stay inside
-        their tabs at the new metrics.
+        their tabs at the new metrics. The bar's own font is re-asserted
+        first: ``standard_tab_width`` measures with ``self.font()`` (the same
+        font the painter uses), and the width must be recomputed from the
+        *settled* UI font — a bar whose pinned font lagged the metrics change
+        that woke us would re-fit its rects from the stale face and keep the
+        narrower tab the owner reported.
         """
+        apply_ui_font(self)
         self._resync_close_slots()
         self._relayout()
         self.updateGeometry()
@@ -117,6 +130,23 @@ class _AdaptiveTabBar(QWidget):
             resync = getattr(slot, "resync", None)
             if callable(resync):
                 resync()
+
+    def refresh_close_slot_geometry(self) -> None:
+        """Re-place the close slots and re-fit the rects after a rebuild.
+
+        ``AdaptiveTabStrip.refresh_close_buttons`` creates/removes slots;
+        the tab width reserves the REAL slot width when one is placed (see
+        ``_close_reserve_width``), so the rects must be recomputed once the
+        pass is over. Slots that the policy keeps are also explicitly shown
+        and placed here, so a policy that shows the close button can never
+        leave it hidden (or parked at a stale x) behind an earlier
+        ``hide()``/``setParent(None)`` cycle.
+        """
+        for index in range(len(self._tabs)):
+            slot = self.tabButton(index, ButtonPosition.RightSide)
+            if slot is not None and slot.isHidden():
+                slot.show()
+        self._relayout()
 
     def set_visual_tab_height(self, height: int) -> None:
         self._visual_tab_height = max(1, int(height))
@@ -276,8 +306,28 @@ class _AdaptiveTabBar(QWidget):
         )
         return max(scaled_px(self._MIN_WIDTH), round(natural * self._WIDTH_SCALE))
 
+    def _close_reserve_width(self, index: int) -> int:
+        """Close-button width reserved in tab *index*'s width.
+
+        Derived from the REAL slot whenever one is placed (its own scaled
+        size — a host may swap in a differently sized button via
+        ``setTabButton``), else from the design size resolved at the current
+        UiScale factor. Both branches agree for the toolkit's own slots
+        (``_CloseButtonSlot.resync`` sizes from the same design value), so
+        selecting a tab never changes any tab's width — the reservation is
+        simply never a *stale* number.
+        """
+        slot = self.tabButton(index, ButtonPosition.RightSide)
+        if slot is not None and slot.width() > 0:
+            return slot.width()
+        return scaled_px(self._close_button_design_width)
+
     def _tab_width(self, index: int) -> int:
-        return self.standard_tab_width(index) + self._close_button_width + scaled_px(self._CLOSE_GAP)
+        return (
+            self.standard_tab_width(index)
+            + self._close_reserve_width(index)
+            + scaled_px(self._CLOSE_GAP)
+        )
 
     def full_tabs_width(self) -> int:
         return sum(self._tab_width(index) for index in range(len(self._tabs)))

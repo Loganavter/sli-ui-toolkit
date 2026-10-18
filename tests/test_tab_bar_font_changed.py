@@ -17,7 +17,7 @@ from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip.tab_bar import (
 
 
 def test_tab_bar_relayouts_on_font_changed(qapp, qtbot) -> None:
-    bar = _AdaptiveTabBar(close_button_width=20)
+    bar = _AdaptiveTabBar(close_button_design_width=20)
     qtbot.addWidget(bar)
     bar.addTab("A reasonably long tab title")
     calls: list[int] = []
