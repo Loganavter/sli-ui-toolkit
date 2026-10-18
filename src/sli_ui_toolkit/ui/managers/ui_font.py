@@ -300,10 +300,11 @@ class UiFont(QObject):
     def _emit_changed(self) -> None:
         self._install_event_filter()
         self.font_changed.emit()
-        # Feed the unified metrics channel (UiMetrics.changed), so widgets
-        # that derive geometry from the UI font subscribe once instead of
-        # remembering to connect font_changed *and* scale_changed.
-        UiMetrics.get_instance()._on_source_changed()
+        # Feed the unified appearance bus (UiMetrics.changed carries the
+        # "font" axis), so widgets that derive geometry from the UI font
+        # subscribe once instead of remembering to connect font_changed
+        # *and* scale_changed.
+        UiMetrics.get_instance().emit_appearance({"font"})
 
 
 def ui_font(**overrides) -> QFont:
