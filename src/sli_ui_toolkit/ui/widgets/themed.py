@@ -62,4 +62,32 @@ class ThemedContainer(ThemedWidget):
         pass
 
 
-__all__ = ["ThemedContainer", "ThemedWidget"]
+class MetricsContainer(_Base):
+    """Owned refresh of derived geometry on a UI metrics (font/scale) change.
+
+    The metrics analogue of :class:`ThemedContainer`: a widget wires
+    ``connect_ui_metrics(self, self.on_ui_metrics_changed)`` once and splits
+    the refresh into two ordered steps:
+
+    1. :meth:`on_metrics_derived` — recompute cached geometry/pixmaps.
+    2. :meth:`on_metrics_children` — push/re-drive child state after the
+       parent's derived values are fresh.
+
+    then ``updateGeometry()`` + ``update()`` so the layout re-reads the fresh
+    hints and the widget repaints in the same call. Default steps are no-ops.
+    """
+
+    def on_ui_metrics_changed(self) -> None:
+        self.on_metrics_derived()
+        self.on_metrics_children()
+        self.updateGeometry()
+        self.update()
+
+    def on_metrics_derived(self) -> None:
+        pass
+
+    def on_metrics_children(self) -> None:
+        pass
+
+
+__all__ = ["MetricsContainer", "ThemedContainer", "ThemedWidget"]

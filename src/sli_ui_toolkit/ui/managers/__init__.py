@@ -59,6 +59,8 @@ from sli_ui_toolkit.ui.managers.ui_font import (
     ui_font,
 )
 
+from sli_ui_toolkit.ui.managers.ui_metrics import UiMetrics, connect_ui_metrics
+
 __all__ = [
     "AnchoredFlyoutAutoHide",
     "DecisionJournal",
@@ -99,8 +101,10 @@ __all__ = [
     "scaled_px",
 
     "UiFont",
+    "UiMetrics",
     "apply_text_color",
     "apply_ui_font",
+    "connect_ui_metrics",
     "flyout_group_of",
     "paint_font",
     "rebase_font",

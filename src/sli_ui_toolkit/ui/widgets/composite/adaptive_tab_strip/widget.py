@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.layout_settle import settle_layout
+from sli_ui_toolkit.ui.managers.ui_metrics import connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button, default_layers
 
@@ -89,6 +90,10 @@ class AdaptiveTabStrip(QWidget):
         self.tab_bar.tabCloseRequested.connect(self.tabCloseRequested)
         self.add_button.clicked.connect(self.addRequested)
         UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
+        # The font path (see _on_metrics_changed): the bar's minimum height
+        # derives from the add button's hint, so it must be re-derived when
+        # the UI font lands, not only on a scale change.
+        connect_ui_metrics(self, self._on_metrics_changed)
 
     def _apply_layout_metrics(self) -> None:
         layout = self.layout()
@@ -148,6 +153,21 @@ class AdaptiveTabStrip(QWidget):
         if parent is not None and parent.layout() is not None:
             parent.layout().invalidate()
             parent.layout().activate()
+
+    def _on_metrics_changed(self) -> None:
+        """Re-derive cached geometry when the UI font (or scale) changes.
+
+        The scale path keeps its synchronous ``_on_scale_changed`` (plus the
+        deferred parent-layout resync). This is the font path that was
+        missing: the bar's minimum height is derived from the add button's
+        hint, and the UI font lands a beat after the strip is built, so the
+        strip must re-run the derivation instead of keeping the fallback-font
+        geometry until an unrelated reflow.
+        """
+        self._apply_layout_metrics()
+        self._sync_visual_tab_height()
+        self.updateGeometry()
+        self.update()
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if obj is self.add_button and event.type() == QEvent.Type.KeyPress:

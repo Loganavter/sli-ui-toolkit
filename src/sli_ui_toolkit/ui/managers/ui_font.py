@@ -37,6 +37,7 @@ from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
+from sli_ui_toolkit.ui.managers.ui_metrics import UiMetrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
 
@@ -299,6 +300,10 @@ class UiFont(QObject):
     def _emit_changed(self) -> None:
         self._install_event_filter()
         self.font_changed.emit()
+        # Feed the unified metrics channel (UiMetrics.changed), so widgets
+        # that derive geometry from the UI font subscribe once instead of
+        # remembering to connect font_changed *and* scale_changed.
+        UiMetrics.get_instance()._on_source_changed()
 
 
 def ui_font(**overrides) -> QFont:
