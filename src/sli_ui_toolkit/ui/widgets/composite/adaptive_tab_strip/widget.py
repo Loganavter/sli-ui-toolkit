@@ -66,7 +66,7 @@ class AdaptiveTabStrip(QWidget):
         self._updating_close_buttons = False
 
         self.tab_bar = _AdaptiveTabBar(
-            close_button_width=scaled_px(self._close_button_size),
+            close_button_design_width=self._close_button_size,
             parent=self,
         )
         self.add_button = Button(add_icon, parent=self)
@@ -214,6 +214,12 @@ class AdaptiveTabStrip(QWidget):
                     )
                 elif not should_show and existing is not None:
                     self.tab_bar.setTabButton(index, ButtonPosition.RightSide, None)
+            # The tab width reserves the real slot width, so the (re)built
+            # slots must be re-placed and the rects re-fitted in the same
+            # pass — otherwise a policy that shows the close button leaves
+            # it parked at the previous pass's x (or, with a rebuilt slot,
+            # at a width the rects were not computed for).
+            self.tab_bar.refresh_close_slot_geometry()
         finally:
             self._updating_close_buttons = False
 
@@ -242,7 +248,17 @@ class AdaptiveTabStrip(QWidget):
     def _should_show_close_button(self, index: int, count: int, show_all: bool) -> bool:
         if self.close_policy is CloseButtonPolicy.NONE:
             return False
-        if count <= 0 or (count == 1 and not self.single_tab_closable):
+        if count <= 0:
+            return False
+        if self.close_policy is CloseButtonPolicy.ALL:
+            # ALL is authoritative: the policy promises the close affordance
+            # on every tab, so the slot is never dropped — not even for the
+            # single tab of a strip built with ``single_tab_closable=False``.
+            # A slot that appears/disappears with the tab count (or with an
+            # unsettled policy pass) is the missing-`×` flicker this class
+            # must not produce; the host's workspace strip runs ALL.
+            return True
+        if count == 1 and not self.single_tab_closable:
             return False
         return show_all or index == self.currentIndex()
 
