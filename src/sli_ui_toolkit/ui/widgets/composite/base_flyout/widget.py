@@ -41,6 +41,7 @@ from sli_ui_toolkit.ui.in_window_surface import (
     create_shadow_surface,
 )
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
+from sli_ui_toolkit.ui.managers.nav_rows import group_visual_rows
 from sli_ui_toolkit.ui.widgets.composite.gpu_fill.widget import FlyoutGpuFillWidget
 from sli_ui_toolkit.ui.widgets.helpers.rounded_clip import RoundedClipEffect
 
@@ -363,7 +364,10 @@ class BaseFlyout(
 
         Grouping is by the global centre **y** (tolerance = half the median
         child height, so a row's taller control does not split it), then x
-        inside the row; rows are ordered by y.
+        inside the row; rows are ordered by y. The banding itself lives in
+        :func:`sli_ui_toolkit.ui.managers.nav_rows.group_visual_rows` so the
+        flyout and the ``NavigationSection`` path that drives toolbars and
+        dialogs group rows the same way.
         """
         children = [
             c
@@ -374,20 +378,7 @@ class BaseFlyout(
                 and c.isEnabled()
             )
         ]
-        if not children:
-            return []
-        centers = {c: c.mapToGlobal(c.rect().center()) for c in children}
-        heights = sorted(max(1, c.height()) for c in children)
-        tolerance = max(4, heights[len(heights) // 2] // 2)
-        rows: list[list[QWidget]] = []
-        for child in sorted(children, key=lambda w: (centers[w].y(), centers[w].x())):
-            if rows and abs(centers[child].y() - centers[rows[-1][0]].y()) <= tolerance:
-                rows[-1].append(child)
-            else:
-                rows.append([child])
-        for row in rows:
-            row.sort(key=lambda w: centers[w].x())
-        return rows
+        return group_visual_rows(children)
 
     def _navigate_focusable(self, key: int) -> bool:
         """Move focus to the next/previous StrongFocus child.
