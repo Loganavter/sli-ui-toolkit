@@ -27,6 +27,25 @@ def _is_alive_and_enabled(widget: QWidget | None) -> bool:
         return False
 
 
+def _is_flyout_widget(widget: QWidget | None) -> bool:
+    """True when *widget* is a flyout (so a hide must not steal its focus).
+
+    ``isinstance`` against ``BaseFlyout`` (lazy import — this mixin lives in
+    the same package), with a duck-typed fallback for anyone importing the
+    mixin without ``widget.py`` on the path.
+    """
+    if widget is None:
+        return False
+    try:
+        from .widget import BaseFlyout
+
+        if isinstance(widget, BaseFlyout):
+            return True
+    except Exception:
+        pass
+    return hasattr(widget, "flyout_manager") and hasattr(widget, "_focus_guard_installed")
+
+
 def should_restore_host_focus(window, *, window_active_on_show: bool) -> bool:
     """Whether a hiding flyout may re-assert focus on its host window.
 
@@ -509,6 +528,21 @@ class _FlyoutLifecycleApi:
             and actual_before is not anchor
             and _is_alive_and_enabled(actual_before)
         ):
+            # Never steal focus back from ANOTHER flyout that navigation just
+            # entered: e.g. a ScrollValueButton's value pill opened with Up,
+            # after the anchor's FocusOut hid a focus-shown sibling panel
+            # (magnifier settings). That hide is a *consequence* of the focus
+            # move, not a reason to undo it — without this the panel's
+            # `_finish_hide` yanked the keyboard back to the toolbar and the
+            # pill's setFocus never stuck (focus landed on the ButtonGroup).
+            # The sibling-in-the-same-section check below cannot catch this:
+            # the entering flyout lives in its own `_FlyoutNavigationSection`.
+            if _is_flyout_widget(actual_before):
+                _flyout_debug(
+                    "[flyout-nav] _restore_focus_policies: skip — focus already on flyout %s",
+                    type(actual_before).__name__,
+                )
+                return
             # Проверяем, что actual_before — намеренный сиблинг в том же
             # тулбар-секшене, что и якорь (обе owns==True). CSD/TitleBar —
             # другой секшен, там не skip.

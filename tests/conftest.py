@@ -71,7 +71,7 @@ def _reset_navigation_manager_state(qapp):
             mgr.unregister(owner)
         except Exception:
             pass
-    for attr in ("_flyout_side", "_extensions_below", "_extension_owners"):
+    for attr in ("_flyout_side", "_extensions", "_group_extensions", "_extension_owners", "_skip_extension"):
         try:
             getattr(mgr, attr).clear()
         except Exception:
@@ -86,7 +86,7 @@ def _reset_navigation_manager_state(qapp):
             mgr.unregister(owner)
         except Exception:
             pass
-    for attr in ("_flyout_side", "_extensions_below", "_extension_owners"):
+    for attr in ("_flyout_side", "_extensions", "_group_extensions", "_extension_owners", "_skip_extension"):
         try:
             getattr(mgr, attr).clear()
         except Exception:
