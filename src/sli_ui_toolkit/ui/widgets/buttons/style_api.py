@@ -343,7 +343,12 @@ class _ButtonStyleApi:
             self._corner_radius_px = 2
             self.setProperty("cornerRadiusPx", 2)
         elif not has_text and had_text:
-            self.setFixedSize(36, 36)
+            # Icon-only 36×36 design floor: recorded as the design fixed size
+            # so ``on_scale_changed`` re-derives it at the live factor (a raw
+            # ``setFixedSize(36, 36)`` was frozen once and never followed a
+            # later UiScale change).
+            self._design_fixed_size = (36, 36)
+            self.setFixedSize(scaled_px(36), scaled_px(36))
             self._corner_radius_px = 6
             self.setProperty("cornerRadiusPx", 6)
         self.updateGeometry()
