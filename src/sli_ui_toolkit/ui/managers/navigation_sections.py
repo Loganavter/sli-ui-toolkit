@@ -147,17 +147,29 @@ class ToolbarRowsSection:
     def _rows(self) -> list[QWidget]:
         """Visible rows in VISUAL order (top to bottom).
 
-        Rows arrive from ``rows_provider`` in the host's construction order,
-        which for ``NavRowBuilder`` hosts is already visual — but nothing
-        enforced that, so a host that appends rows as panels are built could
-        hand them back in a different order and Down/Up would step by list
-        index rather than by geometry (the "index order instead of visual
-        rows" defect the flyout path had). Sort by the row's on-screen centre
-        y. The sort is stable, so rows sharing a y band (side-by-side columns)
-        keep the order the host gave.
+        Rows arrive from ``rows_provider``; for ``NavRowBuilder`` hosts that
+        order is already visual, but nothing enforced it, so a host appending
+        rows as panels are built could hand them back in a different order and
+        Down/Up would step by list index instead of by geometry (the "index
+        order instead of visual rows" defect the flyout path had).
+
+        The y-sort is therefore applied ONLY when every row lives in the SAME
+        container (a plain toolbar/footer: one parent, geometry is the truth).
+        A host whose rows span containers — the video-editor dialog's form
+        rows, the export tab's scroll pane, its toolbar and timeline — has an
+        explicit order that global y DESTROYS: a scroll pane's rows carry
+        global y values that interleave with the sibling containers (measured
+        regression 2026-10-19: ``test_export_tab_fields_walk_in_visual_order``
+        and ``test_up_walks_rows_in_visual_order`` went red the moment this
+        sort was added). Cross-container layouts keep the host's order; the
+        sort is stable, so rows sharing a y band keep the host's order too.
         """
         rows = [r for r in self._rows_provider() if r is not None and r.isVisible()]
         if len(rows) < 2:
+            return rows
+
+        parents = {r.parentWidget() for r in rows}
+        if len(parents) > 1:
             return rows
 
         def _center_y(widget: QWidget) -> float:
