@@ -50,17 +50,20 @@ class _AcceptingWidget(QWidget):
 
 
 def _two_row_host(qtbot):
-    """host → row1 (plain control), row2 (plain control + slider side by side).
+    """host → row1 (a container holding ``top``), row2 (``neighbor`` + slider).
 
-    Geometry is deterministic so ``_focusable``'s x-sort orders
-    ``neighbor`` before ``slider`` inside row 2.
+    Rows are containers (``ToolbarRowsSection._focusable`` reads a row's
+    children, not the row itself), so geometry is deterministic and
+    ``_focusable``'s x-sort orders ``neighbor`` before ``slider`` inside row 2.
     """
     host = QWidget()
     host.resize(400, 200)
     qtbot.addWidget(host)
 
-    row1 = _Focusable("row1", host)
+    row1 = QWidget(host)
     row1.setGeometry(10, 10, 120, 30)
+    top = _Focusable("top", row1)
+    top.setGeometry(0, 0, 120, 30)
 
     row2 = QWidget(host)
     row2.setGeometry(10, 60, 320, 40)
@@ -76,7 +79,7 @@ def _two_row_host(qtbot):
     qtbot.waitExposed(host)
     section = ToolbarRowsSection(lambda: [row1, row2], tag="edit-mode-test")
     NavigationManager.get_instance().register(host, section)
-    return host, row1, row2, neighbor, slider
+    return host, top, row2, neighbor, slider
 
 
 def _focus(widget: QWidget) -> None:
@@ -113,7 +116,7 @@ def _diff_in_band(a: QImage, b: QImage) -> int:
 # ---------------------------------------------------------------------------
 
 def test_arrows_move_the_ring_and_never_change_a_focused_slider(qapp, qtbot):
-    host, row1, row2, neighbor, slider = _two_row_host(qtbot)
+    host, top, row2, neighbor, slider = _two_row_host(qtbot)
     base = slider.value()
 
     _focus(slider)
@@ -130,7 +133,7 @@ def test_arrows_move_the_ring_and_never_change_a_focused_slider(qapp, qtbot):
 
     # Up/Down stay navigation: the ring steps rows.
     _press(slider, Qt.Key.Key_Up)
-    assert QApplication.focusWidget() is row1, "Up must move the ring, not the value"
+    assert QApplication.focusWidget() is top, "Up must move the ring, not the value"
     assert slider.value() == base, "navigating with Up changed the slider value"
 
 

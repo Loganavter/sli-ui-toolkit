@@ -128,6 +128,15 @@ slider.setTrackThickness(8)
 slider.setThumbRadius(9)
 ```
 
+**Keyboard edit mode.** A `Slider` changes its value only after an explicit
+`Enter`: arrows move the navigation ring until then. `Enter` enters edit mode
+(the groove border and thumb ring turn accent), where the arrows and
+`W`/`A`/`S`/`D` adjust the value, `Enter` again commits, and `Esc` reverts to
+the value captured on entry. Ask for the state with `slider.is_editing()`
+(`bool`); navigation sections use it to decide whether arrows belong to the
+control or to the ring — a control without `is_editing()` keeps the older
+behaviour. See `docs/dev/NAVIGATION.md` §1.1.
+
 `SpinBox(parent=None, default_value=0, *, alignment=Qt.AlignmentFlag.AlignCenter, wheel_requires_focus=False, underline_color=None, underline_thickness=None, focused_underline_color=None, focused_underline_thickness=None)`
 shares the alignment/underline/`wheel_requires_focus` knobs documented above
 for `CustomLineEdit`, plus range/value control:

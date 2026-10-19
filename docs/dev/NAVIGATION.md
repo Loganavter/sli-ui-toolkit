@@ -30,20 +30,53 @@ Concretely, for any widget with its own `keyPressEvent` override:
   a `NavigationSection` opts in via `extra_keys` (e.g.
   `ToolbarRowsSection` uses Left/Right to move between buttons in a row).
   A widget with its own Left/Right behavior (value-stepping, cursor
-  movement) is free to accept them — nothing else claims them by default.
+  movement) may accept them — but a *value control* must gate that on the
+  value-edit contract below instead of eating navigation keys.
+
+### 1.1 The value-edit contract (a value changes only after an explicit Enter)
+
+Owner request 2026-10-19: navigating must never change a value. A control
+that steps a value with the arrow keys owns an explicit **edit mode**; until
+the user enters it, arrows navigate the ring.
+
+| State | Up / Down | Left / Right | Enter | Esc |
+| --- | --- | --- | --- | --- |
+| **Navigating** (idle, ring on the control) | move the ring (rows) | move the ring (inside the row) | **enter edit mode**, capture the entry value | — |
+| **Editing** | adjust the value | adjust the value | **commit** and leave edit mode | **revert** to the captured value and leave |
+
+- The control reports the state through a duck-typed `is_editing() -> bool`
+  (implemented by `Slider`; WASD — `W/A/S/D` mapped to Up/Left/Down/Right —
+  also adjusts while editing, for 2-D surfaces).
+- A visible **editing affordance** is mandatory: the user must be able to
+  tell "the focus ring is on this control" from "this control is being
+  edited". Reuse the toolkit's focus-ring/state colours (`Slider` switches
+  its groove border + thumb ring to the accent while editing; it does not
+  invent a new look).
+- The gate lives in the sections/flyout, not the control:
+  `navigation_sections.arrow_gate_open(widget)` returns `False` while a
+  control with `is_editing()` reports not-editing, so
+  `ToolbarRowsSection`/`AutoNavigationSection` and the flyout's
+  `_FlyoutNavigationSection` keep the arrow for ring navigation. A control
+  **without** the `is_editing()` attribute keeps today's behaviour (gate
+  open) — nothing else breaks.
+- `Enter`/`Esc` are non-arrow keys: sections reach them natively, and a
+  flyout gives its focused child first refusal for them (its `extra_keys`),
+  so `Enter` enters edit mode even when the slider sits inside a flyout.
 
 **Correct examples:**
 
-- `Slider` (`ui/widgets/atomic/slider.py`): Up/Down always `event.ignore()`,
-  never `super()`'d. Left/Right are accepted for value-stepping (Slider is
-  not a text field, so there's no cursor-movement conflict).
+- `Slider` (`ui/widgets/atomic/slider.py`): the value-edit contract above.
+  While navigating it `event.ignore()`s **all four** arrows (Up/Down and
+  Left/Right) so they stay available for routing; only inside edit mode does
+  it step the value. `Enter`/`Esc` toggle/revert edit mode.
 - `ComboBox` (`ui/widgets/comboboxes/combo_box.py`): Up/Down are consumed
   only `while self._expanded` (the dropdown is open) — idle, they fall
   through to routing.
 - `SpinBox` / `DoubleSpinBox` (`ui/widgets/atomic/spinbox.py`): Up/Down
   always `event.ignore()`. Unlike `Slider`, SpinBox is a text field where
   Left/Right must stay cursor movement — value-stepping there uses
-  PageUp/PageDown instead, which nothing else claims.
+  PageUp/PageDown instead, which nothing else claims (so SpinBox does not
+  implement `is_editing()` for the arrow gate).
 
 **Negative example (fixed, kept here as the cautionary case):** `SpinBox`
 used to unconditionally `setValue()` + `event.accept()` on Up/Down, with no
@@ -139,13 +172,18 @@ Replaces `calendar_manager`/`checkbox_manager` — one generic `AutoNavigationSe
 ## 3. Contract test: `assert_yields_arrows_when_idle`
 
 `tests/_nav_contract.py` provides `assert_yields_arrows_when_idle(make_widget)`:
-constructs a fresh widget and asserts Up/Down are left unaccepted
+constructs a fresh widget and asserts the arrows are left unaccepted
 (`event.isAccepted()` is `False`) in its idle state, using the same
 trial-dispatch technique `ToolbarRowsSection._widget_handles` uses at
 runtime. Add your widget to `tests/test_nav_arrow_key_contract.py` (or a
 dedicated widget test module, wiring in the same helper) whenever you add
 or touch a `keyPressEvent` override that mentions Up/Down or Left/Right —
-this is what would have caught `SpinBox`'s bug before it shipped.
+this is what would have caught `SpinBox`'s bug before it shipped. A
+value control that implements the value-edit contract (§1.1) must leave
+**all four** arrows unaccepted while idle (`Slider` has its own
+Left/Right case in that module); `tests/test_slider_edit_mode.py` drives
+the full Enter/arrows/WASD/Enter, Esc and configurable-affordance contract
+against real widgets.
 
 ## 4. Modal sections — overlays that own the keyboard
 
@@ -198,11 +236,13 @@ section registered is unchanged.
 - [ ] Up/Down: `event.ignore()` unless you're in a transient state that
       legitimately owns them (document why, same as `ComboBox`'s
       `self._expanded` check).
-- [ ] Left/Right: fine to accept unconditionally *unless* your widget is a
-      text field (then they're cursor movement — use PageUp/PageDown or
-      another key instead, see `SpinBox`).
+- [ ] Left/Right: a **value control** must gate on the value-edit contract
+      (§1.1) — `event.ignore()` while navigating, accept only while
+      `is_editing()`. Otherwise, Left/Right are fine to accept *unless* your
+      widget is a text field (then they're cursor movement — use
+      PageUp/PageDown or another key instead, see `SpinBox`).
 - [ ] Add a case to `tests/test_nav_arrow_key_contract.py` using
-      `assert_yields_arrows_when_idle`.
+      `assert_yields_arrows_when_idle` (value controls: all four arrows).
 
 **Adding a new navigable page/toolbar:**
 
