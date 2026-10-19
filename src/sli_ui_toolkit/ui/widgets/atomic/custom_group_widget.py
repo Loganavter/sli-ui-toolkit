@@ -178,9 +178,11 @@ class CustomGroupWidget(QWidget):
             self._content_layout.setSpacing(scaled_px(2))
         else:
             _, title_h = self._get_title_metrics()
-            top_margin = int(title_h * 0.8) + 12
-            self._content_layout.setContentsMargins(12, top_margin, 12, 12)
-            self._content_layout.setSpacing(8)
+            top_margin = int(title_h * 0.8) + scaled_px(12)
+            self._content_layout.setContentsMargins(
+                scaled_px(12), top_margin, scaled_px(12), scaled_px(12)
+            )
+            self._content_layout.setSpacing(scaled_px(8))
 
     def add_widget(self, widget):
         self._content_layout.addWidget(widget)
@@ -193,7 +195,7 @@ class CustomGroupWidget(QWidget):
         if self._caption == "bottom":
             return content_size
         title_w, _title_h = self._get_title_metrics()
-        title_full_width = self._title_left_padding + title_w + 30
+        title_full_width = scaled_px(self._title_left_padding) + title_w + scaled_px(30)
         final_w = max(content_size.width(), title_full_width)
         return QSize(final_w, content_size.height())
 
@@ -224,8 +226,8 @@ class CustomGroupWidget(QWidget):
         painter.drawPath(_rounded_rect_path(border_rect, radii))
 
         if self._title_text:
-            text_x_start = self._title_left_padding
-            text_padding = 4
+            text_x_start = scaled_px(self._title_left_padding)
+            text_padding = scaled_px(4)
             clear_rect = QRect(text_x_start, 0, title_w + (text_padding * 2), title_h)
             bg_color = self.theme_manager.get_color("surface.background")
             painter.fillRect(clear_rect, bg_color)
