@@ -16,6 +16,8 @@ from PySide6.QtCore import QRect, QRectF
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget
 
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
+
 from .contract import FieldKind, InspectField
 
 #: Enum classes seen in LIVE config values, keyed by short class name.
@@ -35,10 +37,20 @@ def preview_enum_classes() -> dict[str, type]:
 class _Swatch(QWidget):
     """Small solid color square (painted, no QSS)."""
 
-    def __init__(self, color: QColor, size: int = 14, parent=None):
+    #: Design px — re-resolved by the inspector's metrics pass, so a live
+    #: scale/font change is not frozen into the row.
+    DESIGN_SIZE = 14
+
+    def __init__(self, color: QColor, size: int = DESIGN_SIZE, parent=None):
         super().__init__(parent)
         self._color = QColor(color)
-        self.setFixedSize(size, size)
+        self._design_size = int(size)
+        self.refresh_metrics()
+
+    def refresh_metrics(self) -> None:
+        """Re-derive the fixed square from the live UI factor."""
+        side = scaled_px(self._design_size)
+        self.setFixedSize(side, side)
 
     def paintEvent(self, _event) -> None:  # noqa: N802
         painter = QPainter(self)
