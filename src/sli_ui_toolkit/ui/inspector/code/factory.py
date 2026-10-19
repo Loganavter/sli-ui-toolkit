@@ -15,7 +15,12 @@ from PySide6.QtCore import QEvent, QObject
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.inspector.code.editor import CodeSectionEditor
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
+
+#: Design px floor for the editor's page clamp (see ``_CodeEditorClamp``).
+_EDITOR_MIN_HEIGHT = 160
+_ROW_SPACING = 6
 
 
 class _CodeEditorClamp(QObject):
@@ -30,7 +35,13 @@ class _CodeEditorClamp(QObject):
         self._page = page
 
     def _apply(self) -> None:
-        self._editor.setMaximumHeight(max(160, self._page.height()))
+        self._editor.setMaximumHeight(
+            max(scaled_px(_EDITOR_MIN_HEIGHT), self._page.height())
+        )
+
+    def refresh_metrics(self) -> None:
+        """Re-derive the design-px floor after a live metrics change."""
+        self._apply()
 
     def eventFilter(self, watched, event):  # noqa: N802
         if watched is self._page and event.type() == QEvent.Type.Resize:
@@ -518,7 +529,7 @@ def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: s
         row = QWidget()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(scaled_px(_ROW_SPACING))
         lay.addWidget(Label(f"Parent: {type(ancestor).__name__}", pixel_size=11, bold=True, selectable=True))
         lay.addWidget(Label(src_label, pixel_size=11, elide=True, selectable=True))
         jump = _Btn(text="Show parent code", variant="surface", size=(0, 26))

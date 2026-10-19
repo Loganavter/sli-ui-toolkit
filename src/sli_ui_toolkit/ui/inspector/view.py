@@ -16,6 +16,12 @@ from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
 from sli_ui_toolkit.ui.layout_settle import settle_layout
+from sli_ui_toolkit.ui.managers.ui_metrics import (
+    AXIS_FONT,
+    AXIS_SCALE,
+    connect_ui_metrics,
+)
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import CloseButtonPolicy
 from sli_ui_toolkit.ui.widgets.composite.dialog_shell import (
     ScrollableDialogPage,
@@ -25,9 +31,18 @@ from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.host import TopTabHost
 
 from .code import CodeSectionEditor, build_code_section
 from .contract import InspectField, WidgetInspection
-from .fields import _config_snippet
+from .fields import _Swatch, _config_snippet
 from .rendering import _PaneRenderingMixin
 from .tree import _TreeNodeRow, _layout_tree_key, _PaneTreeMixin
+
+#: Design px for the inspector's own chrome. Resolved through ``scaled_px``
+#: at construction and re-derived by the window's single appearance-bus
+#: subscription (``InspectorWindow._apply_metrics``), never baked at import.
+_PAGE_MARGIN = 8
+_PAGE_SPACING = 4
+_TOOLBAR_MARGINS = (8, 6, 8, 2)
+_TOOLBAR_SPACING = 6
+_WINDOW_SIZE = (560, 640)
 
 
 
@@ -78,7 +93,8 @@ class _InspectionPane(
         self.pages: dict[str, ScrollableDialogPage] = {}
         for name in sections:
             page = ScrollableDialogPage(
-                content_margins=(8, 8, 8, 8), content_spacing=4
+                content_margins=(scaled_px(_PAGE_MARGIN),) * 4,
+                content_spacing=scaled_px(_PAGE_SPACING),
             )
             self.pages[name] = page
             self.shell.pages_stack.addWidget(page)
@@ -111,6 +127,27 @@ class _InspectionPane(
                 settle_layout(page, page.scroll_area)
         return super().eventFilter(watched, event)
 
+    def refresh_metrics(self) -> None:
+        """Re-derive this pane's cached design-px constants.
+
+        Runs from the window's single appearance-bus subscription — the pane
+        itself never subscribes, so a live scale/font change re-derives the
+        whole inspector subtree exactly once.
+        """
+        margins = (scaled_px(_PAGE_MARGIN),) * 4
+        for page in self.pages.values():
+            page.content_layout.setContentsMargins(*margins)
+            page.content_layout.setSpacing(scaled_px(_PAGE_SPACING))
+        self._refresh_row_metrics()
+        if self._code_section is not None:
+            self._code_section.refresh_metrics()
+        for row in self.findChildren(_TreeNodeRow):
+            row.refresh_metrics()
+        for swatch in self.findChildren(_Swatch):
+            swatch.refresh_metrics()
+        self.updateGeometry()
+        self.update()
+
     def _on_sidebar_row(self, row: int) -> None:
         self.shell.pages_stack.setCurrentIndex(row)
         page = self.shell.pages_stack.currentWidget()
@@ -126,7 +163,8 @@ class _InspectionPane(
     def add_section(self, name: str) -> ScrollableDialogPage:
         """Append an extra sidebar section (app layer: Native)."""
         page = ScrollableDialogPage(
-            content_margins=(8, 8, 8, 8), content_spacing=4
+            content_margins=(scaled_px(_PAGE_MARGIN),) * 4,
+            content_spacing=scaled_px(_PAGE_SPACING),
         )
         self.pages[name] = page
         self.shell.pages_stack.addWidget(page)
@@ -295,7 +333,7 @@ class InspectorWindow(QDialog):
         self.setObjectName("UiInspectorWindow")
         self.setProperty("_ui_inspector_owned", True)
         self.setWindowModality(Qt.WindowModality.NonModal)
-        self.resize(560, 640)
+        self.resize(*(scaled_px(v) for v in _WINDOW_SIZE))
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -303,8 +341,10 @@ class InspectorWindow(QDialog):
 
         self._toolbar = QWidget()
         self.toolbar_layout = QHBoxLayout(self._toolbar)
-        self.toolbar_layout.setContentsMargins(8, 6, 8, 2)
-        self.toolbar_layout.setSpacing(6)
+        self.toolbar_layout.setContentsMargins(
+            *(scaled_px(v) for v in _TOOLBAR_MARGINS)
+        )
+        self.toolbar_layout.setSpacing(scaled_px(_TOOLBAR_SPACING))
         refresh = Button(text="Refresh", variant="default", size=(0, 30))
         refresh.clicked.connect(self.refresh_requested)
         capture = Button(text="Capture tokens", variant="default", size=(0, 30))
@@ -327,6 +367,43 @@ class InspectorWindow(QDialog):
         self._layout_tree_cache: dict[tuple, QWidget] = {}
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._refresh_minimum_size()
+        # ONE subscription for the whole inspector subtree: the window fans a
+        # coalesced scale/font change out to every pane (page margins, row
+        # spacing, tree rows, Code editor + an already-built preview, swatches)
+        # and re-derives its own toolbar/minimum size. Panes/rows never
+        # subscribe themselves — a second private signal is exactly the
+        # stale-geometry class this bus replaced.
+        connect_ui_metrics(
+            self,
+            self._on_metrics_changed,
+            axes=frozenset({AXIS_SCALE, AXIS_FONT}),
+        )
+
+    def _on_metrics_changed(self, _axes=None) -> None:
+        self._apply_metrics()
+
+    def _apply_metrics(self) -> None:
+        """Re-derive the inspector's cached design-px geometry in one pass."""
+        self.toolbar_layout.setContentsMargins(
+            *(scaled_px(v) for v in _TOOLBAR_MARGINS)
+        )
+        self.toolbar_layout.setSpacing(scaled_px(_TOOLBAR_SPACING))
+        for pane in self.findChildren(_InspectionPane):
+            try:
+                pane.refresh_metrics()
+            except RuntimeError:
+                continue
+        # A cached Layout tree may be detached from its pane (tab switch
+        # bookkeeping) — refresh it directly as well; a double pass is cheap.
+        for tree in list(self._layout_tree_cache.values()):
+            try:
+                for row in tree.findChildren(_TreeNodeRow):
+                    row.refresh_metrics()
+            except RuntimeError:
+                continue
+        self._refresh_minimum_size()
+        self.updateGeometry()
+        self.update()
 
     def _refresh_minimum_size(self) -> None:
         """Content-driven minimum, the app's dialog-geometry recipe.
