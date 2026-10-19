@@ -44,10 +44,18 @@ def _row_debug(message: str, *args) -> None:
 
 class SeparatorRow(QWidget):
     _H_INSET = 4
+    # Design px — re-resolved at every scale change via ``refresh_metrics``
+    # (the menu is cached across a live UiScale change).
+    DESIGN_HEIGHT = 9
 
     def __init__(self, parent: QWidget):
         super().__init__(parent)
-        self.setFixedHeight(scaled_px(9))
+        self.refresh_metrics()
+
+    def refresh_metrics(self) -> None:
+        """Re-derive the design-px height at the live scale."""
+        self.setFixedHeight(scaled_px(self.DESIGN_HEIGHT))
+        self.updateGeometry()
 
     def paintEvent(self, event):  # noqa: N802 - Qt API
         painter = QPainter(self)
@@ -60,15 +68,25 @@ class SeparatorRow(QWidget):
 
 
 class SectionTitleRow(QWidget):
+    # Design px — re-resolved at every scale change via ``refresh_metrics``.
+    DESIGN_HEIGHT = 24
+    TITLE_PIXEL_SIZE = 11
+
     def __init__(self, text: str, parent: QWidget):
         super().__init__(parent)
         self._text = text
-        self.setFixedHeight(scaled_px(24))
+        self.refresh_metrics()
+
+    def refresh_metrics(self) -> None:
+        """Re-derive the design-px height at the live scale."""
+        self.setFixedHeight(scaled_px(self.DESIGN_HEIGHT))
+        self.updateGeometry()
+        self.update()
 
     def paintEvent(self, event):  # noqa: N802 - Qt API
         painter = QPainter(self)
         painter.setPen(QPen(ThemeManager.get_instance().get_color("dialog.text")))
-        painter.setFont(ui_font(pixel_size=11, bold=True))
+        painter.setFont(ui_font(pixel_size=self.TITLE_PIXEL_SIZE, bold=True))
         painter.drawText(
             self.rect().adjusted(scaled_px(12), 0, -scaled_px(12), 0),
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
@@ -77,9 +95,12 @@ class SectionTitleRow(QWidget):
         painter.end()
 
     def sizeHint(self):
-        font = ui_font(pixel_size=11, bold=True)
+        font = ui_font(pixel_size=self.TITLE_PIXEL_SIZE, bold=True)
         fm = QFontMetrics(font)
-        return QSize(_measure_text_width(fm, self._text) + scaled_px(24), scaled_px(24))
+        return QSize(
+            _measure_text_width(fm, self._text) + scaled_px(self.DESIGN_HEIGHT),
+            scaled_px(self.DESIGN_HEIGHT),
+        )
 
 
 class _RowBgLayer(Layer):
@@ -224,10 +245,17 @@ class _RowContentLayer(Layer):
 class ContextMenuRow(Button):
     ROW_HEIGHT = 32
     ICON_SIZE = 16
+    # Design-px left gutter (below the accent bar / check gutter).
+    CHECK_GUTTER = 12
 
     # Entry this row was built for; attached by content._build_row after
     # construction (menu/submenu read it back via getattr).
     _spec: ContextMenuAction
+
+    # Design-px gutter; the live px is resolved through ``_check_gutter`` at
+    # USE time so a menu outliving a scale change does not keep the old
+    # gutter (see ``refresh_metrics``).
+    _check_gutter_design: int = CHECK_GUTTER
 
     def __init__(self, action: ContextMenuAction, *, check_gutter: int, parent: QWidget):
         super().__init__(
@@ -241,7 +269,8 @@ class ContextMenuRow(Button):
         self._text = action.text
         self._danger = action.danger
         self._has_children = bool(action.children)
-        self._check_gutter = check_gutter
+        self._check_gutter_design = int(check_gutter)
+        self._icon_source = action.icon
         self._icon_pixmap = (
             normalized_icon_pixmap(action.icon, scaled_px(self.ICON_SIZE)) if action.icon else None
         )
@@ -262,7 +291,18 @@ class ContextMenuRow(Button):
             self.setToolTip(action.tooltip)
         self.refresh_metrics()
 
+    @property
+    def _check_gutter(self) -> int:
+        """Left gutter in live px (design ``_check_gutter_design`` × factor)."""
+        return scaled_px(self._check_gutter_design)
+
     def refresh_metrics(self) -> None:
+        """Re-derive every cached chrome metric at the live font/scale.
+
+        The menu (and its rows) is cached across a live UiScale/font change,
+        so a construction-time snapshot of the trailing shortcut/arrow width
+        or the rasterized icon pixmap would stay at the old size.
+        """
         fm = QFontMetrics(self.font())
         if self._shortcut_text:
             self._trailing_width = fm.horizontalAdvance(self._shortcut_text) + scaled_px(8)
@@ -270,6 +310,10 @@ class ContextMenuRow(Button):
             self._trailing_width = scaled_px(20)
         else:
             self._trailing_width = 0
+        if self._icon_source is not None:
+            self._icon_pixmap = normalized_icon_pixmap(
+                self._icon_source, scaled_px(self.ICON_SIZE)
+            )
         self.updateGeometry()
 
     def sizeHint(self):

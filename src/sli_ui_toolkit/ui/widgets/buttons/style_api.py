@@ -23,7 +23,7 @@ from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
 
-from .content import RowsContent
+from .content import RowsContent, resolve_content_insets
 
 
 def normalize_content_padding(
@@ -343,7 +343,12 @@ class _ButtonStyleApi:
             self._corner_radius_px = 2
             self.setProperty("cornerRadiusPx", 2)
         elif not has_text and had_text:
-            self.setFixedSize(36, 36)
+            # Icon-only 36×36 design floor: recorded as the design fixed size
+            # so ``on_scale_changed`` re-derives it at the live factor (a raw
+            # ``setFixedSize(36, 36)`` was frozen once and never followed a
+            # later UiScale change).
+            self._design_fixed_size = (36, 36)
+            self.setFixedSize(scaled_px(36), scaled_px(36))
             self._corner_radius_px = 6
             self.setProperty("cornerRadiusPx", 6)
         self.updateGeometry()
@@ -445,8 +450,8 @@ class _ButtonStyleApi:
         """
         if not self._has_wrapped_rows():
             return 0
-        pad_l, pad_t, pad_r, pad_b = self._content_padding
-        inner = max(1, int(width) - int(pad_l) - int(pad_r))
+        pad_l, pad_t, pad_r, pad_b = resolve_content_insets(self._content_padding)
+        inner = max(1, int(width) - pad_l - pad_r)
         compact = bool(getattr(self, "_rows_compact", False))
         controller = getattr(self, "_controller", None)
         row_groups: list[list[Any]] = []

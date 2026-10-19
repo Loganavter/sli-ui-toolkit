@@ -114,7 +114,11 @@ class UiFont(QObject):
                 font.setPixelSize(UiScale.get_instance().scaled_px(font.pixelSize()))
             else:
                 font.setPointSizeF(font.pointSizeF() * factor)
-        return font
+        # Assert the size into the font's resolve mask before it is handed to
+        # a widget — see ``pin_font_size`` (a copy carries the size *value*
+        # without the resolved bit, and ``QWidget.setFont`` would fill it from
+        # the ancestor chain, which may still hold the pre-apply face).
+        return pin_font_size(font)
 
     def resolve(
         self,
@@ -307,6 +311,30 @@ class UiFont(QObject):
         UiMetrics.get_instance().emit_appearance({"font"})
 
 
+def pin_font_size(font: QFont) -> QFont:
+    """Assert *font*'s size so Qt cannot merge a stale ancestor's (in place).
+
+    ``QFont`` copies carry a size *value* without necessarily a resolved size
+    bit, and ``QWidget.setFont`` fills every unresolved attribute from the
+    widget's inherited font — the *ancestor chain*, which may still carry the
+    pre-apply face. Measured live (2026-10-19): Improve-ImgSLI's workspace tab
+    bar pinned ``Source Sans 3`` 12 pt, Qt applied 11 pt from the window chain,
+    the first tab was sized 178x37 instead of 186x38, and the pill jumped a
+    beat later when the shown window re-resolved the chain — the "first tab
+    wrong for a couple of frames, then resizes" report.
+
+    Every font copy a widget is going to be given goes through this, or
+    through ``ui_font``/``paint_font``/``apply_ui_font``/``rebase_*`` (which
+    call it). ``tests/test_font_resolution_contract.py`` fails a raw copy, so
+    the class cannot come back silently.
+    """
+    if font.pixelSize() > 0:
+        font.setPixelSize(font.pixelSize())
+    elif font.pointSizeF() > 0:
+        font.setPointSizeF(font.pointSizeF())
+    return font
+
+
 def ui_font(**overrides) -> QFont:
     """Resolve a UI font — preferred entry point for paint / layout code."""
     return UiFont.get_instance().resolve(**overrides)
@@ -330,7 +358,7 @@ def rebase_family(font: QFont | None = None) -> QFont:
     family = UiFont.get_instance().family()
     if family:
         result.setFamily(family)
-    return result
+    return pin_font_size(result)
 
 
 def paint_font(widget: QWidget | None = None, **overrides) -> QFont:
@@ -392,6 +420,7 @@ __all__ = [
     "apply_ui_font",
     "measure_text_width",
     "paint_font",
+    "pin_font_size",
     "rebase_font",
     "ui_font",
 ]

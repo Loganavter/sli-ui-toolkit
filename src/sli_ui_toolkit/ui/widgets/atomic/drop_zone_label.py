@@ -7,7 +7,17 @@ from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_metrics import (
+    AXIS_FONT,
+    AXIS_SCALE,
+    connect_ui_metrics,
+)
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+
+#: Design-px floor for a drop area — scaled at USE time (and re-derived on the
+#: appearance bus) so it follows a live UiScale change.
+_DROP_ZONE_MIN_HEIGHT = 80
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
@@ -54,7 +64,7 @@ class DropZoneLabel(Label):
         self.setAcceptDrops(True)
         self.setMouseTracking(False)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumHeight(80)
+        self.setMinimumHeight(scaled_px(_DROP_ZONE_MIN_HEIGHT))
         self._drag_active = False
         self._hovered = False
         self._theme_manager = ThemeManager.get_instance()
@@ -62,6 +72,18 @@ class DropZoneLabel(Label):
             self._theme_manager.theme_changed.connect(self.update)
         except Exception:
             pass
+        # A live scale/font change re-derives the floor (the Label base
+        # re-applies its own font but not this derived minimum).
+        connect_ui_metrics(
+            self,
+            self._on_ui_metrics_changed,
+            axes=frozenset({AXIS_FONT, AXIS_SCALE}),
+        )
+
+    def _on_ui_metrics_changed(self, *_args: object) -> None:
+        self.setMinimumHeight(scaled_px(_DROP_ZONE_MIN_HEIGHT))
+        self.updateGeometry()
+        self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)

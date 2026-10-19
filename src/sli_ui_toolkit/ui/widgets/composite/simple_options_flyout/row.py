@@ -107,7 +107,7 @@ class _SimpleRow(Button):
         self._design_font = item_font
         layout = QHBoxLayout(self)
         # Accent indicator draws inside the left pad; keep pad tight to the label.
-        layout.setContentsMargins(scaled_px(8), 0, scaled_px(8), 0)
+        self._apply_row_metrics()
         self.label = QLabel(text)
         self.label.setFont(rebase_font(item_font))
         self.label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -147,9 +147,19 @@ class _SimpleRow(Button):
         self.label.setFont(rebase_family(self.label.font()))
         self.label.setProperty("class", "option-label")
 
+    def _apply_row_metrics(self) -> None:
+        """Re-derive the row's design-px horizontal pad at the live factor."""
+        layout = self.layout()
+        if layout is not None:
+            layout.setContentsMargins(scaled_px(8), 0, scaled_px(8), 0)
+
     def _apply_scale(self, *_args: object) -> None:
         # Re-resolve the design font at the new factor; keeps the row's text
         # (and its sizeHint, via the scaled label) live with the UI scale.
         self.label.setFont(rebase_font(self._design_font))
+        # The horizontal pad is design px too, and sizeHint reads it: without
+        # this re-derive the accent indicator / label inset stays at the
+        # construction factor on a live scale change (the flyout is cached).
+        self._apply_row_metrics()
         self.updateGeometry()
         self.update()

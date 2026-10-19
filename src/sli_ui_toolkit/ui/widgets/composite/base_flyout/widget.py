@@ -41,6 +41,7 @@ from sli_ui_toolkit.ui.in_window_surface import (
     create_shadow_surface,
 )
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
+from sli_ui_toolkit.ui.managers.nav_rows import group_visual_rows
 from sli_ui_toolkit.ui.widgets.composite.gpu_fill.widget import FlyoutGpuFillWidget
 from sli_ui_toolkit.ui.widgets.helpers.rounded_clip import RoundedClipEffect
 
@@ -348,26 +349,52 @@ class BaseFlyout(
                     return
         super().keyPressEvent(event)
 
+    def _navigable_rows(self) -> list[list[QWidget]]:
+        """StrongFocus children grouped into VISUAL rows, x-sorted inside a row.
+
+        The old traversal sorted every focusable descendant by its centre **x
+        only** (``widget.py:356-366``), which is not a reading order: in a flyout
+        whose full-width rows have a right-aligned control (a `Switch`, a color
+        chip, a toggle pair) the right-hand controls sorted together and the
+        sequence jumped backwards/forwards — measured live 2026-10-19 in the
+        label-text flyout, Down went 'Opacity → Draw background'(a right-aligned
+        switch) ' → Text color'(up the panel) and the two side-by-side radio
+        buttons of 'Position' were chained as vertical steps, so Up from the
+        right one walked left.
+
+        Grouping is by the global centre **y** (tolerance = half the median
+        child height, so a row's taller control does not split it), then x
+        inside the row; rows are ordered by y. The banding itself lives in
+        :func:`sli_ui_toolkit.ui.managers.nav_rows.group_visual_rows` so the
+        flyout and the ``NavigationSection`` path that drives toolbars and
+        dialogs group rows the same way.
+        """
+        children = [
+            c
+            for c in self.findChildren(QWidget)
+            if (
+                c.focusPolicy() == Qt.FocusPolicy.StrongFocus
+                and c.isVisible()
+                and c.isEnabled()
+            )
+        ]
+        return group_visual_rows(children)
+
     def _navigate_focusable(self, key: int) -> bool:
         """Move focus to the next/previous StrongFocus child.
 
+        Vertical keys step between VISUAL ROWS (see ``_navigable_rows``), picking
+        the child nearest the current column; horizontal keys step inside the
+        current row and only fall back to the flat order at the row's edge.
         Returns ``True`` if focus was moved, ``False`` to yield.
         """
-        children = sorted(
-            [
-                c for c in self.findChildren(QWidget)
-                if (
-                    c.focusPolicy() == Qt.FocusPolicy.StrongFocus
-                    and c.isVisible()
-                    and c.isEnabled()
-                )
-            ],
-            key=lambda w: w.mapToGlobal(w.rect().center()).x(),
-        )
+        rows = self._navigable_rows()
+        children = [child for row in rows for child in row]
         if not children:
             return False
         focused = QApplication.focusWidget()
         idx = next((i for i, c in enumerate(children) if c is focused), None)
+        row_index = next((i for i, row in enumerate(rows) if focused in row), None)
         if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
             # Up/Down normally wrap within this flyout's own children (see
             # the fallback below) -- fine for a flyout that's just a
@@ -416,12 +443,42 @@ class BaseFlyout(
                 if owner is not None:
                     owner.setFocus(Qt.FocusReason.OtherFocusReason)
                     return True
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            row_step = -1 if key == Qt.Key.Key_Up else 1
+            if row_index is None:
+                target = children[0] if key == Qt.Key.Key_Down else children[-1]
+            else:
+                nxt = row_index + row_step
+                target = self._nearest_in_row(
+                    rows[nxt] if 0 <= nxt < len(rows) else rows[-1] if key == Qt.Key.Key_Up else rows[0],
+                    focused,
+                )
+            target.setFocus(Qt.FocusReason.OtherFocusReason)
+            return True
+        if row_index is not None and focused in rows[row_index]:
+            # Horizontal keys move INSIDE the row a focused control belongs to
+            # (a side-by-side pair, an indexed toggle); only at the row's edge
+            # do they fall back to the flat order below.
+            row = rows[row_index]
+            pos = row.index(focused)
+            nxt = pos + (1 if key == Qt.Key.Key_Right else -1)
+            if 0 <= nxt < len(row):
+                row[nxt].setFocus(Qt.FocusReason.OtherFocusReason)
+                return True
         if key in (Qt.Key.Key_Down, Qt.Key.Key_Right):
             target = children[(idx + 1) % len(children)] if idx is not None else children[0]
         else:
             target = children[(idx - 1) % len(children)] if idx is not None else children[-1]
         target.setFocus(Qt.FocusReason.OtherFocusReason)
         return True
+
+    @staticmethod
+    def _nearest_in_row(row: list[QWidget], focused: QWidget | None) -> QWidget:
+        """The child of *row* closest to *focused*'s column (row[0] without one)."""
+        if focused is None or not isinstance(focused, QWidget):
+            return row[0]
+        axis = focused.mapToGlobal(focused.rect().center()).x()
+        return min(row, key=lambda w: abs(w.mapToGlobal(w.rect().center()).x() - axis))
 
     def eventFilter(self, obj, event):  # noqa: N802 — Qt API
         if (

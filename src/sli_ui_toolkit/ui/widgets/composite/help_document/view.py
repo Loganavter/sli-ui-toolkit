@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
 )
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
     HeadingBlock,
@@ -74,8 +76,7 @@ class HelpDocumentView(QWidget):
         self._toc: QFrame | None = None
 
         self._root = QVBoxLayout(self)
-        self._root.setContentsMargins(20, 16, 20, 24)
-        self._root.setSpacing(10)
+        self._apply_root_metrics()
 
         self._canvas = HelpDocumentBodyCanvas(self)
         self._root.addWidget(self._canvas, 1)
@@ -86,6 +87,36 @@ class HelpDocumentView(QWidget):
         self._lightbox: HelpImageLightbox | None = None
 
         self._theme.theme_changed.connect(self._repolish)
+        # Root padding and the cached TOC frame's inner padding are design px;
+        # the view (and a long-lived TOC) survives a live Settings → OK scale
+        # change, so both re-derive through the appearance bus. Scale-only:
+        # the padding is font-independent (the canvas owns its own font axis).
+        connect_ui_metrics(
+            self, self._on_metrics_changed, axes=frozenset({AXIS_SCALE})
+        )
+
+    def _apply_root_metrics(self) -> None:
+        self._root.setContentsMargins(
+            scaled_px(20), scaled_px(16), scaled_px(20), scaled_px(24)
+        )
+        self._root.setSpacing(scaled_px(10))
+
+    def _apply_toc_metrics(self) -> None:
+        """Re-derive the live TOC frame's inner padding (design px)."""
+        toc = self._toc
+        layout = toc.layout() if toc is not None else None
+        if layout is None:
+            return
+        layout.setContentsMargins(
+            scaled_px(12), scaled_px(10), scaled_px(12), scaled_px(10)
+        )
+        layout.setSpacing(scaled_px(4))
+
+    def _on_metrics_changed(self, *_args: object) -> None:
+        self._apply_root_metrics()
+        self._apply_toc_metrics()
+        self.updateGeometry()
+        self.update()
 
     def set_asset_resolver(self, resolver: AssetResolver | None) -> None:
         self._resolve_asset = resolver
@@ -222,9 +253,8 @@ class HelpDocumentView(QWidget):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
         )
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._apply_toc_metrics()
         layout.addWidget(
             Label(
                 self._toc_title,

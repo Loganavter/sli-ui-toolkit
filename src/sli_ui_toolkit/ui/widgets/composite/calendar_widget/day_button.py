@@ -4,8 +4,19 @@ from PySide6.QtCore import QDate, QSize, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QSizePolicy
 
+from sli_ui_toolkit.ui.managers.ui_metrics import (
+    AXIS_FONT,
+    AXIS_SCALE,
+    connect_ui_metrics,
+)
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.theme import ThemeManager
+
+#: Design-px geometry for a calendar cell — resolved at USE time and
+#: re-derived on the appearance bus so the grid follows a live UiScale change.
+_DESIGN_MIN_SIZE = (28, 36)
+_DESIGN_HINT_SIZE = (50, 70)
 
 class CalendarDayButton(Button):
     date_clicked = Signal(QDate)
@@ -20,7 +31,7 @@ class CalendarDayButton(Button):
             parent=parent
         )
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setMinimumSize(28, 36)
+        self.setMinimumSize(scaled_px(_DESIGN_MIN_SIZE[0]), scaled_px(_DESIGN_MIN_SIZE[1]))
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
         self._is_weekend = False
@@ -34,6 +45,19 @@ class CalendarDayButton(Button):
         self.clicked.connect(self._on_click)
         self.customContextMenuRequested.connect(self._on_context_menu)
         self._theme_manager = ThemeManager.get_instance()
+        connect_ui_metrics(
+            self,
+            self._on_ui_metrics_changed,
+            axes=frozenset({AXIS_FONT, AXIS_SCALE}),
+        )
+
+    def _on_ui_metrics_changed(self, *_args: object) -> None:
+        """Re-derive the cell floor for the live factor (appearance bus)."""
+        self.setMinimumSize(
+            scaled_px(_DESIGN_MIN_SIZE[0]), scaled_px(_DESIGN_MIN_SIZE[1])
+        )
+        self.updateGeometry()
+        self.update()
 
     def set_data(self, has_data: bool, color: QColor | None = None) -> None:
         self._has_data = has_data
@@ -89,7 +113,7 @@ class CalendarDayButton(Button):
             self.date_context_menu.emit(self.date)
 
     def sizeHint(self) -> QSize:
-        return QSize(50, 70)
+        return QSize(scaled_px(_DESIGN_HINT_SIZE[0]), scaled_px(_DESIGN_HINT_SIZE[1]))
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(28, 36)
+        return QSize(scaled_px(_DESIGN_MIN_SIZE[0]), scaled_px(_DESIGN_MIN_SIZE[1]))

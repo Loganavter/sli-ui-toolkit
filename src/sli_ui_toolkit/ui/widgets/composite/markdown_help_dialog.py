@@ -11,6 +11,12 @@ from PySide6.QtGui import QColor, QDesktopServices, QFontMetrics, QPainter, QPix
 from PySide6.QtWidgets import QDialog
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_metrics import (
+    AXIS_FONT,
+    AXIS_SCALE,
+    connect_ui_metrics,
+)
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     SurfaceScrollArea,
 )
@@ -23,6 +29,12 @@ from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
 from sli_ui_toolkit.ui.widgets.composite.text_view.widget import TextView
 
 AssetResolver = Callable[[str], str | Path | QPixmap | None]
+
+#: Design-px chrome for the help dialog: the default window size and the nav
+#: row pitch. Both are resolved through ``scaled_px`` at USE time and the nav
+#: rows re-derive on the appearance bus (see ``_on_ui_metrics_changed``).
+_DESIGN_WINDOW_SIZE = (800, 600)
+_NAV_ROW_DESIGN_HEIGHT = 35
 
 @dataclass(frozen=True)
 class MarkdownHelpSection:
@@ -122,7 +134,10 @@ class MarkdownHelpPageView(TextView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return QSize(400, max(200, self.canvas().minimumHeight() + 8))
+        return QSize(
+            scaled_px(400),
+            max(scaled_px(200), self.canvas().minimumHeight() + scaled_px(8)),
+        )
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
         return self.sizeHint()
@@ -159,12 +174,25 @@ class MarkdownHelpDialog(QDialog):
             | Qt.WindowType.WindowCloseButtonHint
         )
         self.setSizeGripEnabled(True)
-        self.resize(800, 600)
+        self.resize(scaled_px(_DESIGN_WINDOW_SIZE[0]), scaled_px(_DESIGN_WINDOW_SIZE[1]))
 
         self._setup_ui()
         self.set_sections(sections)
         self._apply_styles()
         self.theme_manager.theme_changed.connect(self._apply_styles)
+        # The cached dialog can outlive a live scale/font change: re-derive the
+        # nav width (its text metrics move with the bus) instead of leaving it
+        # at the construction-time measurement.
+        connect_ui_metrics(
+            self,
+            self._on_ui_metrics_changed,
+            axes=frozenset({AXIS_FONT, AXIS_SCALE}),
+        )
+
+    def _on_ui_metrics_changed(self, *_args: object) -> None:
+        self._update_nav_width()
+        self.updateGeometry()
+        self.update()
 
     def _setup_ui(self) -> None:
         from PySide6.QtWidgets import QHBoxLayout
@@ -228,8 +256,12 @@ class MarkdownHelpDialog(QDialog):
         self._pages.clear()
 
         for section in self._sections:
-            nav_item = self.nav_widget.add_item(section.title)
-            nav_item.setSizeHint(QSize(0, 35))
+            # The nav row's design-px pitch is handed to the row Button, which
+            # scales it once and re-derives it on every live UiScale change
+            # (a raw ``setSizeHint`` would freeze the row at 44-design px).
+            self.nav_widget.add_item(
+                section.title, row_height=_NAV_ROW_DESIGN_HEIGHT
+            )
             content_page = MarkdownHelpPageView()
             content_page.linkActivated.connect(self._on_link_activated)
             self._pages.append(content_page)
@@ -263,7 +295,7 @@ class MarkdownHelpDialog(QDialog):
             if item is None:
                 continue
             max_text_width = max(max_text_width, metrics.horizontalAdvance(item.text()))
-        self.nav_widget.setMinimumWidth(max_text_width + 32)
+        self.nav_widget.setMinimumWidth(max_text_width + scaled_px(32))
 
     def change_page(self, index: int) -> None:
         if index < 0 or index >= len(self._pages):

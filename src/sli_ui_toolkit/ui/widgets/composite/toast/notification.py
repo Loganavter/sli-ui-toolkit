@@ -19,6 +19,7 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.ui.managers.ui_font import apply_text_color, apply_ui_font
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
 
 from .progress_bar import ToastProgressBar
@@ -73,8 +74,6 @@ class ToastNotification(QWidget):
         self.content_widget.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self.content_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.main_layout = QVBoxLayout(self.content_widget)
-        self.main_layout.setContentsMargins(12, 10, 12, 10)
-        self.main_layout.setSpacing(8)
 
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
@@ -87,7 +86,6 @@ class ToastNotification(QWidget):
         self.action_row = QWidget(self.content_widget)
         self.action_row_layout = QHBoxLayout(self.action_row)
         self.action_row_layout.setContentsMargins(0, 0, 0, 0)
-        self.action_row_layout.setSpacing(6)
         self.action_row_layout.addStretch(1)
         self.action_row.hide()
         self.main_layout.addWidget(self.action_row)
@@ -98,7 +96,6 @@ class ToastNotification(QWidget):
         self.progress_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self.progress_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.progress_layout = QVBoxLayout(self.progress_container)
-        self.progress_layout.setContentsMargins(12, 0, 12, 10)
         self.progress_layout.setSpacing(0)
 
         self.progress_bar = ToastProgressBar(self.progress_container)
@@ -106,6 +103,12 @@ class ToastNotification(QWidget):
         self.progress_layout.addWidget(self.progress_bar)
         self.progress_container.hide()
         self.root_layout.addWidget(self.progress_container)
+
+        # Design-px layout metrics, resolved at USE time and re-derived on the
+        # appearance bus: the toast's fixed widths are fitted from the label's
+        # font metrics + these margins, so a live scale/font change must move
+        # both together instead of leaving old design px in the fit.
+        self._apply_layout_metrics()
 
         self.theme_manager = ThemeManager.get_instance()
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
@@ -120,14 +123,24 @@ class ToastNotification(QWidget):
         self._apply_message_typography()
         self._apply_surface_state()
 
+    def _apply_layout_metrics(self) -> None:
+        """Re-derive every design-px layout metric at the live factor."""
+        self._apply_content_layout_state()
+        self.action_row_layout.setSpacing(scaled_px(6))
+        self.progress_layout.setContentsMargins(
+            scaled_px(12), 0, scaled_px(12), scaled_px(10)
+        )
+
     def _apply_content_layout_state(self):
         if self.action_row.isVisible():
             left, top, right, bottom = self._MARGINS_WITH_ACTION
-            self.main_layout.setSpacing(8)
+            self.main_layout.setSpacing(scaled_px(8))
         else:
             left, top, right, bottom = self._MARGINS_NO_ACTION
             self.main_layout.setSpacing(0)
-        self.main_layout.setContentsMargins(left, top, right, bottom)
+        self.main_layout.setContentsMargins(
+            scaled_px(left), scaled_px(top), scaled_px(right), scaled_px(bottom)
+        )
 
     def _on_theme_changed(self):
         self._apply_message_typography()
@@ -136,9 +149,11 @@ class ToastNotification(QWidget):
         self.adjustSize()
 
     def _on_scale_changed(self, *_args: object) -> None:
-        # Interface-scale resync: fonts re-resolve through UiFont, then the
-        # toast re-flows (fixed widths were computed in old design px, so
-        # re-fit via adjustSize + geometry round-trip like show_message).
+        # Interface-scale resync: fonts re-resolve through UiFont, the design
+        # px margins re-derive through scaled_px, then the toast re-flows
+        # (fixed widths were computed in old design px, so re-fit via
+        # adjustSize + geometry round-trip like show_message).
+        self._apply_layout_metrics()
         self._apply_message_typography()
         self.adjustSize()
         self.updateGeometry()
