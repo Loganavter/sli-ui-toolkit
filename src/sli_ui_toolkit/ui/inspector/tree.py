@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.regions import ButtonRegion
@@ -31,6 +32,16 @@ logger = logging.getLogger("sli_ui_toolkit.inspector.tree")
 # ``[inspector]`` prefix on every line, off by default even under host
 # ``--debug``. Never mutates logger levels at import time.
 _INSPECTOR_DEBUG_VARS = ("SLI_INSPECTOR_DEBUG",)
+
+#: Design-px row metrics. Resolved through ``scaled_px`` at USE time
+#: (region split, chevron paint) and, for the row height, by ``Button`` from
+#: the design fixed size passed to its constructor — never baked at import
+#: and never re-stamped raw after construction.
+_ROW_HEIGHT = 26
+_INDENT_STEP = 14
+_CHEVRON_WIDTH = 12
+_TEXT_GAP = 4
+_TWIST_OFFSET = 2
 
 
 def _inspector_debug_enabled() -> bool:
@@ -52,16 +63,18 @@ class _TreeRowSplit:
 
     def compute(self, rect, regions):
         from PySide6.QtCore import QRectF
+        # Resolve the design-px indent/chevron at USE time: Button recomputes
+        # the region rects on a live scale change (resizeEvent), so a cached
+        # import-time value would keep the old pitch.
+        indent = self._depth * scaled_px(_INDENT_STEP)
         if not self._has_twist:
             # single content region with indent
-            indent = self._depth * 14
             return [QRectF(rect.left() + indent, rect.top(), max(0, rect.width() - indent), rect.height())]
-        # two regions: twist 12px at indent, content rest
-        indent = self._depth * 14
-        twist_w = 12
-        twist_x = rect.left() + indent + 2
+        # two regions: twist at indent, content rest
+        twist_w = scaled_px(_CHEVRON_WIDTH)
+        twist_x = rect.left() + indent + scaled_px(_TWIST_OFFSET)
         twist_rect = QRectF(twist_x, rect.top(), twist_w, rect.height())
-        content_x = twist_x + twist_w + 4
+        content_x = twist_x + twist_w + scaled_px(_TEXT_GAP)
         content_w = max(0, rect.right() - content_x + 1)
         content_rect = QRectF(content_x, rect.top(), content_w, rect.height())
         # regions order is [twist, content]
@@ -149,10 +162,10 @@ class _TreeNodeRow(Button):
     hovered = Signal(object)  # compat, unused for overlay
     unhovered = Signal()  # compat, unused for overlay
 
-    _ROW_HEIGHT = 26
-    _INDENT_STEP = 14
-    _CHEVRON_WIDTH = 12
-    _TEXT_GAP = 4
+    _ROW_HEIGHT = _ROW_HEIGHT
+    _INDENT_STEP = _INDENT_STEP
+    _CHEVRON_WIDTH = _CHEVRON_WIDTH
+    _TEXT_GAP = _TEXT_GAP
 
     def __init__(
         self,
@@ -194,7 +207,11 @@ class _TreeNodeRow(Button):
             corner_radius=0,
             parent=parent,
         )
-        self.setFixedHeight(self._ROW_HEIGHT)
+        # The row height is owned by Button: ``size=(0, _ROW_HEIGHT)`` is the
+        # design fixed size, re-applied through ``scaled_px`` by Button's own
+        # ``on_scale_changed``. Do NOT stamp a raw ``setFixedHeight`` here —
+        # that write lands after Button's scaled one and freezes the row at
+        # design px across a live UI-scale change.
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         if widget is not None or has_children:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -225,6 +242,17 @@ class _TreeNodeRow(Button):
     def widget(self) -> QWidget | None:
         return self._widget
 
+    def refresh_metrics(self) -> None:
+        """Re-derive the painted/region metrics after a live scale change.
+
+        Height is Button's own job (design fixed size); the indent and
+        chevron widths are resolved inside ``_TreeRowSplit.compute`` at use
+        time. Refreshing here only makes Button re-run its region layout and
+        repaint the chevron against the new factor.
+        """
+        self.updateGeometry()
+        self.update()
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         # Button handles its own content layout via content_padding
         super().resizeEvent(event)
@@ -251,8 +279,8 @@ class _TreeNodeRow(Button):
     # -- painting -----------------------------------------------------------
 
     def _chevron_rect(self) -> QRect:
-        x = self._depth * self._INDENT_STEP + 2
-        return QRect(x, 0, self._CHEVRON_WIDTH, self.height())
+        x = self._depth * scaled_px(self._INDENT_STEP) + scaled_px(_TWIST_OFFSET)
+        return QRect(x, 0, scaled_px(self._CHEVRON_WIDTH), self.height())
 
     def paintEvent(self, event) -> None:  # noqa: N802
         # Button paints background (tree_row) and regions (twist+content)

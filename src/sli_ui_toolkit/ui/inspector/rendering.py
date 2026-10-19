@@ -20,6 +20,7 @@ from PySide6.QtGui import QColor, QDesktopServices, QPalette
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.buttons import (
     Button,
@@ -39,6 +40,11 @@ from .fields import _Swatch, _field_text
 # off by default even under --debug -- same convention as UI_NAV_DEBUG /
 # SLI_UI_NAVLIST_DEBUG.
 logger = logging.getLogger(__name__)
+
+#: Design-px constants for the field/doc/region rows — resolved through
+#: ``scaled_px`` at build time and re-derived by the pane's metrics pass.
+_ROW_SPACING = 6
+_REF_BUTTON_MAX_WIDTH = 220
 
 
 def _colors_debug_enabled() -> bool:
@@ -96,6 +102,30 @@ class _PaneRenderingMixin:
                 widget.deleteLater()
 
 
+    def _refresh_row_metrics(self) -> None:
+        """Re-derive the row spacing / cached max widths at the live factor.
+
+        Rows are plain ``QWidget`` + ``QHBoxLayout`` containers added directly
+        to the page's ``content_layout``; tree/editor wrappers use a
+        ``QVBoxLayout`` and run their own metrics pass, so only horizontal
+        rows are touched here.
+        """
+        for page in self.pages.values():
+            content = page.content_widget
+            for index in range(page.content_layout.count()):
+                item = page.content_layout.itemAt(index)
+                widget = item.widget() if item is not None else None
+                if widget is None:
+                    continue
+                layout = widget.layout()
+                if isinstance(layout, QHBoxLayout):
+                    layout.setSpacing(scaled_px(_ROW_SPACING))
+            for child in content.findChildren(QWidget):
+                design_max = child.property("_inspector_design_max_width")
+                if design_max:
+                    child.setMaximumWidth(scaled_px(design_max))
+
+
     def _path_button(self, text: str, tooltip: str) -> Button:
         """Full-path button (source / docs rows): stretches with the window
         only until the text fits, then stops — narrower windows compress it
@@ -128,8 +158,10 @@ class _PaneRenderingMixin:
     ) -> None:
         row = QWidget()
         lay = QHBoxLayout(row)
-        lay.setContentsMargins(indent, 0, 0, 0)
-        lay.setSpacing(6)
+        # A zero inset stays zero (scaled_px clamps to 1) — the default
+        # indent of 0 must keep the row flush at factor 1.0 and above.
+        lay.setContentsMargins(scaled_px(indent) if indent else 0, 0, 0, 0)
+        lay.setSpacing(scaled_px(_ROW_SPACING))
         name = field.name + (" (private)" if field.private else "")
         lay.addWidget(Label(name, pixel_size=13, bold=True, elide=True, selectable=True))
         if field.kind is FieldKind.COLOR and isinstance(field.value, str):
@@ -157,9 +189,8 @@ class _PaneRenderingMixin:
             # section content's minimum beyond the scroll viewport, wedging
             # the scroll area (content sticks out of the window, no
             # horizontal scrollbar). The button elides its text when narrow.
-            from sli_ui_toolkit.managers import scaled_px
-
-            button.setMaximumWidth(scaled_px(220))
+            button.setMaximumWidth(scaled_px(_REF_BUTTON_MAX_WIDTH))
+            button.setProperty("_inspector_design_max_width", _REF_BUTTON_MAX_WIDTH)
             button.setToolTip(str(widget))
             button.clicked.connect(
                 lambda _checked=False, w=widget: self.widget_activated.emit(w)
@@ -240,7 +271,7 @@ class _PaneRenderingMixin:
         row = QWidget()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(scaled_px(_ROW_SPACING))
         lay.addWidget(Label("docs", pixel_size=13, bold=True, selectable=True))
         button = self._path_button(str(path), docs_ref)
         button.clicked.connect(
@@ -258,7 +289,7 @@ class _PaneRenderingMixin:
         row = QWidget()
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(scaled_px(_ROW_SPACING))
         lay.addWidget(Label("source", pixel_size=13, bold=True, selectable=True))
         button = self._path_button(f"{source}:{line}", "Open in the system text editor")
         button.clicked.connect(
@@ -302,7 +333,7 @@ class _PaneRenderingMixin:
             row = QWidget()
             lay = QHBoxLayout(row)
             lay.setContentsMargins(0, 0, 0, 0)
-            lay.setSpacing(6)
+            lay.setSpacing(scaled_px(_ROW_SPACING))
             button = Button(text=region.id, variant="surface", size=(0, 26))
             button.clicked.connect(
                 lambda _checked=False, rid=region.id: self.region_selected.emit(rid)

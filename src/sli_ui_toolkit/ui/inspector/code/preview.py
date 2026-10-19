@@ -19,9 +19,16 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from sli_ui_toolkit.theme import ThemeManager
 from .config import _class_name_from_region, _config_kwargs
 from sli_ui_toolkit.ui.inspector.spec import preview_seed_for
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 
 logger = logging.getLogger("sli_ui_toolkit.inspector")
+
+#: Design px for the preview budget — resolved at build time and re-applied
+#: by ``refresh_preview_metrics`` from the inspector's metrics pass.
+PREVIEW_MAX_HEIGHT = 144
+PREVIEW_MIN_HEIGHT = 48
+_PANEL_RADIUS = 8
 
 
 def _panel_color(theme_manager) -> QColor:
@@ -49,8 +56,9 @@ class _PanelWell(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
+        radius = scaled_px(_PANEL_RADIUS)
         path = QPainterPath()
-        path.addRoundedRect(QRectF(self.rect()), 8, 8)
+        path.addRoundedRect(QRectF(self.rect()), radius, radius)
         self.setMask(QRegion(path.toFillPolygon().toPolygon()))
 
     def paintEvent(self, event) -> None:  # noqa: N802
@@ -250,14 +258,14 @@ def rebuild(editor) -> None:
     editor._preview_host_layout.addWidget(preview)
     # a tall sizeHint must never inflate the well into a long fixed
     # strip — cap the preview at the well's budget (160 - margins)
-    preview.setMaximumHeight(144)
+    preview.setMaximumHeight(scaled_px(PREVIEW_MAX_HEIGHT))
     seeded = False
     if preview.sizeHint().height() <= 0:
         # a plain QWidget (or any custom-painted widget without a
         # sizeHint) gets zero height from the layout and renders
         # nothing — the well shows only its backdrop fill. Give it a
         # visible strip so the preview never looks empty.
-        preview.setMinimumHeight(48)
+        preview.setMinimumHeight(scaled_px(PREVIEW_MIN_HEIGHT))
     if editor._target_instance is not None:
         seed = preview_seed_for(editor._target_instance)
         if seed is not None:
@@ -339,6 +347,24 @@ def set_debug(editor, text: str) -> None:
     """Diagnostic detail for the last preview/apply operation."""
     editor._preview_debug.setText(text)
     editor._preview_debug.setVisible(bool(text))
+
+
+def refresh_preview_metrics(editor) -> None:
+    """Re-apply the preview budget to an already-built preview widget.
+
+    The limits are computed at build time; a live scale/font change must not
+    leave the panel at the old design-px cap until the next edit rebuilds it.
+    """
+    preview = editor._preview_widget
+    if preview is None:
+        return
+    try:
+        preview.setMaximumHeight(scaled_px(PREVIEW_MAX_HEIGHT))
+        if preview.sizeHint().height() <= 0:
+            preview.setMinimumHeight(scaled_px(PREVIEW_MIN_HEIGHT))
+    except RuntimeError:
+        # The preview C++ child was torn down between the check and the call.
+        pass
 
 
 def schedule_rebuild(editor) -> None:

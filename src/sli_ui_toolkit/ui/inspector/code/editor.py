@@ -34,6 +34,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from .apply import (
     _CLASS_BOOKKEEPING,
     apply_config_to_instance,
@@ -46,6 +47,7 @@ from .preview import (
     clear_host,
     close,
     rebuild,
+    refresh_preview_metrics,
     schedule_rebuild,
     set_debug,
     show_error,
@@ -62,6 +64,15 @@ logger = logging.getLogger("sli_ui_toolkit.inspector")
 #: numbers live in the gutter (VS Code-style: "12" then immediately "17").
 _MARKER_TEXT = "·····"
 _MARKER_RE = re.compile(r"^·····$")
+
+#: Design px for the editor's own chrome — resolved at construction and
+#: re-derived by ``refresh_metrics`` (the inspector's one metrics pass).
+_ROOT_SPACING = 4
+_ACTION_SPACING = 6
+_PREVIEW_SPACING = 3
+_PREVIEW_WELL_MARGINS = (8, 8, 8, 8)
+_PREVIEW_WELL_MAX_HEIGHT = 160
+_PREVIEW_TEXT_MAX_HEIGHT = 48
 
 
 class CodeSectionEditor(QWidget):
@@ -128,8 +139,9 @@ class CodeSectionEditor(QWidget):
         self._last_edit_count = 0
 
         root = QVBoxLayout(self)
+        self._root_layout = root
         root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(4)
+        root.setSpacing(scaled_px(_ROOT_SPACING))
 
         self._toggle_btn = Button(
             text="Full",
@@ -144,7 +156,7 @@ class CodeSectionEditor(QWidget):
         top_row = QWidget()
         top_buttons = QHBoxLayout(top_row)
         top_buttons.setContentsMargins(0, 0, 0, 0)
-        top_buttons.setSpacing(6)
+        top_buttons.setSpacing(scaled_px(_ACTION_SPACING))
         top_buttons.addWidget(self._toggle_btn)
         top_buttons.addStretch(1)
         root.addWidget(top_row)
@@ -159,8 +171,9 @@ class CodeSectionEditor(QWidget):
         self._preview_panel = QWidget(self)
         self._preview_panel.setVisible(False)
         preview_layout = QVBoxLayout(self._preview_panel)
+        self._preview_layout = preview_layout
         preview_layout.setContentsMargins(0, 0, 0, 0)
-        preview_layout.setSpacing(3)
+        preview_layout.setSpacing(scaled_px(_PREVIEW_SPACING))
         self._preview_caption = Label(
             "Preview (live) — rebuilt from the edited class on every change",
             pixel_size=11,
@@ -168,18 +181,20 @@ class CodeSectionEditor(QWidget):
         )
         preview_layout.addWidget(self._preview_caption)
         self._preview_host = _PanelWell(self._preview_panel)
-        self._preview_host.setMaximumHeight(160)
+        self._preview_host.setMaximumHeight(scaled_px(_PREVIEW_WELL_MAX_HEIGHT))
         self._preview_host.set_fill_color(_panel_color(ThemeManager.get_instance()))
         self._preview_host_layout = QVBoxLayout(self._preview_host)
-        self._preview_host_layout.setContentsMargins(8, 8, 8, 8)
+        self._preview_host_layout.setContentsMargins(
+            *(scaled_px(v) for v in _PREVIEW_WELL_MARGINS)
+        )
         self._preview_host_layout.setSpacing(0)
         preview_layout.addWidget(self._preview_host)
         self._preview_error = Label("", pixel_size=11, word_wrap=True)
-        self._preview_error.setMaximumHeight(48)
+        self._preview_error.setMaximumHeight(scaled_px(_PREVIEW_TEXT_MAX_HEIGHT))
         self._preview_error.setVisible(False)
         preview_layout.addWidget(self._preview_error)
         self._preview_debug = Label("", pixel_size=11, word_wrap=True)
-        self._preview_debug.setMaximumHeight(48)
+        self._preview_debug.setMaximumHeight(scaled_px(_PREVIEW_TEXT_MAX_HEIGHT))
         self._preview_debug.setVisible(False)
         preview_layout.addWidget(self._preview_debug)
         root.addWidget(self._preview_panel)
@@ -217,8 +232,9 @@ class CodeSectionEditor(QWidget):
 
         buttons_row = QWidget()
         buttons = QHBoxLayout(buttons_row)
+        self._buttons_layout = buttons
         buttons.setContentsMargins(0, 0, 0, 0)
-        buttons.setSpacing(6)
+        buttons.setSpacing(scaled_px(_ACTION_SPACING))
         buttons.addWidget(self._apply_btn)
         buttons.addWidget(self._preview_btn)
         buttons.addWidget(self._edit_btn)
@@ -245,6 +261,34 @@ class CodeSectionEditor(QWidget):
             self._preview_host.set_fill_color(color)
         except RuntimeError:
             pass
+
+    def refresh_metrics(self) -> None:
+        """Re-derive the editor's design-px chrome at the live UI factor.
+
+        Called by the inspector's single appearance-bus subscription (the
+        window), never by a private signal of its own.
+        """
+        self._root_layout.setSpacing(scaled_px(_ROOT_SPACING))
+        self._top_buttons.setSpacing(scaled_px(_ACTION_SPACING))
+        self._buttons_layout.setSpacing(scaled_px(_ACTION_SPACING))
+        self._preview_layout.setSpacing(scaled_px(_PREVIEW_SPACING))
+        self._preview_host_layout.setContentsMargins(
+            *(scaled_px(v) for v in _PREVIEW_WELL_MARGINS)
+        )
+        self._preview_host.setMaximumHeight(scaled_px(_PREVIEW_WELL_MAX_HEIGHT))
+        for label in (self._preview_error, self._preview_debug):
+            label.setMaximumHeight(scaled_px(_PREVIEW_TEXT_MAX_HEIGHT))
+        # An already-built preview keeps the limits it was constructed with;
+        # re-apply them here (a font change does not rebuild the panel).
+        refresh_preview_metrics(self)
+        clamp = getattr(self, "_editor_clamp", None)
+        if clamp is not None:
+            try:
+                clamp.refresh_metrics()
+            except RuntimeError:
+                pass
+        self.updateGeometry()
+        self.update()
 
     # -- public surface -----------------------------------------------------
 
