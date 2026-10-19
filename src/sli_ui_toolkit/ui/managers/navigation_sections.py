@@ -15,6 +15,7 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QWidget
 
+from sli_ui_toolkit.ui.managers.nav_rows import group_visual_rows
 from sli_ui_toolkit.ui.managers.navigation_debug import nav_debug, nav_debug_enabled
 from sli_ui_toolkit.ui.managers.navigation_manager import widget_label
 
@@ -113,7 +114,28 @@ class ToolbarRowsSection:
         self._on_exit_right = on_exit_right
 
     def _rows(self) -> list[QWidget]:
-        return [r for r in self._rows_provider() if r is not None and r.isVisible()]
+        """Visible rows in VISUAL order (top to bottom).
+
+        Rows arrive from ``rows_provider`` in the host's construction order,
+        which for ``NavRowBuilder`` hosts is already visual — but nothing
+        enforced that, so a host that appends rows as panels are built could
+        hand them back in a different order and Down/Up would step by list
+        index rather than by geometry (the "index order instead of visual
+        rows" defect the flyout path had). Sort by the row's on-screen centre
+        y. The sort is stable, so rows sharing a y band (side-by-side columns)
+        keep the order the host gave.
+        """
+        rows = [r for r in self._rows_provider() if r is not None and r.isVisible()]
+        if len(rows) < 2:
+            return rows
+
+        def _center_y(widget: QWidget) -> float:
+            try:
+                return float(widget.mapToGlobal(widget.rect().center()).y())
+            except Exception:
+                return 0.0
+
+        return sorted(rows, key=_center_y)
 
     def _row_of(self, widget: QWidget) -> QWidget | None:
         for row in self._rows():
@@ -471,7 +493,7 @@ class IconListNavSection:
         return frozenset({Qt.Key.Key_Right})
 
 
-class AutoNavigationSection(ToolbarRowsSection):
+class AutoNavigationSection:
     """Zero-config navigation for any container — no manual rows.
 
     Находит все StrongFocus листы внутри owner, кластеризует по y в ряды,
@@ -479,319 +501,291 @@ class AutoNavigationSection(ToolbarRowsSection):
     ряда, Up/Down с side="above/below" — во флайаут. Заменяет
     calendar_manager / checkbox_manager и т.д. — один класс вместо 100.
 
+    The row banding is the shared one
+    (:func:`sli_ui_toolkit.ui.managers.nav_rows.group_visual_rows`) — the same
+    the flyout traversal uses, so "a row is a centre-y band, x inside a row"
+    holds on both paths. Focus on *owner* or on a container it lives in (the
+    dialog window, a central widget, a page) is a bootstrap: the first arrow
+    enters the rows. Claiming that ancestor chain is what makes a dialog whose
+    section is registered on an inner container traversable at all — before,
+    such a dialog swallowed every arrow key (owner report 2026-10-19: 12×
+    Down left focus on the dialog) and ``focus_nearest()`` always returned
+    ``False`` because the inherited implementation read row *containers* this
+    section never had.
+
     Использование::
 
         from sli_ui_toolkit.managers import auto_navigation
         auto_navigation(calendar_widget)  # Up→сверху, Left→слева без 40 строк
 
-    Или декларативно через WidgetDescriptor: owner.widget_descriptor = WidgetDescriptor(navigation=AutoNavigationSection(owner))
+    Или декларативно через WidgetDescriptor: owner.widget_descriptor =
+    WidgetDescriptor(navigation=AutoNavigationSection(owner))
     """
 
-    def __init__(self, owner: QWidget, *, tag: str = "auto", on_exit_left=None, on_exit_right=None):
+    def __init__(
+        self,
+        owner: QWidget,
+        *,
+        tag: str = "auto",
+        on_exit_left: Callable[..., bool] | None = None,
+        on_exit_right: Callable[..., bool] | None = None,
+    ) -> None:
         self._owner = owner
-        # rows_provider — авто-скан, tag для логов
-        super().__init__(rows_provider=self._auto_rows, tag=tag, on_exit_left=on_exit_left, on_exit_right=on_exit_right)
+        self._tag = tag
+        self._on_exit_left = on_exit_left
+        self._on_exit_right = on_exit_right
 
-    def _auto_rows(self) -> list[QWidget | None]:
-        # Все StrongFocus листы, сгруппированные по y
+    # ------------------------------------------------------------------
+    # Row discovery
+    # ------------------------------------------------------------------
+
+    def _visual_rows(self) -> list[list[QWidget]]:
+        """Rescan the owner's focusable leaves into VISUAL rows (never cached).
+
+        Always a fresh scan: dialogs and help hubs rebuild their content
+        between key presses, so a cached row could hold a deleted widget or
+        miss new ones. ``group_visual_rows`` drops dead widgets, orders rows by
+        y and x-sorts inside a row.
+        """
         try:
             candidates = [
-                w for w in self._owner.findChildren(QWidget)
+                w
+                for w in self._owner.findChildren(QWidget)
                 if shiboken6.isValid(w)  # type: ignore[attr-defined]
                 and w.focusPolicy() == Qt.FocusPolicy.StrongFocus
-                and w.isVisible() and w.isEnabled()
+                and w.isVisible()
+                and w.isEnabled()
                 and w is not self._owner
             ]
         except Exception:
             return []
-        if not candidates:
-            return []
-        # Сортируем по y, затем кластеризуем (фильтруем уже удалённые)
-        def _y(w):
-            try:
-                return w.mapToGlobal(w.rect().center()).y()
-            except Exception:
-                return 0
-
-        candidates.sort(key=_y)
-        rows: list[list[QWidget]] = []
-        cur_row: list[QWidget] = []
-        cur_y: float | None = None
-        for w in candidates:
-            if not shiboken6.isValid(w):  # type: ignore[attr-defined]
-                continue
-            try:
-                y = w.mapToGlobal(w.rect().center()).y()
-                h = max(1, w.height())
-            except Exception:
-                continue
-            if cur_y is None or abs(y - cur_y) <= h * 0.6:  # один ряд
-                cur_row.append(w)
-                cur_y = y if cur_y is None else (cur_y * (len(cur_row)-1) + y) / len(cur_row)
-            else:
-                # новый ряд — сортируем предыдущий по x
-                rows.append(cur_row)
-                cur_row = [w]
-                cur_y = y
-        if cur_row:
-            rows.append(cur_row)
-        # Каждый ряд — виртуальный контейнер: создаём прокси-виджет или возвращаем первый элемент ряда как anchor?
-        # ToolbarRowsSection ожидает QWidget-ряд, где findChildren найдёт фокусабельные. Проще вернуть owner для каждого ряда?
-        # Но ToolbarRowsSection._focusable ищет внутри row. Поэтому для авто-режима храним списки напрямую.
-        # Переопределяем owns/_focusable/_rows чтобы работать без QWidget-рядов.
-        # Вместо этого храним rows как списки и переопределяем методы ниже.
-        self._cached_rows_widgets: list[list[QWidget]] = rows
-        # Возвращаем owner как dummy, но реальные методы переопределены — не используется
-        # Чтобы не ломать базовый _rows, вернём список dummy-виджетов по одному на ряд
-        return [self._owner] * len(rows)
-
-    # Переопределяем всё что использует rows как QWidget
-    def _rows(self) -> list[QWidget]:  # type: ignore[override]
-        # Возвращаем индексы рядов как псевдо-ряды
-        if not hasattr(self, "_cached_rows_widgets"):
-            self._auto_rows()
-        return [self._owner] * len(getattr(self, "_cached_rows_widgets", []))
-
-    def owns(self, widget: QWidget) -> bool:  # type: ignore[override]
-        for row in getattr(self, "_cached_rows_widgets", []):
-            if widget in row:
-                return True
-        # fallback: owner ancestor
-        return self._owner.isAncestorOf(widget) or widget is self._owner
+        return group_visual_rows(candidates)
 
     @staticmethod
-    def _focusable(row: QWidget) -> list[QWidget]:  # type: ignore[override]
-        # Not used — overridden instance
-        return []
-
-    def _row_of(self, widget: QWidget):  # type: ignore[override]
-        for idx, row in enumerate(getattr(self, "_cached_rows_widgets", [])):
+    def _row_index(rows: list[list[QWidget]], widget: QWidget) -> int | None:
+        for idx, row in enumerate(rows):
             if widget in row:
                 return idx
         return None
 
-    def navigate(self, key: int, widget: QWidget) -> bool:  # type: ignore[override]
-        # Container itself focused (no button yet) — first arrow should land on first row
-        if widget is self._owner:
-            from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+    def owns(self, widget: QWidget) -> bool:
+        """The owner, everything inside it, and the containers it lives in.
 
-            if key in (Qt.Key.Key_Down, Qt.Key.Key_Right):
-                return self.focus_first(reason=_nav_focus_reason())
-            if key == Qt.Key.Key_Up:
-                return self.focus_last(reason=_nav_focus_reason())
-            if key == Qt.Key.Key_Left and self._on_exit_left is not None:
-                try:
-                    if self._on_exit_left(reason=_nav_focus_reason()):
-                        return True
-                except TypeError:
-                    try:
-                        if self._on_exit_left():
-                            return True
-                    except TypeError:
-                        return True
+        The ancestor half is deliberate: focus regularly rests on the dialog
+        window (or an intermediate page/central widget) rather than on a
+        control, and without claiming it ``NavigationManager`` dropped every
+        arrow key for a dialog that registered only an auto section. Siblings
+        (a flyout, another page) are not claimed — only widgets *containing*
+        the owner.
+        """
+        try:
+            if widget is self._owner or self._owner.isAncestorOf(widget):
                 return True
+            return widget.isAncestorOf(self._owner)
+        except Exception:
             return False
-        # Используем кластеризованные ряды напрямую
-        rows = getattr(self, "_cached_rows_widgets", [])
-        if not rows:
-            self._auto_rows()
-            rows = getattr(self, "_cached_rows_widgets", [])
-        row_idx = self._row_of(widget)
-        if row_idx is None:
-            # Cache may be stale after dynamic content change (e.g. Help hub cards rebuilt)
-            self._auto_rows()
-            rows = getattr(self, "_cached_rows_widgets", [])
-            row_idx = self._row_of(widget)
-            if row_idx is None:
-                return False
+
+    # ------------------------------------------------------------------
+    # Section protocol
+    # ------------------------------------------------------------------
+
+    def navigate(self, key: int, widget: QWidget) -> bool:
         from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+
         reason = _nav_focus_reason()
-        # Trial first
-        if key in (Qt.Key.Key_Down, Qt.Key.Key_Up) and self._widget_handles(key, widget):
-            return True
+        rows = self._visual_rows()
+        row_index = self._row_index(rows, widget)
+        if row_index is None:
+            # Focus is on the owner, on a container the owner lives in, or on a
+            # non-row descendant: the first arrow ENTERS the rows instead of
+            # being dropped (the "dialog arrow walk does nothing at all").
+            return self._bootstrap(key)
+        if nav_debug_enabled():
+            items = rows[row_index]
+            col = items.index(widget) if widget in items else -1
+            nav_debug(
+                "[nav-%s] navigate key=%s widget=%s row_idx=%d/%d col_idx=%d/%d",
+                self._tag, key, widget_label(widget), row_index, len(rows), col, len(items),
+            )
+        if key in (Qt.Key.Key_Down, Qt.Key.Key_Up):
+            # Give the focused widget itself first refusal — a spinner-like
+            # control may want Up/Down to step its own value. Same
+            # trial-dispatch the row section uses.
+            if ToolbarRowsSection._widget_handles(key, widget):
+                return True
         if key == Qt.Key.Key_Down:
             from sli_ui_toolkit.managers import NavigationManager
-            ext = NavigationManager.get_instance().extension_for(widget, "below")
-            if ext is not None and hasattr(ext, "focus_first_child"):
-                if ext.focus_first_child():
-                    return True
-            if row_idx < len(rows) - 1:
-                # nearest x — фильтруем уже удалённые, иначе min() бросает RuntimeError
-                try:
-                    ref_x = widget.mapToGlobal(widget.rect().center()).x()
-                except Exception:
-                    ref_x = 0
-                target_row = [w for w in rows[row_idx + 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
-                if not target_row:
-                    self._auto_rows()
-                    rows = getattr(self, "_cached_rows_widgets", [])
-                    if row_idx + 1 < len(rows):
-                        target_row = [w for w in rows[row_idx + 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
-                    if not target_row:
-                        return True
-                def _dx(w):
-                    try:
-                        return abs(w.mapToGlobal(w.rect().center()).x() - ref_x)
-                    except Exception:
-                        return 1e9
 
-                target = min(target_row, key=_dx)
-                if not shiboken6.isValid(target):  # type: ignore[attr-defined]
+            extension = NavigationManager.get_instance().extension_for(widget, "below")
+            if extension is not None and hasattr(extension, "focus_first_child"):
+                if extension.focus_first_child():
                     return True
-                target.setFocus(reason)
-                _ensure_visible(target)
-                return True
+            if row_index < len(rows) - 1:
+                return self._focus_near_in_row(rows[row_index + 1], widget, reason)
             if nav_debug_enabled():
-                nav_debug('[nav-auto] at bottom row_idx=%s/%s key=Down — nowhere to scroll down (consumed)', row_idx, len(rows))
+                nav_debug(
+                    "[nav-%s] at bottom row_idx=%s/%s key=Down — nowhere to scroll down (consumed)",
+                    self._tag, row_index, len(rows),
+                )
+            # Bottom row — consume so the manager does not re-deliver.
             return True
         if key == Qt.Key.Key_Up:
             from sli_ui_toolkit.managers import NavigationManager as _NMUp
-            _ext_up = _NMUp.get_instance().extension_for(widget, "above")
-            if _ext_up is not None and hasattr(_ext_up, "focus_first_child"):
-                if _ext_up.focus_first_child():
-                    return True
-            if row_idx > 0:
-                try:
-                    ref_x = widget.mapToGlobal(widget.rect().center()).x()
-                except Exception:
-                    ref_x = 0
-                target_row = [w for w in rows[row_idx - 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
-                if not target_row:
-                    self._auto_rows()
-                    rows = getattr(self, "_cached_rows_widgets", [])
-                    if row_idx - 1 >= 0 and row_idx - 1 < len(rows):
-                        target_row = [w for w in rows[row_idx - 1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
-                    if not target_row:
-                        return True
-                def _dx2(w):
-                    try:
-                        return abs(w.mapToGlobal(w.rect().center()).x() - ref_x)
-                    except Exception:
-                        return 1e9
 
-                target = min(target_row, key=_dx2)
-                if not shiboken6.isValid(target):  # type: ignore[attr-defined]
+            ext_up = _NMUp.get_instance().extension_for(widget, "above")
+            if ext_up is not None and hasattr(ext_up, "focus_first_child"):
+                if ext_up.focus_first_child():
                     return True
-                target.setFocus(reason)
-                _ensure_visible(target)
-                return True
-            # For help-sidebar (search+list column), Up at top should go to HelpBackBar
-            # For help-content (side-by-side), Up at top should stay (Left/Right switches columns)
-            _tag_val = getattr(self, '_tag', '')
-            if nav_debug_enabled():
-                nav_debug('[nav-auto] Up at top tag=%s row_idx=%s/%s', _tag_val, row_idx, len(rows))
-            if _tag_val == 'help-sidebar':
+            if row_index > 0:
+                return self._focus_near_in_row(rows[row_index - 1], widget, reason)
+            if self._tag == "help-sidebar":
+                # Help search+list column: Up at its top yields so the manager
+                # hands off to the bar above it.
                 if nav_debug_enabled():
-                    nav_debug('[nav-auto] at top row_idx=%s/%s key=Up — yield to previous section (help-sidebar)', row_idx, len(rows))
+                    nav_debug(
+                        "[nav-auto] at top row_idx=%s/%s key=Up — yield to previous section (help-sidebar)",
+                        row_index, len(rows),
+                    )
                 return False
             if nav_debug_enabled():
-                nav_debug('[nav-auto] at top row_idx=%s/%s key=Up — nowhere to scroll up (consumed)', row_idx, len(rows))
+                nav_debug(
+                    "[nav-auto] at top row_idx=%s/%s key=Up — nowhere to scroll up (consumed)",
+                    row_index, len(rows),
+                )
             return True
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             from sli_ui_toolkit.managers import NavigationManager as _NMLR
-            _side_key = "left" if key == Qt.Key.Key_Left else "right"
-            _ext_lr = _NMLR.get_instance().extension_for(widget, _side_key)
-            if _ext_lr is not None and hasattr(_ext_lr, "focus_first_child"):
-                if _ext_lr.focus_first_child():
-                    return True
-            if self._widget_handles(key, widget):
-                return True
-            row = [w for w in rows[row_idx] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
-            if not row:
-                self._auto_rows()
-                return True
-            # row already sorted by x (from clustering)
-            def _rx(w):
-                try:
-                    return w.mapToGlobal(w.rect().center()).x()
-                except Exception:
-                    return 0
 
-            row_sorted = sorted(row, key=_rx)
-            if widget not in row_sorted:
+            side = "left" if key == Qt.Key.Key_Left else "right"
+            ext_lr = _NMLR.get_instance().extension_for(widget, side)
+            if ext_lr is not None and hasattr(ext_lr, "focus_first_child"):
+                if ext_lr.focus_first_child():
+                    return True
+            # Value-stepping controls (slider/spinbox/scroll pill) handle
+            # Left/Right themselves; a text field does too EXCEPT at the caret
+            # edge, where it must yield so the row can be exited.
+            if ToolbarRowsSection._widget_handles(key, widget):
+                if not ToolbarRowsSection._caret_at_boundary(key, widget):
+                    return True
+            row = rows[row_index]
+            if widget not in row:
                 return False
-            cur = row_sorted.index(widget)
+            cur = row.index(widget)
             step = 1 if key == Qt.Key.Key_Right else -1
             nxt = cur + step
-            if 0 <= nxt < len(row_sorted):
-                row_sorted[nxt].setFocus(reason)
-                _ensure_visible(row_sorted[nxt])
+            if 0 <= nxt < len(row):
+                row[nxt].setFocus(reason)
+                _ensure_visible(row[nxt])
                 return True
             if key == Qt.Key.Key_Left and self._on_exit_left is not None:
-                try:
-                    if self._on_exit_left(reason=reason):
-                        return True
-                except TypeError:
-                    try:
-                        if self._on_exit_left():
-                            return True
-                    except TypeError:
-                        return True
-                return True
+                return self._invoke_exit(self._on_exit_left, reason)
             if key == Qt.Key.Key_Right and self._on_exit_right is not None:
-                try:
-                    if self._on_exit_right(reason=reason):
-                        return True
-                except TypeError:
-                    try:
-                        if self._on_exit_right():
-                            return True
-                    except TypeError:
-                        return True
-                return True
-            return True  # consume at edge
-        # Unknown key: yield to the adjacent section (the manager treats a
-        # falsy return as declined — same as falling off the end before).
+                return self._invoke_exit(self._on_exit_right, reason)
+            # Row edge: consume rather than wrap into an adjacent row — Up/Down
+            # already own row transitions.
+            return True
+        return False
+
+    def _bootstrap(self, key: int) -> bool:
+        """First arrow while focus is not on a row: enter the rows."""
+        from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
+
+        reason = _nav_focus_reason()
+        if key in (Qt.Key.Key_Down, Qt.Key.Key_Right):
+            return self.focus_first(reason=reason)
+        if key == Qt.Key.Key_Up:
+            return self.focus_last(reason=reason)
+        if key == Qt.Key.Key_Left and self._on_exit_left is not None:
+            return self._invoke_exit(self._on_exit_left, reason)
         return False
 
     def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
-        # Always rescan for dynamic containers (e.g. Help hub rebuilds cards)
-        self._auto_rows()
-        rows = getattr(self, "_cached_rows_widgets", [])
+        rows = self._visual_rows()
         if not rows:
             return False
-        first_row = [w for w in rows[0] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
-        if not first_row:
-            return False
-        def _fx(w):
-            try:
-                return abs(w.mapToGlobal(w.rect().center()).x() - ref_x) if ref_x is not None else w.mapToGlobal(w.rect().center()).x()
-            except Exception:
-                return 1e9
-
-        try:
-            target = min(first_row, key=_fx) if ref_x is not None else sorted(first_row, key=lambda w: w.mapToGlobal(w.rect().center()).x() if shiboken6.isValid(w) else 1e9)[0]  # type: ignore[attr-defined]
-        except Exception:
-            return False
-        if not shiboken6.isValid(target):  # type: ignore[attr-defined]
-            return False
-        target.setFocus(reason)
-        _ensure_visible(target)
-        return True
+        return self._focus_in_row(rows[0], ref_x, reason)
 
     def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
-        self._auto_rows()
-        rows = getattr(self, "_cached_rows_widgets", [])
+        rows = self._visual_rows()
         if not rows:
             return False
-        last_row = [w for w in rows[-1] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
-        if not last_row:
-            return False
-        def _fx2(w):
-            try:
-                return abs(w.mapToGlobal(w.rect().center()).x() - ref_x) if ref_x is not None else w.mapToGlobal(w.rect().center()).x()
-            except Exception:
-                return 1e9
+        return self._focus_in_row(rows[-1], ref_x, reason)
 
-        try:
-            target = min(last_row, key=_fx2) if ref_x is not None else sorted(last_row, key=lambda w: w.mapToGlobal(w.rect().center()).x() if shiboken6.isValid(w) else 1e9)[-1]  # type: ignore[attr-defined]
-        except Exception:
+    def focus_nearest(self, pos, *, reason: Qt.FocusReason) -> bool:
+        """Land on the row nearest *pos*'s y, then the widget nearest its x.
+
+        A click can land on any row (not just the first/last like
+        ``focus_first``/``focus_last``), so a click-driven re-anchor needs the
+        row nearest the click's y. Returns ``True`` when focus was set.
+        """
+        rows = self._visual_rows()
+        if not rows:
             return False
-        if not shiboken6.isValid(target):  # type: ignore[attr-defined]
+        row = min(rows, key=lambda r: abs(self._row_center_y(r) - pos.y()))
+        return self._focus_in_row(row, pos.x(), reason)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _focus_in_row(self, row: list[QWidget], ref_x: float | None, reason: Qt.FocusReason) -> bool:
+        row = [
+            w
+            for w in row
+            if shiboken6.isValid(w)  # type: ignore[attr-defined]
+            and w.isVisible()
+            and w.isEnabled()
+        ]
+        if not row:
             return False
+        if ref_x is None:
+            target = row[0]
+        else:
+            target = min(row, key=lambda w: abs(self._center_x(w) - ref_x))
         target.setFocus(reason)
         _ensure_visible(target)
         return True
+
+    def _focus_near_in_row(self, row: list[QWidget], reference: QWidget, reason: Qt.FocusReason) -> bool:
+        """Land on the row member horizontally closest to *reference*.
+
+        The standard 2D directional-navigation rule (tvOS Focus Engine,
+        Windows XYFocus, W3C CSS Spatial Navigation): Down/Up focuses the
+        nearest candidate in that direction instead of a fixed index, so focus
+        stays roughly under/above where the user was.
+        """
+        return self._focus_in_row(row, self._center_x(reference), reason)
+
+    @staticmethod
+    def _center_x(widget: QWidget) -> float:
+        try:
+            return float(widget.mapToGlobal(widget.rect().center()).x())
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _row_center_y(row: list[QWidget]) -> float:
+        if not row:
+            return 0.0
+        try:
+            return float(row[0].mapToGlobal(row[0].rect().center()).y())
+        except Exception:
+            return 0.0
+
+    @staticmethod
+    def _invoke_exit(callback: Callable[..., bool], reason: Qt.FocusReason) -> bool:
+        """Call a host exit callback, tolerating either call convention."""
+        try:
+            return bool(callback(reason=reason))
+        except TypeError:
+            try:
+                return bool(callback())
+            except TypeError:
+                return True
+
+    @property
+    def extra_keys(self) -> frozenset[int]:
+        return frozenset({Qt.Key.Key_Left, Qt.Key.Key_Right})
 
 
 __all__ = ["AutoNavigationSection", "IconListNavSection", "ToolbarRowsSection"]
