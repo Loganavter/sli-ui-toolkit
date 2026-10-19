@@ -21,6 +21,11 @@ from sli_ui_toolkit.ui.popup_surface import (
     configure_popup_widget,
     popup_contains_global,
 )
+from sli_ui_toolkit.ui.managers.ui_metrics import (
+    AXIS_FONT,
+    AXIS_SCALE,
+    connect_ui_metrics,
+)
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
 from sli_ui_toolkit.ui.widgets.composite.context_menu import content as content_ops
 from sli_ui_toolkit.ui.widgets.composite.context_menu import popup as popup_ops
@@ -133,8 +138,20 @@ class ContextMenu(BaseFlyout):
         # Ensure destroyed widgets are removed from the class-level registry
         # so that close_visible() never operates on a dangling pointer.
         self.destroyed.connect(lambda: self._visible_menus.discard(self))
+        # The menu is cached across a live appearance change (Settings → OK);
+        # re-derive every cached chrome metric (row/section/separator heights,
+        # gutter, trailing widths, icons, own size) through the bus.
+        connect_ui_metrics(
+            self,
+            self._on_ui_metrics_changed,
+            axes=frozenset({AXIS_FONT, AXIS_SCALE}),
+        )
         if entries is not None:
             self.set_entries(entries)
+
+    def _on_ui_metrics_changed(self, *_args) -> None:
+        """Re-fit the cached menu for the new font/scale (appearance bus)."""
+        self._relayout_widths()
 
     def is_popup_surface(self) -> bool:
         return self._surface == "popup"

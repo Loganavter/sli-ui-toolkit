@@ -23,7 +23,7 @@ from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.style_bridge import update_widget_style
 
-from .content import RowsContent
+from .content import RowsContent, resolve_content_insets
 
 
 def normalize_content_padding(
@@ -445,8 +445,8 @@ class _ButtonStyleApi:
         """
         if not self._has_wrapped_rows():
             return 0
-        pad_l, pad_t, pad_r, pad_b = self._content_padding
-        inner = max(1, int(width) - int(pad_l) - int(pad_r))
+        pad_l, pad_t, pad_r, pad_b = resolve_content_insets(self._content_padding)
+        inner = max(1, int(width) - pad_l - pad_r)
         compact = bool(getattr(self, "_rows_compact", False))
         controller = getattr(self, "_controller", None)
         row_groups: list[list[Any]] = []

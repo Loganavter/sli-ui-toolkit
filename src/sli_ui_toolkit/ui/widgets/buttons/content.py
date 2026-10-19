@@ -144,12 +144,37 @@ def _text_color(ctx: DrawContext, tm: ThemeManager) -> QColor:
     return style.foreground_color or QColor(tm.get_color("dialog.text"))
 
 
+def resolve_content_insets(
+    padding: tuple[float, float, float, float],
+) -> tuple[int, int, int, int]:
+    """Design-px ``content_padding`` → live scaled insets (left, top, right, bottom).
+
+    ``content_padding`` is a host-facing design-px value, so it must grow with
+    the interface scale like every other chrome metric — resolved through
+    ``scaled_px`` at USE time (paint / sizeHint) instead of being cached at
+    construction. A zero inset stays zero: ``scaled_px`` clamps to a minimum
+    of 1, which would turn "no inset" into a 1px one.
+    """
+    left, top, right, bottom = padding
+    return (
+        0 if left <= 0 else scaled_px(left),
+        0 if top <= 0 else scaled_px(top),
+        0 if right <= 0 else scaled_px(right),
+        0 if bottom <= 0 else scaled_px(bottom),
+    )
+
+
+def resolve_gap_px(design_gap: int) -> int:
+    """Design-px icon↔label ``gap`` → live scaled px (0 stays 0)."""
+    return 0 if design_gap <= 0 else scaled_px(design_gap)
+
+
 def _rect(ctx: DrawContext) -> QRect:
     raw = ctx.effective_rect
     rect = raw.toAlignedRect() if isinstance(raw, QRectF) else QRect(raw)
-    left, top, right, bottom = ctx.content_padding
+    left, top, right, bottom = resolve_content_insets(ctx.content_padding)
     if left or top or right or bottom:
-        rect = rect.adjusted(int(left), int(top), -int(right), -int(bottom))
+        rect = rect.adjusted(left, top, -right, -bottom)
     return rect
 
 
@@ -701,7 +726,7 @@ class IconTextContent(Content):
         )
         pixmap = normalized_icon_pixmap(self.icon, icon_px)
 
-        gap = max(0, int(getattr(ctx, "gap_px", 6) or 6))
+        gap = resolve_gap_px(int(getattr(ctx, "gap_px", 6) or 6))
         # Font must be set before measuring — otherwise layout uses the painter's
         # previous face and Cyrillic advances can collapse until the next paint.
         font = _widget_paint_font(ctx.widget)
