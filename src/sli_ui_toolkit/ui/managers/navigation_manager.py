@@ -166,9 +166,13 @@ class NavigationManager(QObject):
     def __init__(self) -> None:
         super().__init__()
         self._sections: list[tuple[QObject, NavigationSection]] = []
-        self._extensions_below: dict[QWidget, QWidget] = {}
+        self._extensions: dict[QWidget, dict[str, QWidget]] = {}  # anchor → {side: flyout}
+        self._group_extensions: dict[QWidget, dict[str, QWidget]] = {}  # group → {side: flyout}
         self._extension_owners: dict[QWidget, QWidget] = {}
-        self._flyout_side: dict[QWidget, str] = {}  # "above" | "below" — для упрощённого API bind_flyout
+        self._flyout_side: dict[QWidget, str] = {}  # "above" | "below" | "left" | "right"
+        # One-shot (owner-id, side) pairs whose flyout link must be ignored for
+        # the duration of the flyout boundary handoff (see eventFilter).
+        self._skip_extension: set[tuple[int, str]] = set()
         self._keyboard_focus_registry: set[QWidget] = set()
         self._event_filter_installed = False
         self._last_keyboard_focus: QWidget | None = None
@@ -396,8 +400,28 @@ class NavigationManager(QObject):
             self._uninstall_event_filter()
 
     def link_below(self, owner: QWidget, flyout: QWidget) -> None:
-        """Register *flyout* as the keyboard-navigable continuation
-        directly below *owner*.
+        """Back-compat: link *flyout* as *owner*'s continuation on side "below".
+
+        Thin wrapper over :meth:`link`; see there for the registry semantics.
+        """
+        self.link(owner, flyout, "below")
+
+    @staticmethod
+    def _normalize_side(side: str | None) -> str:
+        side_norm = (side or "below").lower().strip()
+        if side_norm not in ("above", "below", "left", "right"):
+            side_norm = "below"
+        return side_norm
+
+    def link(self, owner: QWidget, flyout: QWidget, side: str = "below") -> None:
+        """Register *flyout* as *owner*'s keyboard continuation on *side*.
+
+        Per-``(owner, side)`` registry: a widget may carry one flyout per
+        side — e.g. a value pill *above* (`side="above"`) **and** a settings
+        panel *below* (`side="below"`) — without either clobbering the other.
+        The old single-slot ``link_below`` silently overwrote the previous
+        flyout despite ``bind_flyout`` advertising four sides; sections that
+        know the direction read :meth:`extension_for` directly.
 
         Mirrors ``FlyoutManager.link()``'s registry style — a plain
         owner→flyout (and reverse) lookup table, not a callback threaded
@@ -408,11 +432,11 @@ class NavigationManager(QObject):
 
         Intended use: a section whose ``navigate()`` would otherwise move
         past *owner* on a boundary key (e.g. ``ToolbarRowsSection`` jumping
-        to the next row on ``Key_Down``) should first check
-        :meth:`extension_below` and, if set, focus into the flyout instead.
-        The flyout's own boundary handling (e.g. Up from its first control)
-        can symmetrically check :meth:`extension_owner` to return focus to
-        *owner* specifically — generic section adjacency
+        to the next row on ``Key_Up``) should first check
+        :meth:`extension_for` for that direction and, if set, focus into the
+        flyout instead.  The flyout's own boundary handling (e.g. Up from its
+        first control) can symmetrically check :meth:`extension_owner` to
+        return focus to *owner* specifically — generic section adjacency
         (:meth:`_neighbor`) has no notion that a flyout belongs to one
         particular widget rather than to the whole row/section.
 
@@ -420,42 +444,119 @@ class NavigationManager(QObject):
         group, all opening one shared panel below the group) — the reverse
         lookup :meth:`extension_owner` therefore isn't fixed at link time;
         it tracks whichever owner was most recently used to actually enter
-        the flyout (stamped by :meth:`extension_below` itself, since that's
-        only ever called right before entering), not just any arbitrary one
-        of the widgets linked to it.
+        the flyout (stamped by :meth:`extension_for` itself, since that's
+        only ever called right before entering).
 
         The link is a static registration, not tied to *flyout*'s current
-        visibility — :meth:`extension_below` filters on that at lookup
-        time, so callers don't need to unlink on every hide, only when the
-        pairing itself goes away (or never, for a long-lived owner+flyout
-        pair — both sides auto-drop on destruction, same as
-        :meth:`register`).
+        visibility — :meth:`extension_for` filters on that at lookup time,
+        so callers don't need to unlink on every hide, only when the pairing
+        itself goes away (or never, for a long-lived owner+flyout pair — both
+        sides auto-drop on destruction, same as :meth:`register`).
         """
+        side_norm = self._normalize_side(side)
         if isinstance(owner, QObject):
-            owner.destroyed.connect(lambda _obj=None, o=owner: self.unlink_below(o))
+            owner.destroyed.connect(lambda _obj=None, o=owner: self._forget_owner(o))
         if isinstance(flyout, QObject):
-            flyout.destroyed.connect(lambda _obj=None, o=owner: self.unlink_below(o))
-        self._extensions_below[owner] = flyout
+            flyout.destroyed.connect(lambda _obj=None, f=flyout: self._forget_flyout(f))
+        self._extensions.setdefault(owner, {})[side_norm] = flyout
+        self._flyout_side[flyout] = side_norm
+
+    def link_group(self, group: QWidget, flyout: QWidget, side: str = "below") -> None:
+        """Register *flyout* as the keyboard continuation of a whole *group*.
+
+        One registration serves every focusable member of *group*: a member
+        button resolves it by walking its parent chain (:meth:`extension_for`),
+        so a host no longer has to bind the same panel to each child
+        individually (and keep that list in sync as the group changes).
+        """
+        side_norm = self._normalize_side(side)
+        if isinstance(group, QObject):
+            group.destroyed.connect(lambda _obj=None, g=group: self._forget_owner(g))
+        if isinstance(flyout, QObject):
+            flyout.destroyed.connect(lambda _obj=None, f=flyout: self._forget_flyout(f))
+        self._group_extensions.setdefault(group, {})[side_norm] = flyout
+        self._flyout_side[flyout] = side_norm
+
+    def unlink(self, owner: QWidget, side: str | None = None) -> None:
+        """Drop *owner*'s link(s) — one *side*, or all when *side* is None."""
+        by_side = self._extensions.get(owner)
+        if by_side is None:
+            return
+        if side is None:
+            dropped = list(by_side.values())
+            self._extensions.pop(owner, None)
+        else:
+            side_norm = self._normalize_side(side)
+            dropped = [by_side.pop(side_norm)] if side_norm in by_side else []
+            if not by_side:
+                self._extensions.pop(owner, None)
+        for flyout in dropped:
+            if flyout is not None and self._extension_owners.get(flyout) is owner:
+                self._extension_owners.pop(flyout, None)
 
     def unlink_below(self, owner: QWidget) -> None:
-        flyout = self._extensions_below.pop(owner, None)
-        if flyout is not None and self._extension_owners.get(flyout) is owner:
-            self._extension_owners.pop(flyout, None)
+        self.unlink(owner, "below")
 
-    def extension_below(self, owner: QWidget) -> QWidget | None:
-        """Return the flyout linked below *owner* via :meth:`link_below`,
-        if one is registered, valid, and currently visible — else ``None``.
+    def _forget_flyout(self, flyout: QWidget) -> None:
+        """Purge a destroyed flyout from every registry it appears in."""
+        for registry in (self._extensions, self._group_extensions):
+            for owner, by_side in list(registry.items()):
+                for side, linked in list(by_side.items()):
+                    if linked is flyout:
+                        by_side.pop(side, None)
+                if not by_side:
+                    registry.pop(owner, None)
+        self._extension_owners.pop(flyout, None)
+        self._flyout_side.pop(flyout, None)
 
-        Also stamps *owner* as this flyout's current :meth:`extension_owner`
-        — see the note on multiple owners in :meth:`link_below`.
+    def _forget_owner(self, owner: QWidget) -> None:
+        for registry in (self._extensions, self._group_extensions):
+            registry.pop(owner, None)
+
+    def extension_for(self, owner: QWidget, side: str) -> QWidget | None:
+        """Return *owner*'s linked flyout for *side*, if registered, valid and
+        currently visible — else ``None``.
+
+        Resolution order: the owner's own per-side link first, then a
+        group-level link found by walking *owner*'s parent chain (see
+        :meth:`link_group`).  Also stamps *owner* as the flyout's current
+        :meth:`extension_owner`, so the flyout's own Up/Down exit can return
+        focus to the exact widget the user entered from.
         """
-        flyout = self._extensions_below.get(owner)
-        if flyout is None:
+        side_norm = self._normalize_side(side)
+        if (id(owner), side_norm) in self._skip_extension:
+            # One-shot skip set by the flyout boundary handoff (see
+            # eventFilter): continue from the anchor WITHOUT re-entering the
+            # flyout we just left.
             return None
-        if not shiboken6.isValid(flyout) or not flyout.isVisible():  # type: ignore[attr-defined]
+        flyout = (self._extensions.get(owner) or {}).get(side_norm)
+        if flyout is None:
+            parent = owner.parentWidget()
+            while parent is not None:
+                flyout = (self._group_extensions.get(parent) or {}).get(side_norm)
+                if flyout is not None:
+                    break
+                parent = parent.parentWidget()
+        if flyout is None or not shiboken6.isValid(flyout):  # type: ignore[attr-defined]
+            return None
+        if not flyout.isVisible():
             return None
         self._extension_owners[flyout] = owner
         return flyout
+
+    def extension_below(self, owner: QWidget) -> QWidget | None:
+        """Return *owner*'s linked flyout, preferring side "below".
+
+        Back-compat shim over :meth:`extension_for`: the registry is now
+        per-side, so callers that know the direction should use
+        :meth:`extension_for` directly; this keeps the old single-lookup
+        contract working (below first, then any other linked side).
+        """
+        for side in ("below", "above", "left", "right"):
+            flyout = self.extension_for(owner, side)
+            if flyout is not None:
+                return flyout
+        return None
 
     def extension_owner(self, flyout: QWidget) -> QWidget | None:
         """Return the widget *flyout* was linked below via
@@ -492,31 +593,42 @@ class NavigationManager(QObject):
         рассчитана только на ``QWidget`` (не ``QGraphicsItem`` и т.п.),
         поэтому side — чисто метаданная без геометрии.
 
-        Это тонкая обёртка над :meth:`link_below` + метаданными side/mode,
+        Это тонкая обёртка над :meth:`link` + метаданными side/mode,
         которую :class:`ToolbarRowsSection` / :class:`IconListNavSection`
         читают вместо гарда по ``flyout_group``. Старый :meth:`link_below`
         остаётся для совместимости (side по умолчанию ``"below"``).
         """
-        side_norm = side.lower().strip()
-        # Поддерживаем все 4 стороны; библиотека рассчитана только на QWidget,
-        # поэтому храним только строковый side без геометрических расчётов
-        # вне QWidget (QGraphicsItem и т.п. — вне скоупа, см. AGENTS.md).
-        if side_norm not in ("above", "below", "left", "right"):
-            side_norm = "below"
-        self._flyout_side[flyout] = side_norm
+        side_norm = self._normalize_side(side)
         # Для дебага — читается в логах/инспекторе
         try:
             flyout._nav_side = side_norm  # type: ignore[attr-defined]
             flyout._nav_mode = mode  # type: ignore[attr-defined]
         except Exception:
             pass
+        self.link(anchor, flyout, side_norm)
+
+    def bind_group_flyout(
+        self,
+        group: QWidget,
+        flyout: QWidget,
+        *,
+        side: str = "below",
+        mode: str = "preview",
+    ) -> None:
+        """Связать *group* → *flyout* для ВСЕХ фокусируемых членов группы.
+
+        Владелец — сама группа: член резолвит флайоут через
+        :meth:`extension_for`, поднимаясь по цепочке родителей, так что хост
+        биндит панель один раз на группу (а не по кнопке через цикл и не
+        держит список детей в синхроне). См. :meth:`link_group`.
+        """
+        side_norm = self._normalize_side(side)
         try:
-            destroyed = getattr(flyout, "destroyed", None)
-            if destroyed is not None:
-                destroyed.connect(lambda _obj=None, f=flyout: self._flyout_side.pop(f, None))  # type: ignore[attr-defined]
+            flyout._nav_side = side_norm  # type: ignore[attr-defined]
+            flyout._nav_mode = mode  # type: ignore[attr-defined]
         except Exception:
             pass
-        self.link_below(anchor, flyout)
+        self.link_group(group, flyout, side_norm)
 
     def flyout_side(self, flyout: QWidget) -> str | None:
         # Сначала императивный bind_flyout, затем декларативный _nav_side на классе
@@ -1196,6 +1308,34 @@ class NavigationManager(QObject):
                 return True
 
             # Section declined — try adjacent section on boundary keys.
+            # A flyout that declined Up/Down hands the key back to the widget
+            # it was entered from (its extension owner) and lets THAT widget's
+            # own section continue: registration order is meaningless for a
+            # flyout (its section is appended when shown), so the plain
+            # neighbour hop below would land on that section's focus_first/
+            # focus_last — Up out of a value pill jumped to the toolbar's
+            # BOTTOM row instead of the row above the anchor.
+            if key in (_EXIT_UP | _EXIT_DOWN) and isinstance(focused, QWidget):
+                flyout_owner = self.extension_owner(focused)
+                if flyout_owner is not None:
+                    side = "above" if key in _EXIT_UP else "below"
+                    target_spec = next(
+                        (
+                            spec
+                            for section_owner, spec in self._sections
+                            if section_owner is not owner
+                            and self._safe_owns(spec, flyout_owner)
+                        ),
+                        None,
+                    )
+                    if target_spec is not None:
+                        token = (id(flyout_owner), side)
+                        self._skip_extension.add(token)
+                        try:
+                            if self._safe_navigate(target_spec, key, flyout_owner):
+                                return True
+                        finally:
+                            self._skip_extension.discard(token)
             ref_x = focused.mapToGlobal(focused.rect().center()).x()
             if key in _EXIT_DOWN:
                 neighbor = self._neighbor(owner, +1)
@@ -1277,6 +1417,29 @@ def bind_flyout(
     try:
         nav = NavigationManager.get_instance()
         nav.bind_flyout(anchor, flyout, side=side, mode=mode)
+    except Exception:
+        pass
+
+
+def bind_group_flyout(
+    group: QWidget,
+    flyout: QWidget,
+    *,
+    side: str = "below",
+    mode: str = "preview",
+) -> None:
+    """Один вызов на всю группу вместо ``bind_flyout`` на каждую кнопку.
+
+    Владелец флайоута — группа: любой её фокусируемый член резолвит флайоут
+    через ``NavigationManager.extension_for`` (подъём по родителям), поэтому
+    хост не ведёт список детей и не переподключает их при изменении группы::
+
+        from sli_ui_toolkit.managers import bind_group_flyout
+        bind_group_flyout(group, panel, side="below")  # Down из любого члена
+    """
+    try:
+        nav = NavigationManager.get_instance()
+        nav.bind_group_flyout(group, flyout, side=side, mode=mode)
     except Exception:
         pass
 

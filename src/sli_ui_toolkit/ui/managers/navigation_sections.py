@@ -222,17 +222,14 @@ class ToolbarRowsSection:
             if self._widget_handles(key, widget):
                 return True
         if key == Qt.Key.Key_Down:
-            # Simplified: вход в флайаут только если side=="below" (нижняя панель).
+            # Флайоут-владелец кнопки на стороне "below" (нижняя панель).
             # Для "above" (PanelVisibility/Color) Down не входит — туда входит Up.
             from sli_ui_toolkit.managers import NavigationManager
 
-            extension = NavigationManager.get_instance().extension_below(widget)
+            extension = NavigationManager.get_instance().extension_for(widget, "below")
             if extension is not None and hasattr(extension, "focus_first_child"):
-                side = NavigationManager.get_instance().flyout_side(extension)
-                # side None → legacy link_below → считаем "below" для совместимости
-                if side is None or side == "below":
-                    if extension.focus_first_child():
-                        return True
+                if extension.focus_first_child():
+                    return True
             if idx < len(rows) - 1:
                 return self._focus_near_in(rows[idx + 1], widget, reason)
             if nav_debug_enabled():
@@ -240,14 +237,13 @@ class ToolbarRowsSection:
             # Last row — yield (e.g. canvas/no further row below).
             return False
         if key == Qt.Key.Key_Up:
-            # Симметрично Down — вход только если side=="above" (верхние панели
-            # PanelVisibility/ColorOptions визуально выше якоря).
+            # Симметрично Down — вход на сторону "above" (верхние панели
+            # PanelVisibility/ColorOptions, а также value-пилюля ScrollValueButton).
             from sli_ui_toolkit.managers import NavigationManager as _NMUp
 
-            _ext_up = _NMUp.get_instance().extension_below(widget)
+            _ext_up = _NMUp.get_instance().extension_for(widget, "above")
             if _ext_up is not None and hasattr(_ext_up, "focus_first_child"):
-                side = _NMUp.get_instance().flyout_side(_ext_up)
-                if side == "above" and _ext_up.focus_first_child():
+                if _ext_up.focus_first_child():
                     return True
             if idx > 0:
                 return self._focus_near_in(rows[idx - 1], widget, reason)
@@ -257,19 +253,16 @@ class ToolbarRowsSection:
             # (title bar / tab strip).
             return False
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-            # Расширение: флайауты сбоку (side="left"/"right") — входят по
-            # Left/Right, как "above"→Up и "below"→Down. Библиотека пока только
-            # QWidget, поэтому side — метаданная без геометрии.
+            # Флайоуты сбоку (side="left"/"right") — входят по Left/Right,
+            # как "above"→Up и "below"→Down. Библиотека пока только QWidget,
+            # поэтому side — метаданная без геометрии.
             from sli_ui_toolkit.managers import NavigationManager as _NMLR
 
-            _ext_lr = _NMLR.get_instance().extension_below(widget)
+            _side_key = "left" if key == Qt.Key.Key_Left else "right"
+            _ext_lr = _NMLR.get_instance().extension_for(widget, _side_key)
             if _ext_lr is not None and hasattr(_ext_lr, "focus_first_child"):
-                _side_lr = _NMLR.get_instance().flyout_side(_ext_lr)
-                if (key == Qt.Key.Key_Left and _side_lr == "left") or (
-                    key == Qt.Key.Key_Right and _side_lr == "right"
-                ):
-                    if _ext_lr.focus_first_child():
-                        return True
+                if _ext_lr.focus_first_child():
+                    return True
             # Scrollable controls (ScrollValueButton, Slider, SpinBox) handle
             # Left/Right themselves to adjust value — don't steal focus.
             # Same trial-dispatch as Up/Down above.
@@ -433,8 +426,8 @@ class IconListNavSection:
             # Для IconList: Right входит в привязанный флайаут справа, если есть side="right"
             from sli_ui_toolkit.managers import NavigationManager as _NMR
 
-            _ext_r = _NMR.get_instance().extension_below(widget)
-            if _ext_r is not None and _NMR.get_instance().flyout_side(_ext_r) == "right":
+            _ext_r = _NMR.get_instance().extension_for(widget, "right")
+            if _ext_r is not None:
                 if hasattr(_ext_r, "focus_first_child") and _ext_r.focus_first_child():
                     return True
             if self._on_exit_right is not None:
@@ -443,8 +436,8 @@ class IconListNavSection:
         if key == Qt.Key.Key_Left:
             from sli_ui_toolkit.managers import NavigationManager as _NML
 
-            _ext_l = _NML.get_instance().extension_below(widget)
-            if _ext_l is not None and _NML.get_instance().flyout_side(_ext_l) == "left":
+            _ext_l = _NML.get_instance().extension_for(widget, "left")
+            if _ext_l is not None:
                 if hasattr(_ext_l, "focus_first_child") and _ext_l.focus_first_child():
                     return True
             return False
@@ -618,12 +611,10 @@ class AutoNavigationSection(ToolbarRowsSection):
             return True
         if key == Qt.Key.Key_Down:
             from sli_ui_toolkit.managers import NavigationManager
-            ext = NavigationManager.get_instance().extension_below(widget)
+            ext = NavigationManager.get_instance().extension_for(widget, "below")
             if ext is not None and hasattr(ext, "focus_first_child"):
-                side = NavigationManager.get_instance().flyout_side(ext)
-                if side is None or side == "below":
-                    if ext.focus_first_child():
-                        return True
+                if ext.focus_first_child():
+                    return True
             if row_idx < len(rows) - 1:
                 # nearest x — фильтруем уже удалённые, иначе min() бросает RuntimeError
                 try:
@@ -655,10 +646,9 @@ class AutoNavigationSection(ToolbarRowsSection):
             return True
         if key == Qt.Key.Key_Up:
             from sli_ui_toolkit.managers import NavigationManager as _NMUp
-            _ext_up = _NMUp.get_instance().extension_below(widget)
+            _ext_up = _NMUp.get_instance().extension_for(widget, "above")
             if _ext_up is not None and hasattr(_ext_up, "focus_first_child"):
-                side = _NMUp.get_instance().flyout_side(_ext_up)
-                if side == "above" and _ext_up.focus_first_child():
+                if _ext_up.focus_first_child():
                     return True
             if row_idx > 0:
                 try:
@@ -699,12 +689,11 @@ class AutoNavigationSection(ToolbarRowsSection):
             return True
         if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
             from sli_ui_toolkit.managers import NavigationManager as _NMLR
-            _ext_lr = _NMLR.get_instance().extension_below(widget)
+            _side_key = "left" if key == Qt.Key.Key_Left else "right"
+            _ext_lr = _NMLR.get_instance().extension_for(widget, _side_key)
             if _ext_lr is not None and hasattr(_ext_lr, "focus_first_child"):
-                _side_lr = _NMLR.get_instance().flyout_side(_ext_lr)
-                if (key == Qt.Key.Key_Left and _side_lr == "left") or (key == Qt.Key.Key_Right and _side_lr == "right"):
-                    if _ext_lr.focus_first_child():
-                        return True
+                if _ext_lr.focus_first_child():
+                    return True
             if self._widget_handles(key, widget):
                 return True
             row = [w for w in rows[row_idx] if shiboken6.isValid(w) and w.isVisible() and w.isEnabled()]  # type: ignore[attr-defined]
