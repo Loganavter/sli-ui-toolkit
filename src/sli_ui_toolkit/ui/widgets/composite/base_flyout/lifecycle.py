@@ -267,18 +267,15 @@ class _FlyoutLifecycleApi:
         window = self.parent().window() if self.parent() else None
         self._window_active_on_show = bool(window is not None and window.isActiveWindow())
         QWidget.show(self)  # type: ignore[arg-type]
-        # show_aligned(grab_focus=False) sets _skip_focus_grab, which by
-        # default also skips nav-section registration -- a purely
+        # show_aligned(grab_focus=False) sets _skip_focus_grab and (for a
+        # content-free preview) _skip_nav_register too -- a purely
         # informational flyout (e.g. a value-preview pill) must not steal
         # keyboard focus *or* arrow-key routing from whatever the user was
-        # already on. register_nav_section=True (also from show_aligned)
-        # opts a grab_focus=False flyout back into registration without
-        # grabbing focus -- for a flyout meant to read as a seamless
-        # extension of its anchor's own controls (e.g.
-        # MagnifierSettingsFlyout): the user keeps freely navigating the
-        # anchor's buttons, and can still arrow (Up/Down) or click into this
-        # flyout's own content, instead of arrow keys skipping over it
-        # entirely to whatever's next in the app's unrelated tab order.
+        # already on. A grab_focus=False flyout that actually holds
+        # navigable content keeps _skip_nav_register=False: it is registered
+        # without grabbing focus, so arrow keys can still move into it (see
+        # placement.show_aligned) instead of skipping over it entirely.
+        # register_nav_section=True/False forces the decision either way.
         skip_register = getattr(
             self, "_skip_nav_register", getattr(self, "_skip_focus_grab", False)
         )

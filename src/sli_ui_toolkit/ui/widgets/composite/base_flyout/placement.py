@@ -72,6 +72,26 @@ class _FlyoutPlacementApi:
     setGeometry: Any
     size: Any
 
+    @staticmethod
+    def _has_navigable_content(root: QWidget) -> bool:
+        """True when *root* holds an enabled ``StrongFocus`` descendant.
+
+        Drives the preview-mode registration default in :meth:`show_aligned`:
+        a flyout with real controls must stay keyboard-reachable even when it
+        must not grab focus, while a content-free informational pill keeps
+        staying out of arrow-key routing. Visibility is deliberately not
+        checked — this runs before the flyout is shown, when every child still
+        reports hidden — matching ``_first_focusable``'s own filter.
+        """
+        for child in root.findChildren(QWidget):
+            try:
+                if child.focusPolicy() == Qt.FocusPolicy.StrongFocus and child.isEnabled():
+                    return True
+            except RuntimeError:
+                # Child's C++ side already gone (host teardown race).
+                continue
+        return False
+
     def _ensure_overlay_parent(self, anchor_widget: QWidget):
         if anchor_widget is None:
             return
@@ -152,23 +172,31 @@ class _FlyoutPlacementApi:
         focusing itself, which silently breaks any further keyboard
         interaction with the widget the user was just on.
 
-        ``register_nav_section`` defaults to ``None``, which just follows
-        ``grab_focus`` (existing behavior: registering and grabbing are the
-        same decision). Pass ``True`` together with ``grab_focus=False`` for
-        a flyout that must not steal focus but should still be reachable —
-        arrow keys can move into its content and its own Escape/Enter
-        handling still applies — instead of being invisible to keyboard
-        navigation the way a true ``grab_focus=False`` popup is.
+        ``register_nav_section`` defaults to ``None``, which follows
+        ``grab_focus`` for a content-free flyout but keeps a flyout that
+        holds navigable content registered even in preview mode. Pass an
+        explicit ``True``/``False`` to force the decision.
+
+        Preview mode (``grab_focus=False``) means "do not steal focus", not
+        "invisible to the keyboard": a flyout whose rows hold real controls
+        (e.g. a draw-background ``Switch``) must still be a registered
+        navigation section, or arrow keys skip over it entirely and its rows
+        are unreachable. Only a content-free informational flyout (a
+        value-preview pill) is left out of arrow-key routing, which is what
+        the old blunt "follow ``grab_focus``" default actually meant.
         """
         # A pending fade-out must not survive a re-show (e.g. a rapid
         # click-to-toggle reopen mid-animation).
         self._fade.cancel(self)
         self._skip_focus_grab = not grab_focus
-        self._skip_nav_register = (
-            self._skip_focus_grab
-            if register_nav_section is None
-            else not register_nav_section
-        )
+        if register_nav_section is None:
+            # Registering and grabbing are no longer the same decision: a
+            # preview flyout keeps its natural rows navigable, and only a
+            # content-free popup stays out of arrow routing.
+            content_navigable = self._has_navigable_content(cast(QWidget, self))
+            self._skip_nav_register = self._skip_focus_grab and not content_navigable
+        else:
+            self._skip_nav_register = not register_nav_section
         self._last_align_kwargs = dict(
             anchor_widget=anchor_widget,
             anchor_point=anchor_point,

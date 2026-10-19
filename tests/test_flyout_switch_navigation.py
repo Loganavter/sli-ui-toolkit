@@ -79,3 +79,23 @@ def test_switch_in_preview_flyout_is_owned_and_keyboard_reachable(qapp, qtbot):
     QTest.keyClick(switch, Qt.Key.Key_Space)
     qapp.processEvents()
     assert switch.isChecked() is not before, "Space on the focused Switch must toggle it"
+
+
+def test_content_free_preview_stays_out_of_arrow_routing(qapp, qtbot):
+    """A preview with no controls must stay unregistered (guardrail).
+
+    The content-aware default must not swing the other way and put a
+    value-preview pill into arrow routing: only a flyout that actually holds
+    a ``StrongFocus`` descendant is registered.
+    """
+    mgr = NavigationManager.get_instance()
+    host, anchor_row, anchor = _host_with_anchor(qtbot)
+    mgr.register(host, ToolbarRowsSection(lambda: [anchor_row], tag="anchor"))
+
+    flyout = BaseFlyout(host)  # no interactive content
+    flyout.show_aligned(anchor, "top-left", "top-left", grab_focus=False)
+    qapp.processEvents()
+
+    assert all(owner is not flyout for owner, _ in mgr._sections), (
+        "a content-free preview must not be registered as a navigation section"
+    )
