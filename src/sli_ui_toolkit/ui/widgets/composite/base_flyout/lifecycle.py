@@ -697,13 +697,29 @@ class _FlyoutNavigationSection:
     def navigate(self, key: int, widget: QObject) -> bool:
         if key not in self._NAV_KEYS and key not in self._EXTRA_KEYS:
             return False
+        # Value-edit contract (plan-nav-coverage-2026-10-19): a control that
+        # implements is_editing() owns the arrows ONLY while it is editing;
+        # while idle the flyout keeps them for row navigation. Imported lazily —
+        # navigation_sections imports navigation_manager, which must be loaded
+        # first (this module is imported from the composite package).
+        from sli_ui_toolkit.ui.managers.navigation_sections import (
+            arrow_gate_open,
+            value_control_is_editing,
+        )
+
+        widget_is_editing = (
+            widget is not None
+            and widget is not self._flyout
+            and value_control_is_editing(widget)
+        )
         # PanelVisibilityFlyout: only intercept Left/Right after explicit Enter,
         # but always allow Up (at top) / Down (at bottom) to leave, even when
         # not yet entered via Enter — otherwise the user is trapped inside
         # after Down via extension_below with preview's _keyboard_navigation_active=False.
+        # An editing value control is never blocked (it owns the arrows).
         if getattr(self._flyout, "flyout_group", None) == "toggle":
             if not getattr(self._flyout, "_keyboard_navigation_active", False):
-                if key in (0x01000012, 0x01000014):  # Left/Right
+                if key in (0x01000012, 0x01000014) and not widget_is_editing:  # Left/Right
                     return False
                 # For Up/Down, let the flyout's own _navigate_focusable decide
                 # if it's at the boundary (Up at top / Down at bottom) to return
@@ -720,31 +736,34 @@ class _FlyoutNavigationSection:
         # special-cases clicking a focused Button -- any other focused
         # control's own Enter handling was silently unreachable.
         #
-        # For arrows, Left/Right are also given first refusal for value-
-        # adjusting controls (Slider, ScrollValueButton) so keyboard
-        # navigation on scrollable buttons doesn't close the flyout.
-        # Up/Down remain for row-to-row navigation (see ToolbarRowsSection),
-        # so they are not delegated — QAbstractSlider would otherwise steal
-        # them and break extension_below.
+        # For Left/Right, value-adjusting controls (Slider, ScrollValueButton)
+        # get first refusal so keyboard navigation on them stays put *while
+        # editing*; while idle the gate refuses and the flyout keeps the key
+        # for row navigation. Up/Down stay for row-to-row navigation unless
+        # the value control is editing (then, like Left/Right, it owns them).
         from PySide6.QtCore import QEvent
         from PySide6.QtGui import QKeyEvent
 
-        if key in (self._EXTRA_KEYS | {0x01000012, 0x01000014}) and widget is not None and widget is not self._flyout:
-            # Left/Right → value controls get first refusal (Slider,
-            # ScrollValueButton) so keyboard navigation on scrollable
-            # buttons doesn't close the flyout. Up/Down remain for row
-            # navigation. For PanelVisibilityFlyout, only handle arrows
-            # after explicit Enter (keyboard_navigation_active).
+        if widget is not None and widget is not self._flyout and (
+            key in (self._EXTRA_KEYS | {0x01000012, 0x01000014})
+            or widget_is_editing
+        ):
             if key in (0x01000012, 0x01000014):
                 # PanelVisibilityFlyout: only intercept Left/Right after Enter
                 if getattr(self._flyout, "flyout_group", None) == "toggle":
-                    if not getattr(self._flyout, "_keyboard_navigation_active", False):
+                    if (
+                        not getattr(self._flyout, "_keyboard_navigation_active", False)
+                        and not widget_is_editing
+                    ):
                         return False
-                trial = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
-                cast(QWidget, widget).keyPressEvent(trial)
-                if trial.isAccepted():
-                    return True
-                # Not handled → fall through to flyout's row navigation
+                # Value-edit gate: an idle value control must NOT eat the arrow
+                # (see docs/dev/NAVIGATION.md §1.1) — fall through to row nav.
+                if arrow_gate_open(widget):
+                    trial = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+                    cast(QWidget, widget).keyPressEvent(trial)
+                    if trial.isAccepted():
+                        return True
+                # Not handled / not editing → fall through to flyout's row navigation
             else:
                 child_event = QKeyEvent(
                     QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier,

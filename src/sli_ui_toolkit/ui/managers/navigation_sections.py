@@ -50,6 +50,37 @@ def _focus_reason() -> Qt.FocusReason:
         pass
     return Qt.FocusReason.OtherFocusReason
 
+
+def value_control_is_editing(widget) -> bool:
+    """Duck-typed edit-mode query (``is_editing() -> bool``).
+
+    A value control that implements the value-edit contract reports ``True``
+    only while the user has entered its explicit edit mode (Enter). Controls
+    without the attribute are never "editing". Never raises: navigation runs
+    from an app-wide event filter, so a broken query must not take arrows down.
+    """
+    is_editing = getattr(widget, "is_editing", None)
+    if not callable(is_editing):
+        return False
+    try:
+        return bool(is_editing())
+    except Exception:
+        return False
+
+
+def arrow_gate_open(widget) -> bool:
+    """True when navigation arrows may be trial-dispatched to *widget*.
+
+    The value-edit contract: a control that implements ``is_editing()`` only
+    receives arrows while it reports edit mode — while it reports not-editing
+    the section keeps the arrow for ring navigation (Up/Down rows, Left/Right
+    inside a row). A control without the attribute keeps today's behaviour
+    (gate open), so nothing else breaks.
+    """
+    if getattr(widget, "is_editing", None) is None:
+        return True
+    return value_control_is_editing(widget)
+
 # [nav-*] trace lines fire on every arrow-key navigate() call. Gated on the
 # opt-in nav flag at call time (off by default even under the host's
 # --debug) — host-app ``docs/dev/LOGGING.md`` unique-prefix convention, see
@@ -165,6 +196,11 @@ class ToolbarRowsSection:
 
     @staticmethod
     def _widget_handles(key: int, widget: QWidget) -> bool:
+        # Value-edit gate: a control that implements ``is_editing()`` only gets
+        # arrows while editing (see ``arrow_gate_open`` / NAVIGATION.md §1.1) —
+        # otherwise a focused Slider would eat the navigation keys.
+        if not arrow_gate_open(widget):
+            return False
         event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
         widget.keyPressEvent(event)
         return event.isAccepted()

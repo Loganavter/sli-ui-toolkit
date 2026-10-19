@@ -5,7 +5,7 @@ import time
 from typing import TYPE_CHECKING, Callable, ClassVar
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt, Property
-from PySide6.QtGui import QBrush, QColor, QCursor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QCursor, QKeyEvent, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSlider
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -49,6 +49,21 @@ class Slider(WheelScrollPolicyMixin, QSlider):
     _ACCEL_RAMP_SECONDS = 1.5
     _ACCEL_MAX_MULTIPLIER = 30.0
 
+    # Keys that adjust the value while EDIT MODE is active. The arrows are the
+    # primary controls; WASD is the 2-D-surface convention the owner asked for
+    # (W/A/S/D map onto Qt's Up/Left/Down/Right). None of these adjust the value
+    # while merely navigating (see keyPressEvent).
+    _EDIT_ADJUST_KEYS: ClassVar[dict[int, int]] = {
+        Qt.Key.Key_Left: Qt.Key.Key_Left,
+        Qt.Key.Key_Right: Qt.Key.Key_Right,
+        Qt.Key.Key_Up: Qt.Key.Key_Up,
+        Qt.Key.Key_Down: Qt.Key.Key_Down,
+        Qt.Key.Key_A: Qt.Key.Key_Left,
+        Qt.Key.Key_D: Qt.Key.Key_Right,
+        Qt.Key.Key_W: Qt.Key.Key_Up,
+        Qt.Key.Key_S: Qt.Key.Key_Down,
+    }
+
     def __init__(
         self,
         orientation: Qt.Orientation = Qt.Orientation.Horizontal,
@@ -67,6 +82,8 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         self._hovered = False
         self._pressed = False
         self._keyboard_focus = False
+        self._editing = False
+        self._edit_entry_value = 0
         self._track_thickness = float(track_thickness) if track_thickness is not None else float(self.TRACK_HEIGHT)
         self._thumb_radius = float(thumb_radius) if thumb_radius is not None else float(self.RADIUS)
         self._track_painter = track_painter
@@ -327,41 +344,102 @@ class Slider(WheelScrollPolicyMixin, QSlider):
 
     def focusOutEvent(self, event):
         self._keyboard_focus = False
+        if self._editing:
+            # Focus leaving the slider ends edit mode with the value as-is
+            # (Enter/Esc are the explicit exits; this is the implicit one).
+            self._editing = False
         self.update()
         super().focusOutEvent(event)
 
+    def is_editing(self) -> bool:
+        """True while the user is in explicit edit mode (the value-edit contract).
+
+        Sections/flyouts duck-type this query to decide whether arrows belong
+        to the control or to the ring (see ``docs/dev/NAVIGATION.md`` §1.1).
+        """
+        return self._editing
+
+    def _enter_edit_mode(self) -> None:
+        self._editing = True
+        self._edit_entry_value = self.value()
+        self.update()
+
+    def _leave_edit_mode(self, *, commit: bool) -> None:
+        self._editing = False
+        if not commit:
+            self.setValue(self._edit_entry_value)
+        self.update()
+
     def keyPressEvent(self, event):
         key = event.key()
-        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
-            # Up/Down are reserved for routing between controls (row/panel
-            # navigation, see NavigationManager/ToolbarRowsSection/
-            # _FlyoutNavigationSection) -- never value-adjustment here, even
-            # though QAbstractSlider's own default keyPressEvent would
-            # otherwise happily step the value on them too. Leave the event
-            # unaccepted (don't call super().keyPressEvent(), which is what
-            # would consume it) so it stays available for routing.
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Enter is the explicit edit-mode toggle: the first press enters
+            # (and captures the entry value so Esc can revert), a second press
+            # commits the adjusted value and leaves.
+            if self._editing:
+                self._leave_edit_mode(commit=True)
+            else:
+                self._enter_edit_mode()
+            event.accept()
+            return
+        if key == Qt.Key.Key_Escape:
+            if self._editing:
+                self._leave_edit_mode(commit=False)
+                event.accept()
+                return
+            super().keyPressEvent(event)
+            return
+        if self._editing:
+            # In edit mode the arrows (and WASD) belong to the value.
+            arrow = self._EDIT_ADJUST_KEYS.get(key)
+            if arrow is not None:
+                self._adjust_value_by_arrow(arrow, event)
+                event.accept()
+                return
+            super().keyPressEvent(event)
+            return
+        # While merely navigating, EVERY arrow is a navigation key: never adjust
+        # the value and never consume the event, so Up/Down AND Left/Right stay
+        # available for NavigationManager/ToolbarRowsSection and the flyout's
+        # `_FlyoutNavigationSection` (see docs/dev/NAVIGATION.md §1.1 and the
+        # value-edit contract). QAbstractSlider's default handler would
+        # otherwise step the value on all four. Enter enters edit mode above.
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Left, Qt.Key.Key_Right):
             event.ignore()
             return
-        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
-            now = time.monotonic()
-            if not event.isAutoRepeat():
-                self._accel_hold_start = now
-            elapsed = now - getattr(self, "_accel_hold_start", now)
-            t = min(1.0, elapsed / self._ACCEL_RAMP_SECONDS)
-            multiplier = 1.0 + (t * t) * (self._ACCEL_MAX_MULTIPLIER - 1.0)
-            base_step = self.singleStep()
-            accel_step = max(base_step, int(round(base_step * multiplier)))
-            # Borrow QAbstractSlider's own key-to-direction handling
-            # (respects orientation/invertedAppearance/invertedControls)
-            # by temporarily widening singleStep for this one event instead
-            # of reimplementing that mapping here.
-            self.setSingleStep(accel_step)
-            try:
-                super().keyPressEvent(event)
-            finally:
-                self.setSingleStep(base_step)
-            return
         super().keyPressEvent(event)
+
+    def _adjust_value_by_arrow(self, arrow_key: int, event) -> None:
+        now = time.monotonic()
+        if not event.isAutoRepeat():
+            self._accel_hold_start = now
+        elapsed = now - getattr(self, "_accel_hold_start", now)
+        t = min(1.0, elapsed / self._ACCEL_RAMP_SECONDS)
+        multiplier = 1.0 + (t * t) * (self._ACCEL_MAX_MULTIPLIER - 1.0)
+        base_step = self.singleStep()
+        accel_step = max(base_step, int(round(base_step * multiplier)))
+        # Borrow QAbstractSlider's own key-to-direction handling
+        # (respects orientation/invertedAppearance/invertedControls) by
+        # temporarily widening singleStep for this one event instead of
+        # reimplementing that mapping here. WASD is translated to its arrow
+        # first, so the same path drives both.
+        self.setSingleStep(accel_step)
+        try:
+            if arrow_key == event.key():
+                super().keyPressEvent(event)
+            else:
+                super().keyPressEvent(
+                    QKeyEvent(
+                        event.type(),
+                        arrow_key,
+                        event.modifiers(),
+                        event.text(),
+                        event.isAutoRepeat(),
+                        event.count(),
+                    )
+                )
+        finally:
+            self.setSingleStep(base_step)
 
     def _set_value_from_pos(self, coord: float):
         groove = self._groove_rect()
@@ -423,7 +501,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
                 painter.drawRoundedRect(rectf, corner, corner)
                 painter.restore()
 
-        painter.setPen(QPen(gray, 1))
+        painter.setPen(QPen(accent if self._editing else gray, 2 if self._editing else 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rectf, corner, corner)
 
@@ -431,8 +509,12 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         outer_r = scaled_px(self._thumb_radius)
         inner_scale = self._inner_scale_current
 
+        # Editing affordance (see NAVIGATION.md §1): an accent border on the
+        # groove + an accent thumb ring, so "the ring is on this slider"
+        # (focus ring) reads differently from "this slider is being edited".
+        # Reuses the focus-ring tokens rather than inventing a new look.
         outer_color = QColor(tm.get_color("slider.thumb.outer"))
-        painter.setPen(QPen(gray, 1))
+        painter.setPen(QPen(accent if self._editing else gray, 2 if self._editing else 1))
         painter.setBrush(QBrush(outer_color))
         painter.drawEllipse(center, outer_r, outer_r)
 
