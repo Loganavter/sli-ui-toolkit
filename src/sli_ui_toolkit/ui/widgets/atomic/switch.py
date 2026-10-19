@@ -34,6 +34,14 @@ class Switch(QWidget):
 
     TRACK_RADIUS = TRACK_HEIGHT // 2
 
+    #: Design px reserved around the track so the keyboard focus ring (drawn on
+    #: the widget boundary, ``focus_ring.paint_focus_ring``) cannot overlap the
+    #: track: the track used to start at x=0 with the widget height equal to the
+    #: track height, so a ring had nowhere to land (owner report 2026-10-19:
+    #: "кольцо наползает на геометрию свитча"; the Slider has its own slack and
+    #: was fine).
+    RING_GUTTER = 2
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -45,6 +53,10 @@ class Switch(QWidget):
         self._hover: float = 0.0
         self._hover_active: bool = False
         self._progress: float = 0.0
+        # Keyboard-focus ring modality (see focusInEvent): the switch paints its
+        # own ring, so with no flag it showed NO focus indication at all — the
+        # owner's "you cannot tell whether the switch has focus" (2026-10-19).
+        self._keyboard_focus: bool = False
 
         self._show_text: bool = True
 
@@ -158,8 +170,9 @@ class Switch(QWidget):
             return fallback
 
     def sizeHint(self) -> QSize:
-        base_w = scaled_px(self.TRACK_WIDTH)
-        base_h = scaled_px(self.TRACK_HEIGHT)
+        gutter = scaled_px(self.RING_GUTTER)
+        base_w = scaled_px(self.TRACK_WIDTH) + gutter * 2
+        base_h = scaled_px(self.TRACK_HEIGHT) + gutter * 2
         if self._show_text:
             fm = QFontMetrics(self.font())
             text_w = max(
@@ -168,7 +181,7 @@ class Switch(QWidget):
             )
             base_w += scaled_px(self.TEXT_SPACING) + text_w
 
-            base_h = max(base_h, fm.height())
+            base_h = max(base_h, fm.height() + gutter * 2)
         return QSize(base_w, base_h)
 
     def mousePressEvent(self, e):
@@ -192,10 +205,27 @@ class Switch(QWidget):
         super().keyPressEvent(e)
 
     def focusInEvent(self, e):
+        # Ring modality resolved centrally via NavigationManager (as Slider):
+        # input device is the source of truth, the reason is only a hint — a
+        # mouse click must not paint a ring.
+        reason = getattr(e, "reason", lambda: None)()
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_keyboard_focus,
+            )
+
+            self._keyboard_focus = resolve_keyboard_focus(reason)
+        except Exception:
+            self._keyboard_focus = reason not in (
+                Qt.FocusReason.MouseFocusReason,
+                Qt.FocusReason.MenuBarFocusReason,
+                Qt.FocusReason.PopupFocusReason,
+            )
         self.update()
         super().focusInEvent(e)
 
     def focusOutEvent(self, e):
+        self._keyboard_focus = False
         self.update()
         super().focusOutEvent(e)
 
@@ -246,7 +276,10 @@ class Switch(QWidget):
         text_w = fm.horizontalAdvance(text) if self._show_text else 0
         track_w = scaled_px(self.TRACK_WIDTH)
         track_h = scaled_px(self.TRACK_HEIGHT)
-        track_rect = QRectF(0, (h - track_h) / 2.0, float(track_w), float(track_h))
+        gutter = scaled_px(self.RING_GUTTER)
+        track_rect = QRectF(
+            gutter, (h - track_h) / 2.0, float(track_w), float(track_h)
+        )
         radius = track_rect.height() / 2.0
 
         track_color = self._lerp_color(track_off, track_on, self._progress)
@@ -285,6 +318,13 @@ class Switch(QWidget):
             text_x = int(track_rect.right()) + scaled_px(self.TEXT_SPACING)
             text_y = int((h + fm.ascent() - fm.descent()) / 2)
             painter.drawText(text_x, text_y, text)
+
+        if self._keyboard_focus and self.hasFocus():
+            # The switch had no focus indication at all before: it paints itself
+            # and never attached Button's FocusLayer (owner report 2026-10-19).
+            from sli_ui_toolkit.ui.widgets.atomic.focus_ring import paint_focus_ring
+
+            paint_focus_ring(self, painter, self._theme)
 
     @staticmethod
     def _lerp(a: float, b: float, t: float) -> float:

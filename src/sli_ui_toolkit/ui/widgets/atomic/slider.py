@@ -445,36 +445,16 @@ class Slider(WheelScrollPolicyMixin, QSlider):
             self._paint_focus_ring(painter, tm)
 
     def _paint_focus_ring(self, painter: QPainter, tm: ThemeManager) -> None:
-        """Keyboard focus ring around the whole widget, matching Button's
-        ``FocusLayer`` (same accent color/alpha, thickness, inset) -- Slider
-        has no layer-pipeline of its own to attach that to, so this is a
-        direct paintEvent extension instead.
+        """Keyboard focus ring around the whole widget (shared helper).
+
+        Matches Button's ``FocusLayer`` (accent colour/alpha, thickness, inset)
+        — Slider has no layer-pipeline of its own to attach that to; the shared
+        ``paint_focus_ring`` keeps this identical to the Switch's ring instead
+        of forking a second look.
         """
-        factor = UiScale.get_instance().factor()
-        thickness = max(1.0, 2.0 * factor)
-        inset = thickness * 0.5
-        ring = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
-        if ring.width() <= 0 or ring.height() <= 0:
-            return
-        # Pill-shaped ring (fully rounded on the short axis) since the
-        # widget itself has no other "corner radius" concept to reuse.
-        radius = min(ring.width(), ring.height()) / 2.0
+        from sli_ui_toolkit.ui.widgets.atomic.focus_ring import paint_focus_ring
 
-        path = QPainterPath()
-        path.addRoundedRect(ring, radius, radius)
-
-        color = QColor(tm.get_color("accent"))
-        color.setAlpha(220)
-
-        painter.save()
-        try:
-            pen = QPen(color)
-            pen.setWidthF(thickness)
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(path)
-        finally:
-            painter.restore()
+        paint_focus_ring(self, painter, tm)
 
 Slider.inspect_spec = InspectSpec(
     family="Slider",
