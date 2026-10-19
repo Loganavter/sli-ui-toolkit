@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QPen
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import ui_font
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.style_bridge import read_widget_style
 
 from ..context import DrawContext
@@ -35,7 +36,12 @@ class BadgeLayer(Layer):
             elif ButtonState.DISABLED in ctx.states:
                 text_color.setAlpha(120)
             p.setPen(text_color)
-            text_rect = QRect(widget.width() - 14, 1, 12, 10)
+            # Design px, resolved at paint time: the badge box must grow with
+            # the interface scale like the (already scaled) badge font, or a
+            # chip's badge reads cramped/misaligned after a live scale change.
+            text_rect = QRect(
+                widget.width() - scaled_px(14), scaled_px(1), scaled_px(12), scaled_px(10)
+            )
             p.drawText(
                 text_rect,
                 Qt.AlignmentFlag.AlignCenter,
@@ -45,11 +51,13 @@ class BadgeLayer(Layer):
 
         metrics = p.fontMetrics()
         badge_text = str(ctx.badge_text)
-        badge_width = max(14, metrics.horizontalAdvance(badge_text) + 8)
-        badge_height = 14
+        badge_height = scaled_px(14)
+        badge_width = max(
+            scaled_px(14), metrics.horizontalAdvance(badge_text) + scaled_px(8)
+        )
         badge_rect = QRectF(
-            widget.width() - badge_width - 2,
-            2,
+            widget.width() - badge_width - scaled_px(2),
+            scaled_px(2),
             badge_width,
             badge_height,
         )

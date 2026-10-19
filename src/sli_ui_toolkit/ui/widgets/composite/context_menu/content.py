@@ -14,7 +14,6 @@ from typing import Sequence
 from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QWidget
 
-from sli_ui_toolkit.managers import scaled_px
 from sli_ui_toolkit.ui.widgets.composite.context_menu import submenu as submenu_ops
 from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
     ContextMenuAction,
@@ -54,7 +53,8 @@ def set_entries(menu, entries) -> None:
 
     flat = _trim_flat_separators(_flatten(tuple(entries)))
     # No check-glyph gutter: current/checkable rows use background highlight only.
-    check_gutter = scaled_px(12)
+    # The gutter is a design-px constant; the row resolves it at use time.
+    check_gutter = ContextMenuRow.CHECK_GUTTER
     for item in flat:
         menu.content_layout.addWidget(_build_row(menu, item, check_gutter))
     _assign_row_positions(menu)
@@ -112,7 +112,13 @@ def _assign_row_positions(menu) -> None:
 
 
 def _relayout_widths(menu) -> None:
-    """Size the menu to the widest row using the current font metrics."""
+    """Size the menu to the widest row using the current font metrics.
+
+    Called on every entries reset AND on a live appearance change (the menu
+    outlives a UiScale/font switch): every cached chrome metric — fonts,
+    the design-px row/section/separator heights, the check gutter, trailing
+    widths and rasterized icons — is re-derived here at the live scale.
+    """
     from sli_ui_toolkit.ui.managers.ui_font import ui_font
 
     app_font = ui_font()
@@ -125,9 +131,12 @@ def _relayout_widths(menu) -> None:
             continue
         widget.setMinimumWidth(0)
         if isinstance(widget, SectionTitleRow):
-            widget.setFont(ui_font(pixel_size=11, bold=True))
+            widget.setFont(ui_font(pixel_size=SectionTitleRow.TITLE_PIXEL_SIZE, bold=True))
         else:
             widget.setFont(app_font)
+        refresh = getattr(widget, "refresh_metrics", None)
+        if callable(refresh):
+            refresh()
 
     for row in menu._rows:
         row.refresh_metrics()
