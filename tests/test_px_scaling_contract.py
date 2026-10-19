@@ -254,19 +254,20 @@ def test_offender_inventory_matches_the_allowlist() -> None:
 
 def test_detector_is_not_blind_on_the_current_tree() -> None:
     """Self-falsification: ignoring the allowlist, the detector must still see
-    today's whole offender inventory (15 sites in 10 files). If a refactor
-    makes the contract "green" by making the detector see nothing, this fails."""
+    today's whole offender inventory (7 by-design sites in 5 files after the
+    kit-px-sweep offender drain). If a refactor makes the contract "green" by
+    making the detector see nothing, this fails."""
     raw = _raw_findings()
-    assert len(raw) == 10, f"detector found {len(raw)} offender files, expected 10"
-    assert sum(len(messages) for messages in raw.values()) == 15
-    assert "ui/widgets/buttons/style_api.py" in raw
-    assert "ui/widgets/composite/calendar_widget/day_button.py" in raw
+    assert len(raw) == 5, f"detector found {len(raw)} offender files, expected 5"
+    assert sum(len(messages) for messages in raw.values()) == 7
+    assert "ui/widgets/composite/gpu_fill/widget.py" in raw
+    assert "ui/widgets/composite/sidebar_nav_list/icons.py" in raw
 
 
 def test_exemption_list_is_recorded_and_justified() -> None:
     """Every entry exists, carries a reason, and is genuinely needed."""
-    assert len(EXEMPTIONS) == 10, (
-        f"expected today's 10 offender files recorded, got {len(EXEMPTIONS)} "
+    assert len(EXEMPTIONS) == 5, (
+        f"expected the 5 remaining by-design files recorded, got {len(EXEMPTIONS)} "
         "— fix an offender (and drop its entry) instead of letting the list "
         "drift"
     )
