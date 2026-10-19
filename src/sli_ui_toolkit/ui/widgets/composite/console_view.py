@@ -34,7 +34,12 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
+from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font, pin_font_size
+from sli_ui_toolkit.ui.managers.ui_metrics import (
+    AXIS_FONT,
+    AXIS_SCALE,
+    connect_ui_metrics,
+)
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
@@ -85,7 +90,8 @@ class ConsoleView(QWidget):
         self.theme_manager = ThemeManager.get_instance()
         self._lines: list[ConsoleLine] = []
         self._max_lines: int | None = None if max_lines is None else max(0, int(max_lines))
-        self._font = QFont(self.font())
+        self._font = apply_ui_font(self)
+        self._font_external = False
         self._row_height = 1
         self._pad = scaled_px(_PADDING)
         self._scroll_reserve = scaled_px(MINIMAL_SCROLLBAR_WIDTH)
@@ -117,9 +123,13 @@ class ConsoleView(QWidget):
             pass
         try:
             # Pads/scroll reserve are design px (``scaled_px``); the painted
-            # font is owned by ``set_font``, not the metrics bus → scale axis.
+            # font follows the appearance bus until a host takes it over via
+            # ``set_font`` (``_font_external``) — the bus is the only way a
+            # later face/scale change reaches this widget.
             connect_ui_metrics(
-                self, self._on_scale_changed, axes=frozenset({AXIS_SCALE})
+                self,
+                self._on_metrics_changed,
+                axes=frozenset({AXIS_FONT, AXIS_SCALE}),
             )
         except Exception:
             pass
@@ -183,7 +193,14 @@ class ConsoleView(QWidget):
         self.update()
 
     def set_font(self, font: QFont) -> None:
-        self._font = QFont(font)
+        """Host-owned face override (see ``_font_external``).
+
+        The host's font is pinned (size asserted into the resolve mask) so
+        the console does not pick the size up from its ancestor chain — the
+        same trap ``apply_ui_font`` closes for the default path.
+        """
+        self._font = pin_font_size(QFont(font))
+        self._font_external = True
         self.setFont(font)
         self._mark_dirty()
         self.update()
@@ -544,7 +561,15 @@ class ConsoleView(QWidget):
         self._refresh_theme()
         self.update()
 
-    def _on_scale_changed(self, *_args) -> None:
+    def _on_metrics_changed(self, *_args) -> None:
+        """Face (``AXIS_FONT``) and scale (``AXIS_SCALE``) re-derivation.
+
+        The painted font is cached; re-derive it from the resolver on a face
+        change (a host that has NOT taken the font over via ``set_font``),
+        then re-run the scale-dependent pad/scroll reserve work.
+        """
+        if not self._font_external:
+            self._font = apply_ui_font(self)
         self._pad = scaled_px(_PADDING)
         self._scroll_reserve = scaled_px(MINIMAL_SCROLLBAR_WIDTH)
         was_bottom = self.is_at_bottom()
