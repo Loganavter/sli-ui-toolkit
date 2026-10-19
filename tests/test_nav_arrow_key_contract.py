@@ -23,6 +23,28 @@ def test_slider_yields_arrows_when_idle(qapp):
     assert_yields_arrows_when_idle(Slider)
 
 
+def test_slider_yields_left_right_when_idle(qapp):
+    """Left/Right are navigation keys while a value control is not editing.
+
+    ``assert_yields_arrows_when_idle`` only probes Up/Down. ``Slider`` used to
+    accept Left/Right unconditionally, so a focused slider in a row ate the
+    navigation keys (see ``docs/dev/NAVIGATION.md`` §1). It must leave them
+    unaccepted until Enter enters edit mode.
+    """
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    for key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+        widget = Slider()
+        event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
+        widget.keyPressEvent(event)
+        assert not event.isAccepted(), (
+            "Slider accepted Left/Right while idle -- arrows must stay available "
+            "for ring navigation until Enter enters edit mode"
+        )
+
+
+
 def test_spinbox_yields_arrows_when_idle(qapp):
     assert_yields_arrows_when_idle(SpinBox)
 
