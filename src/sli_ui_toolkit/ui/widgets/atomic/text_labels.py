@@ -21,19 +21,19 @@ from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     text_overflows,
 )
 
+# The variant spec and its preset table live in ``text/variants.py`` now: the
+# surviving widget must not depend on the class being retired. These names are
+# back-compat aliases of that single definition/table, kept until ``Label`` and
+# its public exports are deleted.
+from sli_ui_toolkit.ui.widgets.text.variants import (
+    TEXT_VARIANTS as LABEL_VARIANTS,
+    TextVariantSpec as LabelVariantSpec,
+    get_text_variant,
+    register_text_variant,
+)
+
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
-
-
-@dataclass(frozen=True)
-class LabelVariantSpec:
-    name: str
-    pixel_size: int | None = None
-    bold: bool = False
-    color_token: str = "dialog.text"
-    minimum_width: int = 0
-    expanding: bool = False
-    elide: bool = False
 
 
 @dataclass
@@ -60,45 +60,12 @@ class LabelConfig:
     text_key: str | None = None
 
 
-_DEFAULT_VARIANTS: list[LabelVariantSpec] = [
-    LabelVariantSpec("body", pixel_size=12, color_token="dialog.text"),
-    LabelVariantSpec("caption", pixel_size=11, color_token="dialog.text"),
-    LabelVariantSpec(
-        "compact",
-        pixel_size=10,
-        color_token="dialog.text",
-        minimum_width=80,
-        expanding=True,
-        elide=True,
-    ),
-    LabelVariantSpec(
-        "group-title",
-        pixel_size=13,
-        bold=True,
-        color_token="dialog.text",
-        elide=True,
-    ),
-    LabelVariantSpec(
-        "adaptive",
-        pixel_size=12,
-        color_token="dialog.text",
-        minimum_width=50,
-        expanding=True,
-        elide=True,
-    ),
-]
-
-LABEL_VARIANTS: dict[str, LabelVariantSpec] = {
-    variant.name: variant for variant in _DEFAULT_VARIANTS
-}
-
-
 def register_label_variant(spec: LabelVariantSpec) -> None:
-    LABEL_VARIANTS[spec.name] = spec
+    register_text_variant(spec)
 
 
 def get_label_variant(name: str | None) -> LabelVariantSpec:
-    return LABEL_VARIANTS.get((name or "body").lower(), LABEL_VARIANTS["body"])
+    return get_text_variant(name)
 
 
 class Label(QLabel):
