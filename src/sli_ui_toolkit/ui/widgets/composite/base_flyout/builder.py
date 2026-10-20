@@ -13,7 +13,7 @@ from typing import Any
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton, RadioButtonGroup
-from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+from sli_ui_toolkit.ui.widgets.text import Text
 
 
 class _FlyoutBuilderApi:
@@ -23,10 +23,11 @@ class _FlyoutBuilderApi:
     # the real layout is created in BaseFlyout.__init__ (widget.py).
     content_layout: Any
 
-    def add_section(self, text: str, *, pixel_size: int = 12) -> Label:
+    def add_section(self, text: str, *, pixel_size: int = 12) -> Text:
         """Add a section heading label."""
-        label = Label(
+        label = Text(
             text,
+            mode="plain",
             pixel_size=pixel_size,
             bold=True,
             color_token="dialog.text",
@@ -41,14 +42,15 @@ class _FlyoutBuilderApi:
         *,
         label_pixel_size: int = 11,
         stretch_before_widget: bool = True,
-    ) -> Label:
+    ) -> Text:
         """Add a labeled row (label left, widget right)."""
         host = QWidget()
         row = QHBoxLayout(host)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(8)
-        label = Label(
+        label = Text(
             label_text,
+            mode="plain",
             pixel_size=label_pixel_size,
             color_token="dialog.text",
         )
@@ -65,10 +67,11 @@ class _FlyoutBuilderApi:
         options: list[tuple[str, Any]],
         *,
         default: Any = None,
-    ) -> tuple[Label, RadioButtonGroup, dict[Any, RadioButton]]:
+    ) -> tuple[Text, RadioButtonGroup, dict[Any, RadioButton]]:
         """Add a label followed by a horizontal row of RadioButtons."""
-        label = Label(
+        label = Text(
             label_text,
+            mode="plain",
             pixel_size=11,
             color_token="dialog.text",
         )

@@ -557,15 +557,16 @@ class InspectorWindow(QDialog):
         # does not create a dead hover gap between the title and first row.
         from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-        from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+        from sli_ui_toolkit.ui.widgets.text import Text
 
         wrapper = QWidget()
         wlay = QVBoxLayout(wrapper)
         wlay.setContentsMargins(0, 0, 0, 0)
         wlay.setSpacing(0)
         wlay.addWidget(
-            Label(
+            Text(
                 "Layout tree",
+                mode="plain",
                 variant="group-title",
                 pixel_size=15,
                 bold=True,
