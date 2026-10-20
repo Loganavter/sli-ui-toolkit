@@ -1,23 +1,67 @@
-"""Text variant registry.
+"""Text variant spec and registry.
 
-Shares ``Label``'s registry for now (one preset table for both widgets until
-``Label`` is retired in P3), so a variant registered for either applies to both.
+This module owns the variant spec: ``atomic/text_labels.py`` imports it back
+(``LabelVariantSpec`` is an alias of :class:`TextVariantSpec`, the registry
+functions delegate here) so ``Label``'s pending retirement will not take the
+spec or the shared preset table with it.
 """
 
 from __future__ import annotations
 
-from sli_ui_toolkit.ui.widgets.atomic.text_labels import (
-    LabelVariantSpec,
-    get_label_variant,
-    register_label_variant,
-)
+from dataclasses import dataclass
 
-TextVariantSpec = LabelVariantSpec
+
+@dataclass(frozen=True)
+class TextVariantSpec:
+    name: str
+    pixel_size: int | None = None
+    bold: bool = False
+    color_token: str = "dialog.text"
+    minimum_width: int = 0
+    expanding: bool = False
+    elide: bool = False
+
+
+_DEFAULT_VARIANTS: list[TextVariantSpec] = [
+    TextVariantSpec("body", pixel_size=12, color_token="dialog.text"),
+    TextVariantSpec("caption", pixel_size=11, color_token="dialog.text"),
+    TextVariantSpec(
+        "compact",
+        pixel_size=10,
+        color_token="dialog.text",
+        minimum_width=80,
+        expanding=True,
+        elide=True,
+    ),
+    TextVariantSpec(
+        "group-title",
+        pixel_size=13,
+        bold=True,
+        color_token="dialog.text",
+        elide=True,
+    ),
+    TextVariantSpec(
+        "adaptive",
+        pixel_size=12,
+        color_token="dialog.text",
+        minimum_width=50,
+        expanding=True,
+        elide=True,
+    ),
+]
+
+_VARIANTS: dict[str, TextVariantSpec] = {
+    variant.name: variant for variant in _DEFAULT_VARIANTS
+}
+
+# Public handle on the canonical table (one dict object; mutating it, e.g.
+# popping a test variant, affects every lookup on both widget paths).
+TEXT_VARIANTS = _VARIANTS
 
 
 def register_text_variant(spec: TextVariantSpec) -> None:
-    register_label_variant(spec)
+    _VARIANTS[spec.name] = spec
 
 
 def get_text_variant(name: str | None) -> TextVariantSpec:
-    return get_label_variant(name)
+    return _VARIANTS.get((name or "body").lower(), _VARIANTS["body"])
