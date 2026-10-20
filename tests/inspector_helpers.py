@@ -12,12 +12,17 @@ from sli_ui_toolkit.ui.inspector.contract import (
     WidgetInspection,
 )
 from sli_ui_toolkit.ui.inspector.view import InspectorWindow
-from sli_ui_toolkit.widgets import Button, ButtonRegion, Label, Switch
+from sli_ui_toolkit.widgets import Button, ButtonRegion, Label, Switch, Text
 
 def _page_labels(window: InspectorWindow, section: str) -> list[str]:
     page = window._pages[section]
     out: list[str] = []
-    for label in page.content_widget.findChildren(Label):
+    # Inspector rows build toolkit ``Text`` (mode="plain") since the text
+    # unification; older rows may still be ``Label``, so collect both.
+    for label in (
+        *page.content_widget.findChildren(Label),
+        *page.content_widget.findChildren(Text),
+    ):
         out.append(label.text())
     for button in page.content_widget.findChildren(Button):
         out.append(str(getattr(button, "_text", "") or ""))

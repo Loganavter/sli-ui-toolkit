@@ -495,14 +495,15 @@ def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: s
     shows the hierarchy."""
     from PySide6.QtWidgets import QHBoxLayout, QWidget
 
-    from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+    from sli_ui_toolkit.ui.widgets.text import Text
     from sli_ui_toolkit.ui.widgets.buttons.button import Button as _Btn
     from sli_ui_toolkit.ui.inspector.code.editor import CodeSectionEditor
 
     owner._add_title(page, "Code")
-    info = Label(
+    info = Text(
         "Source is inside sli-ui-toolkit — showing live configuration "
         "(see Config / State sections for the full field list).",
+        mode="plain",
         pixel_size=11,
         word_wrap=True,
         selectable=True,
@@ -530,8 +531,8 @@ def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: s
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(scaled_px(_ROW_SPACING))
-        lay.addWidget(Label(f"Parent: {type(ancestor).__name__}", pixel_size=11, bold=True, selectable=True))
-        lay.addWidget(Label(src_label, pixel_size=11, elide=True, selectable=True))
+        lay.addWidget(Text(f"Parent: {type(ancestor).__name__}", mode="plain", pixel_size=11, bold=True, selectable=True))
+        lay.addWidget(Text(src_label, mode="plain", pixel_size=11, elide=True, selectable=True))
         jump = _Btn(text="Show parent code", variant="surface", size=(0, 26))
         jump.setToolTip("Inspect the app-side parent that owns this toolkit widget")
         # capture ancestor via default arg (avoid late binding)
@@ -542,8 +543,9 @@ def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: s
     else:
         # No app ancestor — hint where to find hierarchy.
         page.content_layout.addWidget(
-            Label(
+            Text(
                 "No app-side parent found — see Layout / Constructor tabs for the containing tree.",
+                mode="plain",
                 pixel_size=11,
                 selectable=True,
                 word_wrap=True,
@@ -613,8 +615,9 @@ def _build_toolkit_config_only(owner, page, config_text: str | None, qss_text: s
         return None
 
     page.content_layout.addWidget(
-        Label(
+        Text(
             "No synthetic configuration to show for this widget.",
+            mode="plain",
             pixel_size=11,
             selectable=True,
         )

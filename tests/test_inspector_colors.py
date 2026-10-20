@@ -118,11 +118,16 @@ def test_widget_flags_rows(qapp):
 
 def _page_labels(window: InspectorWindow, section: str) -> list[str]:
     from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
-    from sli_ui_toolkit.widgets import Button
+    from sli_ui_toolkit.widgets import Button, Text
 
     page = window._pages[section]
     out: list[str] = []
-    for label in page.content_widget.findChildren(Label):
+    # Inspector rows build toolkit ``Text`` (mode="plain") since the text
+    # unification; older rows may still be ``Label``, so collect both.
+    for label in (
+        *page.content_widget.findChildren(Label),
+        *page.content_widget.findChildren(Text),
+    ):
         out.append(label.text())
     for button in page.content_widget.findChildren(Button):
         out.append(str(getattr(button, "_text", "") or ""))

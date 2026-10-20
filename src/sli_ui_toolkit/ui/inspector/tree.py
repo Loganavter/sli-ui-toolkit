@@ -20,7 +20,6 @@ from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
-from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.regions import ButtonRegion
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
@@ -827,15 +826,16 @@ class _PaneTreeMixin:
         # Title + tree live together with zero gap; the tree itself is a
         # hierarchical zero-spacing container (one QVBoxLayout spacing=0 per
         # branch, see _render_tree_node). Hover via Button per-row signals.
-        from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+        from sli_ui_toolkit.ui.widgets.text import Text
 
         wrapper = QWidget()
         wrapper_layout = QVBoxLayout(wrapper)
         wrapper_layout.setContentsMargins(0, 0, 0, 0)
         wrapper_layout.setSpacing(0)
         wrapper_layout.addWidget(
-            Label(
+            Text(
                 title,
+                mode="plain",
                 variant="group-title",
                 pixel_size=15,
                 bold=True,

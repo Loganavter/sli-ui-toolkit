@@ -54,7 +54,7 @@ from .preview import (
     show_status,
     toggle,
 )
-from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+from sli_ui_toolkit.ui.widgets.text import Text
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
 from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
 
@@ -174,8 +174,9 @@ class CodeSectionEditor(QWidget):
         self._preview_layout = preview_layout
         preview_layout.setContentsMargins(0, 0, 0, 0)
         preview_layout.setSpacing(scaled_px(_PREVIEW_SPACING))
-        self._preview_caption = Label(
+        self._preview_caption = Text(
             "Preview (live) — rebuilt from the edited class on every change",
+            mode="plain",
             pixel_size=11,
             color_token="dialog.text",
         )
@@ -189,11 +190,11 @@ class CodeSectionEditor(QWidget):
         )
         self._preview_host_layout.setSpacing(0)
         preview_layout.addWidget(self._preview_host)
-        self._preview_error = Label("", pixel_size=11, word_wrap=True)
+        self._preview_error = Text("", mode="plain", pixel_size=11, word_wrap=True)
         self._preview_error.setMaximumHeight(scaled_px(_PREVIEW_TEXT_MAX_HEIGHT))
         self._preview_error.setVisible(False)
         preview_layout.addWidget(self._preview_error)
-        self._preview_debug = Label("", pixel_size=11, word_wrap=True)
+        self._preview_debug = Text("", mode="plain", pixel_size=11, word_wrap=True)
         self._preview_debug.setMaximumHeight(scaled_px(_PREVIEW_TEXT_MAX_HEIGHT))
         self._preview_debug.setVisible(False)
         preview_layout.addWidget(self._preview_debug)
