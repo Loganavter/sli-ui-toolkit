@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
-from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+from sli_ui_toolkit.ui.widgets.text import Text
 from sli_ui_toolkit.ui.widgets.buttons import (
     Button,
     ButtonRegion,
@@ -142,8 +142,9 @@ class _PaneRenderingMixin:
 
     def _add_title(self, page: ScrollableDialogPage, text: str) -> None:
         page.content_layout.addWidget(
-            Label(
+            Text(
                 text,
+                mode="plain",
                 variant="group-title",
                 pixel_size=15,
                 bold=True,
@@ -163,16 +164,16 @@ class _PaneRenderingMixin:
         lay.setContentsMargins(scaled_px(indent) if indent else 0, 0, 0, 0)
         lay.setSpacing(scaled_px(_ROW_SPACING))
         name = field.name + (" (private)" if field.private else "")
-        lay.addWidget(Label(name, pixel_size=13, bold=True, elide=True, selectable=True))
+        lay.addWidget(Text(name, mode="plain", pixel_size=13, bold=True, elide=True, selectable=True))
         if field.kind is FieldKind.COLOR and isinstance(field.value, str):
             color = QColor(field.value)
             if color.isValid():
                 lay.addWidget(_Swatch(color))
             if field.meta.get("missing"):
-                lay.addWidget(Label("missing token", pixel_size=13, selectable=True))
-                lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True, selectable=True))
+                lay.addWidget(Text("missing token", mode="plain", pixel_size=13, selectable=True))
+                lay.addWidget(Text(_field_text(field), mode="plain", pixel_size=13, elide=True, selectable=True))
             else:
-                lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True, selectable=True))
+                lay.addWidget(Text(_field_text(field), mode="plain", pixel_size=13, elide=True, selectable=True))
         elif field.kind is FieldKind.REF and isinstance(field.value, QWidget):
             widget = field.value
             object_name = widget.objectName()
@@ -197,7 +198,7 @@ class _PaneRenderingMixin:
             )
             lay.addWidget(button)
         else:
-            lay.addWidget(Label(_field_text(field), pixel_size=13, elide=True, selectable=True))
+            lay.addWidget(Text(_field_text(field), mode="plain", pixel_size=13, elide=True, selectable=True))
         lay.addStretch(1)
         page.content_layout.addWidget(row)
 
@@ -272,7 +273,7 @@ class _PaneRenderingMixin:
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(scaled_px(_ROW_SPACING))
-        lay.addWidget(Label("docs", pixel_size=13, bold=True, selectable=True))
+        lay.addWidget(Text("docs", mode="plain", pixel_size=13, bold=True, selectable=True))
         button = self._path_button(str(path), docs_ref)
         button.clicked.connect(
             lambda _checked=False, target=path: QDesktopServices.openUrl(
@@ -290,7 +291,7 @@ class _PaneRenderingMixin:
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(scaled_px(_ROW_SPACING))
-        lay.addWidget(Label("source", pixel_size=13, bold=True, selectable=True))
+        lay.addWidget(Text("source", mode="plain", pixel_size=13, bold=True, selectable=True))
         button = self._path_button(f"{source}:{line}", "Open in the system text editor")
         button.clicked.connect(
             lambda _checked=False, path=source: _colors_debug(
@@ -339,7 +340,7 @@ class _PaneRenderingMixin:
                 lambda _checked=False, rid=region.id: self.region_selected.emit(rid)
             )
             lay.addWidget(button)
-            lay.addWidget(Label(f"[{states}]  {rect_text}", pixel_size=13, elide=True, selectable=True))
+            lay.addWidget(Text(f"[{states}]  {rect_text}", mode="plain", pixel_size=13, elide=True, selectable=True))
             lay.addStretch(1)
             page.content_layout.addWidget(row)
         page.content_layout.addStretch(1)

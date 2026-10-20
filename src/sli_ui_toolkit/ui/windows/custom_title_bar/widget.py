@@ -20,8 +20,8 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QSizePolicy, QW
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
-from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.text import Text
 from sli_ui_toolkit.ui.windows.window_controls import WindowControlsHandle
 
 from .appearance import _TitleBarAppearanceApi
@@ -111,7 +111,7 @@ class CustomTitleBar(
         # The ``on_scale_changed`` handler lives in the layout mixin
         # (zones.py) and keeps its raw-signal signature; adapt the bus
         # payload to it here. Font is on the axes because the zone balance
-        # re-runs after the centered title Label re-derives its font.
+        # re-runs after the centered title Text re-derives its font.
         connect_ui_metrics(
             self, self._on_metrics_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
         )
@@ -146,8 +146,9 @@ class CustomTitleBar(
         )
         center_layout = self._center_host.layout()
         assert center_layout is not None
-        self._title_label = Label(
+        self._title_label = Text(
             title,
+            mode="plain",
             variant="titlebar",
             color=QColor(text_color) if text_color is not None else None,
             alignment=Qt.AlignmentFlag.AlignCenter,

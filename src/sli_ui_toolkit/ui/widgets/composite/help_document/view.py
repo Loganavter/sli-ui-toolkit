@@ -18,6 +18,7 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+from sli_ui_toolkit.ui.widgets.text import Text
 from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
     HeadingBlock,
     HelpBlock,
@@ -256,8 +257,9 @@ class HelpDocumentView(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._apply_toc_metrics()
         layout.addWidget(
-            Label(
+            Text(
                 self._toc_title,
+                mode="plain",
                 variant="caption",
                 bold=True,
                 pixel_size=13,

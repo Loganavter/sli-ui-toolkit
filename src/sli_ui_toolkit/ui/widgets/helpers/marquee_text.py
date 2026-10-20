@@ -3,7 +3,7 @@
 Use:
 - ``draw_marquee_text`` from any custom paint path (Button rows, layers, …)
 - ``MarqueeDriver`` to own the phase/timer on a host widget
-- ``apply_marquee`` / ``Label(marquee=True)`` for ``QLabel``-based text
+- ``apply_marquee`` / ``Text(mode="plain", marquee=True)`` for toolkit labels
 
 Performance notes (gallery-proven: 25 cards x 60fps full repaints idle):
 - The scrolling text is pre-rendered ONCE per
@@ -403,10 +403,10 @@ def apply_marquee(
     gap: int = DEFAULT_MARQUEE_GAP_PX,
     speed_px_s: float = DEFAULT_MARQUEE_SPEED_PX_S,
 ) -> MarqueeDriver:
-    """Enable overflow marquee on any ``QLabel`` (including toolkit ``Label``).
+    """Enable overflow marquee on any ``QLabel``/``Text`` text surface.
 
-    Prefer ``Label(..., marquee=True)`` when constructing toolkit labels.
-    For plain ``QLabel``, call this after creation.
+    Prefer ``Text(..., mode="plain", marquee=True)`` when constructing toolkit
+    labels. For plain ``QLabel``, call this after creation.
     """
     if hasattr(label, "setMarquee"):
         label.setMarquee(enabled)
