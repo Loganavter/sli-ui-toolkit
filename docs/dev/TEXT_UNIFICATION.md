@@ -1,6 +1,7 @@
 # Text Unification — one display widget (plan)
 
-Status: proposed. Target: a single painted text display widget, designed
+Status: in progress — P1-P2 landed, P3 caller waves running (see Progress log).
+Target: a single painted text display widget, designed
 like `Button` (one class + configuration, no subclasses). Inputs
 (`CustomLineEdit` and everything built on it) are a different category
 and out of scope.
@@ -129,7 +130,7 @@ alignment, minimum_width/expanding): option names do not change, so
 
 | Today | Target | Notes |
 |---|---|---|
-| `Label(...)` (toolkit + ~8 app files) | `Text(..., mode="plain")` | kwargs overlap 1:1 by design; codemod-able |
+| `Label(...)` (measured 2026-10-20, tests excluded: 27 toolkit sites / 10 files, 44 app `src` sites / 17 files) | `Text(..., mode="plain")` | kwargs overlap 1:1 by design; codemod-able. Gallery domain done (12 sites, app PR #429) |
 | `TextView` code/edit (+ preview panel, inspector) | `Text(..., mode="code", editable=True)` | editor surface as-is, re-homed |
 | `TextView` document (`MarkdownHelpDialog`, inspector) | `Text(..., mode="document")` | same |
 | `HelpDocumentView` (app help dialog, topic search, image props) | `Text(..., mode="document", figures/links/search...)` + external TOC | last mover (richest surface) |
@@ -155,6 +156,34 @@ Test strategy throughout: parity grabs (old vs new pixels for the
 same options), falsification stories per new behavior (house rule),
 `mypy` clean (CI gate), local-green merge signal while GH CI is
 rate-limited.
+
+## Progress log
+
+- 2026-10-20 — **slice 3 (gallery domain, P3)**: 12 direct `Label(...)` sites
+  migrated to `Text(..., mode="plain")` in `src/tabs/image_gallery/` (widget,
+  stats_strip, clean_review, ask_ai, grid_view/series) via app PR #429.
+  Parity proven before editing: offscreen probe, Label vs Text `sizeHint`
+  identical for all 15 migrated parameter sets. Deliberately left: the
+  `clean_review/populate.py` thumb placeholder (Label pixmap path) and the
+  `ask_ai.py` result pane (`word_wrap` pin), plus toolkit `DropZoneLabel`
+  subclasses. No `def/class` changes; `tests/contracts` green on the merged tree.
+- 2026-10-19 — slices 1-2 (settings/export/help display labels) via app PRs
+  #420 and #423.
+- Retirement blocker measured 2026-10-20: **not only callers.** `Label`/
+  `LabelConfig` are public exports (`widgets.py`) and
+  `ui/widgets/text/variants.py` imports `LabelVariantSpec` from
+  `atomic/text_labels.py`, so `Label` cannot be deleted before that seam moves.
+  Remaining callers measured on the same day (`grep -rE "(^|[^A-Za-z_])Label\("`,
+  tests excluded): app 44 sites over 17 files (image_compare primitives+layout,
+  the video-editor dialog sections, gallery leftovers in ask_ai / clean_review
+  populate / quick_look labels_theme / states / toolbar, session_picker,
+  diagnostics dialog, the two shared dialogs, palette, colour picker, form
+  controls, shelf, ui_inspector); toolkit 27 sites over 10 files (inspector
+  rendering/code/tree/view, base_flyout builder, help_document view,
+  marquee_text, custom title bar, text_labels itself).
+- Document-surface slice (P3 tail) still open: `Text(mode="document")` hosts the
+  engine but does not yet offer the HelpDocumentView-only surface (TOC, lightbox,
+  scroll_to_text/scroll_to_anchor), so those callers stay on the old class.
 
 ## Open points (decided at P0 review, not later)
 
