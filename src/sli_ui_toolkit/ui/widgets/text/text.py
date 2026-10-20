@@ -1,8 +1,10 @@
-"""Unified painted text display widget (P1: plain mode).
+"""Unified painted text display widget.
 
 ``Text`` is one ``QWidget`` configured by keyword arguments or a frozen
-``TextConfig``. ``mode="plain"`` is the ``Label`` replacement; ``document`` and
-``code`` are reserved for P2 and raise ``NotImplementedError`` until then.
+``TextConfig``. ``mode="plain"`` is the ``Label`` replacement; ``document``
+hosts the markdown help engine and ``code`` the editable painted buffer.
+Hosts compose scrolling, TOC and the image lightbox *outside* the widget
+(``docs/dev/TEXT_UNIFICATION.md`` §1/§4).
 """
 
 from __future__ import annotations
@@ -219,6 +221,14 @@ class Text(QWidget):
         self._applying_style = False
         self._resolve_asset = resolve_asset
         self._open_external_links = bool(open_external_links)
+        #: markdown the document content was last set from (``set_blocks``
+        #: carries no source, so it clears this instead of lying)
+        self._source_markdown: str = text if mode == "document" else ""
+        self._panel_fill = False
+        #: document wheel policy: at the host scroll edge, forward the wheel
+        #: to the next scroller (True) or keep it (False) — see
+        #: ``set_wheel_edge_forwarding``
+        self._wheel_edge_forwarding = True
 
         self.theme_manager.theme_changed.connect(self._on_theme_changed)
         # One subscription: both font and scale must re-resolve the text
@@ -249,6 +259,9 @@ class Text(QWidget):
         engine.contentHeightChanged.connect(self._on_engine_content_height)
         if mode == "document":
             engine.set_document(text, resolve_asset=resolve_asset)
+            # The wheel-at-edge policy must see the event before the engine's
+            # default (ignoring) handler — see ``_wheel_at_host_edge``.
+            engine.installEventFilter(self)
         elif editable:
             engine.set_editing(True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -270,6 +283,7 @@ class Text(QWidget):
     def setText(self, text: str) -> None:
         if self._engine is not None:
             if self._mode == "document":
+                self._source_markdown = text
                 self._engine.set_document(text, resolve_asset=self._resolve_asset)
             else:
                 self._engine.set_text(text)
@@ -453,11 +467,37 @@ class Text(QWidget):
         engine = self._engine_for("document")
         if resolve_asset is not None:
             self._resolve_asset = resolve_asset
+        self._source_markdown = markdown
         engine.set_document(markdown, resolve_asset=self._resolve_asset)
+
+    def source_markdown(self) -> str:
+        """Document mode: the markdown the content was last set from.
+
+        Empty after ``set_blocks`` — parsed blocks carry no source, and
+        returning a stale page would make copy-as-Markdown lie.
+        """
+        return self._source_markdown
+
+    def plain_text(self) -> str:
+        """Full flattened text in every mode (document: block text, no markup).
+
+        Same value ``text()`` reports for engine modes; named after the
+        ``HelpDocumentView`` accessor callers migrate from.
+        """
+        return self.text()
 
     def anchor_y(self, anchor: str) -> int | None:
         """Document mode: content y of a heading anchor (``None`` if absent)."""
         return self._engine_for("document").anchor_y(anchor)
+
+    def scroll_to_anchor(self, anchor: str) -> int | None:
+        """Document mode: y a host scroll area should scroll to for ``anchor``.
+
+        Same coordinate space and anchor ids as :meth:`anchor_y` (widget
+        space, heading ids parsed from the markdown); ``None`` when the
+        anchor is unknown. The host scrolls — ``Text`` never does.
+        """
+        return self.anchor_y(anchor)
 
     def is_editing(self) -> bool:
         return self._engine is not None and self._engine.is_editing()
@@ -471,7 +511,10 @@ class Text(QWidget):
 
     def set_blocks(self, blocks) -> None:
         """Document mode: replace the content with parsed help blocks."""
-        self._engine_for("document").set_blocks(blocks, resolve_asset=self._resolve_asset)
+        self._engine_for("document").set_blocks(
+            blocks, resolve_asset=self._resolve_asset
+        )
+        self._source_markdown = ""
 
     def set_resolve_asset(self, resolver: Any) -> None:
         """Asset resolver for inline images (ctor kwarg and setter agree)."""
@@ -479,8 +522,54 @@ class Text(QWidget):
         if self._engine is not None and self._mode == "document":
             self._engine.set_asset_resolver(resolver)
 
+    def set_asset_resolver(self, resolver: Any) -> None:
+        """Alias of :meth:`set_resolve_asset` (``HelpDocumentView`` spelling)."""
+        self.set_resolve_asset(resolver)
+
     def set_open_external_links(self, enabled: bool) -> None:
         self._open_external_links = bool(enabled)
+
+    def set_panel_fill(self, enabled: bool) -> None:
+        """Paint the theme surface behind the engine content (default off).
+
+        The host document page reads as a panel instead of showing the
+        stock scroll-area ``Window`` substrate through the transparent
+        painted body. Engine modes only — plain mode keeps ``Label``'s
+        background contract (the host widget's own surface).
+        """
+        enabled = bool(enabled)
+        if enabled == self._panel_fill:
+            return
+        self._panel_fill = enabled
+        self.update()
+
+    @property
+    def panel_fill(self) -> bool:
+        """Whether the theme surface is painted behind engine content."""
+        return self._panel_fill
+
+    def size_hint_from_content(self) -> QSize:
+        """Document mode: painted content size at the current width.
+
+        Height covers the full painted extent (top and bottom padding
+        included) — the value a host scroll area needs to size the page
+        without waiting for a layout round-trip.
+        """
+        engine = self._engine_for("document")
+        width = self.width()
+        if width <= 1:
+            width = engine.sizeHint().width()
+        return QSize(width, engine.minimumHeight())
+
+    def set_wheel_edge_forwarding(self, enabled: bool) -> None:
+        """Document mode: who owns the wheel once the host is at its edge.
+
+        ``enabled`` (default) leaves the edge wheel unswallowed, so the
+        host scroll area chains it to the next scroller (nested dialogs,
+        outer pages). Disable it when the document must keep the wheel
+        even at its edge instead of scrolling something behind it.
+        """
+        self._wheel_edge_forwarding = bool(enabled)
 
     def scroll_to_text(self, query: str) -> int | None:
         """Document mode: highlight the first match of ``query`` and return
@@ -529,6 +618,10 @@ class Text(QWidget):
 
     def paintEvent(self, event) -> None:  # noqa: N802
         if self._engine is not None:
+            if self._panel_fill:
+                painter = QPainter(self)
+                painter.fillRect(self.rect(), self._panel_color())
+                painter.end()
             return
         painter = QPainter(self)
         rect = self.contentsRect()
@@ -693,6 +786,37 @@ class Text(QWidget):
             return
         self._update_display_text()
 
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt API
+        """Document mode: apply the wheel-edge policy before the engine's
+        default (ignoring) handler runs."""
+        if (
+            obj is self._engine
+            and self._mode == "document"
+            and event.type() == QEvent.Type.Wheel
+            and not self._wheel_edge_forwarding
+            and self._wheel_at_host_edge(event)
+        ):
+            event.accept()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _wheel_at_host_edge(self, event) -> bool:
+        """True when the host scroll area cannot move the way the wheel asks."""
+        from PySide6.QtWidgets import QScrollArea
+
+        widget: QWidget | None = self.parentWidget()
+        while widget is not None and not isinstance(widget, QScrollArea):
+            widget = widget.parentWidget()
+        if widget is None:
+            return False
+        bar = widget.verticalScrollBar()
+        if bar is None:
+            return False
+        delta = event.angleDelta().y() or event.pixelDelta().y()
+        if delta == 0:
+            return False
+        return bar.value() <= bar.minimum() if delta > 0 else bar.value() >= bar.maximum()
+
     def hideEvent(self, event) -> None:  # noqa: N802
         driver = getattr(self, "_marquee_driver", None)
         if driver is not None:
@@ -716,6 +840,8 @@ class Text(QWidget):
         """Theme flip: recolor only — skip font/geometry rebuild."""
         if self._engine is not None:
             self._engine.set_text_color(self._explicit_color())
+            if self._panel_fill:
+                self.update()
             return
         if self._applying_style:
             return
@@ -767,6 +893,13 @@ class Text(QWidget):
         if self._color_token_override:
             return self.theme_manager.try_get_color(self._color_token_override)
         return None
+
+    def _panel_color(self) -> QColor:
+        """Theme surface behind the engine content (palette window fallback)."""
+        color = self.theme_manager.try_get_color("surface.background")
+        if color is not None and color.isValid():
+            return QColor(color)
+        return QColor(self.palette().window().color())
 
     def _apply_style(self) -> None:
         if self._engine is not None:
