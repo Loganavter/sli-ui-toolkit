@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -80,6 +81,11 @@ _MINIMAL_SCROLLBAR_HANDLE_PADDING = 8
 _SCROLL_TICK_MS = 16
 _SCROLL_EASE = 0.14
 _SCROLL_MIN_NOTCH_PX = 40
+# A ``ScrollBegin`` only re-bases the glide when it starts a genuinely new
+# gesture: an active glide plus a wheel event within this gap is the same
+# gesture (high-resolution wheels / smooth-scroll compositors mark EVERY
+# event ScrollBegin — re-basing each one makes the viewport crawl).
+_SCROLL_GESTURE_GAP_S = 0.12
 
 class MinimalistScrollBar(QScrollBar):
     def __init__(self, orientation=Qt.Orientation.Vertical, parent=None) -> None:
@@ -416,6 +422,10 @@ class OverlayScrollArea(QScrollArea):
         self._update_timer.timeout.connect(self._delayed_update_scrollbar)
         # Wheel glide state: an accumulated target the ticker eases toward.
         self._scroll_target: int | None = None
+        # Monotonic timestamp of the last accepted wheel event — tells a
+        # real new gesture (ScrollBegin after a pause) from a high-res
+        # stream that marks every event ScrollBegin (see wheelEvent).
+        self._last_wheel_ts = 0.0
         self._syncing_scroll = False
         # Re-entrancy guard for the range/value sync below: layout feedback
         # (margins -> viewport -> ranges) can re-emit mid-pass, and each
@@ -587,16 +597,29 @@ class OverlayScrollArea(QScrollArea):
         """Glide the vertical scroll position to an accumulated target.
 
         Wheel deltas accumulate Chrome/Firefox-style and the ticker eases
-        toward the target instead of jumping in discrete steps. A new
-        ``ScrollBegin`` phase (touchpads) re-bases the target on the live
-        position so leftover glide never fights a fresh gesture.
+        toward the target instead of jumping in discrete steps. A
+        ``ScrollBegin`` re-bases the target on the live position only when
+        it starts a genuinely new gesture — an active glide plus a wheel
+        event within ``_SCROLL_GESTURE_GAP_S`` is still the same gesture.
         """
         native = self.verticalScrollBar()
         if native.minimum() == native.maximum():
             event.ignore()
             return
+        now = time.monotonic()
         if event.phase() == Qt.ScrollPhase.ScrollBegin:
-            self._scroll_target = native.value()
+            # High-resolution wheels and smooth-scroll compositors mark
+            # EVERY event ScrollBegin; re-basing each one resets the
+            # accumulated target to the still-unmoved live value faster
+            # than the 16 ms ticker advances it, so the viewport crawls
+            # (~1 px per event). Re-base only for a real restarted
+            # gesture: no glide in flight, or a pause since the last
+            # wheel event.
+            if (
+                self._scroll_target is None
+                or (now - self._last_wheel_ts) > _SCROLL_GESTURE_GAP_S
+            ):
+                self._scroll_target = native.value()
         pixel = event.pixelDelta().y()
         if pixel:
             delta = -int(round(pixel))
@@ -620,6 +643,7 @@ class OverlayScrollArea(QScrollArea):
             else native.value()
         )
         target = max(native.minimum(), min(current + delta, native.maximum()))
+        self._last_wheel_ts = now
         if target != native.value():
             self._scroll_target = target
             if not self._scroll_timer.isActive():
