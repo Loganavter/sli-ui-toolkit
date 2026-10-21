@@ -167,3 +167,59 @@ def test_search_disabled_declines_text_keys_and_ignores_typing(qtbot):
     _type(combo, "dee")
     assert combo._typing_focus_index == -1
     assert combo.currentIndex() == 0
+
+
+def test_query_survives_a_transient_close(qtbot):
+    """A close between keystrokes must not restart the search from one letter.
+
+    Owner report 2026-10-22: settings navigation leaves a reveal dropdown open;
+    opening this dropdown dismisses it, its focus restoration steals focus, and
+    the field's own dropdown closes — the query then continued as a single
+    character per keystroke. The buffer is time-boxed, not visibility-bound.
+    """
+    combo = _make_combo(qtbot)
+    _type(combo, "d")
+    assert combo._typeahead_text == "d"
+    assert combo._typing_focus_index == 2
+
+    combo.hideDropdown()  # the flyout manager's dismissal, mid-typing
+    assert combo._typeahead_text == "d"  # query kept...
+    assert combo._typing_focus_index == -1  # ...highlight is not
+
+    _type(combo, "e")  # reopen + extend
+    assert combo._typeahead_text == "de"
+    assert combo._typing_focus_index == 2
+
+
+def test_pause_then_another_query_starts_fresh(qtbot, monkeypatch):
+    combo = _make_combo(qtbot)
+    clock = [50.0]
+    monkeypatch.setattr(combo_box_module.time, "monotonic", lambda: clock[0])
+
+    _type(combo, "d")
+    assert combo._typeahead_text == "d"
+    clock[0] += combo.TYPEAHEAD_TIMEOUT_MS / 1000.0 + 0.5
+    _type(combo, "z")  # NOT "dz": the stale query was dropped
+    assert combo._typeahead_text == "z"
+    assert combo._typing_focus_index == 5  # Zeta
+
+
+def test_escape_ends_the_typing_session(qtbot):
+    combo = _make_combo(qtbot)
+    _type(combo, "d")
+    _key(combo, "\x1b", key=Qt.Key.Key_Escape)
+    assert combo._typeahead_text == ""
+    assert combo._expanded is False
+
+    _type(combo, "e")
+    assert combo._typeahead_text == "e"  # a new session, not "de"
+
+
+def test_enter_commit_ends_the_typing_session(qtbot):
+    combo = _make_combo(qtbot)
+    _type(combo, "d")
+    _key(combo, "\r", key=Qt.Key.Key_Return)
+    assert combo._typeahead_text == ""
+
+    _type(combo, "e")
+    assert combo._typeahead_text == "e"

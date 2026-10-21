@@ -499,6 +499,8 @@ class _DropdownOverlay(BaseFlyout):
         idx = slot._item_index
         if idx >= 0:
             self._owner.setCurrentIndex(idx)
+        # A click is an explicit choice: the typing session ends with it.
+        self._owner._reset_typeahead()
         self._owner.hideDropdown()
 
     # -------- show/position --------

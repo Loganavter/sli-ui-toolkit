@@ -434,12 +434,8 @@ class ComboBox(Button):
         """The active typing query (filter text, or the jump buffer)."""
         return self._typing_query_text()
 
-    def clearSearch(self) -> None:
-        # The public "drop what was typed" entry covers both policies: a jump
-        # buffer is a query too, just one that never filtered anything.
-        if self._typeahead_text:
-            self._reset_typeahead()
-            self._sync_field_tooltip()
+    def _clear_filter_text(self) -> None:
+        """Drop the filter query only (the jump buffer has its own lifetime)."""
         if not self._search_text:
             return
         self._search_text = ""
@@ -451,6 +447,18 @@ class ComboBox(Button):
             self._overlay.update()
         self._sync_field_tooltip()
         self.update()
+
+    def clearSearch(self) -> None:
+        """End the typing session: drop the query the user typed (either mode).
+
+        Closing the popup is NOT a session end — ``hideDropdown`` calls
+        ``_clear_filter_text`` instead — because the jump buffer is
+        time-boxed, and a transient close mid-typing must not restart the
+        search from one character (owner report 2026-10-22).
+        """
+        self._reset_typeahead()
+        self._sync_field_tooltip()
+        self._clear_filter_text()
 
     def _set_search_text(self, text: str) -> None:
         if not self._search_enabled:
@@ -485,14 +493,28 @@ class ComboBox(Button):
 
     # -------- typeahead jump (typing_mode="jump") --------
 
-    def _reset_typeahead(self) -> None:
-        self._typeahead_text = ""
-        self._typeahead_deadline = 0.0
+    def _clear_typing_highlight(self) -> None:
+        """Drop the walked-row highlight, keep the query buffer.
+
+        Closing the popup is not the end of a typing session: the query is
+        time-boxed (``TYPEAHEAD_TIMEOUT_MS``), so a transient close — e.g. the
+        flyout manager dismissing this dropdown because another flyout was
+        shown, or the focus restoration of that flyout — must not restart the
+        search from a single character (owner report 2026-10-22: "one letter
+        works, then it stops searching"; the reveal-overlay left open by
+        settings navigation dismissed the dropdown between keystrokes).
+        """
         if self._typing_focus:
             self._typing_focus = False
             self._dropdown_focus_index = None
             if self._expanded and self._overlay is not None:
                 self._overlay.update()
+
+    def _reset_typeahead(self) -> None:
+        """End the typing session: query, deadline and highlight."""
+        self._typeahead_text = ""
+        self._typeahead_deadline = 0.0
+        self._clear_typing_highlight()
 
     def _set_typing_focus(self, index: int) -> None:
         self._typing_focus = True
@@ -690,9 +712,11 @@ class ComboBox(Button):
         self._ensure_overlay()
         if self._overlay is None:
             return
-        # A fresh open never inherits a typeahead buffer/highlight: closing
-        # already clears them, but showDropdown is also a public entry.
-        self._reset_typeahead()
+        # A stale query (typed, then left alone past the timeout) does not
+        # follow the user into a new open; a fresh one is resumed below, so a
+        # transient close between keystrokes keeps the query growing.
+        if self._typeahead_text and time.monotonic() > self._typeahead_deadline:
+            self._reset_typeahead()
         if focus_index is not None and 0 <= int(focus_index) < self.count():
             self._dropdown_focus_index = int(focus_index)
         else:
@@ -702,6 +726,10 @@ class ComboBox(Button):
         self._ensure_current_visible()
         self._sync_field_tooltip()
         self._overlay.show_for_owner()
+        if self._typeahead_text:
+            index = self._typeahead_index(self._typeahead_text, cycle=False)
+            if index is not None:
+                self._set_typing_focus(index)
         self.update()
         app = QApplication.instance()
         if app is not None:
@@ -723,9 +751,13 @@ class ComboBox(Button):
             self._overlay.hide()
         self._expanded = False
         self._pressed = False
-        self._reset_typeahead()
+        # The query buffer survives the close (it expires on its own timeout);
+        # only the highlight is visibility-bound. Explicit ends of the typing
+        # session — Escape, Enter/click commit, mode or search changes — call
+        # _reset_typeahead().
+        self._clear_typing_highlight()
         self._dropdown_focus_index = None
-        self.clearSearch()
+        self._clear_filter_text()
         self._sync_field_tooltip()
         self.update()
         app = QApplication.instance()
@@ -807,6 +839,7 @@ class ComboBox(Button):
                 focus = self._typing_focus_index
                 if 0 <= focus < self.count():
                     self.setCurrentIndex(focus)
+                self._reset_typeahead()
                 self.hideDropdown()
             else:
                 self.showDropdown()
@@ -822,6 +855,7 @@ class ComboBox(Button):
             return
 
         if event.key() == Qt.Key.Key_Escape and self._expanded:
+            self._reset_typeahead()
             self.hideDropdown()
             event.accept()
             return
