@@ -81,7 +81,11 @@ note = Text(config=TextConfig(text="Pinned", bold=True, selectable=True))
   `Text(md, mode="document", resolve_asset=...)`, `set_markdown(md)`,
   `set_blocks(blocks)`, `anchor_y(anchor)` (content y, `None` if absent),
   `scroll_to_text(query)` (selects the first match, returns its content y or
-  `None`), `selected_markdown(source)`. `set_resolve_asset(fn)` replaces the
+  `None`), `selected_markdown(source)` — the *selected* fragment of the page
+  markdown (`selected_plain_text()` when the blocks carry no source),
+  `copy_selection()` / `copy_selection_markdown(source)` — copy to the
+  clipboard **and drop the selection** (the standard copy rule; host menus call
+  these instead of setting the clipboard themselves). `set_resolve_asset(fn)` replaces the
   image resolver and re-lays out. Text never scrolls: wrap it in a
   `QScrollArea`; a change in content height re-lays out the host.
 - `mode="code"` is the painted code editor: `Text(src, mode="code",

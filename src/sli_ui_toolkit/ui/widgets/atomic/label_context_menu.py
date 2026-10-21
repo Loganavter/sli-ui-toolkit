@@ -53,6 +53,9 @@ def build_label_menu(
             selected = label.selectedText()
             if selected:
                 QGuiApplication.clipboard().setText(selected)
+                # Copy ends the selection gesture (one rule for every
+                # selectable text surface — see Text.copy_selection).
+                label.setSelection(0, 0)
         elif action_id == SELECT_ALL_ACTION_ID:
             label.setSelection(0, len(label.text()))
 

@@ -15,6 +15,7 @@ from sli_ui_toolkit.ui.widgets.text.engine.markdown import (
     InlineSpan,
     ListBlock,
     ParagraphBlock,
+    SegmentSource,
     TableBlock,
     blocks_to_plain_text,
     spans_to_plain,
@@ -51,6 +52,10 @@ class TextSegment:
     list_item_index: int | None = None
     heading_level: int = 0  # 0 = body/list/caption
     caption: bool = False
+    #: source geometry of this part (``parse_help_blocks`` fills it); ``None``
+    #: for blocks a host builds by hand, which copy-as-Markdown treats as
+    #: plain text rather than guessing a source slice.
+    source: SegmentSource | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +153,14 @@ def _segment_or_line_bounds(
     return start, end
 
 
+def _source_at(
+    sources: tuple[SegmentSource, ...], index: int
+) -> SegmentSource | None:
+    if 0 <= index < len(sources):
+        return sources[index]
+    return None
+
+
 class _TextIndexBuilder:
     def __init__(self) -> None:
         self._chars: list[str] = []
@@ -211,9 +224,15 @@ class _TextIndexBuilder:
         list_item_index: int | None = None,
         heading_level: int = 0,
         caption: bool = False,
+        source: SegmentSource | None = None,
     ) -> None:
         end = len(self._chars)
         if end > start:
+            # Geometry is per-character: a mismatch means the block was built
+            # by hand (or edited after parsing), so copy-as-Markdown must not
+            # trust it — drop it and let the caller fall back to plain text.
+            if source is not None and len(source.chars) != end - start:
+                source = None
             self._segments.append(
                 TextSegment(
                     start=start,
@@ -222,6 +241,7 @@ class _TextIndexBuilder:
                     list_item_index=list_item_index,
                     heading_level=heading_level,
                     caption=caption,
+                    source=source,
                 )
             )
 
@@ -231,7 +251,12 @@ class _TextIndexBuilder:
         role = TextRole(TextRoleKind.HEADING, heading_level=block.level)
         style = CharStyle(InlineKind.TEXT)
         self._append_plain(block.text, style=style, role=role)
-        self._end_segment(start, block_index=block_index, heading_level=block.level)
+        self._end_segment(
+            start,
+            block_index=block_index,
+            heading_level=block.level,
+            source=_source_at(block.sources, 0),
+        )
 
     def add_code(self, block: CodeBlock, block_index: int) -> None:
         self.add_block_separator()
@@ -242,13 +267,13 @@ class _TextIndexBuilder:
             if line_index:
                 self._append_char("\n", style=style, role=role)
             self._append_plain(line, style=style, role=role)
-        self._end_segment(start, block_index=block_index)
+        self._end_segment(start, block_index=block_index, source=_source_at(block.sources, 0))
 
     def add_paragraph(self, block: ParagraphBlock, block_index: int) -> None:
         self.add_block_separator()
         start = self._begin_segment()
         self._append_spans(block.spans)
-        self._end_segment(start, block_index=block_index)
+        self._end_segment(start, block_index=block_index, source=_source_at(block.sources, 0))
 
     def add_list_item(
         self,
@@ -258,6 +283,7 @@ class _TextIndexBuilder:
         spans: tuple[InlineSpan, ...],
         block_index: int,
         list_item_index: int,
+        source: SegmentSource | None = None,
     ) -> None:
         self.add_block_separator()
         start = self._begin_segment()
@@ -270,6 +296,7 @@ class _TextIndexBuilder:
             start,
             block_index=block_index,
             list_item_index=list_item_index,
+            source=source,
         )
 
     def add_image(self, block: ImageBlock, block_index: int) -> None:
@@ -277,7 +304,7 @@ class _TextIndexBuilder:
         start = self._begin_segment()
         text = block.alt or block.path
         self._append_plain(text)
-        self._end_segment(start, block_index=block_index)
+        self._end_segment(start, block_index=block_index, source=_source_at(block.sources, 0))
 
     def add_table_cell(
         self,
@@ -285,13 +312,19 @@ class _TextIndexBuilder:
         spans: tuple[InlineSpan, ...],
         block_index: int,
         cell_index: int,
+        source: SegmentSource | None = None,
     ) -> None:
         """One table cell (header or body); ``cell_index`` enumerates cells
         left-to-right, top-to-bottom (header first, then each row)."""
         self.add_block_separator()
         start = self._begin_segment()
         self._append_spans(spans)
-        self._end_segment(start, block_index=block_index, list_item_index=cell_index)
+        self._end_segment(
+            start,
+            block_index=block_index,
+            list_item_index=cell_index,
+            source=source,
+        )
 
     def add_figure_caption(self, block: FigureBlock, block_index: int) -> None:
         self.add_block_separator()
@@ -300,7 +333,12 @@ class _TextIndexBuilder:
             return
         start = self._begin_segment(caption=True)
         self._append_plain(caption)
-        self._end_segment(start, block_index=block_index, caption=True)
+        self._end_segment(
+            start,
+            block_index=block_index,
+            caption=True,
+            source=_source_at(block.sources, 0),
+        )
 
 
 def build_text_index(blocks: tuple[HelpBlock, ...]) -> DocumentTextIndex:
@@ -321,6 +359,7 @@ def build_text_index(blocks: tuple[HelpBlock, ...]) -> DocumentTextIndex:
                     spans=item,
                     block_index=block_index,
                     list_item_index=item_index - 1,
+                    source=_source_at(block.sources, item_index - 1),
                 )
         elif isinstance(block, ImageBlock):
             builder.add_image(block, block_index)
@@ -331,10 +370,12 @@ def build_text_index(blocks: tuple[HelpBlock, ...]) -> DocumentTextIndex:
             col_count = max((len(row) for row in all_rows), default=0)
             for row_index, row in enumerate(all_rows):
                 for col_index, cell in enumerate(row):
+                    cell_index = row_index * col_count + col_index
                     builder.add_table_cell(
                         spans=cell,
                         block_index=block_index,
-                        cell_index=row_index * col_count + col_index,
+                        cell_index=cell_index,
+                        source=_source_at(block.sources, cell_index),
                     )
     return builder.build()
 
