@@ -506,7 +506,10 @@ class _DropdownOverlay(BaseFlyout):
     # -------- show/position --------
 
     def show_for_owner(self):
-        self._owner._ensure_current_visible()
+        # An OPEN centres the target row under the field (the popup is
+        # centred on the field, so the middle window row is the one the user
+        # reads as "current"); later scrolling only keeps rows in view.
+        self._owner._center_current_visible()
         self._anchor_widget = self._owner
         # Field-centric focus model (see
         # docs/legacy/plan_combobox_baseflyout_unification.md §2.4 Option A):
@@ -535,7 +538,9 @@ class _DropdownOverlay(BaseFlyout):
         # existing anchor-point mode centers content on a specific row (see
         # plan §2.3 Option A); this stays a local override calling
         # setGeometry directly.
-        anchor_index = owner.currentIndex()
+        # The row the scroll targeted (a Find Action reveal may point at a row
+        # that is not ``currentIndex``) — the popup must park on THAT row.
+        anchor_index = owner._focus_or_current_index()
         outer = calculate_centered_overlay_geometry(
             anchor_widget=owner,
             owner_window=window,

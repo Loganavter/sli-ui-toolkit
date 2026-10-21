@@ -264,6 +264,38 @@ class ComboBox(Button):
     def _ensure_current_visible(self):
         self._ensure_index_visible(self._focus_or_current_index())
 
+    def _center_index_visible(self, index: int) -> None:
+        """Open-time scroll: put ``index`` in the MIDDLE of the visible window.
+
+        A scrollable popup is centred on the field, so the row under the field
+        is the middle row of the window — ``_ensure_index_visible`` only keeps
+        the row inside the window (bottom edge on an opening), which parked the
+        opened list one-to-several rows off the field (owner report 2026-10-22:
+        the selected model sat at the bottom / just outside the window).
+        Navigation (arrows, wheel, selection changes) keeps using the
+        edge-keeping primitive; only an OPEN re-centres.
+        """
+        visible = self._visible_indices()
+        visible_count = len(visible)
+        if visible_count <= self._max_visible_items or index < 0:
+            self._scroll_offset = 0
+            return
+        try:
+            position = visible.index(index)
+        except ValueError:
+            self._scroll_offset = 0
+            return
+        self._scroll_offset = max(
+            0,
+            min(
+                position - self._max_visible_items // 2,
+                visible_count - self._max_visible_items,
+            ),
+        )
+
+    def _center_current_visible(self) -> None:
+        self._center_index_visible(self._focus_or_current_index())
+
     def count(self) -> int:
         return len(self._items)
 
@@ -723,7 +755,7 @@ class ComboBox(Button):
             self._dropdown_focus_index = None
         self._expanded = True
         self._pressed = False
-        self._ensure_current_visible()
+        self._center_current_visible()
         self._sync_field_tooltip()
         self._overlay.show_for_owner()
         if self._typeahead_text:
