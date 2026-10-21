@@ -31,6 +31,7 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from . import constants
 from .document import build_text_index, layout_document, parse_help_blocks
+from .markdown_copy import markdown_for_range
 from .selection import DocumentSelection, TextSelection
 from sli_ui_toolkit.ui.widgets.text.engine.layout.hit_test import (
     hit_test_link,
@@ -232,6 +233,35 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
                 return ""
             return self._document_index.slice_plain(rng[0], rng[1])
         return self._selected_text() or ""
+
+    def selected_markdown(self, source_markdown: str) -> str:
+        """Document mode: the page-source markdown covering the selection.
+
+        The slice comes from the parsed blocks' own source geometry, so a
+        multi-block or formatted selection copies that fragment (the plain
+        substring fallback used to return the whole page).
+        """
+        if self._document_index is None:
+            return ""
+        rng = self._doc_selection.copy_range()
+        if rng is None:
+            return ""
+        return markdown_for_range(
+            self._document_index, source_markdown, rng[0], rng[1]
+        )
+
+    def copy_selection(self) -> bool:
+        """Copy the selection to the clipboard and clear the highlight.
+
+        Same contract as ``Text.copy_selection``: a copy ends the selection
+        gesture (document and code modes alike), so no wash lingers.
+        """
+        text = self.selected_plain_text()
+        if not text:
+            return False
+        QGuiApplication.clipboard().setText(text)
+        self.reset_selection()
+        return True
 
     def select_all_text(self) -> None:
         """Select the whole content in either mode."""
@@ -470,12 +500,7 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
                 self.update()
             return True
         if event.matches(QKeySequence.StandardKey.Copy):
-            rng = self._doc_selection.copy_range()
-            if rng is not None and self._document_index is not None:
-                lo, hi = rng
-                QGuiApplication.clipboard().setText(
-                    self._document_index.slice_plain(lo, hi)
-                )
+            self.copy_selection()
             return True
         return False
 

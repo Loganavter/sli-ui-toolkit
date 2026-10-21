@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import unicodedata
 from collections.abc import Callable
 
@@ -32,6 +31,7 @@ def _help_debug(message: str, *args) -> None:
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.widgets.text.engine.markdown import HelpBlock
+from sli_ui_toolkit.ui.widgets.text.engine.markdown_copy import markdown_for_range
 from sli_ui_toolkit.ui.widgets.text.engine.layout.builder import (
     layout_document,
 )
@@ -145,8 +145,11 @@ class HelpDocumentBodyCore(QWidget):
         return self._text_index.slice_plain(start, end)
 
     def selected_markdown(self, source_markdown: str) -> str:
-        selected = self.selected_plain_text()
-        return markdown_for_selection(selected, source_markdown)
+        """The page-source markdown covering the current selection."""
+        rng = self._selection.range()
+        if rng is None:
+            return ""
+        return markdown_for_range(self._text_index, source_markdown, rng[0], rng[1])
 
     def select_all_text(self) -> None:
         if not self._text_index.text:
@@ -330,6 +333,7 @@ class HelpDocumentBodyCore(QWidget):
             text = self.selected_plain_text()
             if text:
                 QGuiApplication.clipboard().setText(text)
+                self.clear_selection()
             event.accept()
             return
         # In text sections (single-row AutoNavigation) Up/Down should scroll
@@ -468,26 +472,3 @@ class HelpDocumentBodyCore(QWidget):
                 self._anchor_markers[anchor] = anchor_marker
             anchor_marker.move(0, int(y))
             anchor_marker.show()
-
-
-def _normalize_ws(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip())
-
-
-def markdown_for_selection(selection: str, markdown: str) -> str:
-    """Best-effort map of a plain selection back to a markdown substring."""
-    needle = selection.strip()
-    if not needle:
-        return markdown
-    if needle in markdown:
-        return needle
-    norm_needle = _normalize_ws(needle)
-    if not norm_needle:
-        return markdown
-    if norm_needle in markdown:
-        return norm_needle
-    pattern = re.escape(norm_needle).replace(r"\ ", r"\s+")
-    match = re.search(pattern, markdown, flags=re.MULTILINE)
-    if match is not None:
-        return match.group(0)
-    return markdown

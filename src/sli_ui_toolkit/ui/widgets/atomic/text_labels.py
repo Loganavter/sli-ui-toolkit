@@ -5,7 +5,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QColor, QContextMenuEvent, QFontMetrics, QPainter
+from PySide6.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QFontMetrics,
+    QGuiApplication,
+    QKeyEvent,
+    QKeySequence,
+    QPainter,
+)
 from PySide6.QtWidgets import QLabel, QSizePolicy
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -334,6 +342,19 @@ class Label(QLabel):
         # Reparent / style polish can wipe WA_SetPalette text colors.
         if et in (QEvent.Type.ParentChange, QEvent.Type.StyleChange):
             self._apply_style()
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
+        # The standard copy rule (see Text.copy_selection): copy ends the
+        # selection gesture, so the highlight does not linger on the label.
+        if (
+            event.matches(QKeySequence.StandardKey.Copy)
+            and self.hasSelectedText()
+        ):
+            QGuiApplication.clipboard().setText(self.selectedText())
+            self.setSelection(0, 0)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
         flags = self.textInteractionFlags()

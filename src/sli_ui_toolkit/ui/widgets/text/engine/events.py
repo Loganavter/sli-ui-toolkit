@@ -54,6 +54,9 @@ class _CanvasEventsApi:
     _metrics: QFontMetrics
     _font: QFont
     _text_x: Callable[[], int]
+    # Owned by ``TextCanvasCore`` (the copy path that also drops the
+    # selection) — resolved across the mixin split like the rest.
+    copy_selection: Callable[[], bool]
     _press_point: Any
     _drag_extending: bool
     _hover_ibeam: bool | None
@@ -462,7 +465,10 @@ class _CanvasEventsApi:
             QWidget.keyPressEvent(self, event)  # type: ignore[arg-type]
             return
         if event.matches(QKeySequence.StandardKey.Copy):
-            self._copy_selection()
+            # Public path, not ``_copy_selection``: a copy ends the selection
+            # gesture. ``_cut`` keeps using the private copy (it replaces the
+            # selection right after, so clearing would break it).
+            self.copy_selection()
             return
         if event.matches(QKeySequence.StandardKey.SelectAll):
             self.select_all()

@@ -41,7 +41,6 @@ from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     text_overflows,
 )
 from sli_ui_toolkit.ui.widgets.text.engine.canvas import TextCanvasCore
-from sli_ui_toolkit.ui.widgets.text.engine.document_canvas import markdown_for_selection
 from sli_ui_toolkit.ui.widgets.text.plain import (
     build_layout,
     hit_glyph,
@@ -436,9 +435,42 @@ class Text(QWidget):
         return self.selectedText()
 
     def selected_markdown(self, source_markdown: str) -> str:
-        """Document mode: the source-markdown slice covering the selection."""
-        self._engine_for("document")
-        return markdown_for_selection(self.selected_plain_text(), source_markdown)
+        """Document mode: the source-markdown slice covering the selection.
+
+        ``source_markdown`` is the page markdown the blocks were parsed from;
+        the mapping goes through the blocks' own source geometry, so a
+        multi-block or formatted selection copies that fragment — never the
+        page (the old substring fallback did exactly that).
+        """
+        return self._engine_for("document").selected_markdown(source_markdown)
+
+    def copy_selection(self) -> bool:
+        """Copy the selection to the clipboard and clear the highlight.
+
+        The standard toolkit copy behaviour: the action ends the selection
+        gesture, so a washed selection does not linger over the text after the
+        menu closes. Host-owned copy entries call this instead of touching the
+        clipboard themselves, which keeps plain labels, plain ``Text`` and the
+        document/code surfaces identical.
+        """
+        if self._engine is not None:
+            return self._engine.copy_selection()
+        text = self.selectedText()
+        if not text:
+            return False
+        QGuiApplication.clipboard().setText(text)
+        self._clear_selection()
+        return True
+
+    def copy_selection_markdown(self, source_markdown: str) -> bool:
+        """Document mode: copy the selection's source-markdown slice, then
+        clear the selection (same rule as :meth:`copy_selection`)."""
+        text = self.selected_markdown(source_markdown)
+        if not text:
+            return False
+        QGuiApplication.clipboard().setText(text)
+        self.clear_selection()
+        return True
 
     def select_all_text(self) -> None:
         self.selectAll()
@@ -760,8 +792,7 @@ class Text(QWidget):
         if ctrl and key == Qt.Key.Key_A:
             self.selectAll()
         elif ctrl and key in (Qt.Key.Key_C, Qt.Key.Key_Insert):
-            if self.hasSelectedText():
-                QGuiApplication.clipboard().setText(self.selectedText())
+            self.copy_selection()
         elif key in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Home, Qt.Key.Key_End):
             cursor = self._sel_cursor
             length = len(self._display_text)
