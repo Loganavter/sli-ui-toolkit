@@ -41,6 +41,36 @@ from sli_ui_toolkit.ui.managers.ui_metrics import UiMetrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale
 
 
+def _application_families() -> list[str]:
+    """Families installed on ``QApplication.font()`` (host fallback chain)."""
+    app = QApplication.instance()
+    if not isinstance(app, QApplication):
+        return []
+    return [name for name in app.font().families() if name]
+
+
+def _set_ui_family(font: QFont, family: str, *, source: QFont | None = None) -> None:
+    """Set the UI family without discarding the host's fallback chain.
+
+    ``QFont.setFamily`` *clears* families installed via ``QFont.setFamilies``.
+    The host puts its bundled CJK fallback (Noto Sans SC) into that chain, so a
+    bare ``setFamily`` silently sent CJK text back to whatever the system had:
+    different glyphs per machine (non-reproducible help figures) and tofu on a
+    runner with no CJK font. Keep the chain, primary first.
+    """
+    names = [family]
+    # Host chain first (it is the product's declared fallback order), then any
+    # extra families the caller's font carried.
+    sources = [_application_families(), source.families() if source is not None else []]
+    for source_names in sources:
+        for name in source_names:
+            if name and name not in names:
+                names.append(name)
+    if len(names) > 1:
+        font.setFamilies(names)
+    else:
+        font.setFamily(family)
+
 class UiFont(QObject):
     """Process-wide UI typeface resolver for toolkit widgets."""
 
@@ -107,7 +137,7 @@ class UiFont(QObject):
             font = QFont()
         family = self.family()
         if family:
-            font.setFamily(family)
+            _set_ui_family(font, family)
         factor = UiScale.get_instance().factor()
         if factor != 1.0:
             if font.pixelSize() > 0:
@@ -144,7 +174,7 @@ class UiFont(QObject):
         scale = UiScale.get_instance()
         font = self.base_font()
         if family:
-            font.setFamily(family)
+            _set_ui_family(font, family, source=font)
         if pixel_size is not None:
             font.setPixelSize(scale.scaled_px(pixel_size))
         elif point_size is not None:
@@ -357,7 +387,7 @@ def rebase_family(font: QFont | None = None) -> QFont:
     result = QFont(font if font is not None else QFont())
     family = UiFont.get_instance().family()
     if family:
-        result.setFamily(family)
+        _set_ui_family(result, family, source=result)
     return pin_font_size(result)
 
 
