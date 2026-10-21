@@ -336,6 +336,86 @@ def test_document_context_menu_is_requested_not_opened(qapp):
     assert set(QApplication.topLevelWidgets()) - before == set()
 
 
+def test_right_press_keeps_the_document_selection(qapp):
+    """A right-button press must NOT collapse the selection.
+
+    The host opens its context menu from that same press and enables its
+    copy rows from the live selection, so a press that reset the selection
+    left every copy row disabled (2026-10-21). The plain-mode ``Text`` and
+    the legacy document core both ignore non-left buttons; this pins the
+    unified document canvas to the same rule.
+    """
+    widget = _show(Text(DOC_HEADINGS, mode="document"))
+    canvas = widget.canvas()
+
+    canvas.select_all_text()
+    QApplication.processEvents()
+    selected = widget.selected_plain_text()
+    assert selected, "select-all must produce a selection to preserve"
+
+    press = QMouseEvent(
+        QMouseEvent.Type.MouseButtonPress,
+        QPointF(30.0, 40.0),
+        Qt.MouseButton.RightButton,
+        Qt.MouseButton.RightButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    QApplication.sendEvent(canvas, press)
+    QApplication.processEvents()
+    assert widget.selected_plain_text() == selected
+
+    release = QMouseEvent(
+        QMouseEvent.Type.MouseButtonRelease,
+        QPointF(30.0, 40.0),
+        Qt.MouseButton.RightButton,
+        Qt.MouseButton.RightButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    QApplication.sendEvent(canvas, release)
+    QApplication.processEvents()
+    assert widget.selected_plain_text() == selected
+
+
+def test_right_release_does_not_activate_a_document_link(qapp):
+    """A right-button release must not follow the link under the cursor.
+
+    The link sits in the second paragraph; the legacy document core ignored
+    non-left releases for the same reason.
+    """
+    widget = _show(Text(DOC_HEADINGS, mode="document"))
+    canvas = widget.canvas()
+    activated: list[str] = []
+    canvas.linkActivated.connect(activated.append)
+
+    # The link box lives in the "second paragraph" fragment; find its rect
+    # through the layout instead of hard-coding a pixel.
+    target = None
+    for frag in canvas._document_layout.text_fragments:
+        for link in frag.links:
+            target = frag.rect.topLeft() + link.rect.center()
+            break
+        if target is not None:
+            break
+    assert target is not None, "the fixture document must contain a link"
+
+    for kind in (
+        QMouseEvent.Type.MouseButtonPress,
+        QMouseEvent.Type.MouseButtonRelease,
+    ):
+        QApplication.sendEvent(
+            canvas,
+            QMouseEvent(
+                kind,
+                QPointF(target),
+                Qt.MouseButton.RightButton,
+                Qt.MouseButton.RightButton,
+                Qt.KeyboardModifier.NoModifier,
+            ),
+        )
+    QApplication.processEvents()
+    assert activated == []
+
+
 # -- panel fill --------------------------------------------------------------
 
 

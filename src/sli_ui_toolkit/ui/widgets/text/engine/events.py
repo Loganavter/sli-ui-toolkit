@@ -168,6 +168,16 @@ class _CanvasEventsApi:
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if self._document_layout is not None:
+            # Document mode is read-only: only the LEFT button starts a
+            # selection gesture. A right-button press opens the host's
+            # context menu and must NOT collapse the selection -- the host
+            # builds the menu from the live selection right after this press
+            # and enables its copy rows from it, so a collapsing press left
+            # every copy row disabled (2026-10-21). Same guard as the
+            # plain-mode ``Text`` (text.py) and the legacy document core
+            # (``engine/document_canvas.py``).
+            if event.button() != Qt.MouseButton.LeftButton:
+                return QWidget.mousePressEvent(self, event)
             self._document_mouse_press(event)
             return
         if not self._editing:
@@ -201,6 +211,8 @@ class _CanvasEventsApi:
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
         if self._document_layout is not None:
+            if event.button() != Qt.MouseButton.LeftButton:
+                return QWidget.mouseDoubleClickEvent(self, event)
             self._document_mouse_press(event)
             return
         if not self._editing:
@@ -301,6 +313,13 @@ class _CanvasEventsApi:
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._document_layout is not None:
+            # Only a left-button release ends a selection gesture or
+            # activates a link/image. A right-button release follows a
+            # right-button press, which no longer starts a gesture; letting
+            # it through would navigate to the link under the cursor (the
+            # legacy document core guarded this the same way).
+            if event.button() != Qt.MouseButton.LeftButton:
+                return QWidget.mouseReleaseEvent(self, event)
             self._document_mouse_release(event)
             return
         QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]
