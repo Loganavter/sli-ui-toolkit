@@ -1,7 +1,7 @@
 """Document mode: markdown blocks → painted QTextLayout document.
 
 Reuses the help-document layout machinery (blocks parser, text index,
-``QTextLayout``-based builder, paint pass) — the TextView's document mode is
+``QTextLayout``-based builder, paint pass) — ``Text``'s document mode is
 read-only and non-interactive; editing stays in code mode.
 """
 

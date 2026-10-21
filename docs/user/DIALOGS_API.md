@@ -9,7 +9,7 @@ viewers.
 | `ScrollableDialogPage` | Ready-made scrollable page for dialog content. |
 | `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. Selected icons support `selected_icon_mode="invert"` (default color inversion) or `"replace"` with `selected_icon=` / `(normal_icon, selected_icon)` pairs. |
 | `MarkdownHelpDialog` / `MarkdownHelpSection` | Painted markdown help dialog: markdown is parsed by the toolkit text view (document mode) and rendered through the painter pipeline — no `QTextBrowser`/HTML. Anchors, TOC, `help://slug#anchor` navigation, and an optional `resolve_asset` for inline images. |
-| `HelpDocumentView` | Native widget-tree help page renderer (controlled markdown subset, figures, kbd, links). Prefer for illustrated manuals; see Improve-ImgSLI `docs/dev/HELP_SYSTEM.md`. |
+| `Text` (`mode="document"`) + host chrome | A help page: the painted document body. The TOC list, the image lightbox and the search box compose in the HOST (`Text` emits `linkActivated`/`imageActivated`); see [LABELS_API.md](LABELS_API.md) and [API_CATALOG.md](API_CATALOG.md). `HelpDocumentView` was deleted in text-unification wave C. |
 
 `TopTabBar` / `TopTabHost` are also frequently used inside dialog content —
 see [TABS_API.md](TABS_API.md).
@@ -18,9 +18,10 @@ Markdown help section discovery helpers are intentionally not exported from
 `sli_ui_toolkit.widgets`. Import them only where needed from
 `sli_ui_toolkit.ui.widgets.composite.help_sections`.
 
-Block parsers for `HelpDocumentView` live under
-`sli_ui_toolkit.ui.widgets.composite.help_document`
-(`parse_help_blocks`, `FigureBlock`, …).
+Block parsers for a help body live under
+`sli_ui_toolkit.ui.widgets.text.engine.markdown`
+(`parse_help_blocks`, `collect_heading_anchors`, `FigureBlock`, …) — they are the engine's,
+shared by `Text(mode="document")` and `MarkdownHelpDialog`.
 
 `SidebarDialogShell(*, sidebar_width=200, content_margins=(20, 20, 20, 20), content_spacing=10, sidebar_header=None, resizable_sidebar=False, parent=None)`
 wraps an `IconListWidget` sidebar (exposed as `.sidebar`) plus a
@@ -57,12 +58,12 @@ no-results row across rebuilds (it is hidden until a search needs it).
 from PySide6.QtCore import QSize
 
 from sli_ui_toolkit.widgets import (
-    HelpDocumentView,
     IconListWidget,
     MarkdownHelpDialog,
     MarkdownHelpSection,
     ScrollableDialogPage,
     SidebarDialogShell,
+    Text,
 )
 
 shell = SidebarDialogShell(sidebar_width=220, content_margins=(16, 16, 16, 16), content_spacing=12)
@@ -80,20 +81,23 @@ help_dialog = MarkdownHelpDialog(
     sections=[MarkdownHelpSection(order=0, slug="intro", title="Intro", body_md="# Intro\n...")],
 )
 
-doc_view = HelpDocumentView(
+# A help page body: painted document, host owns scrolling/TOC/lightbox.
+page_body = Text(
+    "# Intro\n\n...",
+    mode="document",
     resolve_asset=lambda name: f"assets/{name}",
     open_external_links=False,
-    show_toc=True,
-    toc_title="On this page",
 )
+page_body.linkActivated.connect(...)     # help://slug#anchor, http(s)
+page_body.imageActivated.connect(...)    # open your own lightbox
 ```
 
-`HelpDocumentView.scroll_to_text(query)` highlights the first
-case-insensitive occurrence of `query` in the body (via the document's
-accent selection wash) and returns a zero-height scroll-target widget for
-a parent `QScrollArea` to call `ensureWidgetVisible` on — `None` when the
-query is absent. `scroll_to_anchor(anchor)` returns the equivalent target
-for a heading anchor instead.
+`Text.scroll_to_text(query)` highlights the first case-insensitive occurrence of
+`query` in the body (accent selection wash) and returns the widget-space **y** a host
+scroll area should scroll to — `None` when the query is absent. `scroll_to_anchor(anchor)`
+returns the same kind of y for a heading anchor (`anchor_y` exposes it without scrolling).
+`HelpDocumentView` used to return a target *widget* for `ensureWidgetVisible`; the int
+contract is deliberate (the widget never scrolls itself).
 
 `selected_icon_mode="invert"` (`IconListWidget`'s default) recolors the row
 icon on selection; `"replace"` swaps in `selected_icon=` /

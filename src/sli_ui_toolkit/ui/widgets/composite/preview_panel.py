@@ -5,18 +5,18 @@ from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic import CustomGroupBuilder
 from sli_ui_toolkit.ui.widgets.buttons import Button
-from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
+from sli_ui_toolkit.ui.widgets.composite.text_scroll import TextScrollArea
 
 
-class NonPropagatingTextEdit(TextView):
-    """Painted :class:`TextView` that consumes the wheel at its scroll edges.
+class NonPropagatingTextEdit(TextScrollArea):
+    """Painted text scroller that consumes the wheel at its scroll edges.
 
-    Legacy name kept for import compatibility (``sli_ui_toolkit.widgets``
-    re-exports it): the body is now the painted text view, not the stock Qt
-    text widget the class used to subclass. The behavior is the original
-    one — at the top scrolling up or at the bottom scrolling down the event
-    is accepted and NOT forwarded to the parent; anywhere else the wheel
-    scrolls this view.
+    Legacy name kept for import compatibility: the body is the unified
+    ``Text(mode="code")`` inside a :class:`TextScrollArea`, not the stock Qt
+    text widget the class once subclassed. The behavior is the original one —
+    at the top scrolling up or at the bottom scrolling down the event is
+    accepted and NOT forwarded to the parent; anywhere else the wheel scrolls
+    this view.
     """
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
@@ -56,8 +56,8 @@ class PreviewPanel(QWidget):
         self.group.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout.addWidget(self.group, 1)
 
-        # Painted text surface (no stock Qt text widget, no QSS): read-only
-        # by default, switched into edit mode through the same canvas.
+        # Painted text surface (no stock Qt text widget): read-only by
+        # default, switched into edit mode through the same painted buffer.
         self.text_view = NonPropagatingTextEdit()
         self.text_view.setObjectName("previewTextView")
 

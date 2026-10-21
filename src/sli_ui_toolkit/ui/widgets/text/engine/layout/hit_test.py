@@ -20,7 +20,7 @@ def hit_test_text_offset(
     The text zone is where glyphs stand — not the fragment's full block
     width: past the last glyph (whitespace counts by its advance width),
     on an empty line, or below the content is a miss. Both document
-    viewers (help body, TextView document mode) share this, so hover
+    document surfaces (``Text``'s document mode) share this, so hover
     cursor and click selection behave identically everywhere.
     """
     for frag in layout.text_fragments:

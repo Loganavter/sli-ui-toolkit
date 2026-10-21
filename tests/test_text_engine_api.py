@@ -12,8 +12,8 @@ from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QContextMenuEvent, QImage, QMouseEvent
 from PySide6.QtWidgets import QApplication, QScrollArea
 
-from sli_ui_toolkit.ui.widgets.composite.text_view.canvas import TextCanvas
-from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import parse_help_blocks
+from sli_ui_toolkit.ui.widgets.text.engine.canvas import TextCanvasCore as TextCanvas
+from sli_ui_toolkit.ui.widgets.text.engine.markdown import parse_help_blocks
 from sli_ui_toolkit.ui.widgets.text import text as text_module
 from sli_ui_toolkit.widgets import Text, TextConfig
 

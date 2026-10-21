@@ -1,4 +1,4 @@
-"""Text document surface: the ``HelpDocumentView`` accessors re-homed on ``Text``.
+"""Text document surface: the retired document host's accessors, on ``Text``.
 
 Closes the document-surface gaps recorded in ``docs/dev/TEXT_UNIFICATION.md``
 ("Document gaps for P2"): ``scroll_to_anchor``, ``source_markdown``,
@@ -7,7 +7,7 @@ Closes the document-surface gaps recorded in ``docs/dev/TEXT_UNIFICATION.md``
 already-present ``imageActivated`` / ``textContextMenuRequested`` wiring.
 
 Parity numbers below were measured before the change with an offscreen probe
-(old host canvas vs ``Text(mode="document")``, width 640, default theme) and
+(that host's canvas vs ``Text(mode="document")``, width 640, default theme) and
 are pinned here so the surface cannot drift silently:
 
     doc        Text.sizeHint  size_hint_from_content  anchors
@@ -15,7 +15,7 @@ are pinned here so the surface cannot drift silently:
     figure     0x583          640x583                 deep=510
     long       0x727          640x727                 —
 
-    plain text identical to ``HelpDocumentView.plain_text()`` in all three
+    plain text identical to the host's ``plain_text()`` in all three
     (231 / 67 / 1062 chars); pixel diff vs the painted ``TextCanvas``
     document path 0/307200, 0/373120, 0/465280; ``scroll_to_text("needle")``
     on the long doc = 689.
@@ -42,8 +42,11 @@ from PySide6.QtWidgets import QApplication, QMenu, QScrollArea, QWidget
 
 from sli_ui_toolkit.palettes import FLUENT_DARK, FLUENT_LIGHT
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.widgets.composite.help_document.view import HelpDocumentView
-from sli_ui_toolkit.ui.widgets.composite.text_view.canvas import TextCanvas
+from sli_ui_toolkit.ui.widgets.text.engine.canvas import TextCanvasCore as TextCanvas
+from sli_ui_toolkit.ui.widgets.text.engine.markdown import (
+    blocks_to_plain_text,
+    parse_help_blocks,
+)
 from sli_ui_toolkit.ui.widgets.text.engine.constants import PAD
 from sli_ui_toolkit.widgets import Text
 
@@ -179,12 +182,13 @@ def test_document_anchor_y_matches_the_measured_host_offsets(qapp):
     assert figure.anchor_y("deep") == 510
 
 
-def test_document_plain_text_matches_the_old_host(qapp):
-    """Falsification: pre-change ``Text`` has no ``plain_text`` accessor."""
-    host = HelpDocumentView(show_toc=False)
-    host.set_markdown(DOC_HEADINGS)
+def test_document_plain_text_is_the_parsed_block_text(qapp):
+    """Falsification: pre-change ``Text`` has no ``plain_text`` accessor.
+
+    The oracle is the block parser (independent of the painted layout), so
+    the measured 231-character parity the retired host pinned stays pinned."""
     widget = _show(Text(DOC_HEADINGS, mode="document"))
-    assert widget.plain_text() == host.plain_text()
+    assert widget.plain_text() == blocks_to_plain_text(parse_help_blocks(DOC_HEADINGS))
     assert len(widget.plain_text()) == 231
     assert widget.plain_text() == widget.text()
 

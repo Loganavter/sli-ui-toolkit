@@ -1,7 +1,7 @@
-"""MarkdownHelpDialog on the painted TextView (no QTextBrowser).
+"""MarkdownHelpDialog on the painted document engine (no QTextBrowser).
 
-The dialog renders each help section through ``TextView.set_markdown``
-(document mode) instead of a ``markdown``-to-HTML ``QTextBrowser``:
+The dialog renders each help section through ``Text(mode="document")``
+instead of a ``markdown``-to-HTML ``QTextBrowser``:
 headings/anchors resolve in-page, external links open, and the page TOC is
 generated (markdown) for pages with ≥2 ``###`` headings.
 """
@@ -17,7 +17,7 @@ from sli_ui_toolkit.ui.widgets.composite.markdown_help_dialog import (
     build_toc_markdown,
     inject_heading_anchors,
 )
-from sli_ui_toolkit.ui.widgets.composite.text_view.widget import TextView
+from sli_ui_toolkit.ui.widgets.text import Text
 
 
 def _page(dialog: MarkdownHelpDialog) -> MarkdownHelpPageView:
@@ -61,9 +61,9 @@ def test_dialog_page_is_painted_text_view(qapp):
     qapp.processEvents()
 
     page = _page(dialog)
-    assert isinstance(page, TextView)
+    assert isinstance(page, Text)
+    assert page.mode() == "document"
     assert not isinstance(page, QTextBrowser)
-    assert page.is_document()
 
     # Heading content renders (plain text carries the heading + body).
     plain = page.plain_text()
@@ -83,8 +83,10 @@ def test_internal_anchor_resolves_and_missing_is_none(qapp):
     assert page.anchor_y("first") is not None
     assert page.anchor_y("second") is not None
     assert page.anchor_y("does-not-exist") is None
-    assert page.scroll_to_anchor("first") is True
-    assert page.scroll_to_anchor("does-not-exist") is False
+    # ``Text`` never scrolls: the accessor reports the y a HOST scroll area
+    # scrolls to (``None`` when the anchor is unknown).
+    assert page.scroll_to_anchor("first") is not None
+    assert page.scroll_to_anchor("does-not-exist") is None
 
     # The old accessor is reproduced through the new one.
     assert page.anchor_vertical_offset("first") == page.anchor_y("first")

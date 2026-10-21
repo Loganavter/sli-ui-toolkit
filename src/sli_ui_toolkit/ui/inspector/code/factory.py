@@ -25,9 +25,9 @@ _ROW_SPACING = 6
 
 class _CodeEditorClamp(QObject):
     """Keep the Code editor's maximum height in lockstep with its page, so
-    the code + preview panel always fit the window: the TextView (a scroll
-    area) absorbs the leftover height and scrolls internally instead of
-    the page growing into a long fixed strip."""
+    the code + preview panel always fit the window: the text scroll host
+    absorbs the leftover height and scrolls internally instead of the page
+    growing into a long fixed strip."""
 
     def __init__(self, editor: CodeSectionEditor, page):
         super().__init__(editor)
@@ -201,10 +201,10 @@ def build_code_section(owner, widget: QWidget | None) -> CodeSectionEditor | Non
         target_instance=widget,
     )
     # The editor fills the page (stretch 1; no trailing spacer): the
-    # TextView inside expands and scrolls internally. The clamp below caps
+    # text scroll host inside expands and scrolls internally. The clamp below caps
     # it at the page height, so the whole editor flexes with the window.
     page.content_layout.addWidget(editor, 1)
-    # clamp the editor to the page height (the TextView scrolls
+    # clamp the editor to the page height (the text scroll host scrolls
     # internally) so the preview panel never pushes the page into a
     # long fixed-height strip
     clamp = _CodeEditorClamp(editor, page)

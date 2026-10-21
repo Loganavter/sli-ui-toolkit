@@ -86,9 +86,9 @@ ALLOWLIST: dict[str, str] = {
         "text canvas: is_editing() mirrors the painted text buffer's edit "
         "state (caret/typing), not a value control"
     ),
-    "ui.widgets.composite.text_view.widget:TextView": (
-        "text view: is_editing() delegates to its TextCanvas for text entry, "
-        "not a value control"
+    "ui.widgets.composite.text_scroll:TextScrollArea": (
+        "text scroll host: is_editing() forwards to its hosted Text's "
+        "text-edit mode, not a value control"
     ),
 }
 

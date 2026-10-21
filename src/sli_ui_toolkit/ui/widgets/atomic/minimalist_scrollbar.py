@@ -109,7 +109,7 @@ class MinimalistScrollBar(QScrollBar):
         self.theme_manager.theme_changed.connect(self._update_colors)
         self.valueChanged.connect(self._on_activity)
         self.setMouseTracking(True)
-        # TextCanvas (inside TextView) sets IBeam while editing — without an
+        # The hosted TextCanvas sets IBeam while editing — without an
         # explicit cursor the bar would inherit the parent's shape on some
         # platforms and show IBeam over the thumb/track. Keep it Arrow.
         self.setCursor(Qt.CursorShape.ArrowCursor)

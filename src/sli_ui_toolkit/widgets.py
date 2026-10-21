@@ -69,7 +69,6 @@ from sli_ui_toolkit.ui.widgets.buttons import (
 )
 from sli_ui_toolkit.ui.widgets.text import Text, TextConfig
 from sli_ui_toolkit.ui.widgets.composite import (
-    TextView,
     python_line_spans,
     python_span_colors,
     AdaptiveTabStrip,
@@ -93,7 +92,6 @@ from sli_ui_toolkit.ui.widgets.composite import (
     TopTabHost,
     TopTabItem,
     IndexedToggleFlyout,
-    HelpDocumentView,
     MarkdownHelpDialog,
     MarkdownHelpSection,
     LogConsoleEntry,
@@ -276,8 +274,6 @@ __all__ = [
     "TopTabHost",
     "TopTabItem",
     "IndexedToggleFlyout",
-    "HelpDocumentView",
-    "TextView",
     "python_line_spans",
     "python_span_colors",
     "MarkdownHelpDialog",

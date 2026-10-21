@@ -291,7 +291,8 @@ One painted text widget (`Text`), typography options, and built-in presets:
 
 | Widget | Description |
 |--------|-------------|
-| `Text` / `TextConfig` | The display widget: `mode="plain"` (static text), `mode="document"` (markdown engine), `mode="code"` (editable buffer). See [LABELS_API.md](LABELS_API.md#text-plain-mode). |
+| `Text` / `TextConfig` | The display widget: `mode="plain"` (static text), `mode="document"` (markdown engine), `mode="code"` (editable buffer). See [LABELS_API.md](LABELS_API.md#text-plain-mode). `canvas()` returns the hosted painted surface in engine modes (`None` in plain mode) for host-owned chrome: line-number map, fold rows, `line_at`, event filters. |
+| `TextScrollArea` | Scroll host for one painted `Text` (the composition `TextView` used to be): toolkit scrollbar, transparent viewport, rounded border overlay, `set_panel_fill(color|None)`, and `canvas()`/`editor()` for the hosted surface. Import: `sli_ui_toolkit.ui.widgets.composite`. |
 | `LabelVariantSpec` | Preset entry for the variant registry (`register_text_variant` / `get_text_variant`, also re-exported under the old `register_label_variant` / `get_label_variant` names). |
 | `DropZoneLabel` | Drag-and-drop zone visuals with file accept logic (internally a `Label`, kept for that subclass). |
 
@@ -362,9 +363,25 @@ viewers — constructor options and a full wiring example:
 |--------|-------------|
 | `SidebarDialogShell` / `ScrollableDialogPage` | Sidebar + stacked pages dialog container (`sidebar_header=` pins a widget above the nav list), and a ready-made scrollable content page. |
 | `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells — in-place search filtering (`set_search_text`, ComboBox-style visible-index pool, no per-keystroke rebuilds; `search_texts` for cross-language haystacks). |
-| `MarkdownHelpDialog` / `MarkdownHelpSection` | Painted markdown help dialog (toolkit text view, document mode; no `QTextBrowser`/HTML) with anchors, TOC, and `help://slug#anchor` navigation. |
-| `HelpDocumentView` | Native widget-tree help page renderer (controlled markdown subset, figures, links). |
-| `TextView` | Painted text rendering + editing composite (code mode with Python syntax spans, no stock Qt text widgets). |
+| `MarkdownHelpDialog` / `MarkdownHelpSection` | Painted markdown help dialog (`Text` in document mode; no `QTextBrowser`/HTML) with anchors, TOC, and `help://slug#anchor` navigation. |
+
+> **`HelpDocumentView` and `TextView` are gone** (text-unification wave C). Both bodies
+> were already the shared engine under `ui/widgets/text/engine/`; the widgets around them
+> are deleted, not deprecated-in-place. Migration:
+> `TextView(...)` → `Text(..., mode="code", editable=True)` for the buffer, composed with a
+> scrolling host — `Text` is a plain `QWidget` and never scrolls. In the toolkit,
+> `TextScrollArea` is that host (toolkit scrollbar + transparent viewport + rounded frame,
+> `set_panel_fill(color|None)` for a raised well, `canvas()` for the painted surface):
+> `TextScrollArea(source, mode="code")` forwards `text`/`set_text`/`is_editing`/
+> `enter_edit_mode`/`exit_edit_mode`/`editor`/`changed`. Replace `is_document()` with
+> `mode() == "document"` and `enter_edit_mode()`'s non-scrolling siblings with
+> `Text.set_editing(bool)`.
+> `HelpDocumentView(md)` → `Text(md, mode="document")` plus host-owned chrome: the TOC list,
+> the image lightbox and the search box are composed by the HOST (`Text` only emits
+> `linkActivated`/`imageActivated` and exposes `anchor_y`/`scroll_to_anchor`/
+> `scroll_to_text`/`size_hint_from_content`). The `composite.text_view` and
+> `composite.help_document` packages no longer exist; their engine modules live under
+> `sli_ui_toolkit.ui.widgets.text.engine.{markdown,canvas,document_canvas,layout,…}`.
 
 ### Console, Logging & Notifications
 

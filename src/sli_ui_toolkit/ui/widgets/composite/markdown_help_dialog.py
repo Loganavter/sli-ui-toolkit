@@ -21,12 +21,12 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     SurfaceScrollArea,
 )
 from sli_ui_toolkit.ui.widgets.composite.dialog_shell import SidebarDialogShell
-from sli_ui_toolkit.ui.widgets.composite.text_view.markdown import (
+from sli_ui_toolkit.ui.widgets.text import Text
+from sli_ui_toolkit.ui.widgets.text.engine.markdown import (
     HeadingBlock,
     HelpBlock,
     parse_help_blocks,
 )
-from sli_ui_toolkit.ui.widgets.composite.text_view.widget import TextView
 
 AssetResolver = Callable[[str], str | Path | QPixmap | None]
 
@@ -119,24 +119,25 @@ def build_toc_markdown(md_text: str, *, title: str) -> str:
     lines.append("")
     return "\n".join(lines)
 
-class MarkdownHelpPageView(TextView):
+class MarkdownHelpPageView(Text):
     """Painted help page in document mode.
 
-    The view is a ``TextView`` (painted ``TextCanvas``, no stock text
-    widget). It reports its parsed content height through
+    The page is the unified ``Text(mode="document")`` (painted engine, no
+    stock text widget). It reports its parsed content height through
     ``sizeHint``/``minimumSizeHint`` so the dialog's outer
-    ``SurfaceScrollArea`` scrolls the whole page rather than the view's own
-    (disabled) scrollbar.
+    ``SurfaceScrollArea`` scrolls the whole page — ``Text`` never scrolls
+    itself.
     """
 
     def __init__(self) -> None:
-        super().__init__()
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        super().__init__("", mode="document")
 
     def sizeHint(self) -> QSize:  # noqa: N802
+        canvas = self.canvas()
+        content_height = canvas.minimumHeight() if canvas is not None else 0
         return QSize(
             scaled_px(400),
-            max(scaled_px(200), self.canvas().minimumHeight() + scaled_px(8)),
+            max(scaled_px(200), content_height + scaled_px(8)),
         )
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802

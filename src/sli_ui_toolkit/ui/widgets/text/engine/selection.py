@@ -13,8 +13,8 @@ One state machine serves both coordinate spaces of the text view:
 ``SelectionState`` owns the anchor/focus pair, the multi-click chain counter
 (time + distance), the drag threshold, select-all and range normalization;
 the subclasses bind it to a coordinate space and resolve the click modes.
-The same machinery backs the help-document canvas
-(``help_document/canvas.py``), so the inspector's Docs and Code sections and
+The same machinery backs the document canvas
+(``engine/document_canvas.py``), so the inspector's Docs and Code sections and
 the Help pages all select text the same way.
 """
 

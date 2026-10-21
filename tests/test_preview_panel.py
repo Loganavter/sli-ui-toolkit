@@ -1,8 +1,9 @@
-"""PreviewPanel — painted ``TextView`` migration contract.
+"""PreviewPanel — painted ``Text`` surface in a scroll host.
 
-The panel's text surface is the painted :class:`TextView` (no stock Qt text
-widget, no QSS): read-only display, edit mode through the same canvas, and
-the wheel consumed at the scroll edges so it never bubbles to the host.
+The panel's text surface is the unified ``Text(mode="code")`` inside a
+:class:`TextScrollArea` (no stock Qt text widget): read-only display, edit
+mode through the same painted buffer, and the wheel consumed at the scroll
+edges so it never bubbles to the host.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.ui.widgets.composite.preview_panel import PreviewPanel
-from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
+from sli_ui_toolkit.ui.widgets.composite.text_scroll import TextScrollArea
 
 
 def _wheel(angle_y: int) -> QWheelEvent:
@@ -48,7 +49,7 @@ def test_text_roundtrip_and_painted_view(qtbot):
     panel = PreviewPanel("Preview")
     qtbot.addWidget(panel)
 
-    assert isinstance(panel.text_view, TextView)
+    assert isinstance(panel.text_view, TextScrollArea)
     assert panel.text_view.objectName() == "previewTextView"
 
     panel.set_text("hello\nworld")

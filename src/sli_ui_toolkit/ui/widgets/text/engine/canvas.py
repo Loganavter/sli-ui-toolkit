@@ -2,8 +2,8 @@
 
 The same painted widget switches between read and edit modes, so both look
 identical by construction. Edit mode adds a caret, selection, and
-keyboard/mouse input; the host ``TextView`` scrolls it and draws the rounded
-frame around the visible area.
+keyboard/mouse input; the host scroll area (``TextScrollArea``) scrolls it
+and draws the rounded frame around the visible area.
 
 The class keeps only construction, state, document-mode delegation glue, and
 Qt-required method names it doesn't delegate; the concerns live in sibling
@@ -29,9 +29,6 @@ import traceback
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
-# Re-exported by the ``text_view.canvas`` compatibility shim; keep the name
-# importable from this module (noqa: the shim is the only consumer).
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale  # noqa: F401
 from . import constants
 from .document import build_text_index, layout_document, parse_help_blocks
 from .selection import DocumentSelection, TextSelection

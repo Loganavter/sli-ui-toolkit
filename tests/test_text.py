@@ -463,7 +463,7 @@ def test_document_mode_pixels_match_the_engine_it_hosts(qapp):
     Falsification: a Text that hosts no engine, or sizes it wrongly, paints
     nothing or differs by pixels.
     """
-    from sli_ui_toolkit.ui.widgets.composite.text_view.canvas import TextCanvas
+    from sli_ui_toolkit.ui.widgets.text.engine.canvas import TextCanvasCore as TextCanvas
 
     widget = Text(_DOC, mode="document")
     widget.resize(360, 200)

@@ -482,7 +482,7 @@ class Text(QWidget):
         """Full flattened text in every mode (document: block text, no markup).
 
         Same value ``text()`` reports for engine modes; named after the
-        ``HelpDocumentView`` accessor callers migrate from.
+        accessor the retired document host exposed to its callers.
         """
         return self.text()
 
@@ -508,6 +508,18 @@ class Text(QWidget):
 
     def set_line_number_start(self, start: int | None) -> None:
         self._engine_for("code").set_line_number_start(start)
+
+    def canvas(self) -> TextCanvasCore | None:
+        """The hosted painted surface in engine modes (``None`` in plain mode).
+
+        The widget the retired ``TextView.canvas()`` returned, for the chrome
+        a HOST owns around a code buffer: the line-number map
+        (``set_line_number_map``), collapsed fold rows (``set_fold_lines``),
+        y→line hit-testing (``line_at``) and event filters (the inspector's
+        gap markers). Typography, selection and edit state stay on ``Text``;
+        this exposes the surface, not a second API.
+        """
+        return self._engine
 
     def set_blocks(self, blocks) -> None:
         """Document mode: replace the content with parsed help blocks."""

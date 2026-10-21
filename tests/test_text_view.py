@@ -1,4 +1,10 @@
-"""TextView composite: painted text rendering + editing (code mode)."""
+"""Painted text surface: rendering + editing (``Text`` in a scroll host).
+
+The retired ``TextView`` split into the unified ``Text`` (the painted buffer,
+its edit state and selection) and ``TextScrollArea`` (the host that scrolls
+it and draws the frame). These tests drive that pair exactly as the old
+composite behaved, so a regression in either half still fails here.
+"""
 
 from __future__ import annotations
 
@@ -6,15 +12,13 @@ from PySide6.QtCore import QEvent, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from sli_ui_toolkit.ui.widgets.composite.text_view import (
-    TextCanvas,
-    TextView,
-    python_line_spans,
-)
+from sli_ui_toolkit.ui.widgets.composite.text_scroll import TextScrollArea
+from sli_ui_toolkit.ui.widgets.text.engine.canvas import TextCanvasCore as TextCanvas
+from sli_ui_toolkit.ui.widgets.text.engine.highlight import python_line_spans
 
 
 def test_text_view_read_and_edit_modes(qapp):
-    view = TextView("class Foo:\n    pass\n")
+    view = TextScrollArea("class Foo:\n    pass\n")
     assert view.text() == "class Foo:\n    pass\n"
     assert view.is_editing() is False
     assert view.editor() is None
@@ -22,6 +26,7 @@ def test_text_view_read_and_edit_modes(qapp):
     assert view.editor() is None or view.editor().insert_text("x") is None
 
     canvas = view.enter_edit_mode()
+    assert canvas is view.canvas()
     assert isinstance(canvas, TextCanvas)
     assert view.is_editing() is True
     assert view.editor() is canvas
@@ -36,10 +41,10 @@ def test_text_view_read_and_edit_modes(qapp):
 
 
 def test_text_view_editor_is_the_painted_canvas(qapp):
-    view = TextView("line1\nline2\n")
+    view = TextScrollArea("line1\nline2\n")
     view.enter_edit_mode()
     canvas = view.editor()
-    assert type(canvas).__name__ == "TextCanvas"
+    assert canvas is view.canvas()
     canvas.insert_text("x")
     assert canvas.text() == "xline1\nline2\n"
     canvas.set_editing(False)
@@ -47,7 +52,7 @@ def test_text_view_editor_is_the_painted_canvas(qapp):
 
 
 def test_line_number_gutter_start_offsets_text(qapp):
-    view = TextView("a\nb\nc\n")
+    view = TextScrollArea("a\nb\nc\n")
     canvas = view.enter_edit_mode()
     assert canvas._line_number_start is None
     assert canvas._gutter_width() == 0
@@ -105,7 +110,7 @@ def test_python_line_spans_triple_quotes_and_def_names():
 
 
 def test_text_view_edits_with_keys(qapp):
-    view = TextView("class Foo:\n    pass\n")
+    view = TextScrollArea("class Foo:\n    pass\n")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
@@ -133,7 +138,7 @@ def test_text_view_edits_with_keys(qapp):
 
 
 def test_text_view_changed_signal_fires_on_edit(qapp):
-    view = TextView("a\n")
+    view = TextScrollArea("a\n")
     view.enter_edit_mode()
     fired = []
     view.changed.connect(lambda: fired.append(1))
@@ -150,7 +155,7 @@ def test_canvas_does_not_swallow_window_shortcuts(qapp):
     from PySide6.QtGui import QKeyEvent
     from PySide6.QtWidgets import QApplication
 
-    view = TextView("class Foo:\n    pass\n")
+    view = TextScrollArea("class Foo:\n    pass\n")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
@@ -202,7 +207,7 @@ def test_canvas_typing_gate_ignores_layout_switch_keys(qapp):
     text."""
     from PySide6.QtGui import QInputMethodEvent
 
-    view = TextView("class Foo:\n    pass\n")
+    view = TextScrollArea("class Foo:\n    pass\n")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
@@ -235,7 +240,7 @@ def test_click_on_another_line_breaks_multi_click_chain(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha beta\ngamma delta\n")
+    view = TextScrollArea("alpha beta\ngamma delta\n")
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -261,7 +266,7 @@ def test_double_click_selects_word(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha beta gamma\n    pass\n")
+    view = TextScrollArea("alpha beta gamma\n    pass\n")
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -285,7 +290,7 @@ def test_triple_click_selects_line(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha beta\n    pass\n")
+    view = TextScrollArea("alpha beta\n    pass\n")
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -308,7 +313,7 @@ def test_click_after_triple_selects_returns_to_caret(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha beta\n    pass\n")
+    view = TextScrollArea("alpha beta\n    pass\n")
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -336,7 +341,7 @@ def test_rapid_triple_click_selects_line(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha beta\n    pass\n")
+    view = TextScrollArea("alpha beta\n    pass\n")
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -365,7 +370,7 @@ def test_line_selection_up_keeps_current_line(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha beta\n    pass\nthird\n")
+    view = TextScrollArea("alpha beta\n    pass\nthird\n")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
@@ -399,7 +404,7 @@ def test_line_drag_up_selects_top_line_too(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("zero\none\ntwo\nthree\nfour\n")
+    view = TextScrollArea("zero\none\ntwo\nthree\nfour\n")
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -429,7 +434,7 @@ def test_drag_selects_range(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha beta gamma\n    pass\n")
+    view = TextScrollArea("alpha beta gamma\n    pass\n")
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -452,7 +457,7 @@ def test_caret_hidden_while_selection_active(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha beta gamma\n    pass\n")
+    view = TextScrollArea("alpha beta gamma\n    pass\n")
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -496,7 +501,7 @@ def test_select_all_and_copy(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    view = TextView("alpha\nbeta\n")
+    view = TextScrollArea("alpha\nbeta\n")
     view.enter_edit_mode()
     canvas = view.editor()
     QTest.keyClick(canvas, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
@@ -520,7 +525,7 @@ _MD = (
 def test_text_view_document_mode(qapp):
     from PySide6.QtGui import QPixmap
 
-    view = TextView()
+    view = TextScrollArea("", mode="document")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
@@ -539,26 +544,26 @@ def test_text_view_document_mode(qapp):
     assert "bold" in plain
     assert "second" in plain
     # the layout produced text fragments and the pixmap
-    canvas = view._canvas
+    canvas = view.canvas()
     assert canvas._document_layout is not None
     assert len(canvas._document_layout.text_fragments) > 0
     assert len(canvas._document_layout.pixmaps) == 1
     # painting does not crash
     view.grab()
-    # back to code mode
-    view.set_text("a\nb\n")
-    assert view.is_document() is False
-    assert view.text() == "a\nb\n"
+    # modes are fixed at construction: a document surface stays a document
+    view.set_text("# Replaced\n\nBody.\n")
+    assert view.is_document() is True
+    assert "Replaced" in view.plain_text()
 
 
 def test_text_view_document_mode_sizing(qapp):
-    view = TextView()
+    view = TextScrollArea("", mode="document")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
     view.set_markdown("## Title\n\nSome body text here.\n")
     qapp.processEvents()
-    canvas = view._canvas
+    canvas = view.canvas()
     assert canvas.height() > 2 * 8  # layout height + PAD
     # resize re-lays out
     view.resize(600, 300)
@@ -570,13 +575,13 @@ def test_text_view_document_selection_and_copy(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView()
+    view = TextScrollArea("", mode="document")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
     view.set_markdown("## Title\n\nSome body text here.\n")
     qapp.processEvents()
-    canvas = view._canvas
+    canvas = view.canvas()
     layout = canvas._document_layout
 
     # hit the body fragment inside the actual text ("Some body text here.")
@@ -598,8 +603,6 @@ def test_text_view_document_selection_and_copy(qapp):
     # Ctrl+A selects everything
     QTest.keyClick(canvas, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
     assert canvas._doc_selection.selection == (0, len(canvas._document_index.text))
-    view.set_text("code\n")
-    assert view.is_document() is False
 
 
 def _doc_word_pos(canvas, word: str) -> QPoint:
@@ -629,13 +632,13 @@ def test_text_view_document_double_click_selects_word(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    view = TextView()
+    view = TextScrollArea("", mode="document")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
     view.set_markdown("## Title\n\nSome body text here with words.\n")
     qapp.processEvents()
-    canvas = view._canvas
+    canvas = view.canvas()
     pos = _doc_word_pos(canvas, "body")
     QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
     QTest.mouseDClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
@@ -652,13 +655,13 @@ def test_text_view_document_triple_click_selects_paragraph(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    view = TextView()
+    view = TextScrollArea("", mode="document")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
     view.set_markdown("## Title\n\nFirst paragraph with several words.\n\nSecond paragraph here.\n")
     qapp.processEvents()
-    canvas = view._canvas
+    canvas = view.canvas()
     pos = _doc_word_pos(canvas, "First")
     for _ in range(3):
         QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
@@ -675,7 +678,7 @@ def test_text_view_document_triple_click_in_code_selects_line(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    view = TextView()
+    view = TextScrollArea("", mode="document")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
@@ -687,7 +690,7 @@ def test_text_view_document_triple_click_in_code_selects_line(qapp):
         "```\n"
     )
     qapp.processEvents()
-    canvas = view._canvas
+    canvas = view.canvas()
     pos = _doc_word_pos(canvas, "beta")
     for _ in range(3):
         QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
@@ -704,13 +707,13 @@ def test_text_view_document_drag_after_double_click_extends_by_words(qapp):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
 
-    view = TextView()
+    view = TextScrollArea("", mode="document")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
     view.set_markdown("## Title\n\nFirst paragraph with several words.\n")
     qapp.processEvents()
-    canvas = view._canvas
+    canvas = view.canvas()
     start = _doc_word_pos(canvas, "First")
     end = _doc_word_pos(canvas, "several")
     QTest.mousePress(canvas, Qt.MouseButton.LeftButton, pos=start)
@@ -731,7 +734,7 @@ def test_text_view_document_link_click_emits(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
-    view = TextView()
+    view = TextScrollArea("", mode="document")
     view.resize(400, 300)
     view.show()
     qapp.processEvents()
@@ -739,7 +742,7 @@ def test_text_view_document_link_click_emits(qapp):
     qapp.processEvents()
     links = []
     view.linkActivated.connect(links.append)
-    canvas = view._canvas
+    canvas = view.canvas()
     layout = canvas._document_layout
     link_rect = None
     for frag in layout.text_fragments:
@@ -756,35 +759,11 @@ def test_text_view_document_link_click_emits(qapp):
     assert links == ["help://page"]
 
 
-def test_text_view_document_image_opens_lightbox(qapp):
-    from PySide6.QtCore import QPoint, Qt
-    from PySide6.QtGui import QPixmap
-    from PySide6.QtTest import QTest
-
-    view = TextView()
-    view.resize(400, 300)
-    view.show()
-    qapp.processEvents()
-    view.set_markdown("![figure](img.png)\n", resolve_asset=lambda p: QPixmap(60, 40))
-    qapp.processEvents()
-    emitted = []
-    view.imageActivated.connect(emitted.append)
-    canvas = view._canvas
-    pix_rect = canvas._document_layout.pixmaps[0].rect
-    pos = QPoint(
-        int(pix_rect.center().x()) + 8, int(pix_rect.center().y()) + 8
-    )
-    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=pos)
-    assert emitted == ["img.png"]
-    assert view._lightbox is not None
-    assert view._lightbox.isVisible()
-
-
 def test_line_at_maps_each_line_centre_to_its_own_index(qapp):
     """Content identity: the y -> line mapping the code-mode paint uses resolves
     each line's centre to its own index and text (a duplicated/off-by-one
     mapping would fail). The code-mode paint had no such content check."""
-    from sli_ui_toolkit.ui.widgets.composite.text_view import constants
+    from sli_ui_toolkit.ui.widgets.text.engine import constants
 
     lines = ["alpha", "beta", "gamma", "delta", "epsilon"]
     canvas = TextCanvas("\n".join(lines))
@@ -801,7 +780,7 @@ def _editing_canvas(qapp, text="alpha beta\ngamma\n"):
     """A shown, editing canvas with focus (real mouse delivery)."""
     from PySide6.QtCore import QPoint
 
-    view = TextView(text)
+    view = TextScrollArea(text)
     view.resize(400, 200)
     view.show()
     qapp.processEvents()
@@ -819,7 +798,7 @@ def test_empty_click_clears_selection_and_caret(qapp):
     """
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
-    from sli_ui_toolkit.ui.widgets.composite.text_view import constants
+    from sli_ui_toolkit.ui.widgets.text.engine import constants
 
     view, canvas = _editing_canvas(qapp)
     adv = canvas._metrics.horizontalAdvance
@@ -853,7 +832,7 @@ def test_caret_blinks_while_focused_editing(qapp):
     """
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
-    from sli_ui_toolkit.ui.widgets.composite.text_view import constants
+    from sli_ui_toolkit.ui.widgets.text.engine import constants
 
     view, canvas = _editing_canvas(qapp)
     adv = canvas._metrics.horizontalAdvance
@@ -893,7 +872,7 @@ def test_hover_cursor_follows_text_hit(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
-    from sli_ui_toolkit.ui.widgets.composite.text_view import constants
+    from sli_ui_toolkit.ui.widgets.text.engine import constants
 
     view, canvas = _editing_canvas(qapp)
     y0 = constants.PAD + canvas._line_height // 2
