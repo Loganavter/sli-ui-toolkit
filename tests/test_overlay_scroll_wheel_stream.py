@@ -14,8 +14,8 @@ the 16 ms ticker could advance it — every event discarded the previous one's
 progress.
 
 Red on the unmodified code: 10 ``ScrollBegin`` notches 16 ms apart advanced the
-viewport 132 px (~13 px/notch) instead of the nominal 600 px (60/notch); with a
-stream faster than the ticker the advance drops toward ~1 px per event.
+viewport 132 px (~13 px/notch) instead of the nominal 600 px (60/notch); a
+40-event stream 2 ms apart advanced 100 px (~2.5 px/event).
 """
 
 from __future__ import annotations
