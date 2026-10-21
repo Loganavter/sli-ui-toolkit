@@ -177,14 +177,14 @@ def test_docs_path_resolves_against_repo_root_not_cwd(qapp, monkeypatch, tmp_pat
 def test_docs_section_renders_readonly(qapp):
     """The Docs section shows the widget family's docs file in the
     read-only text view (document/markdown mode), not editable."""
-    from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
+    from sli_ui_toolkit.ui.widgets.composite.text_scroll import TextScrollArea
 
     win = InspectorWindow()
     win.set_inspection(
         WidgetInspection(family="QWidget", docs="docs/user/BUTTON_API.md")
     )
     page = win._pages["Docs"]
-    views = page.content_widget.findChildren(TextView)
+    views = page.content_widget.findChildren(TextScrollArea)
     assert views, "docs page must host a text view"
     plain = views[0].plain_text()
     assert "Button Component API" in plain
@@ -302,7 +302,7 @@ def test_qss_rules_render_inside_code_page(qapp, monkeypatch, tmp_path_factory):
     # the QSS block is synthetic — above the class, with the dot gutter
     # (never file content), like the config snippet
     assert text.index("QWidget {") < text.index("class _LocalProbe")
-    gutter = win.active_pane()._code_view._canvas._line_number_map
+    gutter = win.active_pane()._code_view.canvas()._line_number_map
     qss_line = [
         i for i, line in enumerate(text.split("\n")) if "QWidget {" in line
     ][0]

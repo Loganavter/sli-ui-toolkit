@@ -35,7 +35,7 @@ def test_code_section_shows_live_config_snippet(qapp, monkeypatch, tmp_path_fact
     assert "text='Probe'" in text
     assert "class Probe(QWidget)" in text
     # gutter: config is 1-based, the class keeps its real file lines
-    gutter = pane._code_view._canvas._line_number_map
+    gutter = pane._code_view.canvas()._line_number_map
     assert gutter is not None
     assert gutter[0] == "·"  # the synthetic config snippet is not a file line
     # the gap row shows the hidden block's last line — the class statement
@@ -45,7 +45,7 @@ def test_code_section_shows_live_config_snippet(qapp, monkeypatch, tmp_path_fact
     assert gutter[5] == "4"
     # the collapsed gap row is a plain ellipsis with a disclosure arrow
     assert "·····" in text
-    assert pane._code_view._canvas._fold_lines == {3}
+    assert pane._code_view.canvas()._fold_lines == {3}
     assert pane._code_config_view is None
 
 
@@ -69,13 +69,13 @@ def test_code_section_gap_row_expands_on_click_and_toggle_btn(qapp, monkeypatch,
     }
     assert not buttons["Full"].isHidden()
     # click the gap row: no config snippet here, so the marker is display 0
-    canvas = pane._code_view._canvas
+    canvas = pane._code_view.canvas()
     line_y = 8 + canvas._line_height // 2
     QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, pos=QPoint(60, line_y))
     text = pane._code_view.text()
     assert "import x" in text  # the "before" gap expanded inline
     assert "·····" not in text  # it was the only gap -> nothing left
-    assert pane._code_view._canvas._fold_lines == set()
+    assert pane._code_view.canvas()._fold_lines == set()
     # the toggle label flipped: re-query the buttons
     buttons = {
         str(getattr(b, "_text", "")): b
@@ -85,7 +85,7 @@ def test_code_section_gap_row_expands_on_click_and_toggle_btn(qapp, monkeypatch,
     # Compact -> collapses everything back
     buttons["Compact"].click()
     assert "·····" in pane._code_view.text()
-    assert pane._code_view._canvas._fold_lines == {0}
+    assert pane._code_view.canvas()._fold_lines == {0}
     buttons = {
         str(getattr(b, "_text", "")): b
         for b in page.content_widget.findChildren(Button)
@@ -173,11 +173,11 @@ def test_code_section_gutter_matches_real_file_lines(qapp, monkeypatch, tmp_path
         source_start=4,
     )
     # the class-source gutter starts at the class's line in the actual file
-    gutter = pane._code_view._canvas._line_number_map
+    gutter = pane._code_view.canvas()._line_number_map
     assert gutter is not None
     assert gutter[1] == "4"  # marker row sits at display 1, class at 2
     assert gutter[2] == "5"
-    assert pane._code_view._canvas._gutter_width() > 0
+    assert pane._code_view.canvas()._gutter_width() > 0
     assert pane._code_config_view is None
 
 

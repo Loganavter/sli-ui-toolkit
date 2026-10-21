@@ -1,10 +1,10 @@
-"""Surface regressions: CalendarWidget and TextView.
+"""Surface regressions: CalendarWidget and the text scroll host.
 
 Both widgets used to render their background on the QPalette ``Window``
 role (darker than the ``dialog.background`` token hosts paint); now
 ``CalendarWidget`` paints its own surface from the resolved token and
-``TextView`` pins viewport + canvas transparent so the host surface shows
-behind the frame overlay.
+``TextScrollArea`` pins viewport + content transparent so the host surface
+shows behind the frame overlay.
 """
 
 from __future__ import annotations
@@ -15,7 +15,8 @@ from PySide6.QtGui import QColor, QImage, QPainter
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from sli_ui_toolkit import ThemeManager
-from sli_ui_toolkit.widgets import CalendarWidget, TextView
+from sli_ui_toolkit.widgets import CalendarWidget
+from sli_ui_toolkit.ui.widgets.composite import TextScrollArea
 
 _LIGHT = {"Window": "#101010", "surface.background": "#202020"}
 _DARK = {"Window": "#1e1e1e", "surface.background": "#2b2b2b"}
@@ -65,13 +66,13 @@ def test_calendar_widget_paints_surface_from_bg_token(qapp, qtbot, themed):
     assert center == "#202020"
 
 
-def test_text_view_viewport_shows_host_background_by_default(qapp, qtbot, themed):
+def test_text_scroll_viewport_shows_host_background_by_default(qapp, qtbot, themed):
     host = _SolidHost("#111111")
     qtbot.addWidget(host)
     host.resize(300, 200)
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
-    view = TextView("")
+    view = TextScrollArea("")
     layout.addWidget(view)
     host.show()
     qapp.processEvents()
@@ -80,13 +81,13 @@ def test_text_view_viewport_shows_host_background_by_default(qapp, qtbot, themed
     assert img.pixelColor(30, 30).name() == "#111111"
 
 
-def test_text_view_panel_fill_still_paints_raised_well(qapp, qtbot, themed):
+def test_text_scroll_panel_fill_still_paints_raised_well(qapp, qtbot, themed):
     host = _SolidHost("#111111")
     qtbot.addWidget(host)
     host.resize(300, 200)
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
-    view = TextView("")
+    view = TextScrollArea("")
     layout.addWidget(view)
     host.show()
     qapp.processEvents()

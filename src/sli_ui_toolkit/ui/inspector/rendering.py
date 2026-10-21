@@ -247,16 +247,16 @@ class _PaneRenderingMixin:
         if not docs_ref:
             return
         from sli_ui_toolkit.ui.inspector.spec import _resolve_docs_path
-        from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
+        from sli_ui_toolkit.ui.widgets.composite.text_scroll import TextScrollArea
 
         self._add_title(page, "Docs")
-        view = TextView("")
+        view = TextScrollArea("", mode="document")
         path = _resolve_docs_path(docs_ref)
         try:
             view.set_markdown(Path(path).read_text(encoding="utf-8"))
         except OSError:
             view.set_text(f"docs: {docs_ref}\n\n(file not found: {path})")
-        # No trailing stretch: the Expanding TextView fills the page and
+        # No trailing stretch: the Expanding scroll host fills the page and
         # scrolls internally — it must flex with the window, not expand to
         # a fixed content-derived size.
         page.content_layout.addWidget(view)

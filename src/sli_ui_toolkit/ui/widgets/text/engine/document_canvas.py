@@ -31,9 +31,6 @@ def _help_debug(message: str, *args) -> None:
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
-# Re-exported by the ``help_document.canvas`` compatibility shim; keep the
-# name importable from this module (noqa: the shim is the only consumer).
-from sli_ui_toolkit.ui.managers.ui_scale import UiScale  # noqa: F401
 from sli_ui_toolkit.ui.widgets.text.engine.markdown import HelpBlock
 from sli_ui_toolkit.ui.widgets.text.engine.layout.builder import (
     layout_document,

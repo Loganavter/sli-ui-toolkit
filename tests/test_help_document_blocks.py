@@ -1,8 +1,8 @@
-"""Help document block parser — controlled markdown subset for HelpDocumentView."""
+"""Help document block parser — the controlled markdown subset of the engine."""
 
 from __future__ import annotations
 
-from sli_ui_toolkit.ui.widgets.composite.help_document import (
+from sli_ui_toolkit.ui.widgets.text.engine.markdown import (
     CodeBlock,
     FigureBlock,
     HeadingBlock,
@@ -17,7 +17,7 @@ from sli_ui_toolkit.ui.widgets.composite.help_document import (
     parse_inline,
     spans_to_plain,
 )
-from sli_ui_toolkit.ui.widgets.composite.text_view.text_index import (
+from sli_ui_toolkit.ui.widgets.text.engine.text_index import (
     assert_index_matches_blocks,
     build_text_index,
 )
@@ -144,7 +144,7 @@ def test_parse_figure_height_px():
 
 
 def test_group_side_figures_ignores_center():
-    from sli_ui_toolkit.ui.widgets.composite.text_view.structure import (
+    from sli_ui_toolkit.ui.widgets.text.engine.structure import (
         SideFigureGroup,
         group_side_figures,
     )

@@ -1,4 +1,4 @@
-"""Red-before/green-after: live-stale cached geometry in four toolkit widgets.
+"""Red-before/green-after: live-stale cached geometry in toolkit widgets.
 
 ``plan-live-appearance-fixes-2026-10-19``. Each widget below cached derived
 geometry from its construction-time ``UiScale`` factor (or never re-derived
@@ -6,9 +6,14 @@ it at all), so a live Settings → OK appearance change left it at design px
 until a rebuild. Each is exercised at factor 1.0 and then 1.5 **live**
 (build, ``set_factor``, let the appearance bus coalesce through its
 zero-timer) and the cached value is asserted to equal ``scaled_px(design)``
-— not merely "it changed". Every assertion in the first four tests fails
-against the pre-change source: that is the point of committing the tests
-first.
+— not merely "it changed". Every assertion fails against the pre-change
+source: that is the point of committing the tests first.
+
+The retired ``HelpDocumentView`` cases (root padding, TOC frame inner
+padding) are gone with the widget: the document engine's own re-layout on a
+live scale is pinned by
+``tests/test_help_document_scale.py::test_help_document_reflows_and_grows_with_ui_scale``,
+and the TOC frame was host chrome the toolkit no longer ships.
 
 Not in this file: ``CalendarDayButton`` — its floor/hints already re-derive
 on the bus and are pinned by
@@ -23,7 +28,6 @@ from PySide6.QtWidgets import QWidget
 from sli_ui_toolkit.managers import UiScale
 from sli_ui_toolkit.ui.managers.ui_metrics import UiMetrics
 from sli_ui_toolkit.ui.widgets.atomic.custom_group_widget import CustomGroupWidget
-from sli_ui_toolkit.ui.widgets.composite.help_document.view import HelpDocumentView
 from sli_ui_toolkit.ui.widgets.composite.simple_options_flyout import (
     SimpleOptionsFlyout,
 )
@@ -44,66 +48,6 @@ def _to_factor(factor: float, qtbot) -> None:
 def _margins(layout) -> tuple[int, int, int, int]:
     m = layout.contentsMargins()
     return m.left(), m.top(), m.right(), m.bottom()
-
-
-# --------------------------------------------------------------------------
-# HelpDocumentView: root padding + cached TOC frame inner padding
-# --------------------------------------------------------------------------
-
-
-def test_help_document_view_root_margins_re_derive_on_live_scale(qtbot):
-    view = HelpDocumentView(show_toc=False)
-    qtbot.addWidget(view)
-    root = view.layout()
-    assert root is not None
-
-    assert _margins(root) == (20, 16, 20, 24)
-    assert root.spacing() == 10
-
-    _to_factor(1.5, qtbot)
-
-    assert _margins(root) == (30, 24, 30, 36)  # scaled_px((20,16,20,24))
-    assert root.spacing() == 15  # scaled_px(10)
-
-
-def test_help_document_view_toc_frame_margins_re_derive_on_live_scale(qtbot):
-    view = HelpDocumentView(show_toc=True)
-    qtbot.addWidget(view)
-    view.resize(640, 480)
-    view.set_markdown("### Alpha {#alpha}\n\ntext\n\n### Beta {#beta}\n\ntext\n")
-    toc = view._toc
-    assert toc is not None
-    layout = toc.layout()
-    assert layout is not None
-
-    assert _margins(layout) == (12, 10, 12, 10)
-    assert layout.spacing() == 4
-
-    _to_factor(1.5, qtbot)
-
-    toc = view._toc
-    assert toc is not None
-    layout = toc.layout()
-    assert layout is not None
-    assert _margins(layout) == (18, 15, 18, 15)  # scaled_px((12,10,12,10))
-    assert layout.spacing() == 6  # scaled_px(4)
-
-
-def test_help_document_view_is_scale_only(qtbot, monkeypatch):
-    """The root padding derives from the factor only: a font-only change must
-    not wake the handler (over-invalidation is the anti-pattern)."""
-    view = HelpDocumentView(show_toc=False)
-    qtbot.addWidget(view)
-    calls: list[object] = []
-    monkeypatch.setattr(view, "_apply_root_metrics", lambda: calls.append(1))
-
-    UiMetrics.get_instance().emit_appearance({"font"})
-    qtbot.wait(20)
-    assert calls == []
-
-    UiMetrics.get_instance().emit_appearance({"scale"})
-    qtbot.wait(20)
-    assert calls == [1]
 
 
 # --------------------------------------------------------------------------

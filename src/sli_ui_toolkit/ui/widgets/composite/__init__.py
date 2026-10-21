@@ -32,14 +32,13 @@ from sli_ui_toolkit.ui.widgets.composite.log_console_widget import (
     LogConsoleEntry,
     LogConsoleWidget,
 )
-from sli_ui_toolkit.ui.widgets.composite.help_document import HelpDocumentView
-from sli_ui_toolkit.ui.widgets.composite.text_view import (
-    TextCanvas,
-    TextSelection,
-    TextView,
+from sli_ui_toolkit.ui.widgets.text.engine.canvas import TextCanvasCore as TextCanvas
+from sli_ui_toolkit.ui.widgets.text.engine.highlight import (
     python_line_spans,
     python_span_colors,
 )
+from sli_ui_toolkit.ui.widgets.text.engine.selection import TextSelection
+from sli_ui_toolkit.ui.widgets.composite.text_scroll import TextScrollArea
 from sli_ui_toolkit.ui.widgets.composite.markdown_help_dialog import (
     MarkdownHelpDialog,
     MarkdownHelpSection,
@@ -112,10 +111,9 @@ __all__ = [
     "IndexedToggleFlyout",
     "LogConsoleEntry",
     "LogConsoleWidget",
-    "HelpDocumentView",
-    "TextView",
     "TextCanvas",
     "TextSelection",
+    "TextScrollArea",
     "python_line_spans",
     "python_span_colors",
     "MarkdownHelpDialog",

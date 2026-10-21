@@ -56,7 +56,7 @@ from .preview import (
 )
 from sli_ui_toolkit.ui.widgets.text import Text
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
-from sli_ui_toolkit.ui.widgets.composite.text_view import TextView
+from sli_ui_toolkit.ui.widgets.composite.text_scroll import TextScrollArea
 
 logger = logging.getLogger("sli_ui_toolkit.inspector")
 
@@ -162,7 +162,7 @@ class CodeSectionEditor(QWidget):
         root.addWidget(top_row)
         self._top_buttons = top_buttons
 
-        self._view = TextView("")
+        self._view = TextScrollArea("", mode="code")
         self._view.changed.connect(self._on_edit)
         self._canvas = self._view.canvas()
         self._canvas.installEventFilter(self)
@@ -366,8 +366,8 @@ class CodeSectionEditor(QWidget):
         self._top_buttons.insertWidget(self._top_buttons.count() - 1, button)
 
     @property
-    def view(self) -> TextView:
-        """The unified code TextView."""
+    def view(self) -> TextScrollArea:
+        """The unified code surface (painted ``Text`` in a scroll host)."""
         return self._view
 
     @property
