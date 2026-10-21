@@ -1,4 +1,4 @@
-"""GearDragCapability: begin/update/release, snap-then-close, overflow downgrade."""
+"""GearDragCapability: begin/update/release, immediate commit, overflow downgrade."""
 
 from __future__ import annotations
 
@@ -67,7 +67,13 @@ def test_update_drag_moves_focus_index_by_item_height(qtbot):
     assert combo._gear_focus_index == 1
 
 
-def test_release_after_drag_snaps_then_commits_and_closes(qtbot):
+def test_release_after_drag_commits_and_closes_immediately(qtbot):
+    """No settle animation/hold: the row under the frame commits on release.
+
+    The popup used to snap to an exact item boundary (40ms) and then hold for
+    250ms before closing, so a released drag felt laggy. Release now commits
+    synchronously, even when the drag stopped between two rows.
+    """
     host = QWidget()
     qtbot.addWidget(host)
     host.resize(400, 400)
@@ -80,15 +86,13 @@ def test_release_after_drag_snaps_then_commits_and_closes(qtbot):
     gear._anchor_index = combo.currentIndex()
     gear._begin_drag()
     item_h = combo._item_height()
-    gear._update_drag(QPointF(0, -round(item_h * 0.6)))  # off-boundary -> snap needed
+    gear._update_drag(QPointF(0, -round(item_h * 0.6)))  # off-boundary
 
     gear._finish_drag()
-    assert gear.snap_in_progress is True
-    assert combo._expanded is True  # hideDropdown() no-ops mid-snap
-
-    qtbot.waitUntil(lambda: gear.snap_in_progress is False, timeout=1000)
     assert combo._expanded is False
     assert combo.currentIndex() == 1
+    assert gear.active is False
+    assert combo._gear_focus_index == -1
 
 
 def test_overflow_drag_downgrades_to_plain_open(qtbot):

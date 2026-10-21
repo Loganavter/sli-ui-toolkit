@@ -66,12 +66,13 @@ def apply_elided_tooltip(widget: QWidget, text: str, available_width: int) -> No
 class _SlotBgLayer(Layer):
     """Прозрачный фон, list_item.background.hover на hover/pressed.
 
-    ``widget._is_gear_focus`` gives the same hover-look background to
-    whichever single row is currently under the gear-shifter's fixed frame
-    during a drag (see ComboBox._gear_active / ComboBox._gear_focus_index),
-    so that row reads as "this is what gets picked" the same way a normal
-    hover does — on top of (not instead of) the stationary outline drawn
-    separately by ``_GearFrame``, pinned to the field's own position.
+    ``widget._is_focus_row`` gives the same hover-look background to whichever
+    single row a commit would take: the row under the gear-shifter's fixed
+    frame during a drag (ComboBox._gear_active / _gear_focus_index), or the
+    row the keyboard typeahead currently walks (_typing_focus_index). That row
+    reads as "this is what gets picked" the same way a normal hover does — on
+    top of (not instead of) the stationary outline drawn separately by
+    ``_GearFrame``, pinned to the field's own position.
     """
 
     def applies(self, ctx) -> bool:
@@ -80,7 +81,7 @@ class _SlotBgLayer(Layer):
         return (
             ButtonState.HOVERED in states
             or ButtonState.PRESSED in states
-            or widget._is_gear_focus
+            or widget._is_focus_row
         )
 
     def draw(self, ctx, tm: ThemeManager) -> None:
@@ -92,8 +93,12 @@ class _SlotBgLayer(Layer):
 
 
 class _CurrentIndexRingLayer(Layer):
-    """Ring on the row matching ``owner.currentIndex()`` while the dropdown
-    is open — the keyboard-navigable "this is what Enter picks" indicator.
+    """Ring on the row a keyboard commit would take while the dropdown is open.
+
+    That is the typeahead highlight while a jump query is active (it can point
+    at a row that is NOT ``currentIndex`` — typing only walks the list, Enter
+    commits it), otherwise the row matching ``owner.currentIndex()`` — the
+    keyboard-navigable "this is what Enter picks" indicator.
 
     Not ``FocusLayer``: that layer gates on real Qt ``hasFocus()``, which
     this popup never grants to a row (the field keeps keyboard focus so
@@ -113,10 +118,16 @@ class _CurrentIndexRingLayer(Layer):
     def applies(self, ctx) -> bool:
         widget = ctx.widget
         owner = widget._overlay._owner
+        if not owner._expanded or owner._gear_active:
+            return False
+        typing_index = owner._typing_focus_index
+        if typing_index >= 0:
+            # Typing is keyboard input even when the list was opened by mouse
+            # (``_keyboard_focus`` is False then) — the walked row must be
+            # visible or the jump looks like nothing happened.
+            return widget._item_index == typing_index
         return (
-            owner._expanded
-            and not owner._gear_active
-            and bool(getattr(owner, "_keyboard_focus", False))
+            bool(getattr(owner, "_keyboard_focus", False))
             and widget._item_index == owner.currentIndex()
         )
 
@@ -196,13 +207,13 @@ class _DropdownItemSlot(Button):
         self._text = ""
         self._item_index = -1
         self._text_padding = text_padding
-        self._is_gear_focus = False
+        self._is_focus_row = False
         self._overlay = overlay
 
-    def bind(self, *, text: str, item_index: int, is_gear_focus: bool = False) -> None:
+    def bind(self, *, text: str, item_index: int, is_focus_row: bool = False) -> None:
         self._text = text
         self._item_index = item_index
-        self._is_gear_focus = is_gear_focus
+        self._is_focus_row = is_focus_row
         self._sync_elided_tooltip()
         self.update()
 
@@ -239,15 +250,13 @@ class _DropdownItemSlot(Button):
     def enterEvent(self, event) -> None:
         # The grab that keeps other widgets from seeing native enter/leave
         # (see hoverHitTest above) ends the moment mouseReleaseEvent
-        # returns — well before the drag gesture is actually done: the snap
-        # animation and its post-landing hold (GEAR_SNAP_HOLD_MS) still have
-        # the gear-focus frame highlighting the committed row, and last for
-        # a while after release. If the real cursor happens to sit over a
-        # *different* row once the grab lets go, Qt delivers this a genuine
-        # native Enter for it, and Button's own base implementation would
-        # light it up — a second, unwanted highlight next to the gear-focus
-        # one until _hover_suppressed finally clears in GearDragCapability
-        # cancel(). Swallow it while suppressed; leaveEvent still runs
+        # returns, while the committed close still clears the drag state
+        # (GearDragCapability.cancel(), reached through hideDropdown). If the
+        # real cursor happens to sit over a *different* row as the grab lets
+        # go, Qt delivers this a genuine native Enter for it, and Button's
+        # own base implementation would light it up — a second, unwanted
+        # highlight next to the gear-focus one until _hover_suppressed clears.
+        # Swallow it while suppressed; leaveEvent still runs
         # normally so nothing can get stuck lit.
         if self._overlay._hover_suppressed:
             return
@@ -369,7 +378,7 @@ class _DropdownOverlay(BaseFlyout):
         item_slot.bind(
             text=item.text,
             item_index=item_index,
-            is_gear_focus=owner._gear_active and item_index == owner._gear_focus_index,
+            is_focus_row=owner._focus_row_index >= 0 and item_index == owner._focus_row_index,
         )
 
     def _position_viewport(self) -> None:

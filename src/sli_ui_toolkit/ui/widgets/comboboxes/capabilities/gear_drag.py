@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QPropertyAnimation, QTimer, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QCursor, QMouseEvent
 from PySide6.QtWidgets import QApplication
 
@@ -24,7 +24,8 @@ class GearDragCapability(ButtonCapability):
     sideways/vertically past ``drag_threshold_px`` right after pressing, to
     open the dropdown and scrub through rows by dragging — like sliding a
     gearbox knob into its slot. Releasing commits whichever row is under the
-    field at that moment; a plain click/release still just toggles the list.
+    field at that moment, immediately; a plain click/release still just
+    toggles the list.
     """
 
     def __init__(
@@ -32,21 +33,10 @@ class GearDragCapability(ButtonCapability):
         *,
         hold_ms: int,
         drag_threshold_px: int,
-        snap_duration_ms: int,
-        snap_hold_ms: int,
     ) -> None:
         super().__init__()
         self.hold_ms = hold_ms
         self.drag_threshold_px = drag_threshold_px
-        # On release, the popup window snaps the rest of the way to the exact
-        # item-boundary offset (see _finish_drag) so the focused row ends up
-        # perfectly centered under the field before the dropdown closes,
-        # instead of closing mid-drag with the row a few pixels off.
-        self.snap_duration_ms = snap_duration_ms
-        # Brief hold once the snap has landed, so the fully-settled state is
-        # actually visible for a beat before the dropdown closes, instead of
-        # collapsing the instant the animation finishes.
-        self.snap_hold_ms = snap_hold_ms
 
         self._combo: "ComboBox | None" = None
         self._press_pos: QPointF | None = None
@@ -74,24 +64,6 @@ class GearDragCapability(ButtonCapability):
         # together because they're one widget — rather than repositioning
         # rows within a static window.
         self._window_origin: QPoint | None = None
-        # True while the drag is in the overflow (whole-row scroll) branch of
-        # _update_drag rather than the physically-dragged-window branch —
-        # read by _finish_drag to decide whether a snap animation is needed
-        # at all (overflow scrolling is already snapped to item boundaries
-        # every move, so there's nothing left to animate).
-        self._drag_overflow: bool = False
-        self._snap_animation: QPropertyAnimation | None = None
-        # True for the ~90ms between release and the snap animation landing.
-        # Guards two things that would otherwise cut the ride short: (1) a
-        # stray mouseMoveEvent arriving right after release (the mouse
-        # doesn't stop dead the instant the button goes up) would re-enter
-        # _update_drag and yank the overlay to a raw, un-eased position,
-        # fighting the animation; (2) anything else calling hideDropdown()
-        # mid-flight (outside-click filter, window move/resize re-centering,
-        # a suppressed-click edge case) would hide the popup before it's
-        # visually settled. Only our own _commit_selection may close the
-        # dropdown while this is set.
-        self.snap_in_progress: bool = False
         # True while an override cursor (blank) is pushed for the duration
         # of an active gear-drag gesture — paired set/restore calls around
         # _begin_drag's active branch and _commit_selection so the real
@@ -106,10 +78,6 @@ class GearDragCapability(ButtonCapability):
         self._combo.longPressed.connect(self._on_long_pressed)
 
     def detach(self, button) -> None:
-        if self._snap_animation is not None:
-            self._snap_animation.stop()
-            self._snap_animation.deleteLater()
-            self._snap_animation = None
         self._restore_cursor()
         if self._combo is not None and self._combo._overlay is not None:
             self._combo._overlay._hover_suppressed = False
@@ -157,10 +125,8 @@ class GearDragCapability(ButtonCapability):
                 or abs(delta.y()) >= self.drag_threshold_px
             ):
                 self._begin_drag()
-        if self.active and not self.snap_in_progress:
+        if self.active:
             self._update_drag(event.position())
-            return True
-        if self.snap_in_progress:
             return True
         return False
 
@@ -262,8 +228,9 @@ class GearDragCapability(ButtonCapability):
             # HoverCoordinator polls QApplication.widgetAt() on every such
             # move app-wide, so it can land native hover on whichever row
             # the physically-translating popup now happens to sit under.
-            # Released only once the gesture fully ends (cancel()), so this
-            # also covers the snap animation and its post-landing hold.
+            # Released only once the gesture fully ends (cancel(), reached via
+            # _commit_selection -> hideDropdown), so it also covers whatever
+            # native Enter Qt posts right after the mouse grab lets go.
             combo._overlay._hover_suppressed = True
         # _reposition() (run by showDropdown, or whenever the popup was last
         # opened/repositioned) already places the anchor item's row aligned
@@ -291,7 +258,6 @@ class GearDragCapability(ButtonCapability):
             return
         delta_y = pos.y() - self._press_pos.y()
         overflow = len(visible) > combo._max_visible_items
-        self._drag_overflow = overflow
         if overflow:
             # Overflow: more rows than fit, so the popup isn't anchored to
             # the current row (see _reposition's `scrollable` branch) —
@@ -356,78 +322,11 @@ class GearDragCapability(ButtonCapability):
             # anything already set before drag start (e.g. a leftover from
             # _begin_drag's overflow-open-only path).
             overlay.clear_hover()
-        if (
-            final_index >= 0
-            and overlay is not None
-            and self._window_origin is not None
-            and not self._drag_overflow
-        ):
-            item_h = combo._item_height()
-            visible = combo._visible_indices()
-            if item_h > 0 and visible:
-                try:
-                    focus_visible_pos = visible.index(final_index)
-                except ValueError:
-                    focus_visible_pos = self._anchor_visible_pos
-                # The exact pixel offset the window would sit at if the drag
-                # had stopped precisely on an item boundary — i.e. where
-                # ``focus_visible_pos`` lines up perfectly under the fixed
-                # selection frame, rather than wherever the raw (unsnapped)
-                # drag distance left it.
-                target_y = self._window_origin.y() + (
-                    self._anchor_visible_pos - focus_visible_pos
-                ) * item_h
-                target_pos = QPoint(self._window_origin.x(), target_y)
-                if overlay.pos() != target_pos:
-                    self._start_snap_animation(target_pos, final_index)
-                    return
-        self._commit_selection(final_index)
-
-    def _start_snap_animation(self, target_pos: QPoint, final_index: int) -> None:
-        combo = self._combo
-        # Only ever called while attached (between ComboBox.__init__'s
-        # attach_capability() and detach()) — see attach()/detach() below.
-        assert combo is not None
-        overlay = combo._overlay
-        if overlay is None:
-            self._commit_selection(final_index)
-            return
-        if self._snap_animation is not None:
-            self._snap_animation.stop()
-            self._snap_animation.deleteLater()
-            self._snap_animation = None
-        anim = QPropertyAnimation(overlay, b"pos", overlay)
-        anim.setDuration(self.snap_duration_ms)
-        anim.setStartValue(overlay.pos())
-        anim.setEndValue(target_pos)
-        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        # _gear_frame is a child of the overlay, positioned at a fixed
-        # *local* offset that _update_gear_frame recomputes from the field's
-        # global rect. Outside this animation that recompute happens on every
-        # explicit overlay.move() in _update_drag, but QPropertyAnimation
-        # moves the overlay on its own timer — without re-deriving that local
-        # offset on each tick, the frame (a child widget) rides along with
-        # the overlay instead of staying pinned over the field while the rows
-        # slide into place underneath it.
-        anim.valueChanged.connect(lambda _: overlay._update_gear_frame())
-        anim.finished.connect(lambda: self._on_snap_finished(final_index))
-        self._snap_animation = anim
-        self.snap_in_progress = True
-        anim.start()
-
-    def _on_snap_finished(self, final_index: int) -> None:
-        if self._snap_animation is not None:
-            self._snap_animation.deleteLater()
-            self._snap_animation = None
-        # snap_in_progress stays set (still blocking hideDropdown/mouse-move)
-        # through this hold, so the settled state is guaranteed to actually
-        # render for snap_hold_ms before closing.
-        QTimer.singleShot(self.snap_hold_ms, lambda: self._finish_snap_hold(final_index))
-
-    def _finish_snap_hold(self, final_index: int) -> None:
-        # Clear before committing — _commit_selection calls hideDropdown(),
-        # which itself no-ops while this flag is set.
-        self.snap_in_progress = False
+        # Commit the row under the frame straight away. There used to be a
+        # 40ms ease-in "snap" to the exact item boundary plus a 250ms hold
+        # after release; both made a released drag feel laggy, and the popup
+        # is about to close anyway — the row that was under the frame at
+        # release is the one the user chose.
         self._commit_selection(final_index)
 
     def _commit_selection(self, final_index: int) -> None:
@@ -465,11 +364,6 @@ class GearDragCapability(ButtonCapability):
         ``handle_release``/``_commit_selection``, so without this the
         override cursor would stay pushed with no matching release to pop it.
         """
-        if self._snap_animation is not None:
-            self._snap_animation.stop()
-            self._snap_animation.deleteLater()
-            self._snap_animation = None
-        self.snap_in_progress = False
         self._restore_cursor()
         if self._combo is not None and self._combo._overlay is not None:
             self._combo._overlay._hover_suppressed = False
@@ -479,4 +373,3 @@ class GearDragCapability(ButtonCapability):
         self._overflow_open_only = False
         self.focus_index = -1
         self._window_origin = None
-        self._drag_overflow = False
