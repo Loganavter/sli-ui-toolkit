@@ -1,6 +1,7 @@
 from __future__ import annotations
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
+import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import (
@@ -31,6 +32,7 @@ from sli_ui_toolkit.ui.widgets.comboboxes._overlay import (
 )
 from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     match_score,
+    match_score_normalized,
     normalize_for_search,
     visible_indices_normalized,
 )
@@ -53,26 +55,25 @@ class ComboBox(Button):
     # sideways/vertically past GEAR_DRAG_THRESHOLD_PX right after pressing, to
     # open the dropdown and scrub through rows by dragging — like sliding a
     # gearbox knob into its slot. Releasing commits whichever row is under the
-    # field at that moment; a plain click/release still just toggles the list.
+    # field at that moment, immediately (no settle animation, no hold); a plain
+    # click/release still just toggles the list.
     GEAR_HOLD_MS = 450
     GEAR_DRAG_THRESHOLD_PX = 8
-    # On release, the popup window snaps the rest of the way to the exact
-    # item-boundary offset (see GearDragCapability._finish_drag) so the
-    # focused row ends up perfectly centered under the field before the
-    # dropdown closes, instead of closing mid-drag with the row a few pixels
-    # off.
-    GEAR_SNAP_DURATION_MS = 40
-    # Brief hold once the snap has landed, so the fully-settled state is
-    # actually visible for a beat before the dropdown closes, instead of
-    # collapsing the instant the animation finishes.
-    GEAR_SNAP_HOLD_MS = 250
+    # Keyboard typeahead window (typing_mode="jump"): keys typed within this
+    # interval extend the query; a longer pause starts a new one.
+    TYPEAHEAD_TIMEOUT_MS = 900
 
     def __init__(
         self,
         parent=None,
         *,
         wheel_requires_focus: bool = False,
+        typing_mode: str = "jump",
     ):
+        # Validate before any QWidget work: a bad mode must not leave a
+        # half-constructed widget on the appearance bus (its live-scale
+        # callback would fire on an object whose fields were never set).
+        typing_mode = self._normalize_typing_mode(typing_mode)
         super().__init__(
             text="",
             size=(0, self.BASE_HEIGHT),
@@ -102,6 +103,18 @@ class ComboBox(Button):
         self._overlay_parent: QWidget | None = None
         self._search_enabled = True
         self._search_text = ""
+        # Typing policy: "jump" (default) is file-manager typeahead — the list
+        # keeps every row and the highlight walks to the first match; "filter"
+        # is the legacy mode that narrows visible rows and applies the first
+        # match immediately. See setTypingMode.
+        self._typing_mode = typing_mode
+        # Typeahead buffer + its expiry (time.monotonic) and the row the
+        # buffer currently points at. The row is HELD in
+        # ``_dropdown_focus_index`` (highlight/scroll only) and committed by
+        # Enter or a click — never by the keystroke itself.
+        self._typeahead_text = ""
+        self._typeahead_deadline = 0.0
+        self._typing_focus = False
         self._visible_indices_cache: list[int] = []
         self._visible_positions_cache: dict[int, int] = {}
         self._visible_cache_dirty = True
@@ -114,8 +127,6 @@ class ComboBox(Button):
         self._gear = GearDragCapability(
             hold_ms=self.GEAR_HOLD_MS,
             drag_threshold_px=scaled_px(self.GEAR_DRAG_THRESHOLD_PX),
-            snap_duration_ms=self.GEAR_SNAP_DURATION_MS,
-            snap_hold_ms=self.GEAR_SNAP_HOLD_MS,
         )
         self.attach_capability(self._gear)
 
@@ -142,13 +153,26 @@ class ComboBox(Button):
             + scaled_px(self.ITEM_VERTICAL_PADDING),
         )
 
+    def _typing_query_text(self) -> str:
+        """The query the user is currently typing, whichever mode produced it.
+
+        Both typing policies share the field's ``"<query> -> <value>"``
+        painted line: a filter narrows the rows, a jump only walks the
+        highlight, but the field must show what was typed either way (in jump
+        mode the value itself does not move until Enter).
+        """
+        if self._typing_mode == "jump":
+            return self._typeahead_text
+        return self._search_text
+
     def _field_display_text(self) -> str:
         """Exactly what ``_ComboFieldContentLayer`` paints in the field."""
         current_text = self.currentText()
         if not current_text:
             return ""
-        if self._search_text and self._expanded:
-            return f"{self._search_text} -> {current_text}"
+        query = self._typing_query_text()
+        if query and self._expanded:
+            return f"{query} -> {current_text}"
         return current_text
 
     def _sync_field_tooltip(self) -> None:
@@ -177,6 +201,30 @@ class ComboBox(Button):
     def _gear_focus_index(self) -> int:
         """Proxy to GearDragCapability.focus_index — see _gear_active."""
         return self._gear.focus_index
+
+    @property
+    def _typing_focus_index(self) -> int:
+        """Row the typeahead buffer points at, or -1 when typing focus is off.
+
+        Unlike ``currentIndex`` this is highlight-only state: the dropdown row
+        is scrolled to and ringed, while the field value and
+        ``currentIndexChanged`` stay untouched until Enter/click commits it.
+        """
+        if not self._typing_focus:
+            return -1
+        index = self._dropdown_focus_index
+        return index if index is not None else -1
+
+    @property
+    def _focus_row_index(self) -> int:
+        """The one row drawn as "this is what a commit takes", or -1.
+
+        Two owners share that role and never overlap: an active gear-drag
+        (row under the field frame) wins; otherwise the typeahead highlight.
+        """
+        if self._gear.active:
+            return self._gear.focus_index
+        return self._typing_focus_index
 
     def _invalidate_visible_cache(self) -> None:
         self._visible_cache_dirty = True
@@ -321,6 +369,42 @@ class ComboBox(Button):
             self._visible_cache_dirty = False
         return self._visible_indices_cache
 
+    @staticmethod
+    def _normalize_typing_mode(mode: str) -> str:
+        normalized = str(mode).strip().lower()
+        if normalized not in ("jump", "filter"):
+            raise ValueError(
+                f"unknown typing_mode {mode!r}; use 'jump' or 'filter'"
+            )
+        return normalized
+
+    def typingMode(self) -> str:
+        return self._typing_mode
+
+    def setTypingMode(self, mode: str) -> None:
+        """Choose how keystrokes pick a row.
+
+        ``"jump"`` (default) — file-manager typeahead: the list is never
+        filtered, keys walk a buffer-driven highlight to the first row that
+        matches, and Enter/click commits it. ``"filter"`` — legacy: the visible
+        rows narrow to the matches and the first match becomes ``currentIndex``
+        immediately.
+        """
+        normalized = self._normalize_typing_mode(mode)
+        if normalized == self._typing_mode:
+            return
+        self._typing_mode = normalized
+        self._reset_typeahead()
+        # A filter query cannot survive a switch in either direction: "jump"
+        # never filters, and a fresh filter mode must start unfiltered.
+        self.clearSearch()
+        self._invalidate_visible_cache()
+        if self._expanded and self._overlay is not None:
+            self._ensure_current_visible()
+            self._overlay._sync_scrollbar()
+            self._overlay.update()
+        self.update()
+
     def setSearchEnabled(self, enabled: bool) -> None:
         enabled = bool(enabled)
         if self._search_enabled == enabled:
@@ -328,16 +412,34 @@ class ComboBox(Button):
         self._search_enabled = enabled
         if not enabled:
             self.clearSearch()
+            self._reset_typeahead()
         self._invalidate_visible_cache()
         self.update()
+
+    def acceptsTextKeys(self) -> bool:
+        """True when unmodified letter/space keys are input for this widget.
+
+        Host keyboard routers use this duck-typed protocol to keep global
+        canvas shortcuts (W/A/S/D/Q/E, Space) from swallowing typing aimed at
+        the focused field — the ComboBox is a painted Button, not a
+        ``QLineEdit``, so type-based text-input checks miss it. Typing is
+        disabled as soon as the widget is disabled or search is turned off.
+        """
+        return bool(self.isEnabled() and self._search_enabled)
 
     def isSearchEnabled(self) -> bool:
         return self._search_enabled
 
     def searchText(self) -> str:
-        return self._search_text
+        """The active typing query (filter text, or the jump buffer)."""
+        return self._typing_query_text()
 
     def clearSearch(self) -> None:
+        # The public "drop what was typed" entry covers both policies: a jump
+        # buffer is a query too, just one that never filtered anything.
+        if self._typeahead_text:
+            self._reset_typeahead()
+            self._sync_field_tooltip()
         if not self._search_text:
             return
         self._search_text = ""
@@ -379,6 +481,105 @@ class ComboBox(Button):
             current_pos = 0
         new_pos = max(0, min(len(visible) - 1, current_pos + step))
         self.setCurrentIndex(visible[new_pos])
+        return True
+
+    # -------- typeahead jump (typing_mode="jump") --------
+
+    def _reset_typeahead(self) -> None:
+        self._typeahead_text = ""
+        self._typeahead_deadline = 0.0
+        if self._typing_focus:
+            self._typing_focus = False
+            self._dropdown_focus_index = None
+            if self._expanded and self._overlay is not None:
+                self._overlay.update()
+
+    def _set_typing_focus(self, index: int) -> None:
+        self._typing_focus = True
+        self._dropdown_focus_index = index
+        self._ensure_index_visible(index)
+        if self._expanded and self._overlay is not None:
+            self._overlay._sync_scrollbar()
+            self._overlay.update()
+        self.update()
+
+    def _step_typing_focus(self, step: int) -> bool:
+        current = self._typing_focus_index
+        visible = self._visible_indices()
+        if current < 0 or not visible:
+            return False
+        try:
+            pos = visible.index(current)
+        except ValueError:
+            pos = 0
+        new_pos = max(0, min(len(visible) - 1, pos + step))
+        self._set_typing_focus(visible[new_pos])
+        return True
+
+    def _typeahead_index(self, query: str, *, cycle: bool) -> int | None:
+        """First row matching ``query`` in list order, walking from the anchor.
+
+        ``cycle=True`` (a fresh query) starts one row past the anchor, so
+        pressing the same key again advances to the next match like a file
+        manager. An extension of the current query starts AT the anchor: the
+        row already highlighted must be able to stay put while the query grows.
+        Both variants wrap, so "any match" never depends on where the list
+        happens to be scrolled.
+        """
+        norm_query = normalize_for_search(query)
+        count = len(self._items)
+        if not norm_query or count == 0:
+            return None
+        anchor = self._typing_focus_index
+        if anchor < 0:
+            anchor = self._current_index
+        anchor = max(0, min(count - 1, anchor))
+        start = (anchor + 1) % count if cycle else anchor
+        for step in range(count):
+            index = (start + step) % count
+            if match_score_normalized(norm_query, self._items[index].normalized_text) is not None:
+                return index
+        return None
+
+    def _handle_typeahead_text(self, text: str) -> bool:
+        if not text:
+            return False
+        now = time.monotonic()
+        fresh = not self._typeahead_text or now > self._typeahead_deadline
+        self._typeahead_text = text if fresh else self._typeahead_text + text
+        self._typeahead_deadline = now + self.TYPEAHEAD_TIMEOUT_MS / 1000.0
+        index = self._typeahead_index(self._typeahead_text, cycle=fresh)
+        if index is not None:
+            self._set_typing_focus(index)
+        else:
+            # No match still changes the painted query line.
+            self.update()
+        self._sync_field_tooltip()
+        return True
+
+    def _handle_typeahead_backspace(self) -> bool:
+        if not self._typeahead_text:
+            return False
+        now = time.monotonic()
+        if now > self._typeahead_deadline:
+            self._reset_typeahead()
+            return False
+        self._typeahead_text = self._typeahead_text[:-1]
+        self._typeahead_deadline = now + self.TYPEAHEAD_TIMEOUT_MS / 1000.0
+        if not self._typeahead_text:
+            self._typing_focus = False
+            self._dropdown_focus_index = None
+            if self._expanded and self._overlay is not None:
+                self._overlay.update()
+            self.update()
+            self._sync_field_tooltip()
+            return True
+        index = self._typeahead_index(self._typeahead_text, cycle=False)
+        if index is not None:
+            self._set_typing_focus(index)
+        else:
+            self.update()
+        self._sync_field_tooltip()
         return True
 
     def findData(self, data: Any) -> int:
@@ -489,6 +690,9 @@ class ComboBox(Button):
         self._ensure_overlay()
         if self._overlay is None:
             return
+        # A fresh open never inherits a typeahead buffer/highlight: closing
+        # already clears them, but showDropdown is also a public entry.
+        self._reset_typeahead()
         if focus_index is not None and 0 <= int(focus_index) < self.count():
             self._dropdown_focus_index = int(focus_index)
         else:
@@ -513,17 +717,13 @@ class ComboBox(Button):
         return self._overlay.slot_for_index(index)
 
     def hideDropdown(self):
-        if self._gear.snap_in_progress:
-            # Let the in-flight snap animation land on its own — see
-            # GearDragCapability.snap_in_progress. It calls back into
-            # hideDropdown() itself once settled.
-            return
         self._gear.cancel()
         if self._overlay is not None:
             self._overlay.clear_hover()
             self._overlay.hide()
         self._expanded = False
         self._pressed = False
+        self._reset_typeahead()
         self._dropdown_focus_index = None
         self.clearSearch()
         self._sync_field_tooltip()
@@ -565,7 +765,11 @@ class ComboBox(Button):
 
     def keyPressEvent(self, event):
         if self._search_enabled and event.key() == Qt.Key.Key_Backspace:
-            if self._search_text:
+            if self._typing_mode == "jump":
+                if self._handle_typeahead_backspace():
+                    event.accept()
+                    return
+            elif self._search_text:
                 self._set_search_text(self._search_text[:-1])
                 event.accept()
                 return
@@ -588,11 +792,28 @@ class ComboBox(Button):
         if is_plain_text_input:
             if not self._expanded:
                 self.showDropdown()
-            self._set_search_text(self._search_text + event_text)
+            if self._typing_mode == "jump":
+                self._handle_typeahead_text(event_text)
+            else:
+                self._set_search_text(self._search_text + event_text)
             event.accept()
             return
 
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if self._expanded:
+                # Typeahead is highlight-only: Enter is what turns the walked
+                # highlight into the value (a plain arrow-navigated selection
+                # already committed through setCurrentIndex).
+                focus = self._typing_focus_index
+                if 0 <= focus < self.count():
+                    self.setCurrentIndex(focus)
+                self.hideDropdown()
+            else:
+                self.showDropdown()
+            event.accept()
+            return
+
+        if event.key() == Qt.Key.Key_Space:
             if self._expanded:
                 self.hideDropdown()
             else:
@@ -613,12 +834,14 @@ class ComboBox(Button):
         # and a collapsed combo accepting them here would swallow the key
         # instead of letting the section move focus to the next/previous row.
         if event.key() == Qt.Key.Key_Down and self._expanded and self.count() > 0:
-            self._move_visible_selection(1)
+            if not self._step_typing_focus(1):
+                self._move_visible_selection(1)
             event.accept()
             return
 
         if event.key() == Qt.Key.Key_Up and self._expanded and self.count() > 0:
-            self._move_visible_selection(-1)
+            if not self._step_typing_focus(-1):
+                self._move_visible_selection(-1)
             event.accept()
             return
 

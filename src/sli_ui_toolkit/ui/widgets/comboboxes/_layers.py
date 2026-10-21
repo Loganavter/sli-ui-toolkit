@@ -67,8 +67,9 @@ class _ComboFieldContentLayer(Layer):
             inner_h,
         )
         display_text = current_text
-        if widget._search_text and widget._expanded:
-            display_text = f"{widget._search_text} -> {current_text}"
+        query = widget._typing_query_text()
+        if query and widget._expanded:
+            display_text = f"{query} -> {current_text}"
         p = ctx.painter
         p.setFont(paint_font(widget))
         p.setPen(QPen(text_color))

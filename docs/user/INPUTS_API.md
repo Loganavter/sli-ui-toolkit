@@ -14,9 +14,33 @@ widgets. See [BUTTON_API.md](BUTTON_API.md) for `Button` and
 | `Slider` | Custom-painted slider with accent track. |
 | `SpinBox` | Custom-painted compact spinbox. |
 | `Switch` | Custom-painted toggle switch. |
-| `ComboBox` | Full custom-painted combo box with dropdown popup, type-to-search matching, and keyboard navigation. `showDropdown(focus_index=…)` scrolls a row into view without changing `currentIndex`; `dropdown_row_widget(index)` returns that row for Find Action pulse. |
+| `ComboBox` | Full custom-painted combo box with dropdown popup, keyboard typeahead, and keyboard navigation. `showDropdown(focus_index=…)` scrolls a row into view without changing `currentIndex`; `dropdown_row_widget(index)` returns that row for Find Action pulse. `typing_mode="jump"` (default) is file-manager typeahead; `"filter"` narrows the rows — see [Typing into a combo box](#typing-into-a-combo-box). |
 | `ScrollableComboBox` | Combo box with mouse-wheel cycling. |
 | `TimeLineEdit` | Compact toolkit-painted `HH:mm` input with validation/normalization, two right-side repeatable step buttons, and no native `QTimeEdit` chrome. |
+
+### Typing into a combo box
+
+`ComboBox(typing_mode=…)` / `setTypingMode(…)` picks what typing does:
+
+- **`"jump"` (default)** — file-manager typeahead. The list keeps every row;
+  keys extend a buffer (reset after `TYPEAHEAD_TIMEOUT_MS`, 900 ms) and the
+  highlight walks to the first row matching the buffer in list order, wrapping
+  at the end. Pressing the same key again after the timeout advances to the
+  next match. Typing only moves the highlight — `currentIndexChanged` is not
+  emitted; `Enter` (or a click) commits the highlighted row, `Up`/`Down` walk
+  the highlight, `Backspace` shortens the buffer, closing clears it.
+- **`"filter"`** — legacy: the visible rows narrow to the matches and the first
+  match becomes `currentIndex` immediately.
+
+`setSearchEnabled(False)` disables both typed modes. Hosts that route
+unmodified keys globally (canvas shortcuts such as W/A/S/D/Q/E and Space) must
+ask the focused widget first: `ComboBox.acceptsTextKeys()` returns whether
+typing currently belongs to the field. Without that check the global route
+eats the overlay-movement letters before the ComboBox sees them.
+
+`ComboBox` also supports "gear" drag-select: press the field and drag (or hold
+for 450 ms) to open the list and scrub rows under the field; release commits
+the row under the field immediately — there is no settle animation or hold.
 
 `CustomLineEdit` is a painted single-line editor (rendered by the toolkit
 painter pipeline; no stock text widget). Its public surface is the standard
