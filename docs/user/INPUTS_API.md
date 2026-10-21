@@ -28,7 +28,10 @@ widgets. See [BUTTON_API.md](BUTTON_API.md) for `Button` and
   at the end. Pressing the same key again after the timeout advances to the
   next match. Typing only moves the highlight — `currentIndexChanged` is not
   emitted; `Enter` (or a click) commits the highlighted row, `Up`/`Down` walk
-  the highlight, `Backspace` shortens the buffer, closing clears it.
+  the highlight, `Backspace` shortens the buffer. The buffer is time-boxed,
+  not visibility-bound: a transient close mid-typing keeps it (re-opening
+  inside the timeout resumes the query), while `Escape`, an `Enter`/click
+  commit, `clearSearch()` or the timeout itself end the session.
 - **`"filter"`** — legacy: the visible rows narrow to the matches and the first
   match becomes `currentIndex` immediately.
 
