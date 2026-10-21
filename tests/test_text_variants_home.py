@@ -18,7 +18,8 @@ from sli_ui_toolkit.ui.widgets.text.variants import (
     get_text_variant,
     register_text_variant,
 )
-from sli_ui_toolkit.widgets import Label
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
+
 
 
 def test_label_spec_name_is_the_same_class_object():

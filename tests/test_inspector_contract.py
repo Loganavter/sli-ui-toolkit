@@ -86,7 +86,8 @@ def test_from_init_kwargs_reads_attrs_and_marks_private(qapp):
 
 
 def test_from_init_kwargs_skips_bound_methods(qapp):
-    from sli_ui_toolkit.widgets import Label
+    from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
+
 
     label = Label("hello", pixel_size=14)
     fields = {f.name: f for f in from_init_kwargs(label)}

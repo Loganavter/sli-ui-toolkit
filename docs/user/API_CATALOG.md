@@ -17,7 +17,8 @@ Small convenience surface for app bootstrap and commonly used primitives.
 
 Exports:
 
-- `Label`, `LabelConfig`, `LabelVariantSpec`, `register_label_variant`, `get_label_variant`
+- `LabelVariantSpec`, `register_label_variant`, `get_label_variant` (the variant entry + registry;
+  the `Label` widget itself is no longer exported — use `Text(mode="plain")`)
 - `GenericWorker`, `WorkerSignals`
 - `ThemeManager`, `refresh_theme_subtree`, `ThemedContainer`, `ThemedWidget`
 - `TranslationManager`, `ToolkitTranslationEvents`, `Translator`
@@ -285,14 +286,19 @@ constructor/builder API, and `defer_trigger` details:
 
 ### Labels
 
-Unified themed text component (`Label`), typography options, and built-in
-presets: **[LABELS_API.md](LABELS_API.md)**.
+One painted text widget (`Text`), typography options, and built-in presets:
+**[LABELS_API.md](LABELS_API.md)**.
 
 | Widget | Description |
 |--------|-------------|
-| `Label` / `LabelConfig` / `LabelVariantSpec` | Unified themed text label, its config object, and variant registry entry. |
-| `DropZoneLabel` | Label with drag-and-drop zone visuals and file accept logic. |
-| `Text` / `TextConfig` | Painted text display (`mode="plain"` at `Label` parity; `document`/`code` host the painted engine, P2 in progress). See [LABELS_API.md](LABELS_API.md#text-plain-mode). |
+| `Text` / `TextConfig` | The display widget: `mode="plain"` (static text), `mode="document"` (markdown engine), `mode="code"` (editable buffer). See [LABELS_API.md](LABELS_API.md#text-plain-mode). |
+| `LabelVariantSpec` | Preset entry for the variant registry (`register_text_variant` / `get_text_variant`, also re-exported under the old `register_label_variant` / `get_label_variant` names). |
+| `DropZoneLabel` | Drag-and-drop zone visuals with file accept logic (internally a `Label`, kept for that subclass). |
+
+> **`Label` / `LabelConfig` are no longer part of the public surface** (text-unification wave C).
+> The class still exists at `sli_ui_toolkit.ui.widgets.atomic.text_labels.Label` for the three
+> capabilities `Text` does not cover yet (native text-interaction flags, plain-mode rich text with
+> clickable anchors, inline pixmaps); hosts should import `Text` and use `mode="plain"`.
 
 ### Inputs & Other Atomic Controls
 

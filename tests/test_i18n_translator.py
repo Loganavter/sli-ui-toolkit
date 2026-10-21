@@ -26,9 +26,9 @@ from sli_ui_toolkit.widgets import (
     ButtonRow,
     ContextMenu,
     ContextMenuAction,
-    Label,
     Text,
 )
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
 
 
 @pytest.fixture(autouse=True)

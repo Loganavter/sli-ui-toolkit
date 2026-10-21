@@ -15,7 +15,9 @@ from sli_ui_toolkit.ui.widgets.atomic.text_labels import (
     get_label_variant,
     register_label_variant,
 )
-from sli_ui_toolkit.widgets import Label, Text, TextConfig
+from sli_ui_toolkit.widgets import Text, TextConfig
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
+
 from sli_ui_toolkit.ui.widgets.text.variants import (
     get_text_variant,
     register_text_variant,
