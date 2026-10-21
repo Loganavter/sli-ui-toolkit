@@ -18,11 +18,11 @@ from sli_ui_toolkit.widgets import (
     Button,
     ButtonRegion,
     ComboBox,
-    Label,
     ScrollableComboBox,
     Slider,
     Switch,
 )
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
 
 
 def test_spec_of_reads_class_attribute(qapp):

@@ -14,7 +14,8 @@ from sli_ui_toolkit.ui.widgets.atomic.label_context_menu import (
     open_label_context_menu,
     set_label_menu_builder,
 )
-from sli_ui_toolkit.widgets import Label
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
+
 
 
 @pytest.fixture(autouse=True)

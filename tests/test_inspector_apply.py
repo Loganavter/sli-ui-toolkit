@@ -12,7 +12,9 @@ from sli_ui_toolkit.ui.inspector.contract import (
     WidgetInspection,
 )
 from sli_ui_toolkit.ui.inspector.view import InspectorWindow
-from sli_ui_toolkit.widgets import Button, ButtonRegion, Label, Switch
+from sli_ui_toolkit.widgets import Button, ButtonRegion, Switch
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
+
 
 from tests.inspector_helpers import _build_button_inspection, _open_probe, _page_labels, _spin_event_loop
 

@@ -9,12 +9,12 @@ from sli_ui_toolkit.widgets import (
     CheckBox,
     ComboBox,
     CustomLineEdit,
-    Label,
     RadioButton,
     Slider,
     SpinBox,
     Switch,
 )
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
 
 
 @pytest.mark.parametrize(

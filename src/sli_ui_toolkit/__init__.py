@@ -28,8 +28,6 @@ from sli_ui_toolkit.workers.generic_worker import GenericWorker, WorkerSignals
 from sli_ui_toolkit.theme import ThemeManager, refresh_theme_subtree
 from sli_ui_toolkit.widgets import (
     DEFER_CLICK_AWAIT_RIPPLE,
-    Label,
-    LabelConfig,
     LabelVariantSpec,
     ThemedContainer,
     ThemedWidget,
@@ -73,8 +71,6 @@ __all__ = [
     "ThemedContainer",
     "ThemedWidget",
     "refresh_theme_subtree",
-    "Label",
-    "LabelConfig",
     "LabelVariantSpec",
     "get_label_variant",
     "register_label_variant",

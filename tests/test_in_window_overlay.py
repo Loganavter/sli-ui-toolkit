@@ -8,7 +8,9 @@ from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.widgets.overlays.choice_overlay import ChoiceOverlay
-from sli_ui_toolkit.widgets import DragDropOverlay, Label, OverlaySlot, TopLevelInWindowOverlay
+from sli_ui_toolkit.widgets import DragDropOverlay, OverlaySlot, TopLevelInWindowOverlay
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
+
 
 
 def test_top_level_in_window_overlay_hosts_arbitrary_widget(qapp, qtbot):

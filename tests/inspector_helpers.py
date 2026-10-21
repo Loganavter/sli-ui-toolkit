@@ -12,7 +12,9 @@ from sli_ui_toolkit.ui.inspector.contract import (
     WidgetInspection,
 )
 from sli_ui_toolkit.ui.inspector.view import InspectorWindow
-from sli_ui_toolkit.widgets import Button, ButtonRegion, Label, Switch, Text
+from sli_ui_toolkit.widgets import Button, ButtonRegion, Switch, Text
+from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label  # internal: documented Label exception (queue task-text-unification-retirement-2026-10-21)
+
 
 def _page_labels(window: InspectorWindow, section: str) -> list[str]:
     page = window._pages[section]
