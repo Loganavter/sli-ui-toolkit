@@ -1,146 +1,47 @@
-# TextView API
+# TextView API — **removed** (text-unification wave C)
 
-Painted text rendering + editing composite (no stock Qt text widgets): the
-same painted surface is the read view and the editor, so both modes look
-identical by construction. Monospace code mode with Python syntax spans;
-rounded frame overlay and a toolkit scrollbar; the section page itself never
-scrolls.
+`TextView` no longer exists. Nothing in this file is importable: the class and the whole
+`ui/widgets/composite/text_view/` package were deleted once every caller moved to `Text`.
 
-## Quick Start
+## What replaced it
 
-```python
-from sli_ui_toolkit.widgets import TextView
+`TextView` fused two things. Both halves exist, separately:
 
-view = TextView("class Foo:\n    pass\n")
-view.enter_edit_mode()          # the canvas IS the editor
-view.editor().insert_text("x")
-print(view.text())
-view.exit_edit_mode()
-```
-
-The inspector's Code section uses this widget: `TextView(source)` →
-`Edit`/`Revert`/`Save` via `is_editing()` / `enter_edit_mode()` /
-`exit_edit_mode()` / `text()` / the `changed` signal. The section shows
-ONE unified view: the generated **Configuration (live values)** snippet (a
-synthetic constructor call built from `WidgetInspection.config`), the
-widget class source, and the rest of the source file collapsed into
-clickable gap rows (see the inspector docs); the **Full/Compact** toggle
-sits at the top of the section and expands/collapses all gaps at once.
-`set_panel_fill()` gives the surface the app's recent-projects shelf well
-look.
-
-## Line-number gutter
-
-`set_line_number_start(n)` paints a VS Code-style left gutter with
-right-aligned line numbers starting at `n` and a thin separator. Pass the
-class's line in its source file to make the gutter match the actual file;
-`set_line_number_start(None)` (the default) disables the gutter. Code mode
-only — document mode never shows it.
-
-For views with collapsed content (the inspector Code section), the per-line
-gutter text can be overridden:
-
-```python
-view.set_line_number_map({0: "1", 1: "1-151", 2: "152"})  # display line -> label
-view.canvas().line_at(y)   # display line for a widget-space y (click targets)
-```
-
-Lines missing from the map fall back to `start + index`; `None` clears the
-override. `canvas()` returns the painted surface (event filters, hit-test
-math).
-
-## Panel well
-
-`set_panel_fill(color)` paints a rounded "well" behind the text (the
-viewport fill clipped to the frame radius — the recent-projects shelf
-look); `set_panel_fill(None)` restores the page background. The mask
-re-applies on resize.
-
-## Constructor Parameters
-
-```python
-TextView(text: str = "")
-```
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `text` | `str` | `""` | Initial line-based content |
-
-## Document mode (markdown)
-
-```python
-view.set_markdown(md_text, resolve_asset=my_resolver)
-print(view.plain_text())
-view.set_text("back to code\n")
-```
-
-`set_markdown(markdown, *, resolve_asset=None)` switches to a read-only
-document mode: the controlled markdown subset (headings `#`…`######` with
-a strictly decreasing font scale, bold, italic, inline code, links, lists,
-standalone images, `:::figure` fences, ` ```lang` fenced code blocks, and
-GFM-style pipe tables with an optional bold header row — see the
-`markdown.py` module docstring for the exact table syntax)
-is laid out with the help-document engine (`QTextLayout` wrapping, bordered
-tables, images) and painted by the same surface. Fenced code renders
-monospaced
-inside a shaded rounded box (`help.code.background` token) with the fence
-language label in the box header. `resolve_asset(path)` maps image
-paths to `QPixmap`/paths. `is_document()` reports the mode;
-`set_text()` returns to code mode; `plain_text()` is the full plain text
-of either mode.
-
-Document mode interaction: click-drag selects text (offset-based, painted
-with the same selection highlight), double-click selects the word and
-triple-click the whole paragraph/segment (same multi-click chain as code
-mode — both share one selection state machine; inside a fenced code block
-triple-click selects the current line, not the whole fence), Ctrl+A
-selects all, Ctrl+C copies the selection to the clipboard; clicking a link
-emits `linkActivated(href)`; clicking an image emits
-`imageActivated(path)` **and** opens the full-resolution image in the help
-lightbox (zoom/pan via wheel, `+`/`-`, middle-drag; Esc/click dismisses).
-
-## Signals
-
-```python
-changed = Signal()           # emitted after every successful edit
-linkActivated = Signal(str)  # document mode: link clicked (href)
-imageActivated = Signal(str) # document mode: image clicked (source path)
-```
-
-## Methods
-
-| Method | Description |
+| Old | Now |
 |---|---|
-| `text() -> str` | Current content |
-| `set_text(text)` | Replace content; resets cursor and selection |
-| `is_editing() -> bool` | True while in edit mode |
-| `enter_edit_mode() -> TextCanvas` | Switch to editing (nothing is swapped — same painted canvas) |
-| `exit_edit_mode()` | Back to read mode; clears selection |
-| `editor() -> TextCanvas | None` | The editing surface while editing, else None |
-| `changed` | See Signals |
+| the painted buffer (`TextCanvas`) | `Text(..., mode="code")` (editable) / `mode="document"` — [LABELS_API.md](LABELS_API.md) |
+| the scroll host (QScrollArea + toolkit scrollbar + rounded border overlay + optional raised well) | `TextScrollArea(source, mode="code")` from `sli_ui_toolkit.ui.widgets.composite` — it composes one `Text` and forwards `text`/`plain_text`/`set_text`/`set_markdown`/`anchor_y`/`scroll_to_anchor`/`is_editing`/`set_editing`/`enter_edit_mode`/`exit_edit_mode`/`editor`/`canvas`/`set_line_number_start`, re-emitting `changed`/`linkActivated`/`imageActivated` |
 
-`TextCanvas` (also exported) is the painted surface: `insert_text()`,
-keyboard editing (arrows, Home/End, Backspace/Delete, Return, Tab → 4
-spaces, Ctrl+C/V/X/Z), mouse cursor placement and drag selection, undo
-stack (100 snapshots).
+`Text.canvas()` returns the hosted engine surface (the same object `TextView.canvas()` returned) for
+chrome a host owns around a code buffer: the line-number map, collapsed fold rows, y→line hit-testing
+and event filters. Typography, selection and edit state stay on `Text`.
 
-## Python highlighting
+## Migration
 
-`python_line_spans(line)` tokenizes one line into
-`(start, end, kind)` spans — kinds: `comment`, `string`, `decorator`,
-`keyword`, `builtin`, `number`, `defclass`. Triple-quoted strings are
-handled line-by-line. `python_span_colors(theme_manager)` returns the
-theme-aware palette (keywords use the `accent` token).
+```python
+# before
+view = TextView(code, line_number_start=1)
+view.enter_edit_mode()
 
-## Notes
+# after
+view = TextScrollArea(code, mode="code", editable=True)
+view.set_editing(True)          # enter_edit_mode()/exit_edit_mode() are kept as host spellings
+```
 
-- The rounded frame is a painted overlay; `separator.color` token, no QSS.
-- The scrollbar is the toolkit `MinimalistScrollBar`, inside the frame.
-- The Tab key is intercepted before Qt focus traversal so it indents.
-- The view fills whatever space its layout gives it: the canvas is resized
-  to the viewport (`widgetResizable`) and its content height is a minimum
-  — a short document leaves the canvas stretched to the view, a long one
-  scrolls internally. There is no fixed content-derived size.
-- Document mode (markdown blocks, images) is planned — see the
-  implementation plan (kept private in the `improve-imgsli-internal-docs`
-  repo, `sli-ui-toolkit/docs/dev/TEXT_VIEW_PLAN.md`).
+- `TextView.set_document(md)` → `Text(md, mode="document")` — **the mode is fixed at construction**
+  (there is no in-place document↔code switch any more).
+- `TextView.is_document()` → `mode() == "document"` (the host keeps `is_document()` as a forwarder).
+- `scroll_to_anchor()` returns **`int | None`** (the y a host scrolls to), not a marker widget.
+- Help pages: `HelpDocumentView(md)` → `Text(md, mode="document")` + host-owned TOC list / image
+  lightbox / search box (`Text` emits `linkActivated` and `imageActivated`).
+
+## Where the docs live now
+
+- [LABELS_API.md](LABELS_API.md) — `Text`, its modes, typography, selection, edit state.
+- [API_CATALOG.md](API_CATALOG.md) — the full public surface, including `TextScrollArea`.
+- [../dev/TEXT_UNIFICATION.md](../dev/TEXT_UNIFICATION.md) — the plan and the decided divergences.
+- `CHANGELOG.md` (`### Removed`) — the exact deletion record and the per-test ledger.
+
+This stub exists so links from older notes and host documentation land on the migration instead of a
+404. Do not re-add a compatibility package: `tests/test_text_engine_motion.py` has an import gate that
+fails if `composite/text_view` or `composite/help_document` ever comes back.
