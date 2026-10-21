@@ -30,6 +30,39 @@ if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widgets.comboboxes.combo_box import ComboBox
 
 
+#: Text this module itself wrote as a tooltip. Kept on the widget so a tooltip
+#: set by the HOST is never mistaken for an automatic one (see
+#: ``apply_elided_tooltip``); shared by the dropdown rows and the ComboBox
+#: field because both follow the same rule.
+_AUTO_TOOLTIP_ATTR = "_auto_elided_tooltip"
+
+
+def apply_elided_tooltip(widget: QWidget, text: str, available_width: int) -> None:
+    """Give ``widget`` ``text`` as a tooltip iff its painted label elides.
+
+    The caller passes the same ``text``, font (``paint_font``) and text-rect
+    width its paint layer uses, so the tooltip appears exactly when an
+    ellipsis does and is cleared as soon as the whole text fits again — a
+    short label must behave exactly as before.
+
+    Explicit wins: a tooltip this helper did not write (the host's own, e.g.
+    ``combo.setToolTip(...)``) is left untouched in both directions. Never
+    raises — a zero/negative width simply clears the automatic tooltip.
+    """
+    written = getattr(widget, _AUTO_TOOLTIP_ATTR, "")
+    current = widget.toolTip()
+    if current and current != written:
+        return
+    desired = ""
+    if text and available_width > 0:
+        fm = QFontMetrics(paint_font(widget))
+        if fm.elidedText(text, Qt.TextElideMode.ElideRight, available_width) != text:
+            desired = text
+    if current != desired:
+        widget.setToolTip(desired)
+    setattr(widget, _AUTO_TOOLTIP_ATTR, desired)
+
+
 class _SlotBgLayer(Layer):
     """Прозрачный фон, list_item.background.hover на hover/pressed.
 
@@ -170,7 +203,20 @@ class _DropdownItemSlot(Button):
         self._text = text
         self._item_index = item_index
         self._is_gear_focus = is_gear_focus
+        self._sync_elided_tooltip()
         self.update()
+
+    def _sync_elided_tooltip(self) -> None:
+        """Row tooltip = the item's full text while the painted label elides.
+
+        Same font and text rect as ``_SlotContentLayer.draw`` — the tooltip
+        must appear exactly when that layer draws an ellipsis. Borders the
+        pooled-slot staleness case: a slot rebound from a long item to a
+        short one clears the tooltip (``apply_elided_tooltip`` tracks what it
+        wrote itself).
+        """
+        available = self.width() - 2 * scaled_px(self._text_padding)
+        apply_elided_tooltip(self, self._text, available)
 
     def hoverHitTest(self, pos) -> bool:
         # While the mouse is grabbed for a gear-drag, hover here comes only
@@ -360,6 +406,13 @@ class _DropdownOverlay(BaseFlyout):
             start, end, self._bind_slot,
             row_height=item_h, scroll_offset=scroll_px,
         )
+        # Rebinding runs BEFORE the pool assigns each row its geometry, so a
+        # freshly created (0 px wide) slot or one resized by this pass would
+        # decide its tooltip from a stale width. Re-evaluate once every row
+        # in the window has its final size.
+        for slot in self._slots:
+            if slot.isVisible():
+                slot._sync_elided_tooltip()
 
     def _update_gear_frame(self) -> None:
         """Position the fixed outline over the field's real screen rect.

@@ -25,7 +25,10 @@ from sli_ui_toolkit.ui.widgets.comboboxes._layers import (
     _ComboFieldContentLayer,
 )
 from sli_ui_toolkit.ui.widgets.comboboxes._models import _ComboItem
-from sli_ui_toolkit.ui.widgets.comboboxes._overlay import _DropdownOverlay
+from sli_ui_toolkit.ui.widgets.comboboxes._overlay import (
+    _DropdownOverlay,
+    apply_elided_tooltip,
+)
 from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     match_score,
     normalize_for_search,
@@ -120,6 +123,7 @@ class ComboBox(Button):
         connect_ui_metrics(
             self, self.on_scale_changed, axes=frozenset({AXIS_FONT, AXIS_SCALE})
         )
+        self._sync_field_tooltip()
 
     def on_scale_changed(self, *_args: object) -> None:
         # ``Button.on_scale_changed`` re-derives from the live ``UiScale`` and
@@ -128,6 +132,7 @@ class ComboBox(Button):
         super().on_scale_changed(1.0)
         self._gear.drag_threshold_px = scaled_px(self.GEAR_DRAG_THRESHOLD_PX)
         self.updateGeometry()
+        self._sync_field_tooltip()
         self.update()
 
     def _item_height(self) -> int:
@@ -135,6 +140,30 @@ class ComboBox(Button):
             scaled_px(28),
             QFontMetrics(paint_font(self)).height()
             + scaled_px(self.ITEM_VERTICAL_PADDING),
+        )
+
+    def _field_display_text(self) -> str:
+        """Exactly what ``_ComboFieldContentLayer`` paints in the field."""
+        current_text = self.currentText()
+        if not current_text:
+            return ""
+        if self._search_text and self._expanded:
+            return f"{self._search_text} -> {current_text}"
+        return current_text
+
+    def _sync_field_tooltip(self) -> None:
+        """Field tooltip = the full painted value while the label elides.
+
+        Same font and text rect as ``_ComboFieldContentLayer.draw``. Every
+        path that can change the painted string or the field width calls
+        this explicitly: the field commits its own text through these public
+        mutators, and deciding a tooltip from inside a paint layer would make
+        painting mutate widget state.
+        """
+        apply_elided_tooltip(
+            self,
+            self._field_display_text(),
+            self.width() - 2 * scaled_px(self.TEXT_HORIZONTAL_PADDING),
         )
 
     @property
@@ -195,6 +224,7 @@ class ComboBox(Button):
         if self._current_index == -1:
             self._current_index = 0
         self._invalidate_visible_cache()
+        self._sync_field_tooltip()
         self.update()
 
     def addItems(self, texts: list[str] | tuple[str, ...]):
@@ -209,6 +239,7 @@ class ComboBox(Button):
         elif index <= self._current_index:
             self._current_index += 1
         self._invalidate_visible_cache()
+        self._sync_field_tooltip()
         self.update()
 
     def removeItem(self, index: int):
@@ -223,6 +254,7 @@ class ComboBox(Button):
             self._current_index -= 1
         self._invalidate_visible_cache()
         self._scroll_offset = max(0, min(self._scroll_offset, max(0, self.count() - self._max_visible_items)))
+        self._sync_field_tooltip()
         self.update()
 
     def clear(self):
@@ -232,6 +264,7 @@ class ComboBox(Button):
         self._scroll_offset = 0
         self._search_text = ""
         self._invalidate_visible_cache()
+        self._sync_field_tooltip()
         self.update()
 
     def currentIndex(self) -> int:
@@ -314,6 +347,7 @@ class ComboBox(Button):
             self._ensure_current_visible()
             self._overlay._sync_scrollbar()
             self._overlay.update()
+        self._sync_field_tooltip()
         self.update()
 
     def _set_search_text(self, text: str) -> None:
@@ -332,6 +366,7 @@ class ComboBox(Button):
             self._ensure_current_visible()
             self._overlay._sync_scrollbar()
             self._overlay.update()
+        self._sync_field_tooltip()
         self.update()
 
     def _move_visible_selection(self, step: int) -> bool:
@@ -358,6 +393,7 @@ class ComboBox(Button):
         self._items[index].text = str(text)
         self._items[index].normalized_text = normalize_for_search(text)
         self._invalidate_visible_cache()
+        self._sync_field_tooltip()
         self.update()
 
     def setItemData(self, index: int, data: Any):
@@ -380,6 +416,7 @@ class ComboBox(Button):
             return
         self._current_index = index
         self._ensure_current_visible()
+        self._sync_field_tooltip()
         self.update()
         if self._expanded and self._overlay is not None:
             self._overlay._sync_scrollbar()
@@ -424,6 +461,13 @@ class ComboBox(Button):
     def _field_rect(self) -> QRect:
         return QRect(0, 0, self.width(), scaled_px(self.BASE_HEIGHT))
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # A pure geometry change only repaints the elided label; it reaches no
+        # state hook, so without this the tooltip would keep a decision made
+        # at the previous width until the next value change.
+        self._sync_field_tooltip()
+
     def _ensure_overlay(self):
         window = self.window()
         if window is None:
@@ -452,6 +496,7 @@ class ComboBox(Button):
         self._expanded = True
         self._pressed = False
         self._ensure_current_visible()
+        self._sync_field_tooltip()
         self._overlay.show_for_owner()
         self.update()
         app = QApplication.instance()
@@ -481,6 +526,7 @@ class ComboBox(Button):
         self._pressed = False
         self._dropdown_focus_index = None
         self.clearSearch()
+        self._sync_field_tooltip()
         self.update()
         app = QApplication.instance()
         if app is not None:
