@@ -52,7 +52,23 @@ def test_a_switch_created_on_is_still_on_in_its_first_frame(qtbot):
     assert switch._progress == 1.0, "the first painted frame must already be 'on'"
 
 
-def test_a_visible_switch_still_animates(qtbot):
+def test_a_visible_switch_animates_on_a_user_gesture(qtbot):
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    switch = Switch()
+    layout.addWidget(switch)
+    qtbot.addWidget(host)
+    host.show()
+    qtbot.waitExposed(host)
+
+    qtbot.mouseClick(switch, Qt.MouseButton.LeftButton, pos=switch.rect().center())
+
+    assert _animation_running(switch._anim), "a click must keep its motion"
+    qtbot.waitUntil(lambda: switch._progress == 1.0, timeout=1000)
+
+
+def test_a_programmatic_state_on_a_visible_switch_does_not_animate(qtbot):
+    """Restoring a saved value is not a gesture (owner report 2026-10-22)."""
     host = QWidget()
     layout = QVBoxLayout(host)
     switch = Switch()
@@ -63,8 +79,8 @@ def test_a_visible_switch_still_animates(qtbot):
 
     switch.setChecked(True)
 
-    assert _animation_running(switch._anim), "a visible toggle must keep its motion"
-    qtbot.waitUntil(lambda: switch._progress == 1.0, timeout=1000)
+    assert switch._progress == 1.0, "a restored 'on' must paint on immediately"
+    assert not _animation_running(switch._anim)
 
 
 def test_a_hidden_switch_snaps_instead_of_animating(qtbot):
@@ -98,7 +114,22 @@ def test_a_checkbox_created_on_is_on_before_it_is_shown(qtbot):
     assert not _animation_running(checkbox._checked_anim)
 
 
-def test_a_visible_checkbox_still_animates(qtbot):
+def test_a_visible_checkbox_animates_on_a_user_gesture(qtbot):
+    host = QWidget()
+    layout = QVBoxLayout(host)
+    checkbox = CheckBox("text")
+    layout.addWidget(checkbox)
+    qtbot.addWidget(host)
+    host.show()
+    qtbot.waitExposed(host)
+
+    qtbot.mouseClick(checkbox, Qt.MouseButton.LeftButton, pos=checkbox.rect().center())
+
+    assert _animation_running(checkbox._checked_anim), "a click must keep its motion"
+    qtbot.waitUntil(lambda: checkbox._checked_progress == 1.0, timeout=1000)
+
+
+def test_a_programmatic_state_on_a_visible_checkbox_does_not_animate(qtbot):
     host = QWidget()
     layout = QVBoxLayout(host)
     checkbox = CheckBox("text")
@@ -109,8 +140,8 @@ def test_a_visible_checkbox_still_animates(qtbot):
 
     checkbox.setChecked(True)
 
-    assert _animation_running(checkbox._checked_anim), "a visible checkbox must keep its motion"
-    qtbot.waitUntil(lambda: checkbox._checked_progress == 1.0, timeout=1000)
+    assert checkbox._checked_progress == 1.0, "a restored 'checked' must paint immediately"
+    assert not _animation_running(checkbox._checked_anim)
 
 
 def test_a_toggle_can_be_created_on_and_still_toggles_by_click(qtbot):

@@ -196,6 +196,11 @@ class CheckBox(Button):
         )
         self._hover_progress = 0.0
         self._checked_progress = 1.0 if self.isChecked() else 0.0
+        #: True only while a user gesture (click / key) is flipping the state.
+        #: A programmatic ``setChecked`` must snap: restoring a saved value is
+        #: not a gesture, and animating it made a remembered "checked" paint as
+        #: unchecked for the first frames (owner report 2026-10-22).
+        self._user_toggle = False
 
         self._hover_anim = QPropertyAnimation(self, b"hoverProgress", self)
         self._hover_anim.setDuration(120)
@@ -252,7 +257,7 @@ class CheckBox(Button):
     def _animate_checked(self, checked: bool) -> None:
         target = 1.0 if checked else 0.0
         self._checked_anim.stop()
-        if not self.isVisible():
+        if not (self._user_toggle and self.isVisible()):
             # Same rule as Switch: a checkbox configured before it is shown must
             # paint its indicator already checked, not animate from 0.0 on the
             # first frames (owner report 2026-10-22).
@@ -261,6 +266,20 @@ class CheckBox(Button):
         self._checked_anim.setStartValue(self._checked_progress)
         self._checked_anim.setEndValue(target)
         self._checked_anim.start()
+
+    def mouseReleaseEvent(self, event):  # noqa: N802
+        self._user_toggle = True
+        try:
+            super().mouseReleaseEvent(event)
+        finally:
+            self._user_toggle = False
+
+    def keyPressEvent(self, event):  # noqa: N802
+        self._user_toggle = True
+        try:
+            super().keyPressEvent(event)
+        finally:
+            self._user_toggle = False
 
     def _indicator_rect(self, full_rect: QRectF) -> QRectF:
         pad_h = scaled_px(self.PADDING_H)
