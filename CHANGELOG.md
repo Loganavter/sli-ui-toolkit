@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 4.0.0
+
+First public 4.x release: the line was developed under internal `4.0`–`4.2`
+version stamps that were never published (PyPI/GitHub tags stop at `3.1.11`),
+so this section carries the whole accumulated range as one release. It is
+**breaking** — `TextView`, `HelpDocumentView` and the exported `Label`/
+`LabelConfig` are gone; see `Removed` below for the per-class migration.
 
 ### Fixed
 
@@ -1701,6 +1707,35 @@ shelves use it; `paint_marquee_band`/`marquee_dirty_rect` unchanged underneath.
 ### Fixed
 
 - **Timeline sticky gutter no longer slides a frame behind on scroll sets** — the gutter is painted in content coords at `gx=scroll_offset` while every horizontal `setValue` moves the content widget window synchronously (Qt `scrollContentsBy`) and all correction paints were async `update()`. `_flush_wheel_zoom` now issues one synchronous band-only `repaint()` (`[scroll, scroll+LEFT_GUTTER+2] x [0, footer_top]` via the new `gutter_band_rect_for_scroll(widget, scroll)` helper in `timeline_widget/widget.py`) right after the programmatic scrollbar set, and `_on_host_scroll`'s scroll-changed path unions the same band into the damage for signals-live paths. Budget unchanged (one commit + one sync band repaint per coalesced window), emit contract / `fit_view` / strip layout untouched.
+
+## 3.1.11
+
+### Fixed
+- Headless-CI double-click test coordinates were flaky; the probe now hits the widget's real centre instead of a display-dependent offset.
+
+## 3.1.10
+
+### Fixed
+- `Button.sizeHint()` forwarding after the MRO change (the custom button lost its content-derived size hint).
+- PySide6 multiple-inheritance memory corruption that could crash a dangling-widget test.
+
+## 3.1.9
+
+### Fixed
+- Qt 6 `setFontFamily` deprecation warning.
+- Windows QPainter access violations in the underline painter: `QPen` is out of the paint path (`fillPath`/`fillRect` instead).
+- Crashing tapered arc: the manual segment loop was replaced with a `QLinearGradient` arc so the pen/brush cannot be GC'd mid-paint.
+- `paintEvent` save/restore is now wrapped defensively in `Button` and `CustomLineEdit`.
+
+## 3.1.8
+
+### Fixed
+- `QPen` GC access violation in `draw_bottom_underline`: the painter state is saved/restored around the call.
+
+## 3.1.7
+
+### Fixed
+- Windows QPainter access violation in `Button.paintEvent`.
 
 ## 3.1.6-1.1.11
 
