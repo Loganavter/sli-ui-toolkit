@@ -33,12 +33,20 @@ def calculate_centered_overlay_geometry(
     row_height: int,
     scrollable: bool,
 ) -> QRect:
+    """Place an overlay so ``visible_index``'s row sits exactly under the anchor.
+
+    Both the fitted and the scrollable case align the ROW, never the list's
+    centre: with an even number of visible rows a centred list puts the
+    anchor's centre on a row boundary, leaving the selected row half a row
+    off (owner report 2026-10-22). ``scrollable`` is kept in the signature for
+    callers that pass their own scroll state; both branches share the
+    alignment formula.
+    """
     outer_width = content_size.width() + shadow_radius * 2
     outer_height = content_size.height() + shadow_radius * 2
 
     combo_rect = anchor_widget.rect()
     field_top_global = anchor_widget.mapToGlobal(combo_rect.topLeft()).y()
-    anchor_center = anchor_widget.mapToGlobal(combo_rect.center())
     owner_top_left_global = anchor_widget.mapToGlobal(combo_rect.topLeft())
     window_top_left_global = owner_window.mapToGlobal(QPoint(0, 0))
     window_global_rect = QRect(window_top_left_global, owner_window.size())
@@ -48,23 +56,21 @@ def calculate_centered_overlay_geometry(
     if visible_index < 0:
         visible_index = 0
 
-    if scrollable:
-        ideal_y_global = round(anchor_center.y() - outer_height / 2)
-    else:
-        # Anchor the anchored row to the field's top edge, NOT its center:
-        # the gear-drag frame (``_GearFrame``) positions itself with the
-        # same ``centered_inner_offset`` from the field top. Center-anchoring
-        # with the popup's own rounding (which can agree or disagree with
-        # the frame's on half-pixel remainders depending on field/row height
-        # parity) left the row poking a full pixel out of the frame at odd
-        # scale factors.
-        selected_item_offset_y = visible_index * row_height
-        ideal_y_global = (
-            field_top_global
-            + centered_inner_offset(combo_rect.height(), row_height)
-            - selected_item_offset_y
-            - shadow_radius
-        )
+    # Anchor the selected ROW, never the list's centre — for both overflow and
+    # fitted lists. Centring the outer box on the field puts the field's centre
+    # on a row BOUNDARY whenever the visible window has an even number of rows
+    # (12 visible -> the field sits between rows 5 and 6), so the selected row
+    # reads as half a row off and the user has to nudge the list up by half a
+    # row (owner report 2026-10-22). Aligning the row top to the field's inner
+    # top is exact for every parity and every scale factor, and it matches the
+    # gear-drag frame (``_GearFrame`` uses the same ``centered_inner_offset``).
+    selected_item_offset_y = visible_index * row_height
+    ideal_y_global = (
+        field_top_global
+        + centered_inner_offset(combo_rect.height(), row_height)
+        - selected_item_offset_y
+        - shadow_radius
+    )
 
     ideal_x_global = int(owner_top_left_global.x() - shadow_radius)
 
