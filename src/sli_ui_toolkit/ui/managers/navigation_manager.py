@@ -1134,6 +1134,18 @@ class NavigationManager(QObject):
             self._last_keyboard_focus = None
             return False  # never consume MouseButtonPress
 
+        if event.type() == QEvent.Type.Shortcut:
+            # A shortcut activation is keyboard input by definition, but it
+            # never reaches the KeyPress branch below: QShortcutMap resolves
+            # the chord inside QApplication::notify's prologue, so only the
+            # resulting QShortcutEvent is delivered. Without this, a surface
+            # opened by a chord inherits the PREVIOUS device (measured
+            # 2026-10-22: mouse click → ctrl+F1 left the flag False and the
+            # opened Help window came up without a ring, while the same window
+            # opened from the menu carried one it should not have).
+            self._last_input_keyboard = True
+            return False
+
         if event.type() != QEvent.Type.KeyPress:
             return False
 
