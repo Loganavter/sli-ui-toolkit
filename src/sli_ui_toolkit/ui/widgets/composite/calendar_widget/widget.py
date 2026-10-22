@@ -112,13 +112,13 @@ class CalendarWidget(QWidget):
         self._weekday_labels_widgets: list[QLabel] = []
 
         self._weekday_names = weekday_labels or [
-            tr("weekday_mon", default="Mon"),
-            tr("weekday_tue", default="Tue"),
-            tr("weekday_wed", default="Wed"),
-            tr("weekday_thu", default="Thu"),
-            tr("weekday_fri", default="Fri"),
-            tr("weekday_sat", default="Sat"),
-            tr("weekday_sun", default="Sun"),
+            tr("common.calendar.weekday.mon", default="Mon"),
+            tr("common.calendar.weekday.tue", default="Tue"),
+            tr("common.calendar.weekday.wed", default="Wed"),
+            tr("common.calendar.weekday.thu", default="Thu"),
+            tr("common.calendar.weekday.fri", default="Fri"),
+            tr("common.calendar.weekday.sat", default="Sat"),
+            tr("common.calendar.weekday.sun", default="Sun"),
         ]
 
         self._last_vm: CalendarViewModel | None = None
