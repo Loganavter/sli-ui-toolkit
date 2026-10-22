@@ -90,12 +90,21 @@ def _overflow_combo(qtbot, current: int = 20, max_visible: int = 5):
     return combo
 
 
-def _row_holds_field_centre(combo: ComboBox, index: int) -> bool:
+def _row_is_aligned_to_the_field(combo: ComboBox, index: int) -> bool:
+    """Exact row alignment: the row's top == the field's inner top.
+
+    No half-row slack: an even visible window must not put the field's centre
+    on a row boundary (owner report 2026-10-22 — the selected row looked half a
+    row off and needed a 0.5-row nudge).
+    """
+    from sli_ui_toolkit.ui.widgets.helpers import centered_inner_offset
+
     row = combo.dropdown_row_widget(index)
     assert row is not None, f"row {index} is not in the visible window"
     row_top = row.mapToGlobal(row.rect().topLeft()).y()
-    field_centre = combo.mapToGlobal(combo.rect().center()).y()
-    return row_top <= field_centre <= row_top + row.height()
+    field_top = combo.mapToGlobal(combo.rect().topLeft()).y()
+    inner_top = field_top + centered_inner_offset(combo.rect().height(), combo._item_height())
+    return row_top == inner_top
 
 
 def test_overflow_open_puts_the_current_row_under_the_field(qtbot):
@@ -103,7 +112,7 @@ def test_overflow_open_puts_the_current_row_under_the_field(qtbot):
 
     combo.showDropdown()
 
-    assert _row_holds_field_centre(combo, 20)
+    assert _row_is_aligned_to_the_field(combo, 20)
 
 
 def test_overflow_open_puts_the_revealed_row_under_the_field(qtbot):
@@ -114,7 +123,7 @@ def test_overflow_open_puts_the_revealed_row_under_the_field(qtbot):
     combo.showDropdown(focus_index=35)
 
     assert combo.currentIndex() == 20  # reveal does not change the value
-    assert _row_holds_field_centre(combo, 35)
+    assert _row_is_aligned_to_the_field(combo, 35)
 
 
 def test_a_revealed_row_above_the_current_one_is_centred_too(qtbot):
@@ -122,4 +131,43 @@ def test_a_revealed_row_above_the_current_one_is_centred_too(qtbot):
 
     combo.showDropdown(focus_index=3)
 
-    assert _row_holds_field_centre(combo, 3)
+    assert _row_is_aligned_to_the_field(combo, 3)
+
+def test_an_even_visible_window_aligns_the_row_exactly(qtbot):
+    """12 visible rows: centring the list would split the field between rows."""
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(800, 900)
+    combo = ComboBox(parent=host)
+    combo.addItems(OVERFLOW_ITEMS)
+    combo.setMaxVisibleItems(12)
+    combo.setCurrentIndex(20)
+    combo.move(40, 400)
+    combo._test_host = host
+    host.show()
+    qtbot.waitExposed(host)
+
+    combo.showDropdown()
+
+    assert _row_is_aligned_to_the_field(combo, 20)
+
+
+def test_an_odd_visible_window_aligns_the_row_exactly(  # parity pair
+    qtbot,
+):
+    host = QWidget()
+    qtbot.addWidget(host)
+    host.resize(800, 900)
+    combo = ComboBox(parent=host)
+    combo.addItems(OVERFLOW_ITEMS)
+    combo.setMaxVisibleItems(5)
+    combo.setCurrentIndex(20)
+    combo.move(40, 400)
+    combo._test_host = host
+    host.show()
+    qtbot.waitExposed(host)
+
+    combo.showDropdown()
+
+    assert _row_is_aligned_to_the_field(combo, 20)
+

@@ -29,11 +29,18 @@ def _make_combo(host, qtbot):
     return combo
 
 
-def _event(typ, pos, buttons):
+def _event(typ, pos, buttons, *, global_pos=None):
+    """Local + REAL global position.
+
+    The overlay forwards to the scrollbar through ``mapFromGlobal``, so a
+    synthetic event whose globalPos is a copy of the local point makes the
+    routing depend on where the popup happens to sit on screen (it broke when
+    the opened list moved by half a row, 2026-10-22). Pass the true global.
+    """
     return QMouseEvent(
         typ,
         QPointF(pos),
-        pos,
+        QPointF(global_pos if global_pos is not None else pos),
         Qt.MouseButton.LeftButton,
         buttons,
         Qt.KeyboardModifier.NoModifier,
@@ -58,7 +65,12 @@ def test_dropdown_scrollbar_drag_after_boundary_press_tracks_cursor(qtbot):
     press_global = sb.mapToGlobal(QPoint(0, sb.height() // 2))
     press_pos = overlay.mapFromGlobal(press_global)
     overlay.mousePressEvent(
-        _event(QMouseEvent.Type.MouseButtonPress, press_pos, Qt.MouseButton.LeftButton)
+        _event(
+            QMouseEvent.Type.MouseButtonPress,
+            press_pos,
+            Qt.MouseButton.LeftButton,
+            global_pos=press_global,
+        )
     )
     assert sb._is_dragging is True
     assert overlay._sb_dragging is True
@@ -67,7 +79,12 @@ def test_dropdown_scrollbar_drag_after_boundary_press_tracks_cursor(qtbot):
     # Drag far outside the scrollbar column — the value must keep tracking.
     far_global = sb.mapToGlobal(QPoint(0, sb.height() // 2)) + QPoint(-100, 60)
     overlay.mouseMoveEvent(
-        _event(QMouseEvent.Type.MouseMove, overlay.mapFromGlobal(far_global), Qt.MouseButton.LeftButton)
+        _event(
+            QMouseEvent.Type.MouseMove,
+            overlay.mapFromGlobal(far_global),
+            Qt.MouseButton.LeftButton,
+            global_pos=far_global,
+        )
     )
     assert sb.value() != value_after_press
 
@@ -77,6 +94,7 @@ def test_dropdown_scrollbar_drag_after_boundary_press_tracks_cursor(qtbot):
             QMouseEvent.Type.MouseButtonRelease,
             overlay.mapFromGlobal(far_global),
             Qt.MouseButton.NoButton,
+            global_pos=far_global,
         )
     )
     assert sb._is_dragging is False
