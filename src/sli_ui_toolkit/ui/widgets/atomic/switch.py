@@ -108,11 +108,30 @@ class Switch(QWidget):
         return self._checked
 
     def setChecked(self, checked: bool):  # noqa: N802
+        """Set the state PROGRAMMATICALLY: the knob snaps, it never animates.
+
+        Restoring a saved value (the font flyout re-applies its settings on every
+        open) must not look like the user flipping the switch: the animation made
+        a remembered "on" paint as off for the first frames and slide on
+        (owner report 2026-10-22). Only a user gesture animates - see
+        :meth:`toggle`.
+        """
+        self._set_checked_state(checked, animate=False)
+
+    def toggle(self) -> None:
+        """Flip the state as a USER gesture (click / key): animate when seen."""
+        self._set_checked_state(not self._checked, animate=True)
+
+    def _set_checked_state(self, checked: bool, *, animate: bool) -> None:
         checked = bool(checked)
         if self._checked == checked:
             return
         self._checked = checked
-        self._animate_to_state(checked)
+        if animate:
+            self._animate_to_state(checked)
+        else:
+            self._anim.stop()
+            self.set_progress(1.0 if checked else 0.0)
 
         if checked and self._hover > 0.01:
             self._hover_active = False
@@ -192,14 +211,14 @@ class Switch(QWidget):
 
     def mouseReleaseEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(e.pos()):
-            self.setChecked(not self._checked)
+            self.toggle()
             e.accept()
         else:
             super().mouseReleaseEvent(e)
 
     def keyPressEvent(self, e):
         if e.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.setChecked(not self._checked)
+            self.toggle()
             e.accept()
             return
         super().keyPressEvent(e)
@@ -342,6 +361,13 @@ class Switch(QWidget):
     def _animate_to_state(self, checked: bool):
         target = 1.0 if checked else 0.0
         self._anim.stop()
+        if not self.isVisible():
+            # Nothing to animate before the first show (or while the panel is
+            # closed): starting from the current 0.0 painted an OFF first frame
+            # and slid the knob on afterwards (owner report 2026-10-22: a
+            # toggle created already-on must be on in its first frame).
+            self.set_progress(target)
+            return
         self._anim.setStartValue(self._progress)
         self._anim.setEndValue(target)
         self._anim.start()
