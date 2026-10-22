@@ -342,6 +342,13 @@ class Switch(QWidget):
     def _animate_to_state(self, checked: bool):
         target = 1.0 if checked else 0.0
         self._anim.stop()
+        if not self.isVisible():
+            # Nothing to animate before the first show (or while the panel is
+            # closed): starting from the current 0.0 painted an OFF first frame
+            # and slid the knob on afterwards (owner report 2026-10-22: a
+            # toggle created already-on must be on in its first frame).
+            self.set_progress(target)
+            return
         self._anim.setStartValue(self._progress)
         self._anim.setEndValue(target)
         self._anim.start()
