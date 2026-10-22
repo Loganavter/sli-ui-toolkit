@@ -10,6 +10,7 @@ Painter ничего не знает о конкретных типах — вы
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -34,6 +35,33 @@ from .state import ButtonState
 
 ImageFill = Literal["cover", "contain", "stretch"]
 _IMAGE_FILLS = frozenset({"cover", "contain", "stretch"})
+
+#: Last-used scaled covers, keyed by (source identity, target size, fill).
+#: ``QPixmap.scaled(SmoothTransformation)`` ran on EVERY paint — for a gallery
+#: card that is a 1440x1080 -> 250x170 smooth resample per repaint, and the
+#: activity pulse/fades repaint the same pixmap at the same size many times a
+#: second (measured 2026-10-22: it dominated the card paint). The key carries
+#: ``QPixmap.cacheKey()`` (changes when the source changes) and the device pixel
+#: ratio (a screen move re-renders at the new DPR), so a stale size can never be
+#: served. Small LRU: one entry per visible card plus a few offscreen ones.
+_SCALED_CACHE: "OrderedDict[tuple, QPixmap]" = OrderedDict()
+_SCALED_CACHE_MAX = 96
+
+
+def _cache_scaled(key: tuple, build) -> QPixmap:
+    cached = _SCALED_CACHE.get(key)
+    if cached is not None:
+        _SCALED_CACHE.move_to_end(key)
+        return cached
+    value = build()
+    try:
+        if not value.isNull():
+            _SCALED_CACHE[key] = value
+            while len(_SCALED_CACHE) > _SCALED_CACHE_MAX:
+                _SCALED_CACHE.popitem(last=False)
+    except Exception:
+        return value
+    return value
 
 
 def wrapped_line_count(font: QFont, text: str, max_width: int) -> int:
@@ -98,22 +126,35 @@ def _scaled_pixmap_rect(
     sw = max(1, source.width())
     sh = max(1, source.height())
     mode = normalize_image_fill(fill)
+    # One cache key per (source, target box, fill, dpr): the scaled result is a
+    # pure function of those, and the paint path may run it many times a second.
+    try:
+        dpr = float(source.devicePixelRatio() or 1.0)
+    except Exception:
+        dpr = 1.0
+    key = (source.cacheKey(), tw, th, mode, dpr)
 
     if mode == "stretch":
-        scaled = source.scaled(
-            tw,
-            th,
-            Qt.AspectRatioMode.IgnoreAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+        scaled = _cache_scaled(
+            key,
+            lambda: source.scaled(
+                tw,
+                th,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ),
         )
         return scaled, QRect(target.x(), target.y(), tw, th)
 
     if mode == "contain":
-        scaled = source.scaled(
-            tw,
-            th,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+        scaled = _cache_scaled(
+            key,
+            lambda: source.scaled(
+                tw,
+                th,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ),
         )
         x = target.x() + (tw - scaled.width()) // 2
         y = target.y() + (th - scaled.height()) // 2
@@ -123,11 +164,14 @@ def _scaled_pixmap_rect(
     scale = max(tw / sw, th / sh)
     nw = max(1, int(round(sw * scale)))
     nh = max(1, int(round(sh * scale)))
-    scaled = source.scaled(
-        nw,
-        nh,
-        Qt.AspectRatioMode.IgnoreAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
+    scaled = _cache_scaled(
+        key,
+        lambda: source.scaled(
+            nw,
+            nh,
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        ),
     )
     x = target.x() + (tw - scaled.width()) // 2
     y = target.y() + (th - scaled.height()) // 2
