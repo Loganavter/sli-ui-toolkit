@@ -140,3 +140,38 @@ def test_pixmap_content_clips_to_corner_radii(qapp):
     assert not (corner.red() > 240 and corner.green() < 40 and corner.blue() < 40)
     center = image.pixelColor(40, 24)
     assert center.red() > 200 and center.green() < 40
+
+
+# -- the scaled-cover cache (2026-10-22): the paint path must not re-resample --
+
+def test_the_scaled_cover_is_cached_and_reused(qapp):
+    """Same source + same target box => the SAME scaled pixmap (no re-resample).
+
+    Measured motivation: a gallery card repaints several times a second while
+    its activity pill animates, and every paint ran a smooth 1440x1080->250x170
+    resample. The cache key is (source cacheKey, box, fill, dpr), so a repaint
+    is a dict hit.
+    """
+    src = _solid_pixmap(64, 48, QColor("#336699"))
+    first, rect_a = _scaled_pixmap_rect(src, QRect(0, 0, 16, 12), "cover")
+    second, rect_b = _scaled_pixmap_rect(src, QRect(0, 0, 16, 12), "cover")
+    assert first.cacheKey() == second.cacheKey(), "a repaint re-scaled the cover"
+    assert rect_a == rect_b
+
+
+def test_a_different_target_box_is_a_different_entry(qapp):
+    src = _solid_pixmap(64, 48, QColor("#336699"))
+    small, _ = _scaled_pixmap_rect(src, QRect(0, 0, 16, 12), "cover")
+    large, _ = _scaled_pixmap_rect(src, QRect(0, 0, 32, 24), "cover")
+    assert (small.width(), small.height()) != (large.width(), large.height())
+
+
+def test_a_changed_source_is_not_served_from_the_cache(qapp):
+    """The key carries ``QPixmap.cacheKey()``: a new image is a new entry."""
+    first_src = _solid_pixmap(64, 48, QColor("#336699"))
+    first, _ = _scaled_pixmap_rect(first_src, QRect(0, 0, 16, 12), "cover")
+    second_src = _solid_pixmap(64, 48, QColor("#993366"))
+    second, _ = _scaled_pixmap_rect(second_src, QRect(0, 0, 16, 12), "cover")
+    assert second.toImage().pixelColor(1, 1) != first.toImage().pixelColor(1, 1), (
+        "a changed source painted the previous image"
+    )
