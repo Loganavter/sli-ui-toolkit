@@ -157,8 +157,8 @@ class Switch(QWidget):
         self._off_text = "Off"
         try:
             current_language = get_current_language()
-            self._on_text = tr("common.switch.switch_on", current_language, "On")
-            self._off_text = tr("common.switch.switch_off", current_language, "Off")
+            self._on_text = tr("common.switch.on", current_language, "On")
+            self._off_text = tr("common.switch.off", current_language, "Off")
             translation_events().language_changed.connect(
                 self._on_language_changed
             )
@@ -169,16 +169,16 @@ class Switch(QWidget):
         try:
             current_language = get_current_language()
             self.set_state_texts(
-                tr("common.switch.switch_on", current_language, "On"),
-                tr("common.switch.switch_off", current_language, "Off"),
+                tr("common.switch.on", current_language, "On"),
+                tr("common.switch.off", current_language, "Off"),
             )
         except Exception:
             self.set_state_texts("On", "Off")
 
     def _on_language_changed(self, lang_code: str):
         self.set_state_texts(
-            "On" if not lang_code else self._translate_key("common.switch.switch_on", lang_code, "On"),
-            "Off" if not lang_code else self._translate_key("common.switch.switch_off", lang_code, "Off"),
+            "On" if not lang_code else self._translate_key("common.switch.on", lang_code, "On"),
+            "Off" if not lang_code else self._translate_key("common.switch.off", lang_code, "Off"),
         )
 
     @staticmethod
