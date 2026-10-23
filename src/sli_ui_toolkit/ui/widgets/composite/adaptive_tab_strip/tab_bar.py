@@ -4,13 +4,14 @@ import logging
 from enum import IntEnum
 from typing import Any
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFontMetrics,
     QLinearGradient,
     QPainter,
     QPen,
+    QPolygonF,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
@@ -53,6 +54,8 @@ def _position_key(position) -> int:
 
 class _AdaptiveTabBar(QWidget):
     _RADIUS = 8.0
+    # Bar-wide floor only: a single tab's floor is ``_min_tab_width`` (below),
+    # never this value — a 10 px tab has no room for a close slot or a glyph.
     _MIN_WIDTH = 10
     _WIDTH_SCALE = 1.15
     _SIDE_PADDING = 12
@@ -64,6 +67,19 @@ class _AdaptiveTabBar(QWidget):
     _SELECTED_SHADOW_OFFSET = 0.5
     _SELECTED_SHADOW_SPREAD = 1
     _TEXT_HEIGHT_PADDING = 16
+    # Compressed tabs stop here: a couple of glyphs of text beside the close
+    # slot. Below this the tab carries no readable label, so the bar switches
+    # to horizontal scrolling instead of squeezing further (owner report
+    # 2026-10-23: tabs must not turn into a scrolling list while labels are
+    # still readable).
+    _MIN_TEXT_WIDTH = 12
+    # Side arrow gutter (design px) shown only while the bar scrolls.
+    _ARROW_WIDTH = 22
+    _ARROW_HALF_WIDTH = 3.5
+    _ARROW_HALF_HEIGHT = 5.5
+    _ARROW_STROKE = 1.6
+    _ARROW_REPEAT_MS = 80
+    _WHEEL_STEP = 40
 
     currentChanged = Signal(int)
     tabContextMenuRequested = Signal(int, QPoint)
@@ -85,6 +101,16 @@ class _AdaptiveTabBar(QWidget):
         self._focused_index = -1
         self._scroll_offset = 0
         self._keyboard_focus = False
+        # Scroll mode is the LAST resort: ``_arrows_active`` is set by
+        # ``_relayout`` only when the tabs cannot fit even at their minimum
+        # width. While it is False the bar compresses instead of scrolling.
+        self._arrows_active = False
+        self._hover_arrow = -1
+        self._pressed_arrow = -1
+        self._repeat_direction = 0
+        self._arrow_repeat = QTimer(self)
+        self._arrow_repeat.setInterval(self._ARROW_REPEAT_MS)
+        self._arrow_repeat.timeout.connect(self._repeat_arrow)
         # Each entry: {"text": str, "data": Any, "tooltip": str, "buttons": {ButtonPosition: QWidget|None}}
         self._tabs: list[dict] = []
         self._rects: list[QRect] = []
@@ -284,6 +310,10 @@ class _AdaptiveTabBar(QWidget):
         self._position_tab_buttons()
 
     def tabAt(self, pos: QPoint) -> int:  # noqa: N802
+        # A tab scrolled under an arrow gutter is not clickable, even though
+        # its (translated) rect still contains the point.
+        if not self._viewport_rect().contains(pos):
+            return -1
         for index, rect in enumerate(self._visual_rects()):
             if rect.contains(pos):
                 return index
@@ -322,15 +352,44 @@ class _AdaptiveTabBar(QWidget):
             return slot.width()
         return scaled_px(self._close_button_design_width)
 
-    def _tab_width(self, index: int) -> int:
+    def _natural_tab_width(self, index: int) -> int:
+        """Width that shows the whole label plus the close slot."""
         return (
             self.standard_tab_width(index)
             + self._close_reserve_width(index)
             + scaled_px(self._CLOSE_GAP)
         )
 
+    def _min_text_width(self) -> int:
+        """Narrowest readable label: about two glyphs of the UI font.
+
+        Measured from ``MM`` (two widest common glyphs) with a design-px floor,
+        so the compression floor follows the real font instead of a guess.
+        """
+        return max(
+            scaled_px(self._MIN_TEXT_WIDTH),
+            QFontMetrics(self.font()).horizontalAdvance("MM"),
+        )
+
+    def _min_tab_width(self, index: int) -> int:
+        """Width at which a tab still shows a couple of letters.
+
+        Everything that cannot shrink (both side paddings, the inset, the
+        close slot and its gap) is kept; only the text area is allowed to
+        collapse to ``_min_text_width``. Below this the bar scrolls instead.
+        """
+        return (
+            scaled_px(self._SIDE_PADDING) * 2
+            + scaled_px(self._HORIZONTAL_INSET)
+            + self._min_text_width()
+            + self._close_reserve_width(index)
+            + scaled_px(self._CLOSE_GAP)
+        )
+
     def full_tabs_width(self) -> int:
-        return sum(self._tab_width(index) for index in range(len(self._tabs)))
+        return sum(
+            self._natural_tab_width(index) for index in range(len(self._tabs))
+        )
 
     def _tab_height(self) -> int:
         native = QFontMetrics(self.font()).height() + scaled_px(self._TEXT_HEIGHT_PADDING)
@@ -345,17 +404,131 @@ class _AdaptiveTabBar(QWidget):
     # -- layout / scrolling ----------------------------------------------
 
     def _relayout(self) -> None:
-        x = 0
-        for index in range(len(self._tabs)):
-            width = self._tab_width(index)
+        """Lay tabs out: natural width → compressed → scrolling.
+
+        Three regimes, in this order (owner report 2026-10-23 — the bar used
+        to jump straight to scrolling as soon as the natural widths missed):
+
+        1. every tab fits at its natural width — nothing changes;
+        2. the labels do not fit, but every tab still fits at
+           ``_min_tab_width`` (a couple of glyphs beside the close slot) —
+           tabs are compressed proportionally, no scrolling;
+        3. even the minimum widths overflow — the bar scrolls horizontally,
+           tabs keep their natural (readable) width, and the side arrow
+           gutters appear. Scrolling over unreadable stubs would defeat the
+           point of scrolling.
+        """
+        count = len(self._tabs)
+        if count == 0:
+            self._rects = []
+            self._arrows_active = False
+            self._scroll_offset = 0
+            self._stop_arrow_repeat()
+            self._position_tab_buttons()
+            self.update()
+            return
+        natural = [self._natural_tab_width(index) for index in range(count)]
+        minimums = [self._min_tab_width(index) for index in range(count)]
+        available = max(0, self.width())
+        if sum(natural) <= available:
+            widths = natural
+            self._arrows_active = False
+        elif sum(minimums) <= available:
+            widths = self._compressed_widths(available, natural, minimums)
+            self._arrows_active = False
+        else:
+            widths = natural
+            self._arrows_active = True
+        if not self._arrows_active:
+            self._stop_arrow_repeat()
+        x = self._arrow_gutter()
+        for index, width in enumerate(widths):
             self._rects[index] = QRect(x, 0, width, self._tab_height())
             x += width
         self._clamp_scroll_offset()
         self._position_tab_buttons()
+        self.update()
+
+    @staticmethod
+    def _compressed_widths(
+        available: int, natural: list[int], minimums: list[int]
+    ) -> list[int]:
+        """Shrink tabs proportionally to their shrinkable room.
+
+        Each tab gives up a share of ``natural - minimum`` proportional to
+        that room, so a long label loses more than a short one and no tab
+        ever drops below ``minimums``. The float targets sum EXACTLY to
+        ``available``; flooring then hands the residue to the largest
+        fractional parts so the row ends on the right pixel.
+        """
+        room = [max(0, n - m) for n, m in zip(natural, minimums)]
+        total_room = sum(room)
+        deficit = sum(natural) - available
+        if total_room <= 0 or deficit <= 0:
+            return list(natural)
+        factor = min(1.0, deficit / total_room)
+        target = [n - r * factor for n, r in zip(natural, room)]
+        widths = [int(value) for value in target]
+        residue = available - sum(widths)
+        if residue > 0:
+            order = sorted(
+                range(len(target)),
+                key=lambda i: target[i] - widths[i],
+                reverse=True,
+            )
+            for offset in range(min(residue, len(order))):
+                widths[order[offset]] += 1
+        return widths
+
+    # -- scroll arrows ---------------------------------------------------
+
+    def _viewport_rect(self) -> QRect:
+        """Region tabs may paint in (the side gutters belong to the arrows)."""
+        gutter = self._arrow_gutter()
+        return QRect(
+            gutter, 0, max(0, self.width() - 2 * gutter), self.height()
+        )
+
+    def _arrow_gutter(self) -> int:
+        if not self._arrows_active:
+            return 0
+        # Never let the gutters consume the whole bar on a tiny window.
+        return min(
+            scaled_px(self._ARROW_WIDTH),
+            max(0, (self.width() - scaled_px(self._MIN_WIDTH)) // 2),
+        )
+
+    def _arrow_rects(self) -> tuple[QRect, QRect]:
+        gutter = self._arrow_gutter()
+        if gutter <= 0:
+            return QRect(), QRect()
+        return (
+            QRect(0, 0, gutter, self.height()),
+            QRect(self.width() - gutter, 0, gutter, self.height()),
+        )
+
+    def _arrow_at(self, pos: QPoint) -> int:
+        """0 = left arrow, 1 = right arrow, -1 = none."""
+        if not self._arrows_active:
+            return -1
+        left, right = self._arrow_rects()
+        if left.contains(pos):
+            return 0
+        if right.contains(pos):
+            return 1
+        return -1
+
+    def _arrow_enabled(self, direction: int) -> bool:
+        if direction < 0:
+            return self._scroll_offset > 0
+        return self._scroll_offset < self._max_scroll_offset()
 
     def _max_scroll_offset(self) -> int:
+        # Measured against the viewport's right edge, not its width: with the
+        # arrow gutters reserved the row starts *after* the left gutter, so
+        # ``total - viewport.width()`` would overscroll by one gutter.
         total = self._rects[-1].right() + 1 if self._rects else 0
-        return max(0, total - self.width())
+        return max(0, total - self._viewport_rect().right() - 1)
 
     def _clamp_scroll_offset(self) -> None:
         self._scroll_offset = max(0, min(self._scroll_offset, self._max_scroll_offset()))
@@ -366,16 +539,82 @@ class _AdaptiveTabBar(QWidget):
     def _ensure_visible(self, index: int) -> None:
         if not (0 <= index < len(self._rects)):
             return
+        viewport = self._viewport_rect()
         rect = self._rects[index]
-        if rect.left() - self._scroll_offset < 0:
-            self._scroll_offset = rect.left()
-        elif rect.right() - self._scroll_offset > self.width():
-            self._scroll_offset = rect.right() - self.width()
+        left = rect.left() - self._scroll_offset
+        right = rect.right() - self._scroll_offset
+        if left < viewport.left():
+            self._scroll_offset = rect.left() - viewport.left()
+        elif right > viewport.right():
+            self._scroll_offset = rect.right() - viewport.right()
         self._clamp_scroll_offset()
 
-    def wheelEvent(self, event) -> None:  # noqa: N802
+    def _step_arrows(self, direction: int) -> bool:
+        """Reveal the next whole tab; True when the offset actually moved.
+
+        A step targets the nearest tab that is FULLY hidden on the side being
+        scrolled toward, and aligns it with the leading viewport edge. A fixed
+        pixel page (or "the first clipped pixel") made one click move a single
+        pixel at the end of the row; a whole-tab step always lands on a
+        readable label, which is what the arrows are for. No fully hidden tab
+        left on that side ⇒ jump to the corresponding end.
+        """
         if self._max_scroll_offset() <= 0:
-            super().wheelEvent(event)
+            return False
+        viewport = self._viewport_rect()
+        before = self._scroll_offset
+        target: int | None = None
+        if direction > 0:
+            for index in range(len(self._rects)):
+                rect = self.tabRect(index)
+                if rect.left() >= viewport.right():
+                    target = self._scroll_offset + (rect.left() - viewport.left())
+                    break
+            if target is None:
+                target = self._max_scroll_offset()
+        else:
+            for index in range(len(self._rects) - 1, -1, -1):
+                rect = self.tabRect(index)
+                if rect.right() < viewport.left():
+                    target = self._scroll_offset - (viewport.right() - rect.right())
+                    break
+            if target is None:
+                target = 0
+        self._scroll_offset = target
+        self._clamp_scroll_offset()
+        if self._scroll_offset == before:
+            return False
+        self._position_tab_buttons()
+        self.update()
+        return True
+
+    def _start_arrow_repeat(self, direction: int) -> None:
+        self._repeat_direction = direction
+        self._arrow_repeat.start()
+
+    def _stop_arrow_repeat(self) -> None:
+        self._repeat_direction = 0
+        if self._arrow_repeat.isActive():
+            self._arrow_repeat.stop()
+
+    def _repeat_arrow(self) -> None:
+        if self._repeat_direction == 0:
+            self._stop_arrow_repeat()
+            return
+        if not self._step_arrows(self._repeat_direction):
+            self._stop_arrow_repeat()
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        """Strip scroll only — the wheel never activates a tab.
+
+        The event is ALWAYS accepted, even when there is nothing to scroll:
+        an ignored wheel propagates to the host, where it can be read as
+        "next/previous tab" (the owner's report) — the strip owns the gesture
+        wherever the pointer is over it.
+        """
+        event.accept()
+        self._stop_arrow_repeat()
+        if self._max_scroll_offset() <= 0:
             return
         delta = event.pixelDelta()
         dx = delta.x()
@@ -384,15 +623,15 @@ class _AdaptiveTabBar(QWidget):
             angle = event.angleDelta()
             dx = angle.x()
             dy = angle.y()
-        step = -(dx if dx != 0 else dy) / 120 * 40
+        if dx == 0 and dy == 0:
+            return
+        step = -(dx if dx != 0 else dy) / 120 * scaled_px(self._WHEEL_STEP)
         if step == 0:
-            super().wheelEvent(event)
             return
         self._scroll_offset += round(step)
         self._clamp_scroll_offset()
         self._position_tab_buttons()
         self.update()
-        event.accept()
 
     def paintEvent(self, event) -> None:  # noqa: N802
         palette = self._palette()
@@ -400,11 +639,89 @@ class _AdaptiveTabBar(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setClipRect(event.rect())
         painter.fillRect(self.rect(), QColor(palette["strip"]))
+        # Tabs are clipped to the scroll viewport so a tab sliding under an
+        # arrow gutter never paints across the arrow.
+        viewport = self._viewport_rect()
+        painter.setClipRect(viewport.intersected(event.rect()))
         for index in range(len(self._tabs)):
             if index != self._current_index:
-                self._paint_visible_tab(painter, index, event.rect(), palette)
+                self._paint_visible_tab(painter, index, viewport, palette)
         if self._current_index >= 0:
-            self._paint_visible_tab(painter, self._current_index, event.rect(), palette)
+            self._paint_visible_tab(painter, self._current_index, viewport, palette)
+        painter.setClipRect(event.rect())
+        if self._arrows_active:
+            self._paint_arrows(painter, event.rect(), palette)
+
+    def _paint_arrows(self, painter: QPainter, exposed_rect: QRect, palette) -> None:
+        left, right = self._arrow_rects()
+        for direction, rect in ((0, left), (1, right)):
+            if rect.isEmpty() or not rect.intersects(exposed_rect):
+                continue
+            self._paint_arrow(
+                painter,
+                rect,
+                direction,
+                self._arrow_enabled(-1 if direction == 0 else 1),
+                hovered=self._hover_arrow == direction,
+                pressed=self._pressed_arrow == direction,
+                palette=palette,
+            )
+
+    def _paint_arrow(
+        self,
+        painter: QPainter,
+        rect: QRect,
+        direction: int,
+        enabled: bool,
+        hovered: bool,
+        pressed: bool,
+        palette,
+    ) -> None:
+        """One chevron, painter-drawn from theme tokens (no icons, no QSS)."""
+        painter.save()
+        if hovered:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(palette["hover"]))
+            inset = scaled_px(2)
+            painter.drawRoundedRect(
+                rect.adjusted(inset, scaled_px(4), -inset, -scaled_px(4)),
+                scaled_px(5),
+                scaled_px(5),
+            )
+        color = QColor(palette["text"])
+        if not enabled:
+            color.setAlpha(70)
+        elif pressed:
+            color.setAlpha(255)
+        else:
+            color.setAlpha(200)
+        thickness = max(1.0, float(scaled_px(self._ARROW_STROKE)))
+        painter.setPen(
+            QPen(
+                color,
+                thickness,
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+                Qt.PenJoinStyle.RoundJoin,
+            )
+        )
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        center = rect.center()
+        reach = max(1.0, float(scaled_px(self._ARROW_HALF_WIDTH)))
+        lift = max(1.0, float(scaled_px(self._ARROW_HALF_HEIGHT)))
+        # direction 0 = left (chevron points left), 1 = right.
+        sign = 1.0 if direction == 0 else -1.0
+        pointer = QPointF(center.x() - sign * reach, center.y())
+        painter.drawPolyline(
+            QPolygonF(
+                [
+                    QPointF(center.x() + sign * reach, center.y() - lift),
+                    pointer,
+                    QPointF(center.x() + sign * reach, center.y() + lift),
+                ]
+            )
+        )
+        painter.restore()
 
     def _paint_visible_tab(self, painter, index, exposed_rect, palette) -> None:
         rect = self.tabRect(index)
@@ -413,7 +730,18 @@ class _AdaptiveTabBar(QWidget):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
-            index = self.tabAt(event.position().toPoint())
+            pos = event.position().toPoint()
+            arrow = self._arrow_at(pos)
+            if arrow >= 0:
+                self._pressed_arrow = arrow
+                direction = -1 if arrow == 0 else 1
+                if self._arrow_enabled(direction):
+                    self._step_arrows(direction)
+                    self._start_arrow_repeat(direction)
+                self.update()
+                event.accept()
+                return
+            index = self.tabAt(pos)
             if index >= 0:
                 self.setCurrentIndex(index)
                 self._focused_index = index
@@ -463,12 +791,14 @@ class _AdaptiveTabBar(QWidget):
             if count:
                 self._focused_index = 0
                 self._ensure_visible(0)
+                self._position_tab_buttons()
                 self.update()
             event.accept()
         elif key == Qt.Key.Key_End:
             if count:
                 self._focused_index = count - 1
                 self._ensure_visible(count - 1)
+                self._position_tab_buttons()
                 self.update()
             event.accept()
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
@@ -485,6 +815,12 @@ class _AdaptiveTabBar(QWidget):
             super().keyPressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._pressed_arrow >= 0:
+            self._stop_arrow_repeat()
+            self._pressed_arrow = -1
+            self.update()
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.RightButton:
             pos = event.position().toPoint()
             index = self.tabAt(pos)
@@ -505,7 +841,14 @@ class _AdaptiveTabBar(QWidget):
         return slot.geometry().contains(pos)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        self._set_hover_index(self.tabAt(event.position().toPoint()))
+        pos = event.position().toPoint()
+        arrow = self._arrow_at(pos)
+        if arrow != self._hover_arrow:
+            self._hover_arrow = arrow
+            self.update()
+        # A gutter is not a tab: hovering an arrow must not highlight the
+        # tab scrolling underneath it.
+        self._set_hover_index(-1 if arrow >= 0 else self.tabAt(pos))
         super().mouseMoveEvent(event)
 
     def set_hover_from_global(self, global_pos) -> None:
@@ -529,9 +872,12 @@ class _AdaptiveTabBar(QWidget):
                     button.update()
 
     def leaveEvent(self, event) -> None:  # noqa: N802
+        self._stop_arrow_repeat()
+        self._hover_arrow = -1
+        self._pressed_arrow = -1
         if self._hover_index != -1:
             self._hover_index = -1
-            self.update()
+        self.update()
         super().leaveEvent(event)
 
     def focusInEvent(self, event):  # noqa: N802
@@ -562,7 +908,9 @@ class _AdaptiveTabBar(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        self._clamp_scroll_offset()
+        # The width picks the layout regime (natural / compressed / scrolling),
+        # so the whole layout re-runs here, not just the scroll clamp.
+        self._relayout()
         # Keep the current tab (and its close button) in view when the bar
         # shrinks — plain clamping can leave it scrolled past the edge.
         if self._current_index >= 0:
@@ -577,6 +925,7 @@ class _AdaptiveTabBar(QWidget):
             self.update()
 
     def _position_tab_buttons(self) -> None:
+        viewport = self._viewport_rect()
         for index in range(len(self._tabs)):
             slot = self.tabButton(index, ButtonPosition.RightSide)
             if slot is None:
@@ -585,6 +934,10 @@ class _AdaptiveTabBar(QWidget):
             x = tab_rect.right() - slot.width() - scaled_px(self._CLOSE_RIGHT_MARGIN) + 1
             y = tab_rect.center().y() - slot.height() // 2
             slot.move(x, y)
+            # Child widgets are not clipped by the painter: a close slot of a
+            # tab scrolled under an arrow gutter would float on top of the
+            # arrow. Hide it while it is not fully inside the viewport.
+            slot.setVisible(viewport.contains(slot.geometry()))
 
     def _painted_tab_rect(self, rect: QRect) -> QRect:
         height = min(rect.height(), self._visual_tab_height)
@@ -654,13 +1007,24 @@ class _AdaptiveTabBar(QWidget):
         )
         painter.setPen(QColor(palette["text"]))
         painter.save()
-        painter.setClipRect(text_rect)
+        # Intersect, never replace: a plain setClipRect() drops the bar's
+        # viewport clip, and a tab sliding under an arrow gutter then paints
+        # its label across the chevron (caught by a live capture).
+        painter.setClipRect(text_rect, Qt.ClipOperation.IntersectClip)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
         painter.restore()
         if needs_fade:
+            # Fade into the colour the tab is actually painted on — the
+            # window background only for the selected tab. Using
+            # ``surface.background`` everywhere painted a white block on the
+            # grey strip for every compressed unselected tab (owner report
+            # 2026-10-23, light theme: "looks like a highlight, not a fade").
+            fill = self._tab_fill_color(index, palette)
+            fade_from = QColor(fill)
+            fade_from.setAlpha(0)
             fade = QLinearGradient(text_rect.right() - scaled_px(self._TEXT_FADE), 0, text_rect.right() + 1, 0)
-            fade.setColorAt(0.0, QColor(0, 0, 0, 0))
-            fade.setColorAt(1.0, QColor(palette["background"]))
+            fade.setColorAt(0.0, fade_from)
+            fade.setColorAt(1.0, fill)
             painter.fillRect(
                 QRect(
                     text_rect.right() - scaled_px(self._TEXT_FADE),
@@ -671,15 +1035,26 @@ class _AdaptiveTabBar(QWidget):
                 fade,
             )
 
+    def _tab_fill_color(self, index: int, palette) -> QColor:
+        """Colour painted *under* a tab's label (fade target, close-slot background).
+
+        Selected tab = window background, hovered = hover token, otherwise the
+        strip token. One owner for the mapping: the label fade and the close
+        slot must agree with what the tab itself paints, or the fade reads as
+        a highlight (light theme) instead of a fade.
+        """
+        if index == self._current_index:
+            return QColor(palette["background"])
+        if index == self._hover_index:
+            return QColor(palette["hover"])
+        return QColor(palette["strip"])
+
     def close_slot_background_color(self, slot: QWidget) -> QColor | None:
+        palette = self._palette()
         for index in range(self.count()):
             if self.tabButton(index, ButtonPosition.RightSide) is not slot:
                 continue
-            if index == self.currentIndex():
-                return QColor(self._palette()["background"])
-            if index == self._hover_index:
-                return QColor(self._palette()["hover"])
-            return QColor(self._palette()["strip"])
+            return self._tab_fill_color(index, palette)
         return None
 
     def _paint_selected_background(self, painter, rect, palette) -> None:

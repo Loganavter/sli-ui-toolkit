@@ -1,8 +1,12 @@
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QTabBar
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QColor, QImage, QWheelEvent
+from PySide6.QtWidgets import QApplication, QTabBar
 from PySide6.QtTest import QTest
 
 from sli_ui_toolkit.widgets import AdaptiveTabStrip, CloseButtonPolicy
+
+RS = QTabBar.ButtonPosition.RightSide
+WIDE_TITLES = ("Image Compare", "Multi Compare", "Video Editor", "Image Gallery")
 
 
 def _strip(*, policy=CloseButtonPolicy.ALL_WHEN_FIT_ELSE_CURRENT):
@@ -339,3 +343,223 @@ def test_current_tab_stays_visible_when_bar_shrinks(qapp):
         assert slot is not None and bar.rect().contains(slot.geometry().center()), (
             f"width {width}: close button off-screen"
         )
+
+
+# -- width regimes: natural → compressed → scrolling (owner report 2026-10-23)
+
+
+def _wide_strip(qapp) -> AdaptiveTabStrip:
+    strip = _strip(policy=CloseButtonPolicy.ALL)
+    for title in WIDE_TITLES:
+        strip.addTab(title)
+    strip.resize(1200, 60)
+    strip.show()
+    qapp.processEvents()
+    return strip
+
+
+def _bar_chrome(strip: AdaptiveTabStrip, qapp) -> int:
+    """Layout width the strip spends outside the tab bar (margins+add button).
+
+    Measured on a deliberately narrow strip, where the bar is squeezed to the
+    remaining width instead of sitting at its own sizeHint.
+    """
+    previous = strip.width()
+    strip.resize(150, 60)
+    qapp.processEvents()
+    chrome = strip.width() - strip.tab_bar.width()
+    strip.resize(previous, 60)
+    qapp.processEvents()
+    return chrome
+
+
+def _fit_bar(strip: AdaptiveTabStrip, qapp, bar_width: int) -> None:
+    """Size the strip so the tab bar itself is exactly *bar_width* wide."""
+    chrome = _bar_chrome(strip, qapp)
+    strip.resize(bar_width + chrome, 60)
+    qapp.processEvents()
+    strip.refresh_close_buttons()
+    qapp.processEvents()
+
+
+def _send_wheel(bar, dy: int) -> QWheelEvent:
+    pos = QPointF(bar.width() / 2, bar.height() / 2)
+    event = QWheelEvent(
+        pos,
+        QPointF(bar.mapToGlobal(pos.toPoint())),
+        QPoint(0, 0),
+        QPoint(0, dy),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    QApplication.sendEvent(bar, event)
+    return event
+
+
+def test_tabs_compress_before_the_bar_starts_scrolling(qapp):
+    """Labels shrink to a couple of glyphs before the bar scrolls at all.
+
+    Regression (owner report): the tabs kept their natural width and the bar
+    switched to horizontal scrolling as soon as they missed by one pixel.
+    """
+    strip = _wide_strip(qapp)
+    bar = strip.tab_bar
+    natural = [bar._natural_tab_width(i) for i in range(bar.count())]
+    minimums = [bar._min_tab_width(i) for i in range(bar.count())]
+    assert sum(minimums) < sum(natural)
+
+    middle = (sum(natural) + sum(minimums)) // 2
+    _fit_bar(strip, qapp, middle)
+
+    widths = [bar.tabRect(i).width() for i in range(bar.count())]
+    assert bar._arrows_active is False, "scrolling began while labels could still shrink"
+    assert sum(widths) == bar.width(), f"compressed row does not fill the bar: {widths}"
+    assert all(m <= w < n for w, n, m in zip(widths, natural, minimums)), (
+        f"widths {widths} not inside [{minimums}, {natural})"
+    )
+    assert [bar.tabText(i) for i in range(bar.count())] == list(WIDE_TITLES)
+    # The natural total still drives the close-button policy.
+    assert bar.full_tabs_width() == sum(natural)
+
+
+def test_scroll_arrows_appear_only_when_minimum_widths_overflow(qapp):
+    strip = _wide_strip(qapp)
+    bar = strip.tab_bar
+    natural = [bar._natural_tab_width(i) for i in range(bar.count())]
+    minimums = [bar._min_tab_width(i) for i in range(bar.count())]
+
+    _fit_bar(strip, qapp, sum(minimums) + 40)
+    assert bar._arrows_active is False, "scroll mode started before the minimum width was reached"
+    left, right = bar._arrow_rects()
+    assert left.isEmpty() and right.isEmpty()
+
+    _fit_bar(strip, qapp, sum(minimums) - 40)
+    assert bar._arrows_active is True
+    left, right = bar._arrow_rects()
+    assert left.width() > 0 and right.width() > 0
+    assert bar._viewport_rect().left() == left.right() + 1
+    # Scrolling exists to read full labels, so tabs keep their natural width.
+    assert [bar.tabRect(i).width() for i in range(bar.count())] == natural
+
+    current = bar.currentIndex()
+    # The left arrow is inert at the start of the row.
+    QTest.mouseClick(bar, Qt.MouseButton.LeftButton, pos=left.center())
+    qapp.processEvents()
+    assert bar._scroll_offset == 0
+    # The right arrow reveals a whole next tab and never activates anything.
+    QTest.mouseClick(bar, Qt.MouseButton.LeftButton, pos=right.center())
+    qapp.processEvents()
+    forward = bar._scroll_offset
+    assert forward > 0
+    assert bar.currentIndex() == current
+    # …and the left arrow now walks back toward the row start.
+    QTest.mouseClick(bar, Qt.MouseButton.LeftButton, pos=left.center())
+    qapp.processEvents()
+    assert 0 < bar._scroll_offset < forward
+    assert bar.currentIndex() == current
+    while bar._scroll_offset > 0:
+        QTest.mouseClick(bar, Qt.MouseButton.LeftButton, pos=left.center())
+        qapp.processEvents()
+    assert bar._scroll_offset == 0
+    assert bar.currentIndex() == current
+
+
+def test_wheel_scrolls_the_strip_and_never_activates_a_tab(qapp):
+    """The wheel is a scroll gesture on both paths — never a tab switch."""
+    strip = _wide_strip(qapp)
+    bar = strip.tab_bar
+    minimums = [bar._min_tab_width(i) for i in range(bar.count())]
+
+    _fit_bar(strip, qapp, sum(minimums) - 40)
+    bar.setCurrentIndex(0)
+    qapp.processEvents()
+    before_index = bar.currentIndex()
+    before_offset = bar._scroll_offset
+
+    accepted = _send_wheel(bar, -120)
+    qapp.processEvents()
+    assert accepted.isAccepted()
+    assert bar._scroll_offset > before_offset
+    assert bar.currentIndex() == before_index
+
+    # Without overflow the gesture is still consumed: an ignored wheel reaches
+    # the host, where it can be read as "next/previous tab" (the report).
+    natural = [bar._natural_tab_width(i) for i in range(bar.count())]
+    _fit_bar(strip, qapp, sum(natural) + 10)
+    no_overflow = _send_wheel(bar, -120)
+    qapp.processEvents()
+    assert no_overflow.isAccepted()
+    assert bar.currentIndex() == before_index
+    assert bar._scroll_offset == 0
+
+
+def test_close_slots_never_float_over_a_scroll_arrow(qapp):
+    strip = _wide_strip(qapp)
+    bar = strip.tab_bar
+    minimums = [bar._min_tab_width(i) for i in range(bar.count())]
+    _fit_bar(strip, qapp, sum(minimums) - 40)
+    # Scroll all the way to the end so left-side tabs sit under the gutter.
+    for _ in range(bar.count() + 1):
+        left, right = bar._arrow_rects()
+        QTest.mouseClick(bar, Qt.MouseButton.LeftButton, pos=right.center())
+        qapp.processEvents()
+
+    viewport = bar._viewport_rect()
+    for index in range(bar.count()):
+        slot = bar.tabButton(index, RS)
+        assert slot is not None, f"tab {index} lost its close slot"
+        if slot.isVisible():
+            assert viewport.contains(slot.geometry()), (
+                f"tab {index} close slot {slot.geometry().getRect()} "
+                f"overlaps the arrow gutter {viewport.getRect()}"
+            )
+
+
+def test_label_fade_lands_in_the_tab_fill_not_the_window_background(qapp):
+    """A compressed label fades into the tab it sits on, not into the window.
+
+    Regression (owner report 2026-10-23, light theme): the fade used
+    ``surface.background`` for every tab, so on a compressed UNSELECTED tab it
+    painted a white block over the grey strip — reading as a highlight, not a
+    fade. Renders the real painter path with a controlled palette.
+    """
+    strip = _wide_strip(qapp)
+    bar = strip.tab_bar
+    bar.setCurrentIndex(0)
+    bar._hover_index = -1
+    natural = [bar._natural_tab_width(i) for i in range(bar.count())]
+    minimums = [bar._min_tab_width(i) for i in range(bar.count())]
+    _fit_bar(strip, qapp, (sum(natural) + sum(minimums)) // 2)
+    # The compressed tab must really clip its label, or there is no fade to check.
+    slot = bar.tabButton(1, RS)
+    assert slot is not None
+    palette = {
+        "strip": "#303030",
+        "background": "#f0f0f0",
+        "border": "#888888",
+        "hover": "#404040",
+        "text": "#ffffff",
+    }
+    bar._palette = lambda: palette  # type: ignore[method-assign]
+
+    image = QImage(bar.size(), QImage.Format.Format_ARGB32)
+    image.fill(QColor("#000000"))
+    bar.render(image)
+
+    tab_rect = bar._painted_tab_rect(bar.tabRect(1))
+    sample = image.pixelColor(slot.geometry().left() - 3, tab_rect.top() + 2)
+    strip_color = QColor(palette["strip"])
+    background = QColor(palette["background"])
+
+    def distance(a: QColor, b: QColor) -> int:
+        return abs(a.red() - b.red()) + abs(a.green() - b.green()) + abs(a.blue() - b.blue())
+
+    assert distance(sample, strip_color) <= 40, (
+        f"fade end {sample.name()} should be the strip fill {strip_color.name()}"
+    )
+    assert distance(sample, background) > 200, (
+        f"fade end {sample.name()} is the window background {background.name()} "
+        "(the white-block report)"
+    )
