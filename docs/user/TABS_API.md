@@ -51,6 +51,20 @@ The strip reserves close-button width for every tab, so switching the selected
 tab never changes tab widths. With the default close policy, every close button
 is shown while full-size tabs fit; otherwise only the current tab keeps one.
 
+Width follows the same "last resort" rule. Tabs start at their natural width;
+when the labels stop fitting they compress proportionally, down to a couple of
+glyphs of text beside the close slot. Only when even those minimum widths
+overflow does the strip scroll — with a painter-drawn chevron in a gutter on
+each side: one whole-tab step per click, hold to repeat, dimmed at the ends of
+the row. Scrolled tabs keep their natural width (so scrolling always reveals a
+readable label), and a close slot scrolled under a gutter is hidden rather than
+floating over the arrow. The wheel over the strip scrolls it and never activates
+or switches a tab; `currentChanged` fires only from clicks, keys and
+programmatic selection. Do not "fix" a wheel that feels wrong by ignoring the
+event when there is nothing to scroll: an ignored wheel propagates to the host,
+where it can be mapped to next/previous tab — the strip must own the gesture
+wherever the pointer is over it.
+
 `AdaptiveTabStrip` exposes common `QTabBar`-style methods such as `addTab`,
 `removeTab`, `count`, `setCurrentIndex`, `setTabData`, and `tabData`. The
 underlying widgets are available as `tab_bar` and `add_button`.

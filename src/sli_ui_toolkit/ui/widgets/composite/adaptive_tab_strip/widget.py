@@ -136,10 +136,18 @@ class AdaptiveTabStrip(QWidget):
         self.refresh_close_buttons()
         self.updateGeometry()
         self.update()
-        # The strip's own updateGeometry() does not reliably re-flow the
-        # parent layout (observed live: the strip keeps the previous
-        # factor's height until an explicit activate) — re-assert size and
-        # activate the parent's layout on the next tick.
+        self._schedule_size_resync()
+
+    def _schedule_size_resync(self) -> None:
+        """Re-assert the strip's own size once the settled metrics landed.
+
+        The strip's own updateGeometry() does not reliably re-flow the
+        parent layout (observed live: the strip keeps the previous factor's
+        height until an explicit activate) — re-assert size and activate the
+        parent's layout on the next tick. The font path needs the same
+        re-assert: it changes the bar's width hint too, and a strip left one
+        font-step narrow squeezes the bar into its compressed regime.
+        """
         from PySide6.QtCore import QTimer
 
         QTimer.singleShot(0, self._finish_scale_resync)
@@ -168,6 +176,7 @@ class AdaptiveTabStrip(QWidget):
         self._sync_visual_tab_height()
         self.updateGeometry()
         self.update()
+        self._schedule_size_resync()
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         if obj is self.add_button and event.type() == QEvent.Type.KeyPress:
