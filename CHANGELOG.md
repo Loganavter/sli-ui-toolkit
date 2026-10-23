@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 4.0.0
+
+First public 4.x release: the line was developed under internal `4.0`–`4.2`
+version stamps that were never published (PyPI/GitHub tags stop at `3.1.11`),
+so this section carries the whole accumulated range as one release. It is
+**breaking** — `TextView`, `HelpDocumentView` and the exported `Label`/
+`LabelConfig` are gone; see `Removed` below for the per-class migration.
 
 ### Fixed
 
@@ -27,6 +33,7 @@
 
 ### Added
 
+- **A coalesced reflow can no longer paint the previous state: `PendingSettle` moves it to the paint boundary.** The "first presented frame is not the settled frame" class had owners for a value derived from unsettled metrics (`UiMetrics` / `connect_ui_metrics`) and for a self-derived size versus a POSTED layout re-run (`settle_layout`), but a DEFERRED reflow — a 0-timer that coalesces several change notifications into one pass — had none, and a reflow armed for "the next event-loop turn" runs after the frame being composed is already decided. That mechanism shipped a CSD menu-strip guard that was dead (a misspelled hook) and a session-picker grid that painted the previous column count for one frame after a resize. `sli_ui_toolkit.ui.pending_settle` now owns it: `PendingSettle.schedule(widget, fn)` coalesces repeats (last `fn` wins, one timer, `widget.update()` requested), `settle_now()` runs at most one reflow per call (the pending entry is cleared *before* `fn()`, so a reflow that re-schedules leaves the new entry pending instead of recursing; a nested or second call is a no-op), `is_pending()` reports the queue, and `settle_on_paint(widget, pending)` installs a widget-owned event filter whose `Paint` branch settles **before** the widget paints and returns `False` (painting continues). Qt delivers `Paint` after the layout pass, so the first frame presented is the settled one. A 0-timer remains as the fallback for a widget that never paints — whichever path runs first clears the pending entry, so the reflow still runs exactly once per schedule. The pending widget is held weakly and checked for a live C++ object, so a widget destroyed with a reflow still queued drops it. Companion, not replacement: `settle_layout` keeps the POSTED-layout mechanism. Tests: `tests/test_pending_settle.py` (5 — the first paint already sees the new value with the filter installed; the same harness without it paints the old value first, which is the falsification; N schedules in one turn run once with the last fn; `settle_now` is immediate and a second call is a no-op; a destroyed widget never runs the reflow).
 - **An elided `ComboBox` item (or field) shows its full text as a tooltip.** Long items are painted with an ellipsis and there was no tooltip at all (owner report 2026-10-22: hovering a truncated model id must reveal the whole name). `_overlay.apply_elided_tooltip(widget, text, available_width)` sets the tooltip exactly when the painted label would elide and clears it when the text fits; it tracks the value it wrote itself, so a host-set tooltip is never overwritten. Dropdown rows use the item's full text (re-evaluated after binding, so a fresh or rebound pooled slot decides from its final width) and the closed field carries the full current value, re-synced on text/selection/scale change. Short items behave exactly as before. Tests: `tests/test_combobox_elided_tooltips.py` (10).
 - **`Text.canvas()` + `TextScrollArea`: the two halves the retired `TextView` actually was (text-unification wave C, step 2b-2).** `TextView` fused a painted buffer (`TextCanvas`) with a scroll host (QScrollArea + toolkit scrollbar + rounded border overlay + optional shelf-well fill). The buffer is `Text`; the host is now `TextScrollArea` (`ui/widgets/composite/text_scroll.py`, exported from `sli_ui_toolkit.ui.widgets.composite`), which composes one `Text` and forwards `text`/`plain_text`/`set_text`/`set_markdown`/`anchor_y`/`scroll_to_anchor`/`is_editing`/`set_editing`/`enter_edit_mode`/`exit_edit_mode`/`editor`/`canvas`/`set_line_number_start`, re-emitting `changed`/`linkActivated`/`imageActivated`. `set_panel_fill(color|None)` keeps `TextView`'s raised-well behaviour (viewport palette fill + rounded mask) and `set_frame_visible(bool)` the 1 px rounded border. `Text.canvas()` returns the hosted engine surface (`None` in plain mode) — the same object `TextView.canvas()` returned, for chrome a HOST owns around a code buffer: the line-number map (`set_line_number_map`), collapsed fold rows (`set_fold_lines`), y→line hit-testing (`line_at`) and event filters (the inspector's gap markers). Typography, selection and edit state stay on `Text`. No behaviour was added beyond that accessor: the inspector Code editor, the inspector Docs page and `PreviewPanel` were migrated onto the pair in the same change. Tests: `tests/test_surface_widgets.py` (repurposed from `TextView` to `TextScrollArea` — transparent viewport, raised well, masked corner), `tests/test_preview_panel.py`, `tests/test_text_view.py` (31 tests re-pointed), `tests/test_inspector_code.py`/`test_inspector_view.py` (gutter map, folds, gap-marker clicks, docs page).
 
@@ -1701,6 +1708,35 @@ shelves use it; `paint_marquee_band`/`marquee_dirty_rect` unchanged underneath.
 ### Fixed
 
 - **Timeline sticky gutter no longer slides a frame behind on scroll sets** — the gutter is painted in content coords at `gx=scroll_offset` while every horizontal `setValue` moves the content widget window synchronously (Qt `scrollContentsBy`) and all correction paints were async `update()`. `_flush_wheel_zoom` now issues one synchronous band-only `repaint()` (`[scroll, scroll+LEFT_GUTTER+2] x [0, footer_top]` via the new `gutter_band_rect_for_scroll(widget, scroll)` helper in `timeline_widget/widget.py`) right after the programmatic scrollbar set, and `_on_host_scroll`'s scroll-changed path unions the same band into the damage for signals-live paths. Budget unchanged (one commit + one sync band repaint per coalesced window), emit contract / `fit_view` / strip layout untouched.
+
+## 3.1.11
+
+### Fixed
+- Headless-CI double-click test coordinates were flaky; the probe now hits the widget's real centre instead of a display-dependent offset.
+
+## 3.1.10
+
+### Fixed
+- `Button.sizeHint()` forwarding after the MRO change (the custom button lost its content-derived size hint).
+- PySide6 multiple-inheritance memory corruption that could crash a dangling-widget test.
+
+## 3.1.9
+
+### Fixed
+- Qt 6 `setFontFamily` deprecation warning.
+- Windows QPainter access violations in the underline painter: `QPen` is out of the paint path (`fillPath`/`fillRect` instead).
+- Crashing tapered arc: the manual segment loop was replaced with a `QLinearGradient` arc so the pen/brush cannot be GC'd mid-paint.
+- `paintEvent` save/restore is now wrapped defensively in `Button` and `CustomLineEdit`.
+
+## 3.1.8
+
+### Fixed
+- `QPen` GC access violation in `draw_bottom_underline`: the painter state is saved/restored around the call.
+
+## 3.1.7
+
+### Fixed
+- Windows QPainter access violation in `Button.paintEvent`.
 
 ## 3.1.6-1.1.11
 
