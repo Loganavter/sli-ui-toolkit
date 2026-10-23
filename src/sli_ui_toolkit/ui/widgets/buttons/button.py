@@ -84,6 +84,16 @@ if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 
+#: States a ``group=`` mirrors across its regions. Re-asserted after a
+#: region rebuild so a region created while the group is already in that state
+#: does not start idle (see ``Button._reassert_group_states``).
+_GROUP_MIRRORED_STATES = (
+    ButtonState.HOVERED,
+    ButtonState.PRESSED,
+    ButtonState.CHECKED,
+)
+
+
 def _state_property(state: ButtonState):
     """Property-обёртка: bool геттер/сеттер, мутирующий StateSet и вызывающий update()."""
 
@@ -789,7 +799,40 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._attach_region_capabilities(normalized)
         self._recompute_region_rects()
         self._sync_wrap_height_policy()
+        self._reassert_group_states()
         self.update()
+
+    def _reassert_group_states(self) -> None:
+        """Let regions added by :meth:`set_regions` inherit their group's state.
+
+        ``set_regions`` creates fresh runtime state for every new region id, so
+        a region introduced while its group is already hovered/pressed/checked
+        started idle. A host that swaps its layout under the pointer (e.g. a
+        toolbar control that grows a value half on enter and rebuilds on every
+        value change) then painted that half with the idle background/text
+        family — measured on ``ScrollValueButton``: the digit capsule resolved
+        only the base colour (``#f0f0f0``) on a hovered body (``#e6e6e6``).
+        State belongs to the control, not to the region id, so it is restored
+        here instead of asking every host to re-assert it.
+        """
+        inherited: dict[str, set[ButtonState]] = {}
+        for region in self._regions:
+            group = getattr(region, "group", None)
+            if not group:
+                continue
+            held = {
+                state
+                for state in self._controller.states(region.id)
+                if state in _GROUP_MIRRORED_STATES
+            }
+            if held:
+                inherited.setdefault(group, set()).update(held)
+        if not inherited:
+            return
+        for region in self._regions:
+            for state in inherited.get(getattr(region, "group", None), ()):
+                if state not in self._controller.states(region.id):
+                    self._controller.set_state(region.id, state, True)
 
     def set_spec(self, spec: ButtonSpec) -> None:
         self._apply_spec_widget_properties(spec)
