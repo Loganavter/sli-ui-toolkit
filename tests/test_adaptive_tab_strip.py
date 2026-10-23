@@ -1,5 +1,5 @@
 from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QWheelEvent
+from PySide6.QtGui import QColor, QImage, QWheelEvent
 from PySide6.QtWidgets import QApplication, QTabBar
 from PySide6.QtTest import QTest
 
@@ -515,3 +515,51 @@ def test_close_slots_never_float_over_a_scroll_arrow(qapp):
                 f"tab {index} close slot {slot.geometry().getRect()} "
                 f"overlaps the arrow gutter {viewport.getRect()}"
             )
+
+
+def test_label_fade_lands_in_the_tab_fill_not_the_window_background(qapp):
+    """A compressed label fades into the tab it sits on, not into the window.
+
+    Regression (owner report 2026-10-23, light theme): the fade used
+    ``surface.background`` for every tab, so on a compressed UNSELECTED tab it
+    painted a white block over the grey strip — reading as a highlight, not a
+    fade. Renders the real painter path with a controlled palette.
+    """
+    strip = _wide_strip(qapp)
+    bar = strip.tab_bar
+    bar.setCurrentIndex(0)
+    bar._hover_index = -1
+    natural = [bar._natural_tab_width(i) for i in range(bar.count())]
+    minimums = [bar._min_tab_width(i) for i in range(bar.count())]
+    _fit_bar(strip, qapp, (sum(natural) + sum(minimums)) // 2)
+    # The compressed tab must really clip its label, or there is no fade to check.
+    slot = bar.tabButton(1, RS)
+    assert slot is not None
+    palette = {
+        "strip": "#303030",
+        "background": "#f0f0f0",
+        "border": "#888888",
+        "hover": "#404040",
+        "text": "#ffffff",
+    }
+    bar._palette = lambda: palette  # type: ignore[method-assign]
+
+    image = QImage(bar.size(), QImage.Format.Format_ARGB32)
+    image.fill(QColor("#000000"))
+    bar.render(image)
+
+    tab_rect = bar._painted_tab_rect(bar.tabRect(1))
+    sample = image.pixelColor(slot.geometry().left() - 3, tab_rect.top() + 2)
+    strip_color = QColor(palette["strip"])
+    background = QColor(palette["background"])
+
+    def distance(a: QColor, b: QColor) -> int:
+        return abs(a.red() - b.red()) + abs(a.green() - b.green()) + abs(a.blue() - b.blue())
+
+    assert distance(sample, strip_color) <= 40, (
+        f"fade end {sample.name()} should be the strip fill {strip_color.name()}"
+    )
+    assert distance(sample, background) > 200, (
+        f"fade end {sample.name()} is the window background {background.name()} "
+        "(the white-block report)"
+    )

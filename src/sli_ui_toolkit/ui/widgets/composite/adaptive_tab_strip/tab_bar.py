@@ -1014,9 +1014,17 @@ class _AdaptiveTabBar(QWidget):
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
         painter.restore()
         if needs_fade:
+            # Fade into the colour the tab is actually painted on — the
+            # window background only for the selected tab. Using
+            # ``surface.background`` everywhere painted a white block on the
+            # grey strip for every compressed unselected tab (owner report
+            # 2026-10-23, light theme: "looks like a highlight, not a fade").
+            fill = self._tab_fill_color(index, palette)
+            fade_from = QColor(fill)
+            fade_from.setAlpha(0)
             fade = QLinearGradient(text_rect.right() - scaled_px(self._TEXT_FADE), 0, text_rect.right() + 1, 0)
-            fade.setColorAt(0.0, QColor(0, 0, 0, 0))
-            fade.setColorAt(1.0, QColor(palette["background"]))
+            fade.setColorAt(0.0, fade_from)
+            fade.setColorAt(1.0, fill)
             painter.fillRect(
                 QRect(
                     text_rect.right() - scaled_px(self._TEXT_FADE),
@@ -1027,15 +1035,26 @@ class _AdaptiveTabBar(QWidget):
                 fade,
             )
 
+    def _tab_fill_color(self, index: int, palette) -> QColor:
+        """Colour painted *under* a tab's label (fade target, close-slot background).
+
+        Selected tab = window background, hovered = hover token, otherwise the
+        strip token. One owner for the mapping: the label fade and the close
+        slot must agree with what the tab itself paints, or the fade reads as
+        a highlight (light theme) instead of a fade.
+        """
+        if index == self._current_index:
+            return QColor(palette["background"])
+        if index == self._hover_index:
+            return QColor(palette["hover"])
+        return QColor(palette["strip"])
+
     def close_slot_background_color(self, slot: QWidget) -> QColor | None:
+        palette = self._palette()
         for index in range(self.count()):
             if self.tabButton(index, ButtonPosition.RightSide) is not slot:
                 continue
-            if index == self.currentIndex():
-                return QColor(self._palette()["background"])
-            if index == self._hover_index:
-                return QColor(self._palette()["hover"])
-            return QColor(self._palette()["strip"])
+            return self._tab_fill_color(index, palette)
         return None
 
     def _paint_selected_background(self, painter, rect, palette) -> None:
