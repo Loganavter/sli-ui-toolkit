@@ -125,10 +125,16 @@ class TranslationManager:
     def add_i18n_root(self, path: str | Path) -> None:
         root = Path(path)
         if root in self._extra_roots:
-            self._cache.clear()
-        else:
-            self._extra_roots.append(root)
-            self._cache.clear()
+            # Idempotent by contract: registering a root that is already known
+            # must not invalidate anything. Rebuilding here was quadratic in
+            # practice -- the canvas widget-feature scan re-registers every
+            # feature's i18n root on each pass, and each duplicate call cleared
+            # the pack cache and re-globbed + re-parsed every JSON file
+            # (measured 2026-10-24 on the Windows build: 1333 ms of GUI-thread
+            # stall inside a single reducer dispatch).
+            return
+        self._extra_roots.append(root)
+        self._cache.clear()
         # ``tr(key)`` / ``tr(key, language=current)`` read ``_translations``,
         # not the cache. Rebuild the live pack so deferred plugin roots
         # (e.g. export.*) are visible immediately after registration.
