@@ -89,6 +89,55 @@ def test_add_i18n_root_rebuilds_live_pack(tmp_path):
     assert tr("export.preview", language="en") == "Preview"
 
 
+def test_add_i18n_root_is_idempotent(tmp_path):
+    """Re-registering a known root must not rebuild the pack.
+
+    The canvas widget-feature scan re-registers every feature's i18n root on
+    each pass (``scene/registry.get_widget_features``), so a duplicate call
+    used to clear the pack cache and re-glob + re-parse every JSON file inside a
+    reducer dispatch -- measured 2026-10-24 as a 1333 ms GUI-thread stall on the
+    Windows build.
+    """
+    import json
+
+    from sli_ui_toolkit.i18n import configure_i18n
+
+    app_root = tmp_path / "app"
+    (app_root / "en").mkdir(parents=True)
+    (app_root / "en" / "app.json").write_text(
+        json.dumps({"common": {"ok": "OK"}}), encoding="utf-8"
+    )
+    feat_root = tmp_path / "feature"
+    (feat_root / "en").mkdir(parents=True)
+    (feat_root / "en" / "feature.json").write_text(
+        json.dumps({"feature": {"title": "Title"}}), encoding="utf-8"
+    )
+
+    mgr = TranslationManager()
+    configure_i18n(i18n_root=app_root)
+    emit_language_changed("en")
+    mgr.add_i18n_root(feat_root)
+    assert tr("feature.title") == "Title"
+
+    builds = {"n": 0}
+    original = mgr._build_language_pack
+
+    def _counting(lang_code):
+        builds["n"] += 1
+        return original(lang_code)
+
+    mgr._build_language_pack = _counting  # type: ignore[method-assign]
+    mgr.add_i18n_root(feat_root)  # duplicate registration
+    assert builds["n"] == 0, (
+        "a duplicate add_i18n_root rebuilt the language pack; it must be a "
+        "no-op (each duplicate clears the cache and re-globs every JSON file)"
+    )
+    assert tr("feature.title") == "Title", "the live pack must survive a duplicate call"
+
+    mgr.add_i18n_root(tmp_path / "another")
+    assert builds["n"] == 1, "a NEW root must still invalidate and rebuild"
+
+
 def test_translatable_defers_when_hidden(qapp, qtbot):
     from PySide6.QtWidgets import QLabel, QStackedWidget, QWidget
     from sli_ui_toolkit.i18n import translatable_callback
