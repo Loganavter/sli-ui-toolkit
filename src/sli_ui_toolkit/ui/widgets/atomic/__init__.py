@@ -10,6 +10,7 @@ from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton, RadioButtonGroup
 from sli_ui_toolkit.ui.widgets.atomic.slider import Slider
 from sli_ui_toolkit.ui.widgets.atomic.switch import Switch
 from sli_ui_toolkit.ui.widgets.atomic.spinbox import DoubleSpinBox, SpinBox
+from sli_ui_toolkit.ui.widgets.atomic.stepper import Stepper
 from sli_ui_toolkit.ui.widgets.atomic.loading_spinner import LoadingSpinner
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
@@ -55,6 +56,7 @@ __all__ = [
     "Slider",
     "SpinBox",
     "DoubleSpinBox",
+    "Stepper",
     "Switch",
     "Label",
     "LabelConfig",
