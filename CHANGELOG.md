@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A button no longer recomputes its region rects when its geometry did not change.** `Button.resizeEvent` retired the static paint snapshot and rebuilt every region rect/path unconditionally, so a host that re-applies its layout at the same size paid the full pass per re-apply — measured in the app as ~251 ms of GUI block per session-mode sync (`ui/main_window/workspace.py::sync_session_mode` toggles a button). The pass is now memoized on the inputs `ButtonController.recompute_rects` actually reads (`_region_rects_cache_key()`: widget size, density, variant, corner radius/radii, icon size, split/divider, plus a version bumped whenever the region list is rebuilt — per-region weights and `rect_fn`/`path_fn` closures cannot be compared by value); `_recompute_region_rects()` reports whether it ran, and `resizeEvent` retires the snapshot only then. A density/variant/corner-radius/icon-size change still reaches the next pass (each term is in the key) and `set_regions`/`set_spec` always invalidate. Measured: 2000 same-size resize events on a 3-region button 43.9 ms → 12.8 ms; the rects after a real resize stay identical to a from-scratch controller pass. Tests: `tests/test_button_region_recompute.py` (8 — a same-size resize and 100 no-op resizes recompute zero times, red on the previous tree at 100/100; a real resize recomputes exactly once and round-trips to identical rects; a rebuilt region list and a density/variant/corner-radius/icon-size change still recompute).
+
 ## 4.0.0
 
 First public 4.x release: the line was developed under internal `4.0`–`4.2`
