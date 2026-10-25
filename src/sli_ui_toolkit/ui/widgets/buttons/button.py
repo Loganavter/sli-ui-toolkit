@@ -386,6 +386,12 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._divider: Divider | None = divider
         self._region_rects: dict[str, QRectF] = {}
         self._region_paths: dict[str, QPainterPath] = {}
+        # Memo for the region-rect pass: the last ``_region_rects_cache_key()``
+        # that was actually computed, plus a version bumped whenever the region
+        # list / split / divider is rebuilt (see ``_region_rects_cache_key``).
+        # ``None`` = never computed, so the first pass always runs.
+        self._region_rects_token: tuple[Any, ...] | None = None
+        self._regions_version = 0
         self._region_ripple: dict[str, RippleEffect] = {}
         self._hovered_region: str | None = None
         self._pressed_region: str | None = None
@@ -797,6 +803,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._sync_region_aliases()
         self._detach_stale_region_capabilities(normalized)
         self._attach_region_capabilities(normalized)
+        self._invalidate_region_rects_memo()
         self._recompute_region_rects()
         self._sync_wrap_height_policy()
         self._reassert_group_states()
@@ -840,6 +847,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._sync_region_aliases()
         self._detach_stale_region_capabilities(self._regions)
         self._attach_region_capabilities(self._regions)
+        self._invalidate_region_rects_memo()
         self._recompute_region_rects()
         self._sync_wrap_height_policy()
         self.update()
@@ -1189,14 +1197,67 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
                 behavior.callback(behavior.action, payload)
             self.actionTriggered.emit(behavior.action, payload)
 
-    def _recompute_region_rects(self) -> None:
+    def _invalidate_region_rects_memo(self) -> None:
+        """Force the next region-rect pass (the region *list* was rebuilt).
+
+        ``recompute_rects`` reads per-region ``weight``/``rect_fn``/``path_fn``
+        and groups, which a value key cannot compare (a closure keeps its
+        identity while its captured state changes), so every rebuild of the
+        list — ``set_regions`` / ``set_spec`` — invalidates the memo outright.
+        """
+        self._regions_version = int(getattr(self, "_regions_version", 0) or 0) + 1
+
+    def _region_rects_cache_key(self) -> tuple[Any, ...]:
+        """Inputs that feed ``ButtonController.recompute_rects``.
+
+        Geometry (the widget rect) plus the shape/style values the controller
+        reads through ``ButtonSpec``/``ShapeSpec``. When this key repeats, a
+        recompute is guaranteed to reproduce the rects/paths already stored.
+        The split/divider identities are a secondary signal only: a replaced
+        layout always arrives with a rebuilt region list, which bumps
+        ``_regions_version`` (an ``id()`` can be reused by a fresh object).
+        """
+        return (
+            self.width(),
+            self.height(),
+            self._density,
+            self._variant,
+            self._corner_radius_px,
+            self._corner_radii_px,
+            self._icon_size_px,
+            id(self._split),
+            id(self._divider),
+            int(getattr(self, "_regions_version", 0) or 0),
+        )
+
+    def _recompute_region_rects(self) -> bool:
+        """Recompute region rects/paths unless their inputs are unchanged.
+
+        ``ButtonController.recompute_rects`` walks every region twice and
+        rebuilds its paths; a QLayout pass resizes buttons to the size they
+        already have, and repeating that pass produced byte-identical rects at
+        real cost (the app's session-mode sync blocked the GUI per toggle).
+        The memo makes a no-change call free and keeps the controller the
+        single source of rects.
+
+        Returns True when a recompute actually ran — ``resizeEvent`` pairs the
+        static-snapshot retirement with exactly that.
+        """
+        key = self._region_rects_cache_key()
+        if key == self._region_rects_token and self._region_rects:
+            return False
+        self._region_rects_token = key
         self._controller.recompute_rects()
         self._region_rects = self._controller.rects
         self._region_paths = self._controller.paths
+        return True
 
     def resizeEvent(self, event):
-        self._invalidate_static_cache()
-        self._recompute_region_rects()
+        # The snapshot bakes the region paths for the old geometry, so it
+        # retires in the same breath as the rects — never on a resize to the
+        # size the button already has (layout passes do that constantly).
+        if self._recompute_region_rects():
+            self._invalidate_static_cache()
         super().resizeEvent(event)
 
     def moveEvent(self, event):
