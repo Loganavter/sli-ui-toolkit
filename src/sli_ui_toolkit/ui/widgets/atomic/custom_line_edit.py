@@ -612,8 +612,16 @@ class CustomLineEdit(QWidget):
         lo, hi = bounds
         start_x = self._text_start_x(rect)
         fm = self.fontMetrics()
-        x0 = start_x + fm.horizontalAdvance(self._display_text()[:lo])
-        x1 = start_x + fm.horizontalAdvance(self._display_text()[:hi])
+        # The PAINTED string is the geometry basis, never the model text: in
+        # password mode the field draws ``len(text)`` bullets, whose advance
+        # differs from the real characters, so measuring ``_display_text()``
+        # here put the highlight beside the dots (offset by exactly the width
+        # difference — reported 2026-10-25).
+        shown = self._display_text_painted()
+        lo = max(0, min(lo, len(shown)))
+        hi = max(lo, min(hi, len(shown)))
+        x0 = start_x + fm.horizontalAdvance(shown[:lo])
+        x1 = start_x + fm.horizontalAdvance(shown[:hi])
         accent = QColor(self.theme_manager.get_color("accent"))
         accent.setAlpha(90)
         line = self._text_line_rect(rect)
@@ -647,7 +655,9 @@ class CustomLineEdit(QWidget):
             return
         fm = self.fontMetrics()
         start_x = self._text_start_x(rect)
-        cx = start_x + fm.horizontalAdvance(self._text[: self._cursor])
+        # Same basis as the painted text (see _paint_selection).
+        shown = self._display_text_painted()
+        cx = start_x + fm.horizontalAdvance(shown[: max(0, min(self._cursor, len(shown)))])
         color = QColor(self.theme_manager.get_color("dialog.text"))
         line = self._text_line_rect(rect)
         painter.fillRect(
