@@ -334,7 +334,7 @@ tabs. Full constructor options and behavior: **[TABS_API.md](TABS_API.md)**.
 | Widget | Description |
 |--------|-------------|
 | `TopTabBar` / `TopTabHost` | Horizontal content-section tabs for dialogs (export settings, wizards). Not for closable workspace documents. |
-| `AdaptiveTabStrip` | Compact workspace-style tabs with a trailing add button and adaptive close buttons. |
+| `AdaptiveTabStrip` | Compact workspace-style tabs with a trailing add button, adaptive close buttons and opt-in drag reordering. |
 
 ### Flyouts & Panels
 

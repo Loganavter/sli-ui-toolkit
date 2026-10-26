@@ -69,4 +69,29 @@ wherever the pointer is over it.
 `removeTab`, `count`, `setCurrentIndex`, `setTabData`, and `tabData`. The
 underlying widgets are available as `tab_bar` and `add_button`.
 
+### Reordering
+
+Drag-to-reorder is opt-in — nothing changes for a host that does not ask for
+it:
+
+```python
+tabs.setMovable(True)          # default: False
+tabs.tabMoved.connect(on_order_changed)   # (from_index, to_index)
+tabs.moveTab(2, 0)             # same code path the drag uses
+```
+
+`tabMoved` fires exactly once per reorder, after the move, with
+`QTabBar.tabMoved`'s semantics: `to_index` is the tab's FINAL index. The
+active tab keeps its identity — if the active tab is the one dragged,
+`currentIndex` follows it and `currentChanged` fires because that number
+changed; dragging another tab leaves the same tab active (its index follows).
+Text, `tabData`, tooltip and the tab's close-button slot travel with the tab.
+
+The gesture is internal (no Qt Drag&Drop MIME, no external drop targets): the
+press only becomes a drag after `QApplication.startDragDistance()`, a
+painter-drawn line in the accent token marks the insertion gap, and the drop
+is a cancel — never a silent reorder — when the pointer leaves the strip,
+Escape is pressed, or the release does not land on a tab. A press on a close
+slot never arms a drag. Zero- and one-tab strips are no-ops.
+
 See also [API_CATALOG.md](API_CATALOG.md) for the full widget index.

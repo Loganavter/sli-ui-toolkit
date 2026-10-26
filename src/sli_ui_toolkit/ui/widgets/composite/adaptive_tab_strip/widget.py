@@ -36,6 +36,7 @@ class AdaptiveTabStrip(QWidget):
     currentChanged = Signal(int)
     tabCloseRequested = Signal(int)
     tabContextMenuRequested = Signal(int, QPoint)
+    tabMoved = Signal(int, int)
     addRequested = Signal()
     navigateOutRequested = Signal(int)  # +1 = down/forward, -1 = up/back
 
@@ -88,6 +89,7 @@ class AdaptiveTabStrip(QWidget):
         self.tab_bar.currentChanged.connect(self._on_current_changed)
         self.tab_bar.tabContextMenuRequested.connect(self.tabContextMenuRequested)
         self.tab_bar.tabCloseRequested.connect(self.tabCloseRequested)
+        self.tab_bar.tabMoved.connect(self.tabMoved)
         self.add_button.clicked.connect(self.addRequested)
         UiScale.get_instance().scale_changed.connect(self._on_scale_changed)
         # The font path (see _on_metrics_changed): the bar's minimum height
@@ -346,6 +348,27 @@ class AdaptiveTabStrip(QWidget):
     def setCurrentIndex(self, index: int) -> None:  # noqa: N802
         self.tab_bar.setCurrentIndex(index)
 
+    def setMovable(self, movable: bool) -> None:  # noqa: N802
+        """Enable drag-to-reorder of the tabs (default off, ``QTabBar`` name).
+
+        Off by default so a host that never asks for it keeps the previous
+        click-only strip. The host persists whatever order results from
+        ``tabMoved``.
+        """
+        self.tab_bar.setMovable(movable)
+
+    def isMovable(self) -> bool:  # noqa: N802
+        return self.tab_bar.isMovable()
+
+    def moveTab(self, from_index: int, to_index: int) -> None:  # noqa: N802
+        """Move a tab to its final index (the drag gesture routes here too).
+
+        ``tabMoved(from_index, to_index)`` fires once; the active tab keeps
+        its identity, so ``currentIndex`` follows it when it moved.
+        """
+        self.tab_bar.moveTab(from_index, to_index)
+        self.refresh_close_buttons()
+
     def setTabData(self, index: int, data: Any) -> None:  # noqa: N802
         self.tab_bar.setTabData(index, data)
 
@@ -422,6 +445,7 @@ AdaptiveTabStrip.inspect_spec = InspectSpec(
         "separator.color",
         "button.toggle.background.hover",
         "WindowText",
+        "accent",
     ),
     preview_seed=_seed_preview_tabs,
     apply_config_refresh=_refresh_config_applied,

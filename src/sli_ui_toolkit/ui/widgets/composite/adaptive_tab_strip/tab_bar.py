@@ -13,7 +13,7 @@ from PySide6.QtGui import (
     QPen,
     QPolygonF,
 )
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QApplication, QSizePolicy, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
@@ -52,6 +52,19 @@ def _position_key(position) -> int:
     return int(getattr(position, "value", position))
 
 
+def _moved_index(index: int, from_index: int, to_index: int) -> int:
+    """Where ``index`` lands after moving ``from_index`` → ``to_index``."""
+    if index < 0:
+        return index
+    if index == from_index:
+        return to_index
+    if from_index < index <= to_index:
+        return index - 1
+    if to_index <= index < from_index:
+        return index + 1
+    return index
+
+
 class _AdaptiveTabBar(QWidget):
     _RADIUS = 8.0
     # Bar-wide floor only: a single tab's floor is ``_min_tab_width`` (below),
@@ -80,10 +93,15 @@ class _AdaptiveTabBar(QWidget):
     _ARROW_STROKE = 1.6
     _ARROW_REPEAT_MS = 80
     _WHEEL_STEP = 40
+    # Insertion indicator painted between tabs while a reorder drag is live.
+    _DROP_INDICATOR_WIDTH = 2
+    _DROP_INDICATOR_INSET = 3
 
     currentChanged = Signal(int)
     tabContextMenuRequested = Signal(int, QPoint)
     tabCloseRequested = Signal(int)
+    # ``QTabBar.tabMoved`` shape: emitted after a reorder, once per move.
+    tabMoved = Signal(int, int)
 
     def __init__(self, *, close_button_design_width: int, parent=None):
         super().__init__(parent)
@@ -96,6 +114,16 @@ class _AdaptiveTabBar(QWidget):
         # after the app applies its saved scale" report.
         self._close_button_design_width = max(0, int(close_button_design_width))
         self._visual_tab_height = 36
+        # Drag-to-reorder is opt-in (``setMovable``): off by default so every
+        # existing consumer keeps byte-identical behaviour (a press is a
+        # click). ``_drag_index`` is the pressed tab, ``_drag_active`` is set
+        # once the platform drag threshold is crossed, and ``_drop_index`` is
+        # the insertion gap under the pointer (0..count).
+        self._movable = False
+        self._drag_index = -1
+        self._drag_press_pos = QPoint()
+        self._drag_active = False
+        self._drop_index = -1
         self._hover_index = -1
         self._current_index = -1
         self._focused_index = -1
@@ -186,6 +214,9 @@ class _AdaptiveTabBar(QWidget):
 
     def insertTab(self, index: int, text: str) -> int:  # noqa: N802
         index = max(0, min(int(index), len(self._tabs)))
+        # A tab inserted under a live gesture shifts every index below it;
+        # abort rather than reorder from a stale source index.
+        self._cancel_drag()
         self._tabs.insert(index, {"text": text, "data": None, "tooltip": "", "buttons": {}})
         self._rects.insert(index, QRect())
         previous_current = self._current_index
@@ -203,6 +234,9 @@ class _AdaptiveTabBar(QWidget):
     def removeTab(self, index: int) -> None:  # noqa: N802
         if not (0 <= index < len(self._tabs)):
             return
+        # The dragged tab (or the slot it was aimed at) can vanish under a
+        # live gesture: abort instead of reordering from a stale index.
+        self._cancel_drag()
         entry = self._tabs.pop(index)
         self._rects.pop(index)
         for widget in entry["buttons"].values():
@@ -323,6 +357,102 @@ class _AdaptiveTabBar(QWidget):
         if not (0 <= index < len(self._rects)):
             return QRect()
         return self._rects[index].translated(-self._scroll_offset, 0)
+
+    # -- reordering ------------------------------------------------------
+
+    def setMovable(self, movable: bool) -> None:  # noqa: N802
+        """Enable/disable drag-to-reorder (default off, ``QTabBar`` name).
+
+        Turning it off aborts an in-flight drag instead of leaving an
+        indicator painted over a bar that no longer accepts drops.
+        """
+        movable = bool(movable)
+        if movable == self._movable:
+            return
+        self._movable = movable
+        if not movable:
+            self._cancel_drag()
+
+    def isMovable(self) -> bool:  # noqa: N802
+        return self._movable
+
+    def moveTab(self, from_index: int, to_index: int) -> None:  # noqa: N802
+        """Move the tab at ``from_index`` so that it ends up at ``to_index``.
+
+        Same contract as ``QTabBar.moveTab`` (``to_index`` is the tab's FINAL
+        index) and the only reorder code path: the drag gesture calls this,
+        hosts call it programmatically. The tab's entry (text, data, tooltip
+        and its close-button slot) travels as one unit, so the ACTIVE tab
+        keeps its identity — ``currentIndex`` follows it, and
+        ``currentChanged`` fires only because that index number changed.
+        """
+        count = len(self._tabs)
+        if not (0 <= from_index < count) or not (0 <= to_index < count):
+            return
+        if from_index == to_index:
+            return
+        previous_current = self._current_index
+        self._tabs.insert(to_index, self._tabs.pop(from_index))
+        self._rects.insert(to_index, self._rects.pop(from_index))
+        self._current_index = _moved_index(previous_current, from_index, to_index)
+        self._focused_index = _moved_index(self._focused_index, from_index, to_index)
+        self._relayout()
+        self.updateGeometry()
+        self.tabMoved.emit(from_index, to_index)
+        if self._current_index != previous_current:
+            self.currentChanged.emit(self._current_index)
+
+    def _drop_index_for(self, pos: QPoint) -> int:
+        """Insertion gap (0..count) under ``pos``; -1 when not over a tab."""
+        index = self.tabAt(pos)
+        if index < 0:
+            return -1
+        rect = self.tabRect(index)
+        return index if pos.x() < rect.center().x() else index + 1
+
+    @staticmethod
+    def _drop_target_index_for(source: int, drop_index: int) -> int:
+        """Final index for a tab dragged from ``source`` to a gap.
+
+        Dropping in either gap touching the dragged tab is a no-op (the gap
+        before it and the gap after it both mean "it stays here").
+        """
+        return drop_index if drop_index <= source else drop_index - 1
+
+    def _begin_drag(self) -> None:
+        self._drag_active = True
+        self._drop_index = self._drag_index
+        self.update()
+
+    def _cancel_drag(self) -> None:
+        if self._drag_index < 0 and not self._drag_active:
+            return
+        self._drag_index = -1
+        self._drag_active = False
+        self._drop_index = -1
+        self.update()
+
+    def _drag_autoscroll(self, pos: QPoint) -> None:
+        """Reveal more of the row when a drag reaches a viewport edge.
+
+        Without this a tab could only be dropped among the tabs currently in
+        view, so a scrolled strip could never be reordered end to end.
+        """
+        viewport = self._viewport_rect()
+        step = 0
+        if pos.x() < viewport.left():
+            step = -scaled_px(self._WHEEL_STEP)
+        elif pos.x() > viewport.right():
+            step = scaled_px(self._WHEEL_STEP)
+        if step == 0 or self._max_scroll_offset() <= 0:
+            return
+        before = self._scroll_offset
+        self._scroll_offset = max(
+            0, min(self._scroll_offset + step, self._max_scroll_offset())
+        )
+        if self._scroll_offset != before:
+            self._position_tab_buttons()
+            self.update()
 
     # -- sizing ----------------------------------------------------------
 
@@ -648,6 +778,8 @@ class _AdaptiveTabBar(QWidget):
                 self._paint_visible_tab(painter, index, viewport, palette)
         if self._current_index >= 0:
             self._paint_visible_tab(painter, self._current_index, viewport, palette)
+        if self._drag_active:
+            self._paint_drop_indicator(painter, viewport, palette)
         painter.setClipRect(event.rect())
         if self._arrows_active:
             self._paint_arrows(painter, event.rect(), palette)
@@ -723,6 +855,37 @@ class _AdaptiveTabBar(QWidget):
         )
         painter.restore()
 
+    def _drop_indicator_rect(self) -> QRect:
+        """Tab-boundary line marking where the dragged tab will land."""
+        if not self._drag_active or not self._rects:
+            return QRect()
+        if not (0 <= self._drop_index <= len(self._rects)):
+            return QRect()
+        viewport = self._viewport_rect()
+        if self._drop_index <= 0:
+            x = self.tabRect(0).left()
+        elif self._drop_index >= len(self._rects):
+            x = self.tabRect(len(self._rects) - 1).right() + 1
+        else:
+            x = self.tabRect(self._drop_index).left()
+        width = max(1, scaled_px(self._DROP_INDICATOR_WIDTH))
+        # Keep the line inside the scroll viewport so it never paints over an
+        # arrow gutter.
+        x = max(viewport.left(), min(x, viewport.right() - width + 1))
+        inset = scaled_px(self._DROP_INDICATOR_INSET)
+        return QRect(x, inset, width, max(0, self._tab_height() - inset * 2))
+
+    def _paint_drop_indicator(self, painter, exposed_rect, palette) -> None:
+        rect = self._drop_indicator_rect()
+        if rect.isEmpty() or not rect.intersects(exposed_rect):
+            return
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(palette["accent"]))
+        radius = scaled_px(1)
+        painter.drawRoundedRect(rect, radius, radius)
+        painter.restore()
+
     def _paint_visible_tab(self, painter, index, exposed_rect, palette) -> None:
         rect = self.tabRect(index)
         if rect.isValid() and rect.intersects(exposed_rect):
@@ -730,6 +893,10 @@ class _AdaptiveTabBar(QWidget):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
+            # A fresh press always starts a fresh gesture, even if the previous
+            # one ended without a release reaching us (this also repaints away
+            # a lingering insertion indicator).
+            self._cancel_drag()
             pos = event.position().toPoint()
             arrow = self._arrow_at(pos)
             if arrow >= 0:
@@ -745,10 +912,22 @@ class _AdaptiveTabBar(QWidget):
             if index >= 0:
                 self.setCurrentIndex(index)
                 self._focused_index = index
+                # A press on the close slot belongs to the button: the slot is
+                # a real child widget whose ignored press reaches us translated
+                # into the bar, and it must never arm a reorder.
+                if self._movable and not self._close_slot_contains(index, pos):
+                    self._drag_index = index
+                    self._drag_press_pos = pos
+                    self._drag_active = False
+                    self._drop_index = -1
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         key = event.key()
+        if self._drag_active and key == Qt.Key.Key_Escape:
+            self._cancel_drag()
+            event.accept()
+            return
         _tabstrip_debug("[TAB-BAR] key=%s count=%s current=%s", key, len(self._tabs), self._current_index)
         count = len(self._tabs)
         if count == 0:
@@ -815,6 +994,28 @@ class _AdaptiveTabBar(QWidget):
             super().keyPressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._drag_index >= 0:
+            source = self._drag_index
+            active = self._drag_active
+            pos = event.position().toPoint()
+            drop = (
+                self._drop_index_for(pos) if self.rect().contains(pos) else -1
+            )
+            self._cancel_drag()
+            if not active:
+                # A plain click never reorders (the press above is a normal
+                # tab activation) — fall through to the shared release path.
+                super().mouseReleaseEvent(event)
+                return
+            # Releasing outside any tab slot is a cancel: a drag must never
+            # reorder on a release the user did not aim at a slot.
+            if drop >= 0:
+                target = self._drop_target_index_for(source, drop)
+                if target != source:
+                    self.moveTab(source, target)
+                    self._set_hover_index(self.tabAt(pos))
+            event.accept()
+            return
         if self._pressed_arrow >= 0:
             self._stop_arrow_repeat()
             self._pressed_arrow = -1
@@ -842,6 +1043,25 @@ class _AdaptiveTabBar(QWidget):
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         pos = event.position().toPoint()
+        if self._drag_index >= 0:
+            if not self._drag_active:
+                delta = pos - self._drag_press_pos
+                if delta.manhattanLength() >= QApplication.startDragDistance():
+                    self._begin_drag()
+            if self._drag_active:
+                # Leaving the strip cancels the gesture outright (an internal
+                # reorder has no out-of-widget meaning).
+                if not self.rect().contains(pos):
+                    self._cancel_drag()
+                else:
+                    self._drag_autoscroll(pos)
+                    # Over an arrow gutter the last slot under the pointer
+                    # stays armed (the auto-scroll above is moving the row);
+                    # releasing there is still a cancel.
+                    drop = self._drop_index_for(pos)
+                    if drop >= 0 and drop != self._drop_index:
+                        self._drop_index = drop
+                        self.update()
         arrow = self._arrow_at(pos)
         if arrow != self._hover_arrow:
             self._hover_arrow = arrow
@@ -873,6 +1093,7 @@ class _AdaptiveTabBar(QWidget):
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         self._stop_arrow_repeat()
+        self._cancel_drag()
         self._hover_arrow = -1
         self._pressed_arrow = -1
         if self._hover_index != -1:
@@ -1116,4 +1337,5 @@ class _AdaptiveTabBar(QWidget):
             "border": color("separator.color"),
             "hover": color("button.toggle.background.hover"),
             "text": color("WindowText"),
+            "accent": color("accent"),
         }
