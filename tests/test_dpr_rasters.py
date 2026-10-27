@@ -24,6 +24,7 @@ from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
 from sli_ui_toolkit.ui.managers.icon_manager import _recolor_pixmap
+from sli_ui_toolkit.ui.widgets.buttons.content import _scaled_pixmap_rect
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     _render_marquee_strip,
     marquee_cycle_px,
@@ -140,3 +141,57 @@ def test_recolor_pixmap_keeps_device_pixel_ratio(qapp, dpr) -> None:
     # SourceIn fill: the opaque source coverage comes out tinted, and the
     # glyph keeps its place instead of drifting to the top-left corner.
     assert _ink_pixels(result.toImage()) == 64 * 64
+
+
+# -- cover/contain/stretch (buttons/content.py) -----------------------------
+
+
+@pytest.mark.parametrize("dpr", DPRS)
+def test_scaled_pixmap_rect_rasters_at_device_resolution(qapp, dpr) -> None:
+    """The scaled cover is allocated in device px and tagged with the ratio."""
+    source = QPixmap(40, 20)
+    source.fill(QColor(10, 60, 200))
+    target = QRect(5, 7, 20, 20)
+
+    for fill in ("stretch", "cover", "contain"):
+        scaled, dest = _scaled_pixmap_rect(source, target, fill, dpr=dpr)
+        assert scaled.devicePixelRatio() == pytest.approx(dpr), fill
+        assert scaled.deviceIndependentSize().width() == pytest.approx(
+            dest.width(), abs=1.0
+        ), fill
+        assert scaled.deviceIndependentSize().height() == pytest.approx(
+            dest.height(), abs=1.0
+        ), fill
+        assert scaled.width() == int(round(dest.width() * dpr)), fill
+
+    # Contain fits inside the target; cover fills it.
+    _, contain_dest = _scaled_pixmap_rect(source, target, "contain", dpr=dpr)
+    assert contain_dest.width() <= target.width()
+    assert contain_dest.height() <= target.height()
+    _, cover_dest = _scaled_pixmap_rect(source, target, "cover", dpr=dpr)
+    assert cover_dest.width() >= target.width()
+    assert cover_dest.height() >= target.height()
+
+
+def test_scaled_pixmap_rect_cache_is_dpr_aware(qapp) -> None:
+    """One entry per ratio: a screen move must not reuse the old raster."""
+    source = QPixmap(40, 20)
+    source.fill(QColor(10, 60, 200))
+    target = QRect(0, 0, 20, 20)
+    one, _ = _scaled_pixmap_rect(source, target, "cover", dpr=1.0)
+    two, _ = _scaled_pixmap_rect(source, target, "cover", dpr=2.0)
+    assert one.cacheKey() != two.cacheKey()
+    assert two.width() == one.width() * 2
+
+
+def test_scaled_pixmap_rect_defaults_to_source_ratio(qapp) -> None:
+    """Standalone callers (no painter) keep the source's own ratio."""
+    source = QPixmap(40, 20)
+    source.setDevicePixelRatio(2.0)
+    source.fill(QColor(10, 60, 200))
+    scaled, dest = _scaled_pixmap_rect(source, QRect(0, 0, 20, 20), "stretch")
+    assert scaled.devicePixelRatio() == pytest.approx(2.0)
+    assert dest.size().width() == 20
+    assert scaled.deviceIndependentSize().height() == pytest.approx(
+        dest.height(), abs=1.0
+    )
