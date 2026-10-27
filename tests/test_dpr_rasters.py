@@ -28,9 +28,10 @@ from __future__ import annotations
 import pytest
 from PySide6.QtCore import QPoint, QRect, QSizeF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap, QRegion
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.ui.managers.icon_manager import _recolor_pixmap
+from sli_ui_toolkit.ui.windows.rounded_body import apply_rounded_window_mask
 from sli_ui_toolkit.ui.widgets.buttons import (
     Button,
     ButtonRegion,
@@ -328,3 +329,63 @@ def test_fast_frame_matches_full_frame_at_device_pixels(qapp) -> None:
         )
     finally:
         btn.deleteLater()
+
+
+# -- rounded CSD mask (windows/rounded_body.py) -----------------------------
+
+
+def _mask_left_edges(region, rows: int, span: int) -> list[int | None]:
+    edges: list[int | None] = []
+    for y in range(rows):
+        edge = None
+        for x in range(span):
+            if region.contains(QPoint(x, y)):
+                edge = x
+                break
+        edges.append(edge)
+    return edges
+
+
+def test_rounded_mask_covers_the_widget_at_device_resolution(qapp) -> None:
+    """Mask is one device px per device px — never a quadrant, never half-res."""
+    dpr = _live_dpr()
+    widget = QWidget()
+    try:
+        widget.resize(120, 60)
+        apply_rounded_window_mask(widget, radius=12.0)
+        region = widget.mask()
+        assert not region.isEmpty()
+        assert region.boundingRect() == QRect(
+            0, 0, int(round(120 * dpr)), int(round(60 * dpr))
+        ), "mask must cover the whole widget in device px"
+
+        radius = 12.0
+        edges = _mask_left_edges(region, int(round(radius * dpr * 2.5)), 120)
+        first_zero = next(
+            (i for i, edge in enumerate(edges) if edge == 0), None
+        )
+        assert first_zero is not None, "corner arc never reaches the edge"
+        # A device-resolution arc spans ~radius*dpr rows; a raster built at
+        # logical resolution and upscaled reaches x=0 at ~radius rows.
+        assert first_zero >= 0.6 * radius * dpr, (
+            f"corner arc spans {first_zero} device rows for radius "
+            f"{radius} at dpr {dpr}: rasterized below device resolution"
+        )
+        # Interior stays unmasked.
+        assert region.contains(QPoint(int(60 * dpr), int(30 * dpr)))
+    finally:
+        widget.deleteLater()
+
+
+def test_rounded_mask_excludes_the_corner_outside_the_arc(qapp) -> None:
+    """The guard above must not pass on a mask that clips nothing."""
+    dpr = _live_dpr()
+    widget = QWidget()
+    try:
+        widget.resize(120, 60)
+        apply_rounded_window_mask(widget, radius=12.0)
+        region = widget.mask()
+        assert not region.contains(QPoint(0, 0))
+        assert region.contains(QPoint(int(60 * dpr), int(30 * dpr)))
+    finally:
+        widget.deleteLater()
