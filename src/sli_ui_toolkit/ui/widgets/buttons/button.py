@@ -1141,8 +1141,16 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         size = self.size()
         if size.width() <= 0 or size.height() <= 0:
             return
-        dpr = float(self.devicePixelRatioF() or 1.0)
-        pixmap = QPixmap(size)
+        dpr = max(1.0, float(self.devicePixelRatioF() or 1.0))
+        # Allocate in DEVICE px: a QPixmap(size) tagged with dpr gets a LOGICAL
+        # canvas of size/dpr, so the full-widget render landed in the top-left
+        # quadrant and every tick blitted that quadrant back (quarter-size
+        # content at DPR>1). QPainter scales commands by the tagged ratio, so
+        # the snapshot pipeline below keeps painting in logical px.
+        pixmap = QPixmap(
+            max(1, int(round(size.width() * dpr))),
+            max(1, int(round(size.height() * dpr))),
+        )
         if pixmap.isNull():
             return
         pixmap.setDevicePixelRatio(dpr)

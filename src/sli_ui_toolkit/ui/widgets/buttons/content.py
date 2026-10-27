@@ -117,65 +117,111 @@ def coerce_pixmap(value: Any) -> QPixmap | None:
     return None
 
 
+def _painter_dpr(painter: QPainter | None) -> float:
+    """Device pixel ratio the painter will land on (1.0 when unknown)."""
+    if painter is None:
+        return 1.0
+    try:
+        device = painter.device()
+    except RuntimeError:
+        return 1.0
+    get_ratio = getattr(device, "devicePixelRatioF", None)
+    if not callable(get_ratio):
+        return 1.0
+    try:
+        ratio = float(get_ratio())
+    except (AttributeError, TypeError, RuntimeError):
+        return 1.0
+    return ratio if ratio > 0.0 else 1.0
+
+
+def _device_scaled(
+    source: QPixmap,
+    dev_w: int,
+    dev_h: int,
+    ratio: float,
+) -> QPixmap:
+    """Scale ``source`` to ``dev_w x dev_h`` DEVICE px and tag it with ``ratio``.
+
+    The tag is the whole point: ``QPainter`` then blits it at ``dev / ratio``
+    logical px, i.e. 1:1 on the target. Scaling to the logical size and tagging
+    (the old behaviour) handed the painter a half-resolution raster to upscale.
+    """
+    scaled = source.scaled(
+        max(1, dev_w),
+        max(1, dev_h),
+        Qt.AspectRatioMode.IgnoreAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    scaled.setDevicePixelRatio(max(1.0, float(ratio)))
+    return scaled
+
+
 def _scaled_pixmap_rect(
-    source: QPixmap, target: QRect, fill: str
+    source: QPixmap, target: QRect, fill: str, *, dpr: float | None = None
 ) -> tuple[QPixmap, QRect]:
-    """Return (scaled_pixmap, dest_rect) for cover/contain/stretch into target."""
+    """Return (scaled_pixmap, dest_rect) for cover/contain/stretch into target.
+
+    ``target`` is in LOGICAL px, and so is the returned ``dest_rect``. The
+    returned pixmap is rasterized at ``dpr`` device px per logical one and
+    carries that ratio (``deviceIndependentSize()`` matches ``dest_rect``).
+    ``dpr`` defaults to the source's own ratio so standalone callers keep
+    working; the paint path passes the painter's.
+    """
     tw = max(1, int(target.width()))
     th = max(1, int(target.height()))
-    sw = max(1, source.width())
-    sh = max(1, source.height())
+    src_ratio = max(1.0, float(source.devicePixelRatio() or 1.0))
+    # Logical source box: aspect math has to run on logical px, otherwise a
+    # @2x source is treated as twice as wide as it paints.
+    sw = max(1.0, source.width() / src_ratio)
+    sh = max(1.0, source.height() / src_ratio)
     mode = normalize_image_fill(fill)
-    # One cache key per (source, target box, fill, dpr): the scaled result is a
-    # pure function of those, and the paint path may run it many times a second.
-    try:
-        dpr = float(source.devicePixelRatio() or 1.0)
-    except Exception:
-        dpr = 1.0
-    key = (source.cacheKey(), tw, th, mode, dpr)
+    ratio = max(1.0, float(dpr if dpr is not None else src_ratio))
+    dev_w = max(1, int(round(tw * ratio)))
+    dev_h = max(1, int(round(th * ratio)))
+    # One cache key per (source, target box, fill, ratio): the scaled result is
+    # a pure function of those, and the paint path may run it many times a second.
+    key = (source.cacheKey(), tw, th, mode, ratio)
 
     if mode == "stretch":
         scaled = _cache_scaled(
-            key,
-            lambda: source.scaled(
-                tw,
-                th,
-                Qt.AspectRatioMode.IgnoreAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            ),
+            key, lambda: _device_scaled(source, dev_w, dev_h, ratio)
         )
         return scaled, QRect(target.x(), target.y(), tw, th)
 
     if mode == "contain":
+        scale = min(tw / sw, th / sh)
+        lw = max(1, int(round(sw * scale)))
+        lh = max(1, int(round(sh * scale)))
         scaled = _cache_scaled(
             key,
-            lambda: source.scaled(
-                tw,
-                th,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
+            lambda: _device_scaled(
+                source,
+                max(1, int(round(lw * ratio))),
+                max(1, int(round(lh * ratio))),
+                ratio,
             ),
         )
-        x = target.x() + (tw - scaled.width()) // 2
-        y = target.y() + (th - scaled.height()) // 2
-        return scaled, QRect(x, y, scaled.width(), scaled.height())
+        x = target.x() + (tw - lw) // 2
+        y = target.y() + (th - lh) // 2
+        return scaled, QRect(x, y, lw, lh)
 
     # cover — scale to fill, crop overflow by clipping to target
     scale = max(tw / sw, th / sh)
-    nw = max(1, int(round(sw * scale)))
-    nh = max(1, int(round(sh * scale)))
+    lw = max(1, int(round(sw * scale)))
+    lh = max(1, int(round(sh * scale)))
     scaled = _cache_scaled(
         key,
-        lambda: source.scaled(
-            nw,
-            nh,
-            Qt.AspectRatioMode.IgnoreAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+        lambda: _device_scaled(
+            source,
+            max(1, int(round(lw * ratio))),
+            max(1, int(round(lh * ratio))),
+            ratio,
         ),
     )
-    x = target.x() + (tw - scaled.width()) // 2
-    y = target.y() + (th - scaled.height()) // 2
-    return scaled, QRect(x, y, scaled.width(), scaled.height())
+    x = target.x() + (tw - lw) // 2
+    y = target.y() + (th - lh) // 2
+    return scaled, QRect(x, y, lw, lh)
 
 
 def _widget_paint_font(widget):
@@ -671,7 +717,9 @@ class PixmapContent(Content):
         if dest.width() <= 0 or dest.height() <= 0:
             return
 
-        scaled, paint_rect = _scaled_pixmap_rect(pix, dest, self.image_fill)
+        scaled, paint_rect = _scaled_pixmap_rect(
+            pix, dest, self.image_fill, dpr=_painter_dpr(ctx.painter)
+        )
         p = ctx.painter
         p.save()
         radii = ctx.region_corner_radii

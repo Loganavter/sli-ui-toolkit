@@ -142,9 +142,13 @@ def _dense_polygon_region(path: QPainterPath) -> QRegion:
 def _mask_from_path(widget: QWidget, path: QPainterPath) -> None:
     """Clip ``widget`` to ``path``.
 
-    Prefer a device-pixel ``QBitmap`` with matching ``devicePixelRatio`` so the
-    stair-steps sit at physical pixels (HiDPI-safe). Fall back to a densely
-    flattened logical ``QRegion`` when the bitmap path is unavailable.
+    A device-pixel ``QBitmap`` tagged with ``devicePixelRatio`` is the real
+    path: the QImage is allocated at ``round(logical * dpr)``, ``QPainter``
+    scales the path by that ratio while drawing it, and Qt reads the mask back
+    in device pixels — so the corner arc steps once per PHYSICAL pixel and the
+    mask covers the whole widget (measured: radius 12 at DPR 2 spans 24 device
+    rows). The flattened logical ``QRegion`` fallback (bitmap path unavailable)
+    can only step per LOGICAL pixel, i.e. coarser edges at DPR > 1.
     """
     dpr = max(1.0, float(widget.devicePixelRatioF()))
     logical_w = max(0, int(widget.width()))
