@@ -123,17 +123,32 @@ def _render_marquee_strip(
     gap: int,
     dpr: float,
 ) -> QPixmap:
-    """Render one full marquee cycle (text + trailing gap) into a pixmap."""
+    """Render one full marquee cycle (text + trailing gap) into a pixmap.
+
+    The pixmap is allocated in DEVICE pixels (``cycle * dpr``) and carries
+    ``dpr``: ``QPainter`` scales every command by the paint device's ratio, so
+    the strip below stays in logical px while the glyphs rasterize at physical
+    resolution (``deviceIndependentSize() == cycle x height``). Allocating in
+    logical px instead shrinks the logical canvas to ``cycle / dpr``: the text
+    is then drawn at native size into a half-size canvas, clipped and offset.
+    """
     cycle = marquee_cycle_px(text_width, gap=gap)
-    pixmap = QPixmap(max(1, cycle), max(1, int(height)))
-    pixmap.setDevicePixelRatio(dpr)
+    logical_w = max(1, cycle)
+    logical_h = max(1, int(height))
+    ratio = max(1.0, float(dpr))
+    pixmap = QPixmap(
+        max(1, int(round(logical_w * ratio))),
+        max(1, int(round(logical_h * ratio))),
+    )
+    # Ratio before the painter: QPainter resolves its scale at construction.
+    pixmap.setDevicePixelRatio(ratio)
     pixmap.fill(Qt.GlobalColor.transparent)
     strip_painter = QPainter(pixmap)
     strip_painter.setFont(font)
     strip_painter.setPen(pen)
     # Same alignment the direct path uses, so blits land on identical pixels.
     strip_painter.drawText(
-        QRect(0, 0, cycle, max(1, int(height))),
+        QRect(0, 0, logical_w, logical_h),
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         text,
     )
