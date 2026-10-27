@@ -23,7 +23,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "PySide6>=6.6",
+    # Essentials, not the full PySide6: the toolkit imports only
+    # QtCore/QtGui/QtWidgets (grep-verified), so the Addons wheel (WebEngine,
+    # Multimedia, Charts, 3D, ...) is dead weight for every consumer.
+    "PySide6-Essentials>=6.6",
     "markdown>=3.4",
 ]
 license = "MIT"
