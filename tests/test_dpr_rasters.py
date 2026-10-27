@@ -20,9 +20,10 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QColor, QFont, QImage, QPainter
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication
 
+from sli_ui_toolkit.ui.managers.icon_manager import _recolor_pixmap
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     _render_marquee_strip,
     marquee_cycle_px,
@@ -119,3 +120,23 @@ def test_marquee_strip_glyphs_match_direct_draw_text(qapp, dpr) -> None:
         if strip_image.pixelColor(x, y).alpha() > 40
     )
     assert rightmost >= int(round(text_width * dpr)) - 8
+
+
+# -- icon recolour (managers/icon_manager.py) -------------------------------
+
+
+@pytest.mark.parametrize("dpr", DPRS)
+def test_recolor_pixmap_keeps_device_pixel_ratio(qapp, dpr) -> None:
+    """Tinting must not drop the ratio: the icon would paint ``dpr``x larger."""
+    source = QPixmap(64, 64)
+    source.setDevicePixelRatio(dpr)
+    source.fill(QColor(200, 30, 30))
+
+    result = _recolor_pixmap(source)
+
+    assert result.size() == source.size()
+    assert result.devicePixelRatio() == pytest.approx(dpr)
+    assert result.deviceIndependentSize() == source.deviceIndependentSize()
+    # SourceIn fill: the opaque source coverage comes out tinted, and the
+    # glyph keeps its place instead of drifting to the top-left corner.
+    assert _ink_pixels(result.toImage()) == 64 * 64

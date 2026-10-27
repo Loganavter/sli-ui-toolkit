@@ -30,7 +30,15 @@ def _content_key(path_to_icon: str) -> tuple[int, int]:
 
 
 def _recolor_pixmap(source_pixmap: QPixmap) -> QPixmap:
+    """Tinted copy of ``source_pixmap`` that keeps its device pixel ratio.
+
+    Copying the raw size but not the ratio is the bug this guard exists for: a
+    64x64@2x glyph became a 64x64@1x pixmap, so QIcon painted it twice as large
+    with the art pinned to the top-left corner. Same approach as
+    ``sidebar_nav_list.icons.tinted_pixmap`` (the working sibling).
+    """
     result_pixmap = QPixmap(source_pixmap.size())
+    result_pixmap.setDevicePixelRatio(source_pixmap.devicePixelRatio())
     result_pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(result_pixmap)
     painter.setRenderHints(
