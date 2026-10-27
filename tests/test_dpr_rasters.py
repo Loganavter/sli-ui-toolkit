@@ -6,7 +6,8 @@ DPR 2 it covers a quarter of its widget (button static snapshot), the marquee
 strip draws native-size glyphs into a half-size canvas (clipped + offset), an
 icon recolour that drops the tag paints twice as large, and a "scaled" cover is
 a half-resolution raster the painter upsamples. ``QPainter`` scales every
-command by the paint device's ratio, so the fix is always arithmetic: allocate
+command by the paint device's ratio (``combinedTransform`` = dpr,
+``worldTransform`` = identity), so the fix is always arithmetic: allocate
 ``round(logical * dpr)`` and let the tagged ratio carry the logical geometry.
 
 Cheap guard used throughout (pure arithmetic, no window): the returned raster's
@@ -14,16 +15,28 @@ Cheap guard used throughout (pure arithmetic, no window): the returned raster's
 and 2. The live ratio comes from the environment, so the file runs under each
 ``QT_SCALE_FACTOR``; per-call ratios are passed explicitly where the API has a
 ``dpr`` parameter.
+
+The rounded-CSD mask is the one raster that was already device-resolution (its
+QImage is allocated at ``round(logical * dpr)`` and tagged), so its case is a
+regression guard rather than a fix: a mask built at logical resolution and
+upscaled would reach the corner edge in ``radius`` device rows instead of
+``radius * dpr``.
 """
 
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import QRect, Qt
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
+from PySide6.QtCore import QPoint, QRect, QSizeF, Qt
+from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap, QRegion
 from PySide6.QtWidgets import QApplication
 
 from sli_ui_toolkit.ui.managers.icon_manager import _recolor_pixmap
+from sli_ui_toolkit.ui.widgets.buttons import (
+    Button,
+    ButtonRegion,
+    ButtonRow,
+    VerticalSplit,
+)
 from sli_ui_toolkit.ui.widgets.buttons.content import _scaled_pixmap_rect
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     _render_marquee_strip,
@@ -195,3 +208,123 @@ def test_scaled_pixmap_rect_defaults_to_source_ratio(qapp) -> None:
     assert scaled.deviceIndependentSize().height() == pytest.approx(
         dest.height(), abs=1.0
     )
+
+
+# -- button static snapshot (buttons/button.py) -----------------------------
+
+
+def _live_dpr() -> float:
+    app = QApplication.instance() or QApplication([])
+    return max(1.0, float(app.primaryScreen().devicePixelRatio() or 1.0))
+
+
+def _device_image(widget) -> QImage:
+    dpr = _live_dpr()
+    image = QImage(
+        max(1, int(round(widget.width() * dpr))),
+        max(1, int(round(widget.height() * dpr))),
+        QImage.Format.Format_ARGB32,
+    )
+    image.setDevicePixelRatio(dpr)
+    image.fill(0)
+    return image
+
+
+def _make_card() -> Button:
+    """Card whose cover pixmap fills the region + a crawling filename row."""
+    cover = QPixmap(120, 40)
+    cover.fill(Qt.GlobalColor.darkGray)
+    btn = Button(
+        regions=[
+            ButtonRegion(id="cover", pixmap=cover),
+            ButtonRegion(
+                id="text",
+                rows=[
+                    ButtonRow(text="2m ago", size=11),
+                    ButtonRow(
+                        text=LONG_TEXT,
+                        size=11,
+                        h_align=Qt.AlignmentFlag.AlignLeft,
+                        marquee=True,
+                    ),
+                ],
+            ),
+        ],
+        split=VerticalSplit(),
+        size=(120, 64),
+        content_padding=(8, 4, 8, 4),
+    )
+    btn.resize(120, 64)
+    return btn
+
+
+def test_static_snapshot_covers_the_whole_widget(qapp) -> None:
+    """The marquee snapshot is device-sized, not a quarter-size quadrant."""
+    btn = _make_card()
+    dpr = _live_dpr()
+    try:
+        btn.show()
+        qapp.processEvents()
+        image = _device_image(btn)
+        btn.render(image, QPoint(0, 0))
+        qapp.processEvents()
+        snapshot = btn._static_cache  # noqa: SLF001 — the raster under test
+        assert snapshot is not None, "cache must warm on a full paint"
+        assert snapshot.deviceIndependentSize() == QSizeF(btn.size()), (
+            "snapshot logical size must equal the widget: allocating in logical "
+            "px and tagging dpr shrinks the canvas to size/dpr"
+        )
+        assert snapshot.width() == int(round(btn.width() * dpr))
+        assert snapshot.height() == int(round(btn.height() * dpr))
+        # Ink density: a quadrant-sized snapshot renders roughly dpr^2 less
+        # ink than the same frame painted full.
+        full_ink = _ink_pixels(image)
+        snap_ink = _ink_pixels(snapshot.toImage())
+        assert snap_ink >= full_ink * 0.9, (
+            f"snapshot ink {snap_ink} vs full frame {full_ink}: the snapshot "
+            "does not cover the widget"
+        )
+    finally:
+        btn.deleteLater()
+
+
+def test_fast_frame_matches_full_frame_at_device_pixels(qapp) -> None:
+    """Blitting the snapshot back reproduces the full frame byte for byte."""
+    btn = _make_card()
+    try:
+        btn.show()
+        qapp.processEvents()
+        image = _device_image(btn)
+        btn.render(image, QPoint(0, 0))
+        qapp.processEvents()
+        driver = btn._marquee_driver  # noqa: SLF001
+        driver.phase = 7.0
+        btn._marquee_phase = 7.0  # noqa: SLF001 — mirror the tick write
+
+        full_image = _device_image(btn)
+        btn.render(full_image, QPoint(0, 0))
+
+        dirty = driver.dirty_rect()
+        assert dirty is not None and not dirty.isEmpty()
+        region = QRegion(dirty)
+        fast_image = full_image.copy()
+        btn.render(fast_image, region.boundingRect().topLeft(), region)
+
+        scale = _live_dpr()
+        dev_dirty = QRect(
+            int(dirty.left() * scale),
+            int(dirty.top() * scale),
+            int(dirty.width() * scale),
+            int(dirty.height() * scale),
+        )
+        mismatches = [
+            (x, y)
+            for y in range(dev_dirty.top(), dev_dirty.bottom() + 1)
+            for x in range(dev_dirty.left(), dev_dirty.right() + 1)
+            if full_image.pixel(x, y) != fast_image.pixel(x, y)
+        ]
+        assert mismatches == [], (
+            f"{len(mismatches)} device pixels differ, e.g. {mismatches[:5]}"
+        )
+    finally:
+        btn.deleteLater()

@@ -25,7 +25,7 @@ import time
 from collections.abc import Callable
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QSize, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect, QSize, QSizeF, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap, QRegion
 from PySide6.QtWidgets import QWidget
 
@@ -105,17 +105,32 @@ def make_single_card() -> Button:
     return btn
 
 
-def render_full(btn: QWidget) -> QImage:
-    image = QImage(btn.size(), QImage.Format.Format_ARGB32)
+def _device_image(widget: QWidget) -> QImage:
+    """Render target at the widget's DEVICE resolution.
+
+    A logical-size QImage silently paints a DPR>1 widget at 1x, so fast-path
+    frames (device-res snapshot) and full frames could never agree byte-wise.
+    """
+    dpr = max(1.0, float(widget.devicePixelRatioF() or 1.0))
+    image = QImage(
+        max(1, int(round(widget.width() * dpr))),
+        max(1, int(round(widget.height() * dpr))),
+        QImage.Format.Format_ARGB32,
+    )
+    image.setDevicePixelRatio(dpr)
     image.fill(0)
+    return image
+
+
+def render_full(btn: QWidget) -> QImage:
+    image = _device_image(btn)
     btn.render(image, QPoint(0, 0))
     return image
 
 
 def render_row_region(btn: QWidget, rect) -> QImage:
     """Repaint exactly ``rect`` at widget coordinates (marquee-tick shape)."""
-    image = QImage(btn.size(), QImage.Format.Format_ARGB32)
-    image.fill(0)
+    image = _device_image(btn)
     region = QRegion(rect)
     btn.render(image, region.boundingRect().topLeft(), region)
     return image
@@ -343,7 +358,7 @@ def test_invalidation_single_region(qapp, name, mutate) -> None:
         # has not run yet, so the snapshot must be gone right here.
         assert btn._static_cache is None, "mutator must retire the snapshot"
         image = render_full(btn)
-        assert image.width() == btn.width()
+        assert image.deviceIndependentSize() == QSizeF(btn.size())
         assert btn._marquee_driver.dirty_rect(), "marquee must stay live"
         assert btn._static_cache is not None, "full repaint must re-snapshot"
     finally:
@@ -434,7 +449,8 @@ def test_resize_busts_cache(qapp) -> None:
         assert btn._static_cache is None, "resize must retire the snapshot"
         render_full(btn)
         assert btn._static_cache is not None
-        assert btn._static_cache.size().width() == 170
+        # Device rounding: at DPR 1.25 the logical width lands within 1px.
+        assert btn._static_cache.deviceIndependentSize().width() == pytest.approx(170, abs=1.0)
     finally:
         btn.deleteLater()
 
@@ -445,8 +461,10 @@ def test_dpr_change_busts_cache(qapp, monkeypatch) -> None:
     try:
         warm(btn, qapp)
         key_before = btn._static_key
+        # Any ratio the live run does not use: a hardcoded 2.0 is a no-op
+        # under QT_SCALE_FACTOR=2, where the widget is already at DPR 2.
         monkeypatch.setattr(
-            ButtonImpl, "devicePixelRatioF", lambda self: 2.0)
+            ButtonImpl, "devicePixelRatioF", lambda self: 3.0)
         assert btn._static_key_now() != key_before
         calls = count_context_builds(btn, monkeypatch)
         dirty = btn._marquee_driver.dirty_rect()
@@ -695,21 +713,31 @@ def test_draw_marquee_rows_entry(qapp) -> None:
         # which belongs to the static layer, not this entry.)
         assert btn._static_cache is not None
         static = btn._static_cache.toImage()
-        assert static.size() == full_image.size()
+        # Both sides are DEVICE-resolution (the hook under test: the snapshot
+        # must cover the whole widget, not a quarter of it), so compare the
+        # logical footprint and replay in device pixels.
+        assert static.deviceIndependentSize() == full_image.deviceIndependentSize()
+        scale = max(1.0, float(btn.devicePixelRatioF() or 1.0))
         dirty = driver.dirty_rect()
         replay = full_image.copy()
         painter = QPainter(replay)
-        painter.drawImage(dirty.topLeft(), static, dirty)
+        painter.drawImage(0, 0, static)
         ctx = btn._make_context(painter)  # noqa: SLF001
         scoped = next(
             s for s in btn.iter_regions(ctx) if s.region_id == "text")
         content.draw_marquee_rows(painter, scoped, driver.phase)
         painter.end()
 
+        dev_dirty = QRect(
+            int(dirty.left() * scale),
+            int(dirty.top() * scale),
+            int(dirty.width() * scale),
+            int(dirty.height() * scale),
+        )
         mismatches = [
             (x, y)
-            for y in range(dirty.top(), dirty.bottom() + 1)
-            for x in range(dirty.left(), dirty.right() + 1)
+            for y in range(dev_dirty.top(), dev_dirty.bottom() + 1)
+            for x in range(dev_dirty.left(), dev_dirty.right() + 1)
             if full_image.pixel(x, y) != replay.pixel(x, y)
         ]
         assert mismatches == [], f"{len(mismatches)} row pixels differ"
