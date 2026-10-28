@@ -672,14 +672,19 @@ def resize_event(widget, event) -> None:
 
 
 def event_filter(widget, obj, event) -> bool:
-    """Event-filter body; True when the geometry change was handled.
+    """Event-filter body; the ping is a side effect, the event is never consumed.
 
     Never commits synchronously: a resize observed inside someone else's
     event dispatch only pings the settle gate (the ``"settle"`` flush
     recomputes + commits later), so no re-entrant commit cascade can run
-    through ``viewport_geometry_changed`` from inside the filter. The
-    widget's ``eventFilter`` must return this verdict verbatim (True stops
-    fall-through reprocessing).
+    through ``viewport_geometry_changed`` from inside the filter.
+
+    Returns ``False`` even when it pinged: the timeline installs this filter
+    on its TOP-LEVEL window (``install_filter_once``), where it is a listener,
+    not an owner. ``True`` stopped Qt's filter chain and starved sibling
+    filters on the same window — ``TitleBarGeometryFilter``
+    (``ui/windows/csd_helpers.py``) never saw the Resize and the CSD chrome
+    froze at the pre-resize size. The ping does not depend on the verdict.
     """
     if getattr(widget, "_destroyed", False):
         return False
@@ -694,7 +699,6 @@ def event_filter(widget, obj, event) -> bool:
                     widget._layout_settle.ping()
                 except (RuntimeError, AttributeError):
                     pass
-                return True
         except Exception:
             pass
     return False
