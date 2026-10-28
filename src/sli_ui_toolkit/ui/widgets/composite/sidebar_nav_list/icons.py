@@ -71,6 +71,8 @@ def selected_pixmap_for(
     normal_pixmap: QPixmap,
     icon_size: QSize,
     mode: SelectedIconMode,
+    *,
+    dpr: float | None = None,
 ) -> QPixmap:
     """The pixmap to show when ``row`` is selected, given its normal one."""
     if mode == "replace":
@@ -81,7 +83,9 @@ def selected_pixmap_for(
         if resolved.isNull():
             return normal_pixmap
         size = icon_size if icon_size.isValid() else QSize(24, 24)
-        selected_pixmap = normalized_icon_pixmap(resolved, scaled_px(size.height()))
+        selected_pixmap = normalized_icon_pixmap(
+            resolved, scaled_px(size.height()), dpr=dpr
+        )
         return selected_pixmap if not selected_pixmap.isNull() else normal_pixmap
 
     selected_pixmap = tinted_pixmap(normal_pixmap, selected_icon_color())
@@ -89,7 +93,11 @@ def selected_pixmap_for(
 
 
 def apply_row_icon(
-    row: _RowSpec, icon_size: QSize, mode: SelectedIconMode
+    row: _RowSpec,
+    icon_size: QSize,
+    mode: SelectedIconMode,
+    *,
+    dpr: float | None = None,
 ) -> None:
     """Resolve ``row``'s normal/selected pixmap pair and apply the icon."""
     if row.custom:
@@ -101,12 +109,12 @@ def apply_row_icon(
         if not base_icon.isNull():
             size = icon_size if icon_size.isValid() else QSize(24, 24)
             normal_pixmap = normalized_icon_pixmap(
-                base_icon, scaled_px(size.height())
+                base_icon, scaled_px(size.height()), dpr=dpr
             )
             if not normal_pixmap.isNull():
                 row.normal_pixmap = normal_pixmap
                 row.selected_pixmap = selected_pixmap_for(
-                    row, normal_pixmap, icon_size, mode
+                    row, normal_pixmap, icon_size, mode, dpr=dpr
                 )
     update_row_icon(row)
 

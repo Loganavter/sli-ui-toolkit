@@ -24,6 +24,8 @@ from sli_ui_toolkit.ui.widgets.atomic.text_labels import (
     register_label_variant,
 )
 from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
+from sli_ui_toolkit.ui.widgets.helpers.paint_device import widget_dpr
 
 TitleAlign = Literal["center", "leading"]
 TitleBarZone = Literal["leading", "trailing", "center"]
@@ -163,7 +165,11 @@ class _TitleBarLayoutApi:
             self._app_icon_label = label
             self._zone_layout("leading").insertWidget(0, label)
 
-        pixmap = icon.pixmap(self.ICON_SIZE, self.ICON_SIZE)
+        # Explicit ratio: QIcon.pixmap(w, h) rasterizes at the
+        # application ratio, which is wrong under fractional scaling.
+        pixmap = normalized_icon_pixmap(
+            icon, self.ICON_SIZE, dpr=widget_dpr(self._app_icon_label)
+        )
         self._app_icon_label.setPixmap(pixmap)
         self._app_icon_label.show()
         self._sync_balance_spacer()

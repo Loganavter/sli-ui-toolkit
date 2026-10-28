@@ -76,6 +76,7 @@ DOCUMENTED_RULES: tuple[str, ...] = (
     "ratio-hardcoded",
     "pixmap-size-as-logical",
     "dpr-assumed-1",
+    "icon-app-ratio",
 )
 
 #: Raster constructors whose size arguments are the allocation decision.
@@ -670,6 +671,63 @@ class Rule:
     detect: Callable[[_Unit], list[tuple[int, str]]]
 
 
+
+
+def _pixmap_call_has_no_ratio(node: ast.Call) -> bool:
+    """``icon.pixmap(size)`` / ``icon.pixmap(w, h)`` with no ratio argument.
+
+    The legal forms are ``pixmap(size, ratio, ...)`` and the helper call with
+    ``dpr=``; a bare size (one arg) or a bare ``(w, h)`` pair rasterizes at the
+    application ratio / 1:1, both wrong for a window painting at another ratio.
+    """
+    if not node.args:
+        return False
+    if len(node.args) == 1:
+        return True
+    # The bare name ``ratio`` is legal HERE (unlike typography shares):
+    # QIcon.pixmap's second positional argument is the device ratio.
+    return not any(
+        _is_ratio_ident(ast.unparse(arg)) or _is_loose_ratio_ident(ast.unparse(arg))
+        for arg in node.args
+    )
+
+
+def detect_icon_app_ratio(unit: _Unit) -> list[tuple[int, str]]:
+    """Icon rasters must be produced at the paint device's ratio.
+
+    ``QIcon.pixmap(QSize)`` and ``normalized_icon_pixmap()`` without an explicit
+    ratio take ``QGuiApplication.devicePixelRatio()``. Under fractional scaling
+    that is not the window's ratio: measured 2026-10-28 on KDE/Wayland at 125 %,
+    application 2.0 vs window 1.25, so a 22 px icon was rasterized 44x44 @2.0
+    and painted into 27.5 device px (0.625 resample) — thin strokes looked
+    ragged while the same icons were crisp at 100 %.
+    """
+    out: list[tuple[int, str]] = []
+    for node in unit.nodes:
+        if not isinstance(node, ast.Call):
+            continue
+        name = _call_name(node)
+        if name == "normalized_icon_pixmap":
+            if not any(keyword.arg == "dpr" for keyword in node.keywords):
+                out.append(
+                    (
+                        node.lineno,
+                        "normalized_icon_pixmap() without dpr=... rasterizes at "
+                        "the application ratio, not the paint device's",
+                    )
+                )
+        elif name == "pixmap" and _pixmap_call_has_no_ratio(node):
+            out.append(
+                (
+                    node.lineno,
+                    "QIcon.pixmap(...) with no explicit ratio uses the "
+                    "application ratio (wrong for the window under fractional "
+                    "scaling); use normalized_icon_pixmap(..., dpr=...)",
+                )
+            )
+    return out
+
+
 RULES: tuple[Rule, ...] = (
     Rule(
         "raster-logical-tagged",
@@ -724,6 +782,12 @@ RULES: tuple[Rule, ...] = (
         "src",
         "module-level ratio constant with no device read behind it",
         detect_dpr_assumed_one_constant,
+    ),
+    Rule(
+        "icon-app-ratio",
+        "src",
+        "icon raster produced at the application ratio, not the paint device's",
+        detect_icon_app_ratio,
     ),
 )
 

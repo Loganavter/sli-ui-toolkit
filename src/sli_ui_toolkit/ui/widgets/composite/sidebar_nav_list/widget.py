@@ -446,13 +446,23 @@ class IconListWidget(QWidget):
             if row.custom:
                 continue
             row.button.setIconSize(self._icon_size)
-            apply_row_icon(row, self._icon_size, self._selected_icon_mode)
+            apply_row_icon(
+                row,
+                self._icon_size,
+                self._selected_icon_mode,
+                dpr=self.devicePixelRatioF(),
+            )
 
     def refresh_icons(self) -> None:
         for row in self._rows:
             if row.custom:
                 continue
-            apply_row_icon(row, self._icon_size, self._selected_icon_mode)
+            apply_row_icon(
+                row,
+                self._icon_size,
+                self._selected_icon_mode,
+                dpr=self.devicePixelRatioF(),
+            )
             update_row_fg(row)
 
     def selectedIconMode(self) -> SelectedIconMode:
@@ -469,7 +479,12 @@ class IconListWidget(QWidget):
 
     def _refresh_row_icon(self, row: _RowSpec) -> None:
         """Re-resolve one row's icons (used by the ``_ListItem`` proxy)."""
-        apply_row_icon(row, self._icon_size, self._selected_icon_mode)
+        apply_row_icon(
+                row,
+                self._icon_size,
+                self._selected_icon_mode,
+                dpr=self.devicePixelRatioF(),
+            )
 
     # -------- public: scroll appearance --------
 
@@ -525,7 +540,12 @@ class IconListWidget(QWidget):
             row.data_roles[int(Qt.ItemDataRole.UserRole)] = spec.data
         self._rows.append(row)
 
-        apply_row_icon(row, self._icon_size, self._selected_icon_mode)
+        apply_row_icon(
+                row,
+                self._icon_size,
+                self._selected_icon_mode,
+                dpr=self.devicePixelRatioF(),
+            )
 
         index = len(self._rows) - 1
         button.clicked.connect(lambda _i=index: self._on_row_clicked(_i))

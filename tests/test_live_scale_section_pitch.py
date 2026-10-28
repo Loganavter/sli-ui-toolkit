@@ -107,17 +107,24 @@ def test_context_menu_row_pitch_re_derives_on_live_scale(qtbot):
 
 
 def test_context_menu_row_icon_re_derives_on_live_scale(qtbot, monkeypatch):
-    """A row's icon is re-rasterized at the new factor, not left at 16 px."""
+    """A row's icon is re-rasterized at the new factor, not left at 16 px.
+
+    The raster is produced in the row's paint pass (with the painter's own
+    device ratio, so a fractional-scaling session cannot resample it), not at
+    construction: the row is built before it is shown on any screen.
+    """
     from PySide6.QtGui import QIcon, QPixmap
 
     import sli_ui_toolkit.ui.widgets.composite.context_menu.rows as rows_mod
 
     sizes: list[int] = []
+    ratios: list[float] = []
     real = rows_mod.normalized_icon_pixmap
 
-    def _spy(source, size):
+    def _spy(source, size, **kwargs):
         sizes.append(int(size))
-        return real(source, size)
+        ratios.append(float(kwargs.get("dpr") or 0.0))
+        return real(source, size, **kwargs)
 
     monkeypatch.setattr(rows_mod, "normalized_icon_pixmap", _spy)
 
@@ -129,13 +136,18 @@ def test_context_menu_row_icon_re_derives_on_live_scale(qtbot, monkeypatch):
         parent, entries=(ContextMenuAction("with-icon", "With icon", icon=QIcon(pixmap)),)
     )
     qtbot.addWidget(menu)
-    assert menu._rows[0]._icon_pixmap is not None
+    assert menu._rows[0]._icon_source is not None
+    menu.container.grab()  # one paint pass
     assert sizes[-1] == 16  # scaled_px(ICON_SIZE) at 1.0
+    assert ratios[-1] > 0.0, "the paint pass must pass an explicit device ratio"
 
     UiScale.get_instance().set_factor(1.5)
-    qtbot.wait(20)
-
-    assert sizes[-1] == 24  # scaled_px(16) — re-derived on the live change
+    try:
+        qtbot.wait(20)
+        menu.container.grab()
+        assert sizes[-1] == 24  # scaled_px(16) — re-derived on the live change
+    finally:
+        UiScale.get_instance().set_factor(1.0)
 
 
 def _painter_context(button: Button, width: int, height: int):
