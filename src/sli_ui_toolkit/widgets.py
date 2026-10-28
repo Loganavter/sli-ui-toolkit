@@ -132,6 +132,8 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     draw_bottom_underline,
     draw_rounded_shadow,
 )
+from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
+from sli_ui_toolkit.ui.widgets.helpers.paint_device import painter_dpr, widget_dpr
 from sli_ui_toolkit.ui.widgets.list_items import EditableListItem
 from sli_ui_toolkit.ui.widgets.overlays import (
     DEFAULT_MARQUEE_ACCENT,
@@ -322,6 +324,9 @@ __all__ = [
     "apply_editable_text_behavior",
     "calculate_centered_overlay_geometry",
     "draw_bottom_underline",
+    "normalized_icon_pixmap",
+    "painter_dpr",
+    "widget_dpr",
     "draw_rounded_shadow",
     "DragDropOverlay",
     "DEFAULT_MARQUEE_ACCENT",

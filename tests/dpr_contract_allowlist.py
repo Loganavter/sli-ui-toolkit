@@ -20,6 +20,28 @@ from __future__ import annotations
 #: ``(relative_path, function_name, rule_id) -> reason``.
 ALLOWLIST: dict[tuple[str, str, str], str] = {
     (
+        "src/sli_ui_toolkit/ui/widgets/buttons/content.py",
+        "coerce_pixmap",
+        "icon-app-ratio",
+    ): (
+        "by design: this rasterizes an icon-like value at 256 px ONLY as a source "
+        "for PixmapContent, which re-renders it at the painter's ratio through "
+        "_device_scaled(source, ..., ratio) before drawing. Rasterizing at the "
+        "paint ratio here would need the painter, which this coercion does not "
+        "have (it also accepts QPixmap/QImage/paths)."
+    ),
+    (
+        "src/sli_ui_toolkit/ui/managers/icon_manager.py",
+        "_get_themed_icon_cached",
+        "icon-app-ratio",
+    ): (
+        "by design: this rasterizes an icon at its OWN native size (one pixmap per "
+        "availableSize, or a 256 px fallback) only to RECOLOUR it, then adds it "
+        "back to a QIcon; the consumer rasterizes again through "
+        "normalized_icon_pixmap(dpr=...). Recolouring at the paint ratio would "
+        "require knowing the target screen before the themed icon exists."
+    ),
+    (
         "tests/test_paint_cache.py",
         "test_dpr_change_busts_cache",
         "ratio-hardcoded",

@@ -23,6 +23,7 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import paint_font, ui_font
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
+from sli_ui_toolkit.ui.widgets.helpers.paint_device import painter_dpr
 from sli_ui_toolkit.ui.widgets.helpers.marquee_text import (
     draw_marquee_text,
     ensure_marquee_driver,
@@ -119,20 +120,7 @@ def coerce_pixmap(value: Any) -> QPixmap | None:
 
 def _painter_dpr(painter: QPainter | None) -> float:
     """Device pixel ratio the painter will land on (1.0 when unknown)."""
-    if painter is None:
-        return 1.0
-    try:
-        device = painter.device()
-    except RuntimeError:
-        return 1.0
-    get_ratio = getattr(device, "devicePixelRatioF", None)
-    if not callable(get_ratio):
-        return 1.0
-    try:
-        ratio = float(get_ratio())
-    except (AttributeError, TypeError, RuntimeError):
-        return 1.0
-    return ratio if ratio > 0.0 else 1.0
+    return painter_dpr(painter)
 
 
 def _device_scaled(
@@ -757,7 +745,7 @@ class IconContent(Content):
             if ctx.region_icon_size_px is not None
             else (read_widget_style(ctx.widget).icon_size_px or ctx.effective_icon_size_px)
         )
-        pixmap = normalized_icon_pixmap(current, icon_size)
+        pixmap = normalized_icon_pixmap(current, icon_size, dpr=_painter_dpr(p))
         x = rect.x() + (rect.width() - icon_size) // 2
         y = rect.y() + (rect.height() - icon_size) // 2
         p.drawPixmap(x, y, pixmap)
@@ -816,7 +804,7 @@ class IconTextContent(Content):
             if ctx.region_icon_size_px is not None
             else (style.icon_size_px or ctx.effective_icon_size_px)
         )
-        pixmap = normalized_icon_pixmap(self.icon, icon_px)
+        pixmap = normalized_icon_pixmap(self.icon, icon_px, dpr=_painter_dpr(p))
 
         gap = resolve_gap_px(int(getattr(ctx, "gap_px", 6) or 6))
         # Font must be set before measuring — otherwise layout uses the painter's

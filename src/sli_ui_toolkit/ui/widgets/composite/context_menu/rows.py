@@ -25,6 +25,7 @@ from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
     _shortcut_display_text,
 )
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
+from sli_ui_toolkit.ui.widgets.helpers.paint_device import painter_dpr
 
 logger = logging.getLogger(__name__)
 
@@ -180,10 +181,19 @@ class _RowContentLayer(Layer):
             p.setOpacity(self._DISABLED_OPACITY)
 
         x = widget._check_gutter
-        if widget._icon_pixmap is not None:
+        if widget._icon_source is not None:
             icon_size = scaled_px(widget.ICON_SIZE)
             icon_rect = QRect(x, (rect.height() - icon_size) // 2, icon_size, icon_size)
-            p.drawPixmap(icon_rect, widget._icon_pixmap)
+            # Rasterize here, with the painter's own ratio: the row is built
+            # before it is shown on a screen, so a pixmap cached at construction
+            # would carry the application ratio (2.0 on a 125 % Wayland session
+            # while the window paints at 1.25) and be resampled by 0.625.
+            p.drawPixmap(
+                icon_rect,
+                normalized_icon_pixmap(
+                    widget._icon_source, icon_size, dpr=painter_dpr(p)
+                ),
+            )
             x += icon_size + scaled_px(8)
 
         p.setPen(QPen(text_color))
@@ -271,9 +281,10 @@ class ContextMenuRow(Button):
         self._has_children = bool(action.children)
         self._check_gutter_design = int(check_gutter)
         self._icon_source = action.icon
-        self._icon_pixmap = (
-            normalized_icon_pixmap(action.icon, scaled_px(self.ICON_SIZE)) if action.icon else None
-        )
+        # The raster is produced at draw time with the painter's own ratio
+        # (see _RowContentLayer.draw); a construction-time pixmap would carry
+        # the application ratio, which differs under fractional scaling.
+        self._icon_pixmap = None
         self._shortcut_text = "" if action.children else _shortcut_display_text(action.shortcut)
         self._trailing_width = 0
         if self._shortcut_text:
@@ -310,16 +321,12 @@ class ContextMenuRow(Button):
             self._trailing_width = scaled_px(20)
         else:
             self._trailing_width = 0
-        if self._icon_source is not None:
-            self._icon_pixmap = normalized_icon_pixmap(
-                self._icon_source, scaled_px(self.ICON_SIZE)
-            )
         self.updateGeometry()
 
     def sizeHint(self):
         fm = QFontMetrics(self.font())
         text_w = _measure_text_width(fm, self._text)
-        icon_w = scaled_px(self.ICON_SIZE) + scaled_px(8) if self._icon_pixmap is not None else 0
+        icon_w = scaled_px(self.ICON_SIZE) + scaled_px(8) if self._icon_source is not None else 0
         w = (
             self._check_gutter
             + icon_w
