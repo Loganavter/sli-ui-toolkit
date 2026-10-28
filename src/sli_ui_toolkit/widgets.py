@@ -185,8 +185,16 @@ from sli_ui_toolkit.deprecations import (
     raise_missing_attribute,
     resolve_deprecated_attribute,
 )
+from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import (
+    normalized_icon_pixmap,
+    painter_dpr,
+    widget_dpr,
+)
 
 __all__ = [
+    "widget_dpr",
+    "painter_dpr",
+    "normalized_icon_pixmap",
     "BackgroundLayer",
     "BorderLayer",
     "BadgeLayer",
