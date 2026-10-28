@@ -103,8 +103,15 @@ class _FlyoutLifecycleApi:
         # Caller stack is gated under flyout debug (SLI_FLYOUT_DEBUG /
         # IMGSLI_FLYOUT_DEBUG) — same flag as placement geometry. Previously
         # this was always-on WARNING, which drowned navigation logs.
-        # DIAGNOSTIC: always capture caller for duplicate-hide spams (file.settings → dialog)
-        _caller = "".join(traceback.format_stack()[-5:-3])
+        # Caller capture is debug-gated like the rest of the journal: a full
+        # ``traceback.format_stack()`` per hide is measurable on a hot path, and
+        # inside a hide/focus-restore cycle (2026-10-28) it was most of what the
+        # stuck GUI thread did.
+        _caller = (
+            "".join(traceback.format_stack()[-5:-3])
+            if _flyout_debug_enabled()
+            else ""
+        )
         # Systemic: check duplicate first before probing should_fade_out — avoids
         # 9× should_fade_out spam during capture.grab() reentrancy for any CSD.
         if self._fade.hide_fade_in_progress:
@@ -157,6 +164,30 @@ class _FlyoutLifecycleApi:
         self._finish_hide()
 
     def _finish_hide(self) -> None:
+        """Close the flyout once, even if a focus handler asks again mid-flight.
+
+        ``_restore_focus_policies()`` calls ``setFocus()``, and Qt delivers
+        FocusOut/FocusIn **synchronously**: a host handler bound to the anchor's
+        focus change may hide this same flyout again. Measured 2026-10-28 in
+        Improve-ImgSLI's loupe: ``hide -> _finish_hide -> _restore_focus_policies
+        -> FocusOut -> handler -> hide`` is a 10-frame cycle; the dive only ended
+        in a RecursionError the host swallowed, so the app froze. The body is
+        already hiding the widget and restoring focus — a second pass is a no-op.
+        """
+        if getattr(self, "_finishing_hide", False):
+            _flyout_debug(
+                "[flyout-nav] _finish_hide re-entered — ignored %s id=%s",
+                type(self).__name__,
+                id(self),
+            )
+            return
+        self._finishing_hide = True
+        try:
+            self._finish_hide_body()
+        finally:
+            self._finishing_hide = False
+
+    def _finish_hide_body(self) -> None:
         _flyout_debug(
             "[flyout-nav] _finish_hide %s id=%s", type(self).__name__, id(self)
         )
