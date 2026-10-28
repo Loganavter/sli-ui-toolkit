@@ -47,6 +47,7 @@ authors = [
 dev = [
     "pytest>=7",
     "pytest-qt>=4.2",
+    "pytest-rerunfailures>=14",
     "tomli>=2.0; python_version < '3.11'",
     "mypy>=1.10",
     # PySide6-stubs depends on the FULL PySide6 metapackage, which resolves to
