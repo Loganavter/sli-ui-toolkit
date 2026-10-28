@@ -37,6 +37,16 @@ _POLICY_MARK = "_sli_widget_policy_done"
 # C++ object out from under QApplication::style().
 _STYLE_REF: QProxyStyle | None = None
 
+# True only while install_scrollbar_policy() is inside QApplication.setStyle().
+# setStyle fans a StyleChange out over a SNAPSHOT of QApplication.allWidgets(),
+# and the handlers below replace scroll bars — Qt deletes the previous native
+# bar immediately, so the snapshot is left holding a freed QWidget and the next
+# touch is a use-after-free (proven SIGSEGV inside QWidget::testAttribute_helper
+# / QWidget::style() called from QApplication::setStyle). Handlers therefore do
+# not run during the fan-out; install_scrollbar_policy() sweeps every widget
+# once the fan-out has returned.
+_STYLE_FANOUT: bool = False
+
 
 def _applied_keys(widget: QWidget) -> set[str]:
     try:
@@ -207,6 +217,12 @@ class WidgetPolicyProxyStyle(QProxyStyle):
     (once per widget — re-polishes are cheap no-ops). All other style
     behavior delegates to the base style untouched.
 
+    Access it through ``install_scrollbar_policy()``: that call brackets the
+    ``QApplication.setStyle`` fan-out (``_STYLE_FANOUT``) and re-applies the
+    handlers right after it. A bare ``app.setStyle(WidgetPolicyProxyStyle())``
+    runs them *inside* the fan-out, where replacing a scroll bar frees a widget
+    Qt is still iterating (use-after-free, proven SIGSEGV).
+
     Ownership note: construct WITHOUT a base style (``WidgetPolicyProxyStyle()``)
     whenever the proxy may die before the application — ``QProxyStyle(base)``
     takes ownership of ``base``, so wrapping ``app.style()`` in a short-lived
@@ -222,6 +238,12 @@ class WidgetPolicyProxyStyle(QProxyStyle):
             super().polish(widget)
         except Exception:
             pass
+        if _STYLE_FANOUT:
+            # Qt is mid-iteration over its allWidgets() snapshot (see
+            # _STYLE_FANOUT): substituting a bar here would delete a widget
+            # that snapshot still points at. install_scrollbar_policy()
+            # applies the handlers right after the fan-out returns.
+            return
         try:
             if isinstance(widget, QWidget):
                 _apply_policies(widget)
@@ -242,7 +264,7 @@ def install_scrollbar_policy(app: Any = None) -> bool:
     Note: Qt deletes the previous style inside ``setStyle`` — the old style
     object is gone after install, so there is deliberately no uninstall.
     """
-    global _STYLE_REF
+    global _STYLE_REF, _STYLE_FANOUT
     try:
         if app is None:
             try:
@@ -271,7 +293,11 @@ def install_scrollbar_policy(app: Any = None) -> bool:
             return False
         try:
             _STYLE_REF = proxy
-            app.setStyle(proxy)
+            _STYLE_FANOUT = True
+            try:
+                app.setStyle(proxy)
+            finally:
+                _STYLE_FANOUT = False
         except Exception:
             return False
         try:
