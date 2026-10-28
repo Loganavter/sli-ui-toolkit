@@ -825,8 +825,13 @@ def test_destroyed_gates_no_emit_no_update_no_anim(qapp, qtbot):
     assert dict(widget._thumbnails) == thumbs_before
 
 
-def test_event_filter_true_without_commit(qapp, qtbot):
-    """Handled filter events return True and never commit synchronously."""
+def test_event_filter_passes_through_without_commit(qapp, qtbot):
+    """Geometry-filter events return False, ping the gate, never commit.
+
+    The filter is installed on the top-level window, where returning True
+    would starve sibling filters (CSD chrome) — see
+    ``test_timeline_window_filter_passthrough.py``.
+    """
     from PySide6.QtCore import QSize
     from PySide6.QtGui import QResizeEvent
     from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
@@ -849,12 +854,17 @@ def test_event_filter_true_without_commit(qapp, qtbot):
         )[1]
         try:
             event = QResizeEvent(QSize(800, 240), QSize(700, 240))
-            assert timeline_interaction.event_filter(widget, widget.window(), event) is True
-            assert widget.eventFilter(widget.window(), event) is True
+            widget._layout_settle.cancel()
+            assert timeline_interaction.event_filter(widget, widget.window(), event) is False
+            assert widget.eventFilter(widget.window(), event) is False
             assert commits == []
+            # Not consuming the event must not lose the debounced fit.
+            assert widget._layout_settle._timer.isActive()
+            widget._layout_settle.cancel()
             # Unrelated objects/events fall through unhandled.
             from PySide6.QtCore import QObject, QEvent
             assert timeline_interaction.event_filter(widget, QObject(), QEvent(QEvent.Type.User)) is False
+            assert not widget._layout_settle._timer.isActive()
         finally:
             widget._commitState = original.__get__(widget, TimelineWidget)
         # Destroyed widgets never handle.

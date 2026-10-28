@@ -268,11 +268,10 @@ class TimelineWidget(QWidget):
         super().closeEvent(event)
 
     def eventFilter(self, obj, event):
-        # True when handled: stops fall-through reprocessing by other
-        # filters (interaction.event_filter never commits — it only pings
-        # the settle gate, so no re-entrant cascade can start here).
-        if timeline_interaction.event_filter(self, obj, event):
-            return True
+        # Listener only: the interaction body pings the settle gate and never
+        # consumes the event, so sibling filters on the same window (the CSD
+        # chrome filter) still receive the Resize/WindowStateChange.
+        timeline_interaction.event_filter(self, obj, event)
         return super().eventFilter(obj, event)
 
     def _current_state(self) -> TimelineViewportState:
