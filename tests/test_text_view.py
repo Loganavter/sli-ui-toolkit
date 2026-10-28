@@ -370,6 +370,8 @@ def test_line_selection_up_keeps_current_line(qapp):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtTest import QTest
 
+    from PySide6.QtWidgets import QApplication
+
     view = TextScrollArea("alpha beta\n    pass\nthird\n")
     view.resize(400, 300)
     view.show()
@@ -394,6 +396,13 @@ def test_line_selection_up_keeps_current_line(qapp):
     assert canvas._selection_range_for_line(1, "    pass") == (0, 8)
     assert canvas._selection_range_for_line(0, "alpha beta") == (0, 0)
     view.exit_edit_mode()
+    # A double-click sequence can leave Qt's GLOBAL button state pressed when the
+    # canvas re-targets the release; the next test in a random order then fails on
+    # ``QApplication.mouseButtons() == LeftButton`` (measured 2026-10-28: it made
+    # test_hover_cursor_follows_text_hit red at seed 1 and green at seeds 1234 and
+    # 20261028). The leaked state belongs to THIS test, so it is cleared here.
+    if QApplication.mouseButtons() != Qt.MouseButton.NoButton:
+        QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, pos=QPoint(edge_x, y))
 
 
 def test_line_drag_up_selects_top_line_too(qapp):
