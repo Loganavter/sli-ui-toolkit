@@ -7,7 +7,7 @@ this toolkit.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import shiboken6
 
@@ -228,14 +228,18 @@ class ToolbarRowsSection:
         "widget handled it" behaviour), or when a selection exists (Left/Right
         then collapse the selection — that is caret movement, not an exit).
         """
+        # Duck-typed on purpose: any widget with a caret (QLineEdit, CustomLineEdit,
+        # a painted text engine) answers these three; a widget without one raises
+        # and keeps the "not handled" verdict.
+        field = cast(Any, widget)
         try:
-            if widget.hasSelectedText():
+            if field.hasSelectedText():
                 return False
         except Exception:
             return False
         try:
-            pos = int(widget.cursorPosition())
-            end = len(str(widget.text()))
+            pos = int(field.cursorPosition())
+            end = len(str(field.text()))
         except Exception:
             return False
         if key == Qt.Key.Key_Left:

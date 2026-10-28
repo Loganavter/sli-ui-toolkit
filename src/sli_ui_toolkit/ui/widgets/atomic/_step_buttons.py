@@ -18,6 +18,8 @@ buttons, their layout, the repeat behaviour and the gutter paint.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QEvent, QRect, QTimer, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen
 from PySide6.QtWidgets import QWidget
@@ -59,7 +61,20 @@ class StepButton(Button):
         event.accept()
 
 
-class StepButtonsMixin:
+if TYPE_CHECKING:
+    # The mixin is only ever combined with a ``QWidget`` subclass (TimeLineEdit,
+    # StepButtons hosts), so the type checker must see that base: without it every
+    # ``self.height()`` / ``QTimer(self)`` / ``parent=self`` reads as a misuse of a
+    # bare object. At runtime the base stays ``object`` so the MRO of a host is
+    # unchanged (``class Host(StepButtonsMixin, CustomLineEdit)``).
+    class _StepMixinBase(QWidget):
+        #: Host-provided: re-derive the text margins after the gutter moves.
+        def _sync_text_margins(self) -> None: ...
+else:
+    _StepMixinBase = object
+
+
+class StepButtonsMixin(_StepMixinBase):
     STEP_BUTTON_WIDTH = 22
     STEP_BUTTON_GAP = 0
     STEP_BUTTON_OVERLAP = 1
