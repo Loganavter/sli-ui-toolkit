@@ -18,6 +18,35 @@ from PySide6.QtWidgets import QApplication, QWidget
 from sli_ui_toolkit.config import reset_toolkit_config
 
 
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """Print the counted result line even when pytest's own stats are quiet.
+
+    ``pyproject.toml`` sets ``addopts = "-q"``; a gate command that also passes
+    ``-q`` lands on verbosity -2, where pytest suppresses its final
+    ``N passed in Xs`` line — the one line a CI log or a review needs to cite
+    (observed: a fully green tier whose log ended at the ``Docs:`` line). Count
+    the reporter's own stats here so the result is visible at any verbosity.
+    """
+    # pytest itself prints the stats line at verbosity >= -1 (terminal.py
+    # TerminalReporter.summary_stats); only fill in where it stays silent.
+    if getattr(terminalreporter, "verbosity", 0) >= -1:
+        return
+    stats = getattr(terminalreporter, "stats", {}) or {}
+    parts = []
+    for outcome in ("passed", "failed", "error", "skipped", "xfailed", "xpassed"):
+        count = len(stats.get(outcome) or [])
+        if count:
+            parts.append(f"{count} {outcome}")
+    try:
+        # pytest's Duration carries the precise performance-counter span.
+        elapsed = terminalreporter._session_start.elapsed().seconds
+    except Exception:
+        elapsed = 0.0
+    terminalreporter.write_line(
+        f"{', '.join(parts) or 'no tests ran'} in {elapsed:.2f}s"
+    )
+
+
 @pytest.fixture(scope="session")
 def qapp():
     app = QApplication.instance()
