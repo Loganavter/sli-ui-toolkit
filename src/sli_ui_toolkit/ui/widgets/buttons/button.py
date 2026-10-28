@@ -837,7 +837,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         if not inherited:
             return
         for region in self._regions:
-            for state in inherited.get(getattr(region, "group", None), ()):
+            for state in inherited.get(cast(str, getattr(region, "group", None)), ()):
                 if state not in self._controller.states(region.id):
                     self._controller.set_state(region.id, state, True)
 

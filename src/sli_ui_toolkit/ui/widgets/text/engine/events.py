@@ -180,7 +180,7 @@ class _CanvasEventsApi:
             # plain-mode ``Text`` (text.py) and the legacy document core
             # (``engine/document_canvas.py``).
             if event.button() != Qt.MouseButton.LeftButton:
-                return QWidget.mousePressEvent(self, event)
+                return QWidget.mousePressEvent(self, event)  # type: ignore[arg-type]
             self._document_mouse_press(event)
             return
         if not self._editing:
@@ -215,7 +215,7 @@ class _CanvasEventsApi:
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
         if self._document_layout is not None:
             if event.button() != Qt.MouseButton.LeftButton:
-                return QWidget.mouseDoubleClickEvent(self, event)
+                return QWidget.mouseDoubleClickEvent(self, event)  # type: ignore[arg-type]
             self._document_mouse_press(event)
             return
         if not self._editing:
@@ -322,7 +322,7 @@ class _CanvasEventsApi:
             # it through would navigate to the link under the cursor (the
             # legacy document core guarded this the same way).
             if event.button() != Qt.MouseButton.LeftButton:
-                return QWidget.mouseReleaseEvent(self, event)
+                return QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]
             self._document_mouse_release(event)
             return
         QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]

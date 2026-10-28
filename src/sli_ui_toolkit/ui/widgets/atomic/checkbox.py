@@ -261,7 +261,7 @@ class CheckBox(Button):
             # Same rule as Switch: a checkbox configured before it is shown must
             # paint its indicator already checked, not animate from 0.0 on the
             # first frames (owner report 2026-10-22).
-            self.checkedProgress = target
+            self.set_checked_progress(target)
             return
         self._checked_anim.setStartValue(self._checked_progress)
         self._checked_anim.setEndValue(target)
