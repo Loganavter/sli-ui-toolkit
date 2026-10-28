@@ -7,6 +7,14 @@ move to the press serial; attempting it on a later move event fails and
 needlessly falls back to manual). While a system move owns the drag,
 app-level move events are ignored; otherwise the manual delta path runs,
 re-anchoring instead of teleporting when the press un-maximizes.
+
+``startSystemMove()`` returning True is a *request*, not proof: native
+Wayland (no press serial) and Windows accept it and then move nothing. A
+claimed move is therefore probed on the first motion events — if the
+window is still where the press left it, the claim is dropped and the
+manual path takes over (see ``_system_move_stalled``). Without that probe
+neither side moves the window ("title bar drag does nothing" on child
+windows).
 """
 
 from __future__ import annotations
@@ -18,6 +26,13 @@ from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.widgets.buttons import Button
+
+# Proof-of-move probe for a claimed system drag: this many motion events
+# AND at least this much pointer travel (logical px, Manhattan) with an
+# unchanged window position. Two events because the first motion event of
+# a press can legitimately precede the compositor's move.
+_SYSTEM_MOVE_PROBE_EVENTS = 2
+_SYSTEM_MOVE_PROBE_PX = 2
 
 
 class _TitleBarDragApi:
@@ -40,6 +55,12 @@ class _TitleBarDragApi:
     _drag_exclusions: set[int]
     _drag_start_global: QPoint | None
     _drag_system_move: bool
+    # Proof-of-move probe state for a claimed system drag. Not initialized
+    # in CustomTitleBar.__init__ (this mixin's file owns the whole probe, so
+    # the drag surface stays self-contained); read through ``getattr``
+    # defaults until the first press assigns them.
+    _drag_system_probe_count: int
+    _drag_press_window_pos: QPoint | None
     _balance_spacer: QWidget
     _left_balance: QWidget
     _controls: QWidget
@@ -94,6 +115,12 @@ class _TitleBarDragApi:
             # move — go straight to the manual path.
             self._drag_system_move = False
             w = self._target_window
+            # Probe baseline: what the window looked like at press, so a
+            # claimed system move can be checked for actually moving it.
+            self._drag_system_probe_count = 0
+            self._drag_press_window_pos = (
+                QPoint(w.pos()) if w is not None else None
+            )
             if (
                 w is not None
                 and not w.isMaximized()
@@ -126,7 +153,31 @@ class _TitleBarDragApi:
         else:
             self._drag_start_global = None
             self._drag_system_move = False
+            self._drag_system_probe_count = 0
+            self._drag_press_window_pos = None
         QWidget.mousePressEvent(self, event)  # type: ignore[arg-type]
+
+    def _system_move_stalled(self, window: QWidget, current: QPoint) -> bool:
+        """Report whether a *claimed* system move failed to move the window.
+
+        ``startSystemMove()`` returns True on platforms whose compositor then
+        ignores the request (native Wayland without a press serial, Windows
+        child windows): the flag alone is not proof the platform owns the
+        drag, yet it suppresses the manual path — so neither side moves the
+        window. Probe on the first motion events of the press: a real system
+        drag changes ``window.pos()``. Only a window still at its press
+        position after enough pointer travel counts as stalled, so a slow
+        first compositor update is not mistaken for a dead drag.
+        """
+        count = getattr(self, "_drag_system_probe_count", 0) + 1
+        self._drag_system_probe_count = count
+        press_pos = getattr(self, "_drag_press_window_pos", None)
+        if press_pos is not None and window.pos() != press_pos:
+            return False
+        drag_start = self._drag_start_global
+        if drag_start is None or count < _SYSTEM_MOVE_PROBE_EVENTS:
+            return False
+        return (current - drag_start).manhattanLength() >= _SYSTEM_MOVE_PROBE_PX
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         w = self._target_window
@@ -136,10 +187,21 @@ class _TitleBarDragApi:
             and w is not None
         ):
             if getattr(self, "_drag_system_move", False):
-                # The compositor owns this drag (started on press) —
-                # app-level moves must not fight it.
-                QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
-                return
+                if not self._system_move_stalled(
+                    w, event.globalPosition().toPoint()
+                ):
+                    # The compositor owns this drag (started on press) —
+                    # app-level moves must not fight it.
+                    QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
+                    return
+                # The platform took the request and moved nothing: take the
+                # drag over manually. Re-anchor to the pointer first so the
+                # first manual delta starts here (no teleport to the cursor)
+                # — the manual path below then sees a zero delta and moves
+                # on the next motion events.
+                self._drag_system_move = False
+                self._drag_system_probe_count = 0
+                self._drag_start_global = event.globalPosition().toPoint()
             drag_start = self._drag_start_global
             assert drag_start is not None
             current = event.globalPosition().toPoint()
@@ -160,6 +222,8 @@ class _TitleBarDragApi:
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._drag_start_global = None
         self._drag_system_move = False
+        self._drag_system_probe_count = 0
+        self._drag_press_window_pos = None
         QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
