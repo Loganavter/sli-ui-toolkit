@@ -1,0 +1,53 @@
+name: Publish to PyPI
+
+# Trusted Publishing (OIDC) — no API token in secrets. The PyPI project must have
+# a publisher registered for: owner `Loganavter`, repository `sli-ui-toolkit`,
+# workflow `publish.yml`, environment `pypi` (Publishing → Add a new publisher).
+#
+# Restored 2026-10-28: the file existed only in the pre-swap tag trees (it was
+# lost from `main` when the private line forked), so the 4.0.0 release fired no
+# publish run and the artifact had to be uploaded by hand.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v4.0.0); empty = the current default branch"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A dispatch with a tag builds EXACTLY that tag; a release event builds
+          # the release's tag; a plain dispatch builds the default branch.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+          python -m build
+
+      - name: Validate artifacts
+        run: python -m twine check dist/*
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
