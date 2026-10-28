@@ -7,11 +7,10 @@ This repository contains the shared PySide6 UI toolkit used by Improve-ImgSLI an
 Before any mechanism hypothesis for a bug/flicker/crash: **blast radius →
 working-sibling diff** (nearest non-broken path of the same class — highest
 yield) → grep known-bad comments → cheapest one-line discriminator → **only
-then** mechanism. Two live probes without a narrowed layer ⇒ stop. Full ladder +
-anti-shortcut index live in the private sibling docs:
-`../improve-imgsli-internal-docs/docs/dev/DEBUGGING.md` and
-`../improve-imgsli-internal-docs/docs/dev/investigations/circling-map-2026-10-06.md`
-(skill `diagnosis-ladder`). Example already on record: never parent a `Qt.Popup`
+then** mechanism. Two live probes without a narrowed layer ⇒ stop. The full
+ladder, its evidence base and the anti-shortcut index live in the project's
+internal engineering notes (kept private; the `diagnosis-ladder` skill carries
+the same protocol). Example already on record: never parent a `Qt.Popup`
 to the top-level window (popup_surface.py).
 
 ## What This Library Is
@@ -88,7 +87,7 @@ keep); change a comment in the SAME commit as the code it describes.
 
 ## Auto-Backup Daemon
 
-Same scheme as the sibling repos (`Improve-ImgSLI`, `improve-imgsli-internal-docs`): `~/.local/bin/sli-ui-toolkit-autopush.sh` runs every 15 min via `systemd --user sli-ui-toolkit-autopush.timer`:
+Same scheme as the application repo (`Improve-ImgSLI`): `~/.local/bin/sli-ui-toolkit-autopush.sh` runs every 15 min via `systemd --user sli-ui-toolkit-autopush.timer`:
 
 ```bash
 git add -A; git commit -m "auto: periodic backup ... [from $CUR_BRANCH]"

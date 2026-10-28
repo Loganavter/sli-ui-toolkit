@@ -1,7 +1,6 @@
 """Regression guard: click-outside-clears-focus must stay on one shared
 app-wide filter, not one QApplication.installEventFilter per CustomLineEdit
-instance (see item #9 in the API consistency audit, kept private in the
-improve-imgsli-internal-docs repo, sli-ui-toolkit/docs/dev/API_CONSISTENCY_AUDIT.md)."""
+instance (item #9 in the API consistency audit)."""
 
 from __future__ import annotations
 

@@ -7,8 +7,7 @@ are placed by a ``QLayout`` is only correct if the layout re-runs
 widget's own ``Resize`` event, so a layout left to the next event-loop turn
 paints one frame with stale child geometry — and ``QBoxLayout`` splits the
 delta into the wrong child when a cached hint is stale (growing exposes it,
-shrinking hides it). See ``docs/dev/QT_LAYOUT_PITFALLS.md`` in
-improve-imgsli-internal-docs.
+shrinking hides it). See the :func:`settle_layout` rule below.
 
 Rule: call :func:`settle_layout` at the end of the explicit rebuild or
 mutation that changed a self-derived size — never inside a child's own

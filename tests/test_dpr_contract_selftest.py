@@ -220,7 +220,7 @@ def test_probe_finds_the_four_shipped_defects_in_whole_files() -> None:
 
     ``.probe/prefix`` holds the four pre-#124 files at their package-relative
     paths. Each must trip the rule its shipped defect belongs to — this is the
-    number recorded in DONE.md for the PR that introduced this gate.
+    number recorded in the PR description that introduced this gate.
     """
     found: dict[str, set[str]] = {}
     for path in sorted(_PROBE_ROOT.rglob("*.py")):

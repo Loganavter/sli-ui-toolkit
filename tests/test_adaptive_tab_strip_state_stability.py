@@ -16,7 +16,7 @@ Two derived-state staleness bugs produced the spread:
 * with ``CloseButtonPolicy.ALL`` the ``×`` is promised on every tab — a slot
   that appears/disappears with the tab count is the missing-``×`` state.
 
-Falsification (recorded in DONE.md): the same file run against the pre-fix
+Falsification (recorded with the PR): the same file run against the pre-fix
 source (``git archive 1ca5a59`` into a scratch dir inside the clone) is red
 on the width composition and on the single-non-closable ``×``; the fixed tree
 is green.
