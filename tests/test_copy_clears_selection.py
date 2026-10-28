@@ -58,10 +58,14 @@ def test_document_copy_clears_the_selection(qapp, qtbot):
     canvas = widget.canvas()
     start = widget.plain_text().index("one")
     canvas._doc_selection.set_range(start, start + len("one"))
-    assert QGuiApplication.clipboard().text() != "one"
+    # Explicit sentinel, not "the clipboard happens to differ": the clipboard
+    # is process-wide and the tier runs in a random order, so an earlier copy
+    # test can leave exactly this word on it (measured: seed 20261028).
+    clipboard = QGuiApplication.clipboard()
+    clipboard.setText("<stale clipboard>")
 
     assert widget.copy_selection() is True
-    assert QGuiApplication.clipboard().text() == "one"
+    assert clipboard.text() == "one"
     assert widget.hasSelectedText() is False
 
 

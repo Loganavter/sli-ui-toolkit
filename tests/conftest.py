@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import sys
 from pathlib import Path
@@ -13,9 +14,13 @@ if _SRC.is_dir() and str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 import pytest
+from PySide6.QtCore import QEvent
+from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.config import reset_toolkit_config
+from sli_ui_toolkit.managers import UiFont, UiScale
+from sli_ui_toolkit.ui.managers.theme_manager import ThemeManager
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
@@ -64,6 +69,72 @@ def _reset_toolkit_config():
 
 
 @pytest.fixture(autouse=True)
+def _restore_applied_theme_state(qapp):
+    """Restore the *applied* theme surface, not just the theme name.
+
+    ``ThemeManager``'s applied state and Qt's application slots are
+    process-wide, so a test that registers palettes / a QSS path and switches
+    the theme hands all of it to whatever runs next: the palettes it
+    registered, the QSS template built from them (and the application
+    stylesheet that template produced), the application palette, the
+    ``UiFont`` pin and the ``UiScale`` factor. Under a random order the next
+    module then paints through someone else's ``QWidget { background-color }``
+    rule, and the red names a widget that never touched a theme.
+
+    Measured on ``tests/test_ui_font.py``: its two QSS-ordering tests leave a
+    registered ``QWidget { background-color: @Window }`` template behind, so
+    ``test_icon_list_surface``'s explicitly painted ``dialog.background``
+    token loses to that stale application stylesheet. Same class as
+    Improve-ImgSLI #693, where a module fixture restored only
+    ``_current_theme`` and the font + palette slots stayed behind.
+
+    Restores are conditional and never replay a signal: a test that does no
+    theme work pays a few comparisons, and widgets from the finished test are
+    already closed (this fixture is set up before ``_autouse_widget_cleanup``,
+    so it tears down after it) when the application stylesheet changes.
+    """
+    tm = ThemeManager.get_instance()
+    app = QApplication.instance()
+    saved_theme = tm._current_theme
+    saved_pending = tm._pending_theme
+    saved_flush_scheduled = tm._theme_flush_scheduled
+    saved_flush_app = tm._theme_flush_app
+    saved_light = copy.deepcopy(tm._light_palette)
+    saved_dark = copy.deepcopy(tm._dark_palette)
+    saved_template = tm._qss_template
+    saved_paths = list(tm._qss_paths)
+    saved_stylesheet = app.styleSheet() if app is not None else ""
+    saved_palette = QPalette(app.palette()) if app is not None else None
+    saved_app_font = QFont(app.font()) if app is not None else None
+    font_manager = UiFont.get_instance()
+    saved_family = font_manager._family_override
+    scale = UiScale.get_instance()
+    saved_factor = scale.factor()
+    yield
+    tm._current_theme = saved_theme
+    tm._pending_theme = saved_pending
+    tm._theme_flush_scheduled = saved_flush_scheduled
+    tm._theme_flush_app = saved_flush_app
+    tm._light_palette = saved_light
+    tm._dark_palette = saved_dark
+    tm._qss_template = saved_template
+    tm._qss_paths = saved_paths
+    # Direct field writes, not set_family()/set_factor(): replaying either
+    # would fan out font_changed/scale_changed into the previous test's dead
+    # widgets, and a scale emit re-applies the (stale) QSS on the way out.
+    font_manager._family_override = saved_family
+    scale._factor = saved_factor
+    if app is None:
+        return
+    if (app.styleSheet() or "") != saved_stylesheet:
+        app.setStyleSheet(saved_stylesheet)
+    if saved_palette is not None and app.palette() != saved_palette:
+        app.setPalette(saved_palette)
+    if saved_app_font is not None and app.font() != saved_app_font:
+        app.setFont(saved_app_font)
+
+
+@pytest.fixture(autouse=True)
 def _autouse_widget_cleanup(request, qapp):
     """Autouse cleanup for leaked top-level windows (host KNOWN_BUGS class)."""
     initial = set(QApplication.topLevelWidgets())
@@ -80,6 +151,15 @@ def _autouse_widget_cleanup(request, qapp):
             continue
     try:
         qapp.processEvents()
+    except Exception:
+        pass
+    try:
+        # Force the deferred deletes: a widget that installed ITSELF as an
+        # application event filter (BaseFlyout's focus guard) only drops that
+        # filter when its C++ object dies — a `deleteLater` the loop never
+        # reaches leaves the guard installed for the next test, which then
+        # swallows every FocusIn outside the dead flyout's subtree.
+        qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     except Exception:
         pass
     try:
