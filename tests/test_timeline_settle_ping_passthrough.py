@@ -96,7 +96,12 @@ def test_armed_gate_still_runs_the_deferred_fit(qapp, qtbot):
             window.resize(980, 580)
             qapp.processEvents()
             assert widget._layout_settle._timer.isActive()
-            qtbot.wait(300)  # settle interval is 120 ms
+            # Wait for the FLUSH, not for a wall-clock constant: the settle
+            # interval is 120 ms, but a loaded CI runner can miss a fixed
+            # 300 ms window (this test failed on 3.11 only, 1890 green
+            # elsewhere). waitUntil polls the condition and fails on its own
+            # timeout, so a real regression still turns this red.
+            qtbot.waitUntil(lambda: bool(calls), timeout=5000)
             assert widget._needs_fit_view is False
             assert calls, "settle flush never reached fit_view"
             assert widget._layout_settle._timer.isActive() is False
