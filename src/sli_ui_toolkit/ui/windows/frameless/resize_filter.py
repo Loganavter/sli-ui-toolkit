@@ -71,6 +71,55 @@ def _content_frame_limits(target: QWidget) -> tuple[int, int, int, int]:
     return (min_w, min_h, max_w, max_h)
 
 
+
+def _maximized_like(target: QWidget) -> bool:
+    """True when the window has no room left to resize into.
+
+    ``isMaximized()/isFullScreen()`` alone is not enough on Wayland: a
+    transient dialog that the compositor stretched to the screen often does
+    NOT carry the maximized state (Qt keeps ``isMaximized()`` false while the
+    geometry says otherwise), so the edge zones stayed armed and the window
+    still offered the resize cursor at its borders — dialogs only, the main
+    window reports the real state.
+
+    Three signals, cheapest first: Qt's flags, the native window states, then
+    the geometry itself (a window that fills the screen's available area is
+    effectively maximized — there is nothing to drag it wider into).
+    """
+    try:
+        if target.isMaximized() or target.isFullScreen():
+            return True
+    except RuntimeError:
+        return True
+    try:
+        handle = target.windowHandle()
+        if handle is not None:
+            states = handle.windowStates()
+            if states & (
+                Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen
+            ):
+                return True
+    except (RuntimeError, AttributeError):
+        pass
+    try:
+        screen = target.screen()
+        if screen is None:
+            return False
+        available = screen.availableGeometry()
+        geometry = target.geometry()
+        # Both axes "at least the available area" is the stretched-by-the-
+        # compositor shape; a window merely as wide as the screen but shorter
+        # is a normal window and keeps its bottom edge live.
+        return (
+            available.width() > 0
+            and available.height() > 0
+            and geometry.width() >= available.width()
+            and geometry.height() >= available.height()
+        )
+    except (RuntimeError, AttributeError):
+        return False
+
+
 class _ResizeFilter(QObject):
     """Edge-resize hit testing for frameless windows.
 
@@ -206,7 +255,7 @@ class _ResizeFilter(QObject):
                 self._refresh_cursor_from_global()
             return False
 
-        if target.isMaximized() or target.isFullScreen():
+        if _maximized_like(target):
             self.end_manual_resize()
             self._native_resizing = False
             self._clear_cursor("window maximized/fullscreen")
@@ -310,7 +359,7 @@ class _ResizeFilter(QObject):
                 self._resize_margin,
                 value,
                 target.isVisible(),
-                target.isMaximized() or target.isFullScreen(),
+                _maximized_like(target),
             )
             if value == 0:
                 return False
