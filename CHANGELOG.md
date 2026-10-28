@@ -2,6 +2,9 @@
 
 ## 4.0.0
 
+### Fixed
+- **PySide6 6.12.0 is excluded (`PySide6-Essentials>=6.6,<6.12`)**: on 6.12.0 the test tier dies with a core dump (`SIGABRT`, exit 134) after ~130 widget tests on Python 3.10 and 3.11, and the aborting test moves between runs (`test_combo_focus_reveal.py`, then `test_button_regions.py`) — memory corruption, not a single bad assertion. The same tree on 6.11.1 is green on 3.10 (`1890 passed / 4 skipped`, 78 s). The public CI matrix caught this the first time it ever ran; raise the ceiling only after the suite is green on the new minor across 3.10–3.13.
+
 ### Added
 
 - **The test tier's seed-dependent theme failures had one polluter: `tests/test_ui_font.py`.** Its two QSS-ordering tests register a `QWidget { background-color: @Window }` probe template and leave it applied, so the next module under a random order paints through someone else's application stylesheet — `test_icon_list_surface`'s explicitly painted `dialog.background` token then loses to it. `tests/conftest.py` grew an autouse `_restore_applied_theme_state` fixture that snapshots and restores the *applied* state, not the theme name: registered palettes, the QSS path/template, the application palette and stylesheet, the app font, the `UiFont` pin and the `UiScale` factor. Also `test_copy_clears_selection` planted a sentinel instead of asserting "the clipboard happens to differ" (process-wide state an earlier copy test can leave set). Three random seeds and the collection order are now all green (1859 passed / 4 skipped each).
