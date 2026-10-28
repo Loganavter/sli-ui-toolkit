@@ -30,9 +30,20 @@ wraps an `IconListWidget` sidebar (exposed as `.sidebar`) plus a
 the configured width and stays visible when the nav list is collapsed.
 `resizable_sidebar=True` puts the sidebar and the content area into a
 draggable `QSplitter` (`.splitter`), so the user can widen/narrow the nav
-column (the configured `sidebar_width` becomes the minimum).
+column (the configured `sidebar_width` becomes the minimum). The divider is
+painter-drawn: one **device** pixel wide at every `devicePixelRatio`
+(`dialog.border` over `surface.background`), centred in the handle, so it
+stays crisp and never merges with the content column's own border at a
+fractional ratio (125 % / 150 %).
 `ScrollableDialogPage(*, content_margins=(0, 0, 12, 0), content_spacing=15, parent=None)`
 is a single scrollable content column, meant to be pushed into that stack.
+`content_margins`/`content_spacing` are **design px**: the shell and the page
+re-resolve them through `UiScale` on every factor change (as they do their
+sidebar width and divider width), so nothing is stamped at construction.
+Its `minimumSizeHint()` includes the content widget's minimum width (plus
+the vertical scrollbar) — a `QScrollArea` reports a fixed ~68×68 otherwise,
+which would let a splitter squeeze the column under its own content. Height
+stays scrollable: only the width is a hard requirement.
 
 `IconListWidget` supports in-place search filtering — the rows stay built,
 only visibility changes per keystroke (ComboBox-style visible-index pool):
