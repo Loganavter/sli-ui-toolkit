@@ -183,6 +183,67 @@ def test_sync_spin_breaker_stops_rearming(qapp):
     area.close()
 
 
+def test_install_does_not_free_bars_during_style_fanout(qapp):
+    """Regression: install_scrollbar_policy() used to SIGSEGV (exit 139).
+
+    ``QApplication.setStyle`` fans a StyleChange out over a *snapshot* of
+    ``QApplication.allWidgets()``, and the scrollbar substitution deletes the
+    previous native bar (``setVerticalScrollBar``/``setHorizontalScrollBar``
+    free it immediately). A bar replaced during that fan-out therefore stayed
+    in Qt's snapshot as a freed QWidget and the next touch was a
+    use-after-free. The pair that exposed it was a never-polished
+    ``TextScrollArea`` (stock horizontal bar) left behind by
+    ``test_text_view_read_and_edit_modes`` plus this install — so the stock
+    bar must exist *before* install() fans out, which this test reproduces in
+    one session on purpose.
+    """
+    from PySide6.QtWidgets import QStyleFactory
+
+    from sli_ui_toolkit.ui.widgets.composite.text_scroll import TextScrollArea
+
+    app = QApplication.instance()
+    assert app is not None
+    # The polluter's shape: never shown, so its stock horizontal bar is still
+    # native when install() polishes it (only the vertical bar is replaced in
+    # TextScrollArea.__init__).
+    view = TextScrollArea("class Foo:\n    pass\n")
+    canvas = view.enter_edit_mode()
+    canvas.insert_text("# edited\n")
+    view.exit_edit_mode()
+    view.set_text("other\n")
+    # ...and the hidden page is closed + scheduled for deletion by the autouse
+    # widget cleanup between tests; that is part of the reproducer (a plain
+    # surviving area does not load the freed-bar window the same way).
+    view.close()
+    view.deleteLater()
+    qapp.processEvents()
+    area = QScrollArea()
+    try:
+        assert install_scrollbar_policy() is True
+        # Areas born after install are still covered at real polish time (the
+        # substitution that used to run inside the fan-out now runs in the
+        # sweep install performs once the fan-out has returned).
+        area.resize(320, 240)
+        area.show()
+        qapp.processEvents()
+        assert isinstance(area.verticalScrollBar(), MinimalistScrollBar)
+        assert isinstance(area.horizontalScrollBar(), MinimalistScrollBar)
+    finally:
+        try:
+            app.setStyle(QStyleFactory.create("Fusion"))
+        except Exception:
+            pass
+        try:
+            import sli_ui_toolkit.ui.widgets.helpers.scrollbar_policy as _pol
+
+            _pol._STYLE_REF = None
+        except Exception:
+            pass
+        area.close()
+        area.deleteLater()
+        qapp.processEvents()
+
+
 def test_install_end_to_end_and_restore(qapp):
     # Qt deletes the previous style inside setStyle: the pre-install style
     # object is gone after install, so teardown installs a fresh Fusion
