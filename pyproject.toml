@@ -26,7 +26,15 @@ dependencies = [
     # Essentials, not the full PySide6: the toolkit imports only
     # QtCore/QtGui/QtWidgets (grep-verified), so the Addons wheel (WebEngine,
     # Multimedia, Charts, 3D, ...) is dead weight for every consumer.
-    "PySide6-Essentials>=6.6",
+    #
+    # CEILING <6.12 (2026-10-28, measured): on PySide6 6.12.0 the suite ABORTS
+    # with a core dump (SIGABRT) after ~130 widget tests on Python 3.10 and 3.11
+    # — `pytest` exits 134 and the crashing test moves between runs (first
+    # `test_combo_focus_reveal.py`, then `test_button_regions.py`), i.e. it is
+    # memory corruption, not one bad test. The same tree on 6.11.1 is green:
+    # `1890 passed / 4 skipped` on 3.10. Raise the ceiling only after re-running
+    # the suite on the new minor and seeing it green on 3.10-3.13.
+    "PySide6-Essentials>=6.6,<6.12",
     "markdown>=3.4",
 ]
 license = "MIT"
@@ -41,6 +49,11 @@ dev = [
     "pytest-qt>=4.2",
     "tomli>=2.0; python_version < '3.11'",
     "mypy>=1.10",
+    # PySide6-stubs depends on the FULL PySide6 metapackage, which resolves to
+    # the newest release (6.12.0) even though the runtime dependency above is
+    # capped — so the cap is repeated here, or the dev/CI environment drifts to
+    # the version the suite cannot run on.
+    "PySide6<6.12",
     "PySide6-stubs>=6.7.3.0",
     "types-Markdown>=3.4",
 ]

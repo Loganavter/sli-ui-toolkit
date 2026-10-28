@@ -319,6 +319,11 @@ def test_set_zoom_anchor_variants_hold_center(qapp):
             zoom_got: list[float] = []
             w.zoomChanged.connect(lambda z: zoom_got.append(z))
             w.set_zoom(0.6, anchor=anchor)
+            # Two turns: the scroll area adjusts its range in the first, the
+            # viewport width the anchor is measured against lands in the second.
+            # One turn made this test depend on the runner's layout timing (it
+            # failed with a 41.9 drift while the same build was green locally).
+            qapp.processEvents()
             qapp.processEvents()
             after = center_time()
             assert abs(before - after) < 1.0

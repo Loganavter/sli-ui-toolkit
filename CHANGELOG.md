@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 4.0.0
+
+### Fixed
+- **PySide6 6.12.0 is excluded (`PySide6-Essentials>=6.6,<6.12`)**: on 6.12.0 the test tier dies with a core dump (`SIGABRT`, exit 134) after ~130 widget tests on Python 3.10 and 3.11, and the aborting test moves between runs (`test_combo_focus_reveal.py`, then `test_button_regions.py`) — memory corruption, not a single bad assertion. The same tree on 6.11.1 is green on 3.10 (`1890 passed / 4 skipped`, 78 s). The public CI matrix caught this the first time it ever ran; raise the ceiling only after the suite is green on the new minor across 3.10–3.13.
 
 ### Added
 
