@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.0.1
+
+### Fixed
+- **The package can actually be uploaded to PyPI.** `pyproject.toml` declared `Framework :: Qt :: 6`, which is not in the trove list — PyPI answered `400 Bad Request: 'Framework :: Qt :: 6' is not a valid classifier` and the 4.0.0 distributions never reached the index (the tag and the GitHub release exist; the version was skipped, deliberately, rather than moving a published tag). Replaced with the valid `Environment :: X11 Applications :: Qt`. `twine check` does not validate classifiers, so the publish workflow is the gate that caught it.
+
 ## 4.0.0
 
 ### Fixed
