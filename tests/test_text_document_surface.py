@@ -146,40 +146,65 @@ def _wheel(delta: int, phase=Qt.ScrollPhase.NoScrollPhase) -> QWheelEvent:
 
 
 @pytest.mark.parametrize(
-    ("doc", "size_hint", "size_hint_from_content", "with_image"),
-    [
-        (DOC_HEADINGS, (0, 312), (640, 312), False),
-        (DOC_FIGURE, (0, 583), (640, 583), True),
-        (DOC_LONG, (0, 727), (640, 727), False),
-    ],
+    ("doc", "with_image"),
+    [(DOC_HEADINGS, False), (DOC_FIGURE, True), (DOC_LONG, False)],
 )
-def test_document_size_metrics_match_the_measured_host_parity(
-    qapp, doc, size_hint, size_hint_from_content, with_image
-):
+def test_document_size_metrics_match_the_measured_host_parity(qapp, doc, with_image):
     """Falsification: pre-change ``Text`` has no ``size_hint_from_content``
-    (AttributeError); ``sizeHint`` itself already reports the engine height."""
+    (AttributeError); ``sizeHint`` itself already reports the engine height.
+
+    The AMOUNTS are the engine's own (``minimumHeight()``), not a number recorded
+    on one machine: document heights follow the ambient UI font, and the toolkit
+    deliberately does not ship one (``ui_font`` pins the host's family). Pinning
+    312/583/727 made this test fail on a CI runner whose font resolves
+    differently — the parity contract is "both paths report the engine height",
+    which a font cannot break.
+    """
     kwargs = {"resolve_asset": (lambda p: _pixmap())} if with_image else {}
     widget = _show(Text(doc, mode="document", **kwargs), width=_W, height=_H)
-    assert (widget.sizeHint().width(), widget.sizeHint().height()) == size_hint
+    engine_height = widget._engine.minimumHeight()
+    assert engine_height > 0, "precondition: the document laid out at all"
+    # Default hint: no width (a host sizes documents from content).
+    assert (widget.sizeHint().width(), widget.sizeHint().height()) == (0, engine_height)
     hint = widget.size_hint_from_content()
-    assert (hint.width(), hint.height()) == size_hint_from_content
-    assert hint.height() == widget._engine.minimumHeight()
+    assert (hint.width(), hint.height()) == (_W, engine_height)
     # Document mode never declares height-for-width (the host sizes from
     # ``size_hint_from_content``); the plain-mode formula stays the only path,
     # so ``heightForWidth`` is not a document-contract number to pin (it
-    # follows the ambient UI font). The probe recorded 272 / 170 / 782.
+    # follows the ambient UI font).
     assert widget.hasHeightForWidth() is False
+
+
+def test_more_content_is_always_taller(qapp):
+    """The one size invariant that does not depend on the font: a longer
+    document reports a taller one, in every environment."""
+    heights = []
+    for doc, has_image in ((DOC_HEADINGS, False), (DOC_FIGURE, True), (DOC_LONG, False)):
+        kwargs = {"resolve_asset": (lambda p: _pixmap())} if has_image else {}
+        widget = _show(Text(doc, mode="document", **kwargs), width=_W, height=_H)
+        heights.append(widget.size_hint_from_content().height())
+    assert heights[0] < heights[1] < heights[2], heights
 
 
 def test_document_anchor_y_matches_the_measured_host_offsets(qapp):
     """Falsification: pre-change anchors exist but nothing pins their ids /
-    widget-space y against the old host canvas."""
+    widget-space y against the old host canvas.
+
+    Absolute offsets (144 / 239 / 510) are font metrics — they move with the
+    ambient UI family, which the toolkit does not ship. What the contract owes a
+    host is: the id resolves, the offsets are ordered in TEXT order, and an
+    unknown id is ``None``.
+    """
     widget = _show(Text(DOC_HEADINGS, mode="document"))
-    assert widget.anchor_y("one") == 144
-    assert widget.anchor_y("two") == 239
+    one, two = widget.anchor_y("one"), widget.anchor_y("two")
+    assert one is not None and two is not None, "both heading ids must resolve"
+    assert 0 < one < two < widget.size_hint_from_content().height()
+    # The widget reports the engine's own map (the engine owns block geometry).
+    assert (one, two) == (widget._engine.anchor_y("one"), widget._engine.anchor_y("two"))
     assert widget.anchor_y("missing") is None
     figure = _show(Text(DOC_FIGURE, mode="document", resolve_asset=lambda p: _pixmap()))
-    assert figure.anchor_y("deep") == 510
+    deep = figure.anchor_y("deep")
+    assert deep is not None and 0 < deep < figure.size_hint_from_content().height()
 
 
 def test_document_plain_text_is_the_parsed_block_text(qapp):
@@ -203,8 +228,14 @@ def test_document_render_is_pixel_identical_to_the_painted_document_path(qapp):
 
 
 def test_document_scroll_to_text_target_matches_the_measured_offset(qapp):
+    """The offset a host scrolls to is the engine's own text-space y — a font
+    metric, so the ASSERTION is the engine parity plus "inside the document",
+    not the 689 recorded on one machine."""
     widget = _show(Text(DOC_LONG, mode="document", selectable=True), height=120)
-    assert widget.scroll_to_text("needle") == 689
+    target = widget.scroll_to_text("needle")
+    assert target is not None
+    assert 0 < target < widget.size_hint_from_content().height()
+    assert target == widget._engine.scroll_to_text("needle")
 
 
 # -- scroll_to_anchor --------------------------------------------------------

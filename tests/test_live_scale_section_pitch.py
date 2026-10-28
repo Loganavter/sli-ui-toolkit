@@ -280,12 +280,22 @@ def test_chip_badge_box_follows_live_scale(qtbot):
     button.setBadgeStyle(filled=True, bordered=False)
     qtbot.addWidget(button)
 
+    from sli_ui_toolkit.managers import scaled_px
+
     x0, y0, x1, y1 = _badge_bbox(button, 200, 40)
-    assert x1 - x0 + 1 == 18  # scaled_px(14) rounded box + antialias fringe
-    assert y1 - y0 + 1 == 14  # scaled_px(14) at 1.0
+    width_at_1, height_at_1 = x1 - x0 + 1, y1 - y0 + 1
+    # Height is the DESIGN-PX box — font-independent, pinned exactly.
+    assert height_at_1 == scaled_px(14)  # at 1.0 the factor is 1
+    # Width carries the badge TEXT, so it is a font metric: pin the contract
+    # (the box exists and is wider than it is tall), not a machine's glyph width.
+    assert width_at_1 > height_at_1
 
     UiScale.get_instance().set_factor(1.5)
     qtbot.wait(20)
 
     x0, y0, x1, y1 = _badge_bbox(button, 300, 60)
-    assert y1 - y0 + 1 == 21  # scaled_px(14) at 1.5 — was still 14 before
+    width_at_15, height_at_15 = x1 - x0 + 1, y1 - y0 + 1
+    # Both dimensions follow the live factor: the height by the design scale
+    # (was still 14 before the fix) and the width by the scaled text.
+    assert height_at_15 == scaled_px(14) > height_at_1
+    assert width_at_15 > width_at_1
