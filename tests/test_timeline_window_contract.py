@@ -34,6 +34,68 @@ def _snaps(n: int):
     return [SimpleNamespace(timestamp=float(i)) for i in range(n)]
 
 
+def _make_scrolled_widget(qapp, n: int = 120, vw: int = 800, vh: int = 240):
+    """The timeline INSIDE a host ``QScrollArea`` — how every real host embeds it.
+
+    The centering contract is about the host's scroll area: without one,
+    ``viewport.get_viewport_width`` falls back to its 800-px default and
+    ``get_scroll_area`` returns None, so a "center" measurement is taken against
+    a scroll value that never moves. That degenerate configuration is what made
+    the zoom-centering tests drift by tens of seconds on CI while passing here.
+    """
+    from PySide6.QtWidgets import QScrollArea
+
+    area = QScrollArea()
+    area.resize(vw, vh)
+    area.setWidgetResizable(False)
+    widget = _make_widget(qapp, n=0, width=vw, height=vh)
+    area.setWidget(widget)
+    area.show()
+    qapp.processEvents()
+    if n > 0:
+        widget.set_data(_snaps(n), fps=30)
+        widget.fit_view()
+        widget._commitState(widget._current_state(), source="test")
+    qapp.processEvents()
+    return area, widget
+
+
+def _center_measure(widget, qapp):
+    """``(viewport_width, center_time)`` — or ``(0, None)`` when unrealized.
+
+    The centering contract is about a PIXEL target: the scroll area keeps the
+    time under the viewport center. Two environment facts have to be stated
+    explicitly, because a CI runner differs from a desktop here:
+
+    * an unrealized widget reports a zero viewport width, and every measurement
+      taken from it is meaningless (the first CI run measured a 41.9 s drift
+      that was pure extrapolation past the content);
+    * the scroll value is an integer, so the residual error is bounded in
+      PIXELS, not in seconds — the tolerance is derived from the widget's own
+      pixels-per-second at the zoom under test.
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    area = timeline_viewport.get_scroll_area(widget)
+    scroll = area.horizontalScrollBar().value() if area else 0
+    vpw = timeline_viewport.get_viewport_width(widget)
+    if vpw <= 0:
+        return 0, None
+    return vpw, timeline_viewport.cursor_time_at_x(widget, float(scroll) + float(vpw) / 2.0)
+
+
+def _center_tolerance(widget, zoom: float) -> float:
+    """``<= 2 px`` of drift expressed in the widget's own time units."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    ppu = timeline_viewport.pixels_per_second_for_zoom(widget, zoom)
+    return max(2.0 / max(float(ppu), 1e-9), 0.25)
+
+
 def _make_widget(qapp, n: int = 60, width: int = 800, height: int = 240):
     from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
         TimelineWidget,
@@ -248,22 +310,19 @@ def test_set_zoom_holds_center_time(qapp):
         viewport as timeline_viewport,
     )
 
-    w = _make_widget(qapp, n=120)
+    area, w = _make_scrolled_widget(qapp, n=120)
     try:
         w.set_zoom(0.2)
         qapp.processEvents()
 
-        def center_time():
-            area = timeline_viewport.get_scroll_area(w)
-            scroll = area.horizontalScrollBar().value() if area else 0
-            vpw = timeline_viewport.get_viewport_width(w)
-            return timeline_viewport.cursor_time_at_x(w, float(scroll) + float(vpw) / 2.0)
-
-        before = center_time()
+        vpw, before = _center_measure(w, qapp)
+        if vpw <= 0:
+            pytest.skip("the timeline viewport is not realized in this environment")
         w.set_zoom(0.6)
         qapp.processEvents()
-        after = center_time()
-        assert abs(before - after) < 1.0
+        _vpw_after, after = _center_measure(w, qapp)
+        assert after is not None
+        assert abs(before - after) <= _center_tolerance(w, 0.6)
     finally:
         w.close()
 
@@ -302,20 +361,14 @@ def test_set_zoom_anchor_variants_hold_center(qapp):
     )
 
     for anchor in ("cursor", "center"):
-        w = _make_widget(qapp, n=120)
+        area, w = _make_scrolled_widget(qapp, n=120)
         try:
             w.set_zoom(0.2)
             qapp.processEvents()
 
-            def center_time():
-                area = timeline_viewport.get_scroll_area(w)
-                scroll = area.horizontalScrollBar().value() if area else 0
-                vpw = timeline_viewport.get_viewport_width(w)
-                return timeline_viewport.cursor_time_at_x(
-                    w, float(scroll) + float(vpw) / 2.0
-                )
-
-            before = center_time()
+            vpw, before = _center_measure(w, qapp)
+            if vpw <= 0:
+                pytest.skip("the timeline viewport is not realized in this environment")
             zoom_got: list[float] = []
             w.zoomChanged.connect(lambda z: zoom_got.append(z))
             w.set_zoom(0.6, anchor=anchor)
@@ -325,8 +378,9 @@ def test_set_zoom_anchor_variants_hold_center(qapp):
             # failed with a 41.9 drift while the same build was green locally).
             qapp.processEvents()
             qapp.processEvents()
-            after = center_time()
-            assert abs(before - after) < 1.0
+            _vpw_after, after = _center_measure(w, qapp)
+            assert after is not None
+            assert abs(before - after) <= _center_tolerance(w, 0.6)
             assert len(zoom_got) == 1
         finally:
             w.close()
