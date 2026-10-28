@@ -48,7 +48,7 @@ def _hosted_timeline(qapp, n: int = 60):
     return window, widget
 
 
-def test_window_resize_arms_gate_through_the_filter(qapp):
+def test_window_resize_arms_gate_through_the_filter(qapp, qtbot):
     """A real window resize reaches the filter and pings the gate."""
     from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
         interaction as timeline_interaction,
@@ -60,8 +60,12 @@ def test_window_resize_arms_gate_through_the_filter(qapp):
         assert not widget._layout_settle._timer.isActive()
         window.resize(940, 560)
         qapp.processEvents()
-        assert widget._layout_settle._timer.isActive(), (
-            "resize reached the widget earlier in this suite but not here — "
+        # The platform delivers Resize asynchronously; one processEvents() is a
+        # wall-clock guess that held locally and failed on a loaded runner.
+        qtbot.waitUntil(
+            lambda: widget._layout_settle._timer.isActive(),
+            timeout=5000,
+        ), (
             "the gate must be pinged from the filter's window branch"
         )
         # Same verdict through the explicit interaction entry (no commit).

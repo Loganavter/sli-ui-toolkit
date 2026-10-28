@@ -44,7 +44,11 @@ jobs:
         run: mypy src/sli_ui_toolkit
 
       - name: Run tests
-        run: pytest
+        # --reruns 1: this tier has timer/layout-sensitive tests (settle gates,
+        # scroll anchoring) that a loaded shared runner occasionally misses; a
+        # REAL failure still fails twice. Keep the count at 1 — a suite that
+        # needs more retries than that is a suite to fix, not to retry.
+        run: pytest --reruns 1 --reruns-delay 2
 
       - name: Build sdist and wheel
         run: python -m build
