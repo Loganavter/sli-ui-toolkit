@@ -75,6 +75,7 @@ from sli_ui_toolkit.ui.widgets.composite.sunburst_chart import (
     SunburstSegmentItem,
 )
 from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+    StripBand,
     TimelineCallbacks,
     TimelineWidget,
 )
@@ -138,6 +139,7 @@ __all__ = [
     "SunburstChartWidget",
     "SunburstSegmentData",
     "SunburstSegmentItem",
+    "StripBand",
     "TimelineCallbacks",
     "TimelineWidget",
     "show_context_menu",

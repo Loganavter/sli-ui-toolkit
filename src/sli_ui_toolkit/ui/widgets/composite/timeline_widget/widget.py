@@ -17,6 +17,7 @@ from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 
 from .models import TimelineCallbacks
+from .strip_band import StripBand, StripBandRelease, StripBandRenderer
 from . import interaction as timeline_interaction
 from . import layout as timeline_layout
 from . import render as timeline_render
@@ -120,6 +121,9 @@ class TimelineWidget(QWidget):
         self._visual_index = 0.0
         self._scrub_visual_index: float | None = None
         self._timeline_model = None
+        # GPU filmstrip band child, opt-in via enable_strip_band(); None
+        # keeps the QPainter thumbnail path (render.draw_thumbnail_strip).
+        self._strip_band: StripBand | None = None
         self._row_layout: list[tuple] = []
         self._hover_points: list[tuple[QRectF, str]] = []
         self._hover_tooltip_text = None
@@ -292,11 +296,16 @@ class TimelineWidget(QWidget):
         # PySide6-stubs lags shiboken6.isValid — narrow ignore per AGENTS.md.
         if getattr(self, "_destroyed", False) or not sip.isValid(self):  # type: ignore[attr-defined]
             return False
-        return timeline_viewport.commit_state(self, nxt, source)
+        committed = timeline_viewport.commit_state(self, nxt, source)
+        # Scroll and zoom both land here; the band's view follows the commit
+        # (no-op without a band, one update() with one).
+        self.sync_strip_band()
+        return committed
 
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
         timeline_interaction.resize_event(self, event)
+        self.sync_strip_band()
 
     def _on_host_scroll(self, *_args) -> None:
         """Host scrollbar step (delegates to ``interaction.host_scroll``)."""
@@ -374,6 +383,81 @@ class TimelineWidget(QWidget):
     def set_text_color(self, color: QColor | str | None) -> None:
         """Override label/text color. ``None`` reverts to the theme token."""
         self._set_color_override("text_col", color)
+
+    # -- GPU filmstrip band (opt-in) ---------------------------------------
+
+    def strip_band(self) -> StripBand | None:
+        """The GPU filmstrip band child, or ``None`` while it is not enabled."""
+        return self._strip_band
+
+    def strip_band_active(self) -> bool:
+        """Whether the band is covering the strip row (so tiles are its job).
+
+        False while there is no band, no injected renderer, or the band is not
+        visible: the QPainter thumbnail path is the fail-closed fallback in
+        every one of those states.
+        """
+        band: StripBand | None = getattr(self, "_strip_band", None)
+        return band is not None and band.isVisible() and band.renderer() is not None
+
+    def enable_strip_band(
+        self,
+        render: StripBandRenderer | None = None,
+        release: StripBandRelease | None = None,
+    ) -> StripBand:
+        """Create (once) the GPU filmstrip band and inject its renderer.
+
+        ``render(command_buffer, band)`` draws the tiles for ``band.view()``
+        at ``band.device_pixel_ratio()``; ``release()`` drops those GPU
+        resources. The band is a paint-only child over the strip row, so
+        while it is visible the parent stops painting thumbnails underneath
+        (the background fill stays). A child widget composites above the
+        parent's paint, so chrome the parent draws across that row (the
+        playhead line, the selection wash) must be drawn by ``render`` too.
+        Returns the band for further wiring.
+        """
+        band = self._strip_band
+        if band is None:
+            band = StripBand(self)
+            self._strip_band = band
+        band.set_renderer(render, release)
+        self.sync_strip_band()
+        band.show()
+        self.update()
+        return band
+
+    def disable_strip_band(self) -> None:
+        """Drop the band child and its callbacks; the QPainter path returns.
+
+        Idempotent. Hides first so no frame can call a renderer whose host
+        already dropped its resources, then deletes on the next event loop.
+        """
+        band = self._strip_band
+        if band is None:
+            return
+        self._strip_band = None
+        band.set_renderer(None, None)
+        band.hide()
+        band.deleteLater()
+        self.update()
+
+    def strip_band_rect(self) -> QRect:
+        """The band area in this widget's coordinates (strip row, no chrome)."""
+        return timeline_viewport.strip_band_rect(self)
+
+    def sync_strip_band(self) -> None:
+        """Place the band and push the current view into it.
+
+        No-op while the band is not enabled. Called by the widget itself on
+        resize and on every viewport commit (scroll/zoom); a host that drives
+        its scroll area directly can call it per tick.
+        """
+        band: StripBand | None = getattr(self, "_strip_band", None)
+        if band is None or getattr(self, "_destroyed", False):
+            return
+        band.place(self.strip_band_rect())
+        scroll_x, zoom = timeline_viewport.strip_band_view(self)
+        band.set_view(scroll_x, zoom)
 
     def set_thumbnails(self, thumbnails: dict):
         """Bulk generation replace: one store update, one prune, one paint.

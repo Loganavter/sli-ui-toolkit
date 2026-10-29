@@ -14,6 +14,7 @@ Sunburst/donut charts, a three-level calendar, and a keyframe timeline.
 | `TimelineWidget` | Keyframe timeline with thumbnail strip, grouped tracks, ruler, playhead, zoom/scroll, range selection. Feed via `set_data()` (snapshots or `source: TimelineDataSource`). |
 | `TimelineCallbacks` | Callback hooks: `should_show_track`, `visible_channels`, `is_track_active`, `localize_token`, `localize_value`, `lane_value_color`, `prominent_track_ids`. |
 | `TimelineDataSource` | Typed `set_data(source=...)` shape (`snapshots`/`fps`/`duration`/`timeline_model`). Import: `sli_ui_toolkit.ui.widgets.composite.timeline_widget.models`. |
+| `StripBand` | Opt-in `QRhiWidget` band over the timeline's strip row: the host draws the tiles in one GPU pass (`set_renderer`), the toolkit owns placement (`place`/`band_rect`) and the view (`set_view`/`view`). Wired through `TimelineWidget.enable_strip_band()`. |
 | `TIMELINE_TOKENS` | Every `timeline.*` color/alpha token (see wash alphas below). Import: `sli_ui_toolkit.ui.widgets.composite.timeline_widget`. |
 
 `SunburstChartWidget(parent=None)` takes no constructor config; appearance
@@ -113,5 +114,53 @@ timeline = TimelineWidget(
 timeline.set_data(snapshots, fps=30, duration=12.5)
 timeline.set_grid_color("#444444")
 ```
+
+### GPU filmstrip band (`StripBand`)
+
+The strip row can be rendered by the host as one GPU pass instead of
+per-tile `QPainter.drawPixmap`. The toolkit supplies the widget and the view
+plumbing; the host supplies the drawing:
+
+```python
+from sli_ui_toolkit.widgets import TimelineWidget
+
+
+def draw_tiles(command_buffer, band):
+    # band.view() -> (scroll_x, zoom); band.band_rect() in parent coords;
+    # band.device_pixel_ratio() / band.device_pixel_size() for the texture.
+    ...
+
+
+def drop_textures():
+    ...
+
+
+band = timeline.enable_strip_band(render=draw_tiles, release=drop_textures)
+```
+
+`enable_strip_band(render=None, release=None)` creates the child once, injects
+the pair, places it over the strip row and returns it; `disable_strip_band()`
+drops it and restores the `QPainter` thumbnail path. While the band is visible
+the timeline paints the strip background but no tiles underneath it. The band
+is a child widget, so it composites above the parent's paint: the ruler, track
+rows, gutter labels, footer and scrollbar are outside its rect and untouched,
+while anything the parent draws *across* the strip row (the playhead line, the
+selection wash) has to be drawn by the `render` callback — it receives the band,
+so `band.view()` and `band.band_rect()` are its inputs.
+
+`StripBand(QRhiWidget)` itself:
+`set_renderer(render=None, release=None)` / `renderer()`,
+`set_view(scroll_x, zoom)` / `view()` (synchronous — no timer, no settle gate),
+`set_band_rect(rect)` / `band_rect()` / `place(rect)` (parent coordinates),
+`device_pixel_ratio()` (live, unrounded) / `device_pixel_size()`.
+`initialize()` creates nothing and `releaseResources()` forwards to the
+injected `release`: Qt's callbacks are the only entry points, and there is no
+readback (`QImage`/framebuffer grab) anywhere in the band.
+
+A host that drives its own scroll area (or mutates zoom outside `set_zoom`)
+calls `timeline.sync_strip_band()` after each tick; the widget already does it
+on resize and on every viewport commit. Import the class from
+`sli_ui_toolkit.widgets`, `sli_ui_toolkit.ui.widgets.composite`, or
+`sli_ui_toolkit.ui.widgets.composite.timeline_widget`.
 
 See also [API_CATALOG.md](API_CATALOG.md) for the full widget index.
