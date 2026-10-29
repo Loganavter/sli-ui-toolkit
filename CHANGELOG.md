@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`StripBand` — the timeline's filmstrip row can be drawn by the host as one GPU pass.** A new `QRhiWidget` child (`ui/widgets/composite/timeline_widget/strip_band.py`, exported from `sli_ui_toolkit.widgets`) holds the GPU lifecycle and the view state, and calls an injected renderer: `set_renderer(render, release)` where `render(command_buffer, band)` draws the tiles for `band.view()` and `release()` drops the host's GPU resources. `initialize()` creates nothing app-specific, `render()` forwards the command buffer, `releaseResources()` forwards the release — no readback, no `QImage`, no timers. `set_view(scroll_x, zoom)` is synchronous and idempotent (one `update()` per call, no settle gate or debounce), `place(rect)`/`band_rect()` keep the band over the strip row only, and `device_pixel_ratio()`/`device_pixel_size()` pass the live ratio through unrounded (the host renders at device pixels). The widget is paint-only (transparent to mouse events, no focus), so scrub/wheel on the timeline keep working; it stays app-agnostic — frames, scenes and tile geometry never enter the toolkit. `TimelineWidget` wires it opt-in: `enable_strip_band(render=None, release=None)` creates/places/syncs the child and returns it, `disable_strip_band()` drops it, `sync_strip_band()` re-places and re-pushes the view (called by the widget on resize and every viewport commit), `strip_band_rect()` is the band area in widget coordinates. While a visible band covers the strip row, `render.draw_thumbnail_strip(..., draw_tiles=False)` keeps the background fill and stops drawing per-tile pixmaps underneath it, so the two paths never both pay for the strip. Tests: `tests/test_timeline_strip_band.py` (13 — view store/one update per call, renderer/release injection and silent no-ops, placement in a fake parent, ratio passthrough unrounded at a fractional ratio, a source-level assertion that the module owns no timer/readback symbol, and the timeline hook end to end). The QRhi path itself needs a mapped window with an RHI backend and is not asserted offscreen.
+
 ## 4.0.1
 
 ### Fixed

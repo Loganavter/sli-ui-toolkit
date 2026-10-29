@@ -981,6 +981,44 @@ def draw_inner_scrollbar(
     painter.drawRoundedRect(handle_rect, radius, radius)
     painter.restore()
 
+def strip_band_rect(widget) -> QRect:
+    """The GPU filmstrip band's area, in ``TimelineWidget`` coordinates.
+
+    The columns right of the gutter across the thumbnail row, clipped to the
+    visible content area: the strip scrolls up with the vertical content
+    offset and the footer (ruler, scrollbar) is never covered, so the band
+    cannot hide the parent's own QPainter chrome. Empty when the content area
+    has no width (nothing to render).
+    """
+    scroll_area = get_scroll_area(widget)
+    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
+    content_right = int(
+        (scroll_offset + get_viewport_width(widget)) - right_inset(widget)
+    )
+    left = int(widget.LEFT_GUTTER)
+    band = QRect(
+        left,
+        -vertical_scroll_value(widget),
+        max(0, content_right - left),
+        int(widget.STRIP_HEIGHT),
+    )
+    visible = QRect(
+        0, 0, int(widget.width()), int(widget.height() - footer_height(widget))
+    )
+    return band.intersected(visible)
+
+
+def strip_band_view(widget) -> tuple[int, float]:
+    """The band's view for the current tick: ``(scroll_x, zoom)``.
+
+    ``scroll_x`` is the host scroll area's horizontal offset, ``zoom`` the
+    committed zoom level — plain data, no frame/track knowledge.
+    """
+    scroll_area = get_scroll_area(widget)
+    scroll_x = scroll_area.horizontalScrollBar().value() if scroll_area else 0
+    return int(scroll_x), float(getattr(widget, "_zoom_level", 1.0))
+
+
 def sb_strip_rect(widget) -> QRectF:
     scroll_area = get_scroll_area(widget)
     scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0

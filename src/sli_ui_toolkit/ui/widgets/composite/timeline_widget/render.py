@@ -42,8 +42,12 @@ def _lookup_thumbnail(widget, rep_frame: int) -> QPixmap | None:
     return timeline_viewport.thumbnail_for_rep(widget, rep_frame)
 
 
-def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, content_start_x: float, strip_top: float, width: int, start_x: float, end_x: float, logical_width: float, slot_width: float) -> None:
+def draw_thumbnail_strip(widget, painter: QPainter, *, canvas_bg: QColor, content_start_x: float, strip_top: float, width: int, start_x: float, end_x: float, logical_width: float, slot_width: float, draw_tiles: bool = True) -> None:
     painter.fillRect(QRectF(content_start_x, strip_top, width - content_start_x, widget.STRIP_HEIGHT), canvas_bg)
+    if not draw_tiles:
+        # A visible GPU strip band covers this row and paints the tiles itself;
+        # the background fill above stays as the fail-closed underlay.
+        return
     blocks = timeline_viewport.strip_block_layout(
         widget, content_start_x=content_start_x, start_x=start_x, end_x=end_x
     )
@@ -450,7 +454,7 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
     end_x = min(clip_rect.right(), content_right)
     painter.save()
     painter.setClipRect(QRectF(0, 0, content_right, footer_top))
-    draw_thumbnail_strip(widget, painter, canvas_bg=canvas_bg, content_start_x=content_start_x, strip_top=strip_top, width=content_right, start_x=start_x, end_x=end_x, logical_width=logical_width, slot_width=slot_width)
+    draw_thumbnail_strip(widget, painter, canvas_bg=canvas_bg, content_start_x=content_start_x, strip_top=strip_top, width=content_right, start_x=start_x, end_x=end_x, logical_width=logical_width, slot_width=slot_width, draw_tiles=not widget.strip_band_active())
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setPen(timeline_primitives._pen_for(text_col, 1))
     duration = timeline_layout.content_duration(widget)
