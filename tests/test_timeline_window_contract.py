@@ -56,6 +56,14 @@ def _make_scrolled_widget(qapp, n: int = 120, vw: int = 800, vh: int = 240):
         widget.set_data(_snaps(n), fps=30)
         widget.fit_view()
         widget._commitState(widget._current_state(), source="test")
+        # Complete the ingest fit the settle gate has armed (``set_data``
+        # coalesces it 120 ms out) instead of leaving it pending under the
+        # measurement: a late flush re-fits the view and resets the zoom,
+        # which is what made the centering tests race the runner (41.5 s of
+        # centre drift and a second ``zoomChanged`` on a cold process, green
+        # on the warm rerun of the same seed). ``cancel()`` alone would leave
+        # ``_needs_fit_view`` set, so a later resize ping could re-fit anyway.
+        widget._layout_settle.flush()
     qapp.processEvents()
     return area, widget
 
@@ -349,6 +357,38 @@ def test_set_pps_roundtrip_and_fail_open(qapp):
         empty.close()
 
 
+def test_scrolled_embedding_has_no_pending_ingest_fit(qapp):
+    """A late settle flush must not re-fit the view under a measurement.
+
+    ``set_data`` does not fit synchronously: ``ingest_data`` sets
+    ``_needs_fit_view`` and arms the settle gate 120 ms out. A measurement
+    taken while that fit is still pending races it: when the runner is slow
+    enough for the 120 ms to elapse inside the test's own ``processEvents()``,
+    the flush runs ``fit_view()`` and resets the zoom mid-measurement
+    (measured on the unfixed helper: 41.5 s of centre drift and a second
+    ``zoomChanged``, green on the warm rerun of the same seed). The host-
+    embedded setup therefore COMPLETES the deferred fit — cancelling the
+    timer would leave ``_needs_fit_view`` set, so any later resize ping would
+    re-fit anyway.
+    """
+    area, w = _make_scrolled_widget(qapp, n=120)
+    try:
+        assert w._needs_fit_view is False, "the ingest fit is still deferred"
+        w.set_zoom(0.2)
+        vpw, before = _center_measure(w, qapp)
+        assert vpw > 0
+        zoom = w._zoom_level
+        # Deliver the deferred settle the way a slow runner does — in the
+        # middle of the measurement window.
+        w._layout_settle.flush()
+        _vpw_after, after = _center_measure(w, qapp)
+        assert w._zoom_level == zoom
+        assert abs(before - after) <= _center_tolerance(w, zoom)
+    finally:
+        w.close()
+        area.close()
+
+
 def test_set_zoom_anchor_variants_hold_center(qapp):
     """Both ``anchor`` spellings forward into the commit cursor policy.
 
@@ -372,10 +412,11 @@ def test_set_zoom_anchor_variants_hold_center(qapp):
             zoom_got: list[float] = []
             w.zoomChanged.connect(lambda z: zoom_got.append(z))
             w.set_zoom(0.6, anchor=anchor)
-            # Two turns: the scroll area adjusts its range in the first, the
-            # viewport width the anchor is measured against lands in the second.
-            # One turn made this test depend on the runner's layout timing (it
-            # failed with a 41.9 drift while the same build was green locally).
+            # Two turns so the scroll area has applied the new range and the
+            # repaint before the second measurement. This is not what the old
+            # flake here was about: that one raced the ingest settle gate, not
+            # the layout timing (see
+            # ``test_scrolled_embedding_has_no_pending_ingest_fit``).
             qapp.processEvents()
             qapp.processEvents()
             _vpw_after, after = _center_measure(w, qapp)
