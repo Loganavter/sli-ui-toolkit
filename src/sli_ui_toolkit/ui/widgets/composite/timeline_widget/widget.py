@@ -601,8 +601,10 @@ class TimelineWidget(QWidget):
                 cursor_x = float(event.position().x())
             except Exception:
                 cursor_x = float(self.LEFT_GUTTER)
-            # Coalesce: accumulate ticks, flush once per frame window.
-            # Never touches _needs_fit_view — settle owns fit_view.
+            # Coalesce: accumulate ticks, flush once per frame window. The
+            # flush's ``commit_zoom`` retires a pending ingest fit (an explicit
+            # zoom outranks the deferred framing); the wheel path itself never
+            # arms one.
             self._wheel_pending_y += float(delta)
             self._wheel_pending_x = cursor_x
             self._wheel_pending_ticks += 1

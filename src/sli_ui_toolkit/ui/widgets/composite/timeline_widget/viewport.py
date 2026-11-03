@@ -541,6 +541,14 @@ def commit_zoom(
     """
     new_zoom = float(new_zoom)
     new_pps = pixels_per_second_for_zoom(widget, new_zoom)
+    # An explicit zoom (API or wheel) supersedes the deferred ingest fit: the
+    # caller has just framed the view, so the settle flush must not re-frame it
+    # within the ingest window (measured before this line: ``set_data`` then
+    # ``set_zoom(0.5)`` snapped back to ``min_zoom`` ~120 ms later).
+    try:
+        widget._needs_fit_view = False
+    except Exception:
+        pass
     scroll_area = get_scroll_area(widget)
     scrollbar = None
     scroll_old = 0
@@ -767,7 +775,16 @@ def fit_view(widget) -> None:
     a silent follow-up (``widget.fit_view``'s write-through,
     ``_on_layout_settle``'s ``"settleFit"`` commit) stay silent
     no-change re-commits.
+
+    A completed fit SATISFIES the deferred one: ingest arms a settle-gated
+    fit (``_needs_fit_view``, 120 ms out), so an explicit ``fit_view`` before
+    that flush must retire the flag — otherwise the flush re-fits and throws
+    away any zoom/scroll committed in between.
     """
+    try:
+        widget._needs_fit_view = False
+    except Exception:
+        pass
     nxt = _snapshot_with_zoom(widget, calculate_min_zoom(widget))
     # Through the widget's named entry (see commit_zoom): keeps
     # _commitState overrides / spies observable.
