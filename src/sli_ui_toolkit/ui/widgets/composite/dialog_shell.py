@@ -81,6 +81,11 @@ class _DialogSplitterHandle(QSplitterHandle):
         super().__init__(orientation, parent)
         self._surface_color = QColor()
         self._line_color = QColor()
+        #: Y (in this handle's own space) of a horizontal rule that must MEET
+        #: the divider line. Qt clamps negative layout margins to zero, so the
+        #: footer rule cannot simply overhang; the handle closes the few-pixel
+        #: gap itself, in the same colour and the same device column.
+        self._footer_rule_y: int | None = None
         self._refresh_colors()
         try:
             ThemeManager.get_instance().theme_changed.connect(
@@ -125,6 +130,14 @@ class _DialogSplitterHandle(QSplitterHandle):
         finally:
             painter.end()
 
+    def set_footer_rule_y(self, y: int | None) -> None:
+        """Paint a horizontal stub at *y* so a footer rule meets this line."""
+        y = None if y is None else int(y)
+        if y == self._footer_rule_y:
+            return
+        self._footer_rule_y = y
+        self.update()
+
     def _paint_divider(self, painter: QPainter) -> None:
         """Paint the handle surface and its 1-device-px divider line.
 
@@ -139,15 +152,28 @@ class _DialogSplitterHandle(QSplitterHandle):
         length = self.height() if vertical else self.width()
         # The painter's device is the widget's backing store in a real
         # paint, so read the ratio from the device being painted on.
-        painter.fillRect(
-            _hairline_rect(
-                extents=float(extents),
-                length=float(length),
-                dpr=painter_dpr(painter),
-                vertical=vertical,
-            ),
-            self._line_color,
+        line = _hairline_rect(
+            extents=float(extents),
+            length=float(length),
+            dpr=painter_dpr(painter),
+            vertical=vertical,
         )
+        painter.fillRect(line, self._line_color)
+        if vertical and self._footer_rule_y is not None:
+            # A footer rule lives in the content pane, which starts at this
+            # handle's right edge — so it stops a few px short of the divider
+            # line. This stub carries the rule across that gap: same colour,
+            # same one-device-column thickness, from the line to the edge.
+            thickness = line.width()
+            painter.fillRect(
+                QRectF(
+                    line.left(),
+                    float(self._footer_rule_y),
+                    float(self.width()) - line.left(),
+                    thickness,
+                ),
+                self._line_color,
+            )
 
 
 class _SidebarDialogSplitter(QSplitter):
@@ -435,7 +461,17 @@ class SidebarDialogShell(QWidget):
             self._pages_host_layout.addWidget(self.pages_stack)
             self.content_layout.addWidget(self.pages_host, 1)
             self.footer_separator = _DialogHairline(self)
-            self.content_layout.addWidget(self.footer_separator)
+            # The splitter handle is the divider: its line is painted at the
+            # handle's CENTRE, and the content area starts at the handle's right
+            # edge — so a rule flush with the content column stops half a handle
+            # short of the line (owner report 2026-11-04: "the line does not
+            # reach the vertical one"). A negative left margin on the rule's own
+            # row puts its first device column on the divider column.
+            self._rule_row = QWidget()
+            self._rule_row_layout = QHBoxLayout(self._rule_row)
+            self._rule_row_layout.setSpacing(0)
+            self._rule_row_layout.addWidget(self.footer_separator)
+            self.content_layout.addWidget(self._rule_row)
             self.footer_host = QWidget()
             self.footer_layout = QHBoxLayout(self.footer_host)
             self.footer_layout.setSpacing(0)
@@ -498,7 +534,41 @@ class SidebarDialogShell(QWidget):
             self._pages_host_layout.setContentsMargins(*margins)
         if self.footer_layout is not None:
             left, _top, right, bottom = margins
-            self.footer_layout.setContentsMargins(left, 0, right, bottom)
+            # Air between the rule and the buttons: the first report was "the
+            # buttons sit right against the line". The side padding is the
+            # design's own breathing room, so it doubles as the top gap.
+            self.footer_layout.setContentsMargins(left, left, right, bottom)
+        self._sync_footer_rule_y()
+
+    def _sync_footer_rule_y(self) -> None:
+        """Tell the splitter handle where the footer rule is, so it can meet it.
+
+        The rule lives in the content pane (right of the handle), so on its own
+        it stops a few px short of the divider line — and Qt clamps negative
+        layout margins to zero, so it cannot simply overhang. The handle paints
+        the connecting stub in the same colour and the same device column; this
+        keeps that stub on the rule's row through resizes and scale changes.
+        """
+        splitter = getattr(self, "splitter", None)
+        rule_row = getattr(self, "_rule_row", None)
+        separator = getattr(self, "footer_separator", None)
+        if splitter is None or rule_row is None or separator is None:
+            return
+        try:
+            handle = splitter.handle(1)
+        except Exception:
+            handle = None
+        if handle is None:
+            return
+        y = int(getattr(self, "content_area", None).y()) if getattr(self, "content_area", None) is not None else 0
+        y += int(rule_row.y()) + int(separator.y())
+        setter = getattr(handle, "set_footer_rule_y", None)
+        if callable(setter):
+            setter(y)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._sync_footer_rule_y()
 
     def _on_scale_changed(self, *_args: object) -> None:
         # The sidebar is the fixed divider between nav and content: at a
