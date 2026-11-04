@@ -50,10 +50,36 @@ def test_the_rule_row_has_no_side_padding_so_it_reaches_both_edges(qapp):
         assert (pages.left(), pages.top(), pages.right(), pages.bottom()) == (
             20, 20, 20, 20,
         )
-        # the footer keeps the side padding for its buttons, not for the rule
+        # the footer keeps the side padding for its buttons, not for the rule,
+        # and the top gap keeps them off the line (owner report 2026-11-04)
         footer = shell.footer_layout.contentsMargins()
         assert footer.left() == 20 and footer.right() == 20
+        assert footer.top() == 20, "the buttons sit right against the rule"
     finally:
+        shell.deleteLater()
+
+
+def test_the_handle_carries_the_rule_across_to_the_divider_line(qapp):
+    """The rule must MEET the divider, not stop a few px short of it.
+
+    The rule lives in the content pane and the divider line is painted at the
+    splitter handle's centre, so a flush rule leaves a gap. Qt clamps negative
+    layout margins to zero, so the handle paints the connecting stub instead.
+    """
+    shell = _shell(qapp, footer_separator=True)
+    try:
+        shell.resize(900, 600)
+        shell.show()
+        qapp.processEvents()
+        shell._sync_footer_rule_y()
+        handle = shell.splitter.handle(1)
+        assert handle._footer_rule_y is not None, (
+            "the handle was never told where the footer rule is"
+        )
+        # the stub is painted on the rule's row, inside the handle's height
+        assert 0 <= handle._footer_rule_y <= handle.height()
+    finally:
+        shell.close()
         shell.deleteLater()
 
 
