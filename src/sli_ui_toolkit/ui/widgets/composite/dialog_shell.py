@@ -157,6 +157,58 @@ class _SidebarDialogSplitter(QSplitter):
         return _DialogSplitterHandle(self.orientation(), self)
 
 
+class _DialogHairline(QWidget):
+    """One device-px rule in the dialog's own border colour.
+
+    Same painting rule as ``_DialogSplitterHandle``: a 1-logical-px line at
+    125 %/150 % straddles two device columns and reads as a blurred band, so
+    this paints a single device column through ``_hairline_rect`` and takes its
+    colour from ``dialog.border`` — the token the vertical section divider uses,
+    which is what makes a footer rule and a section divider read as one grid.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("DialogHairline")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedHeight(max(1, scaled_px(1)))
+        self._line_color = QColor()
+        self._refresh_color()
+        try:
+            ThemeManager.get_instance().theme_changed.connect(self._on_theme_changed)
+        except Exception:
+            pass
+
+    def _refresh_color(self) -> None:
+        color = None
+        try:
+            color = ThemeManager.get_instance().try_get_color("dialog.border")
+        except Exception:
+            color = None
+        if color is None:
+            color = self.palette().color(self.foregroundRole())
+        self._line_color = QColor(color)
+
+    def _on_theme_changed(self, *_args: object) -> None:
+        self._refresh_color()
+        self.update()
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        try:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self._line_color)
+            rect = _hairline_rect(
+                extents=float(self.height()),
+                length=float(self.width()),
+                dpr=float(self.devicePixelRatioF() or 1.0),
+                vertical=False,
+            )
+            painter.drawRect(rect)
+        finally:
+            painter.end()
+
+
 class ScrollableDialogPage(QWidget):
     def __init__(
         self,
@@ -324,6 +376,7 @@ class SidebarDialogShell(QWidget):
         content_spacing: int = 10,
         sidebar_header: QWidget | None = None,
         resizable_sidebar: bool = False,
+        footer_separator: bool = False,
         parent=None,
     ):
         super().__init__(parent)
@@ -362,10 +415,36 @@ class SidebarDialogShell(QWidget):
         # Design px, re-resolved on scale changes (see _apply_content_metrics).
         self._content_margins = tuple(int(v) for v in content_margins)
         self._content_spacing = int(content_spacing)
+        # Declared before the first metrics pass: that pass reads them.
+        self.pages_host = None
+        self.footer_separator = None
+        self.footer_host = None
+        self.footer_layout = None
         self._apply_content_metrics()
 
         self.pages_stack = QStackedWidget()
-        self.content_layout.addWidget(self.pages_stack)
+        #: A footer rule spanning the content column EDGE TO EDGE (owner request
+        #: 2026-11-04: it must start at the section divider and reach the window
+        #: edge, in the divider's own colour). That needs the content padding to
+        #: move off the column, so the pages get a padded host of their own and
+        #: the footer keeps the full width.
+        if footer_separator:
+            self.pages_host = QWidget()
+            self._pages_host_layout = QVBoxLayout(self.pages_host)
+            self._pages_host_layout.setSpacing(0)
+            self._pages_host_layout.addWidget(self.pages_stack)
+            self.content_layout.addWidget(self.pages_host, 1)
+            self.footer_separator = _DialogHairline(self)
+            self.content_layout.addWidget(self.footer_separator)
+            self.footer_host = QWidget()
+            self.footer_layout = QHBoxLayout(self.footer_host)
+            self.footer_layout.setSpacing(0)
+            self.content_layout.addWidget(self.footer_host)
+            # The first metrics pass ran before this row existed; re-apply so
+            # the column goes flush and the pages keep the padding.
+            self._apply_content_metrics()
+        else:
+            self.content_layout.addWidget(self.pages_stack)
 
         if resizable_sidebar:
             # Draggable divider between the sidebar column and the content
@@ -405,10 +484,21 @@ class SidebarDialogShell(QWidget):
             self.splitter.setHandleWidth(scaled_px(6))
 
     def _apply_content_metrics(self) -> None:
-        self.content_layout.setContentsMargins(
-            *(_scaled_metric(value) for value in self._content_margins)
-        )
-        self.content_layout.setSpacing(_scaled_metric(self._content_spacing))
+        margins = tuple(_scaled_metric(value) for value in self._content_margins)
+        spacing = _scaled_metric(self._content_spacing)
+        if getattr(self, "footer_separator", None) is None:
+            self.content_layout.setContentsMargins(*margins)
+            self.content_layout.setSpacing(spacing)
+            return
+        # The column itself is flush (so the footer rule reaches both edges);
+        # the pages and the footer keep the padding on their own rows.
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(0)
+        if self.pages_host is not None:
+            self._pages_host_layout.setContentsMargins(*margins)
+        if self.footer_layout is not None:
+            left, _top, right, bottom = margins
+            self.footer_layout.setContentsMargins(left, 0, right, bottom)
 
     def _on_scale_changed(self, *_args: object) -> None:
         # The sidebar is the fixed divider between nav and content: at a
