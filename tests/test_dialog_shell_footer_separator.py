@@ -73,11 +73,12 @@ def test_the_handle_carries_the_rule_across_to_the_divider_line(qapp):
         qapp.processEvents()
         shell._sync_footer_rule_y()
         handle = shell.splitter.handle(1)
-        assert handle._footer_rule_y is not None, (
+        assert handle._footer_rule_provider is not None, (
             "the handle was never told where the footer rule is"
         )
-        # the stub is painted on the rule's row, inside the handle's height
-        assert 0 <= handle._footer_rule_y <= handle.height()
+        # the provider answers at PAINT time, so it survives a late layout
+        y = handle._footer_rule_provider()
+        assert 0 <= y <= handle.height(), (y, handle.height())
     finally:
         shell.close()
         shell.deleteLater()
