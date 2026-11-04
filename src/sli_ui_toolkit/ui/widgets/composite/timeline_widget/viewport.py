@@ -812,6 +812,14 @@ def fit_view(widget) -> None:
     # Through the widget's named entry (see commit_zoom): keeps
     # _commitState overrides / spies observable.
     widget._commitState(nxt, "fitView")
+    # Remember the zoom a fit produced: "is the view fitted?" must not be
+    # re-derived from ``_last_min_zoom``, which other handlers update mid-drag
+    # (measured: the live-resize pass then thought the view was user-zoomed and
+    # skipped the re-fit, leaving a horizontal scrollbar).
+    try:
+        widget._fitted_zoom = float(widget._zoom_level)
+    except Exception:
+        pass
     update_fixed_width(widget)
     widget.update()
 

@@ -4,7 +4,7 @@ import math
 
 from types import SimpleNamespace
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer
 
 import shiboken6 as sip
 
@@ -699,9 +699,66 @@ def event_filter(widget, obj, event) -> bool:
                     widget._layout_settle.ping()
                 except (RuntimeError, AttributeError):
                     pass
+                # LIVE follow (owner report 2026-11-04): a viewport-only resize
+                # left the content at the old width/zoom until the settle flush
+                # — a widening drag showed a stale strip, a narrowing one showed
+                # a horizontal scrollbar for the whole drag. The work is QUEUED,
+                # not done here: this filter runs inside someone else's event
+                # dispatch and its contract is "ping, never commit"
+                # (test_event_filter_passes_through_without_commit).
+                schedule_live_resize(widget)
         except Exception:
             pass
     return False
+
+
+def schedule_live_resize(widget) -> None:
+    """Queue ONE live-resize pass for this event-loop turn (coalescing).
+
+    The resize filter may fire many times per drag; one queued pass per turn
+    keeps the timeline following the window without a commit storm, and keeps
+    the filter itself commit-free.
+    """
+    if getattr(widget, "_live_resize_pending", False):
+        return
+    widget._live_resize_pending = True
+
+    def _run() -> None:
+        widget._live_resize_pending = False
+        if getattr(widget, "_destroyed", False) or not sip.isValid(widget):  # type: ignore[attr-defined]
+            return
+        # Only a REAL viewport change is worth a pass: the filter fires for the
+        # window and the viewport, and a no-op pass would add a commit to every
+        # resize-shaped test (measured: a wheel-zoom test counted 2 commits).
+        width = int(timeline_viewport.get_viewport_width(widget))
+        if width == int(getattr(widget, "_live_viewport_width", -1)):
+            return
+        widget._live_viewport_width = width
+        try:
+            # A FITTED view must stay fitted: the fitted zoom depends on the
+            # viewport width, so narrowing without re-fitting leaves the content
+            # at the old zoom — wider than the shrunken viewport, i.e. a
+            # horizontal scrollbar. A zoom the user chose is left alone.
+            # A fit the ingest already armed belongs to the settle gate: taking
+            # it here would retire the deferred one and the gate's flush would
+            # have nothing to do (test_armed_gate_still_runs_the_deferred_fit).
+            if getattr(widget, "_needs_fit_view", False):
+                pass
+            else:
+                fitted_zoom = getattr(widget, "_fitted_zoom", None)
+                if fitted_zoom is not None and abs(
+                    float(widget._zoom_level) - float(fitted_zoom)
+                ) <= 1e-9:
+                    timeline_viewport.fit_view(widget)
+            viewport_geometry_changed(widget, "liveResize")
+        except Exception:
+            pass
+        try:
+            widget.sync_strip_band()
+        except Exception:
+            pass
+
+    QTimer.singleShot(0, _run)
 
 
 def layout_settle(widget) -> None:
