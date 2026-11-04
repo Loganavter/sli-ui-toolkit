@@ -197,6 +197,9 @@ class TimelineWidget(QWidget):
 
         self._zoom_level = 1.0
         self._last_min_zoom = 1.0
+        #: The zoom the last fit produced (``None`` before the first fit), so a
+        #: live resize can tell "fitted view" from "the user zoomed in".
+        self._fitted_zoom = None
         self._suppress_resize_recalc = False
         self._state: TimelineViewportState | None = None
         # Coalesce host-dialog resize ticks: the expensive min-zoom/width
