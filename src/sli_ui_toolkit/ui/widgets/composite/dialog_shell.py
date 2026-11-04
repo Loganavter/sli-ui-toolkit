@@ -470,6 +470,10 @@ class SidebarDialogShell(QWidget):
             self._rule_row = QWidget()
             self._rule_row_layout = QHBoxLayout(self._rule_row)
             self._rule_row_layout.setSpacing(0)
+            # A fresh QLayout takes the STYLE's margins (~9 px), which inset the
+            # rule from both edges — measured live as [9, 9, 976, 1] inside a
+            # 994-wide column. The rule's row must be flush.
+            self._rule_row_layout.setContentsMargins(0, 0, 0, 0)
             self._rule_row_layout.addWidget(self.footer_separator)
             self.content_layout.addWidget(self._rule_row)
             self.footer_host = QWidget()

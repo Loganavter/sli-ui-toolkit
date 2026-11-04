@@ -103,3 +103,15 @@ def test_the_rule_paints_one_device_column_in_the_divider_colour(qapp):
         assert rule.height() == 1
     finally:
         shell.deleteLater()
+
+
+def test_the_rule_row_is_flush_so_the_rule_starts_on_the_column_edge(qapp):
+    """A fresh QLayout takes the style's ~9 px margins and insets the rule."""
+    shell = _shell(qapp, footer_separator=True)
+    try:
+        margins = shell._rule_row_layout.contentsMargins()
+        assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (
+            0, 0, 0, 0,
+        )
+    finally:
+        shell.deleteLater()
