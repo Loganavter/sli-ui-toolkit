@@ -798,8 +798,12 @@ def host_scroll(widget, *args) -> None:
         return
     # An explicit scroll position supersedes the deferred ingest fit: without
     # this the settle flush re-fits (min zoom, scroll 0) on top of a user
-    # scroll that landed inside the ingest window.
-    widget._needs_fit_view = False
+    # scroll that landed inside the ingest window. A RANGE change is not a user
+    # scroll — ``rangeChanged`` is wired here too, so our own ``setFixedWidth``
+    # would silently drop the protected fit (measured 2026-11-04: a range-only
+    # call with ``_needs_fit_view`` True left it False).
+    if not is_range:
+        widget._needs_fit_view = False
     # Signals-live scroll step: the content widget window already moved
     # synchronously while the geometry-changed cycle below only posts async
     # paints. Union the gutter band into the damage synchronously so the
