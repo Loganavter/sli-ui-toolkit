@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QRectF, QSize, Qt
+from PySide6.QtCore import QPoint, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import (
     QFrame,
@@ -86,6 +86,7 @@ class _DialogSplitterHandle(QSplitterHandle):
         #: footer rule cannot simply overhang; the handle closes the few-pixel
         #: gap itself, in the same colour and the same device column.
         self._footer_rule_y: int | None = None
+        self._footer_rule_provider = None
         self._refresh_colors()
         try:
             ThemeManager.get_instance().theme_changed.connect(
@@ -130,6 +131,17 @@ class _DialogSplitterHandle(QSplitterHandle):
         finally:
             painter.end()
 
+    def set_footer_rule_provider(self, provider) -> None:
+        """Ask *provider* for the footer rule's row at PAINT time.
+
+        A cached ``y`` is stale: the row's position is only known after the
+        layout runs, and the shell's own resize event fires before that — the
+        stub then painted at the handle's top (measured live: the rule still
+        stopped 4 px short).
+        """
+        self._footer_rule_provider = provider
+        self.update()
+
     def set_footer_rule_y(self, y: int | None) -> None:
         """Paint a horizontal stub at *y* so a footer rule meets this line."""
         y = None if y is None else int(y)
@@ -159,7 +171,13 @@ class _DialogSplitterHandle(QSplitterHandle):
             vertical=vertical,
         )
         painter.fillRect(line, self._line_color)
-        if vertical and self._footer_rule_y is not None:
+        rule_y = self._footer_rule_y
+        if self._footer_rule_provider is not None:
+            try:
+                rule_y = int(self._footer_rule_provider())
+            except Exception:
+                rule_y = None
+        if vertical and rule_y is not None:
             # A footer rule lives in the content pane, which starts at this
             # handle's right edge — so it stops a few px short of the divider
             # line. This stub carries the rule across that gap: same colour,
@@ -168,7 +186,7 @@ class _DialogSplitterHandle(QSplitterHandle):
             painter.fillRect(
                 QRectF(
                     line.left(),
-                    float(self._footer_rule_y),
+                    float(rule_y),
                     float(self.width()) - line.left(),
                     thickness,
                 ),
@@ -564,11 +582,17 @@ class SidebarDialogShell(QWidget):
             handle = None
         if handle is None:
             return
-        y = int(getattr(self, "content_area", None).y()) if getattr(self, "content_area", None) is not None else 0
-        y += int(rule_row.y()) + int(separator.y())
-        setter = getattr(handle, "set_footer_rule_y", None)
+        if getattr(handle, "_footer_rule_provider", None) is not None:
+            return
+
+        def _rule_y() -> int:
+            return int(
+                rule_row.mapTo(splitter, QPoint(0, 0)).y() + separator.y()
+            )
+
+        setter = getattr(handle, "set_footer_rule_provider", None)
         if callable(setter):
-            setter(y)
+            setter(_rule_y)
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
