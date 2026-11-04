@@ -1046,11 +1046,15 @@ def strip_band_rect(widget) -> QRect:
     cannot hide the parent's own QPainter chrome. Empty when the content area
     has no width (nothing to render).
     """
-    scroll_area = get_scroll_area(widget)
-    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-    content_right = int(
-        (scroll_offset + get_viewport_width(widget)) - right_inset(widget)
-    )
+    # ONE frame. ``left`` is the gutter in CONTENT coordinates and the band is
+    # the visible slice right of it, so the right edge is the VIEWPORT's right
+    # edge — never ``scroll_offset + viewport``. Mixing the two made the width
+    # grow with the scroll position (``visible + scroll``), so a zoomed view
+    # stretched every cell by up to 10x and the band painted over the gutter
+    # (measured 2026-11-04: scroll 8236 -> width 9140 for a 904-wide area; the
+    # owner's "~350 px cells" is that ratio). The visible RANGE is the band's
+    # view (``strip_band_view``), not its rectangle.
+    content_right = int(get_viewport_width(widget) - right_inset(widget))
     left = int(widget.LEFT_GUTTER)
     band = QRect(
         left,
