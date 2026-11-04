@@ -284,9 +284,19 @@ def get_base_tile_width(widget) -> float:
 def frame_span(widget) -> int:
     return max(1, widget._total_frames - 1)
 
-def get_logical_width(widget) -> float:
+def logical_width_for_zoom(widget, zoom: float) -> float:
+    """Content width at *zoom* without touching widget state.
+
+    Single formula behind :func:`get_logical_width`,
+    :func:`_snapshot_with_zoom` and :func:`update_fixed_width`, so a
+    zoom-aware width (the pre-clamp widen in :func:`commit_zoom`) can never
+    disagree with the live one.
+    """
     base = get_base_tile_width(widget)
-    return max(1.0, frame_span(widget) * base * widget._zoom_level)
+    return max(1.0, float(frame_span(widget)) * float(base) * float(zoom))
+
+def get_logical_width(widget) -> float:
+    return logical_width_for_zoom(widget, widget._zoom_level)
 
 def get_slot_width(widget) -> float:
     if widget._total_frames <= 1:
@@ -402,10 +412,7 @@ def _snapshot_with_zoom(widget, zoom: float) -> TimelineViewportState:
     except Exception:
         right = 0
     if widget._total_frames > 0:
-        logical = max(
-            1.0,
-            float(frame_span(widget)) * float(get_base_tile_width(widget)) * float(zoom),
-        )
+        logical = logical_width_for_zoom(widget, float(zoom))
         content_width = int(
             math.ceil(float(widget.LEFT_GUTTER) + float(logical) + float(right))
         )
@@ -529,15 +536,17 @@ def commit_zoom(
     :func:`anchor_scroll_for_zoom`.
 
     Sequence (the unified E1 body): pps for the new zoom, live scrollbar
-    read, cursor-time at the anchor, anchor target, synchronous scrollbar
-    ``setValue`` (signals blocked, clamped to the live range), pure
-    zoomed snapshot, one :func:`commit_state` (the ``_zoom_level`` write
-    plus the only emit), ``update_fixed_width`` at the new zoom, one
-    synchronous gutter-band repaint covering the scroll correction.
-    Callers own clamping (``clamp_zoom``) and the silent no-change
-    early-out (``<= ZOOM_DIFF_EPS``); coalescing (tick accumulation, one flush
-    per window, ``"wheelZoom"`` vs ``"wheelZoomCoalesced"`` source) stays
-    in the wheel path.
+    read, cursor-time at the anchor, anchor target, content widen to the
+    NEW zoom (``update_fixed_width(widget, new_zoom)``) so the clamp below
+    sees the post-widen range, synchronous scrollbar ``setValue`` (signals
+    blocked across widen + setValue, clamped to that range), pure zoomed
+    snapshot, one :func:`commit_state` (the ``_zoom_level`` write plus the
+    only emit), ``update_fixed_width`` (now a no-op width-wise, keeps the
+    post-commit paint invalidation), one synchronous gutter-band repaint
+    covering the scroll correction. Callers own clamping (``clamp_zoom``)
+    and the silent no-change early-out (``<= ZOOM_DIFF_EPS``); coalescing
+    (tick accumulation, one flush per window, ``"wheelZoom"`` vs
+    ``"wheelZoomCoalesced"`` source) stays in the wheel path.
     """
     new_zoom = float(new_zoom)
     new_pps = pixels_per_second_for_zoom(widget, new_zoom)
@@ -579,29 +588,43 @@ def commit_zoom(
         cursor_time = cursor_time_at_x(widget, float(cursor_x))
         cursor_viewport_x = float(cursor_x) - float(scroll_old)
     target = anchor_scroll_for_zoom(widget, cursor_viewport_x, cursor_time, new_pps)
+    # Widen to the NEW zoom BEFORE clamping the anchor target: the target is a
+    # content-x offset at the new zoom, but the host scrollbar still spans the
+    # OLD content width, so clamping against that range silently drops it — a
+    # zoom-in straight from a fitted view has range 0 and pins the scroll (and
+    # the centre) at 0. ``update_fixed_width(widget, new_zoom)`` applies the
+    # post-widen width without writing ``_zoom_level``; the QScrollArea's own
+    # widget-resize filter updates the bar range synchronously, so the range
+    # read below is the real post-widen one. Bar signals stay blocked across
+    # widen + setValue: the range change must not re-enter ``host_scroll``
+    # (which would re-commit at the still-old zoom and shrink the width back).
     if scrollbar is not None:
-        try:
-            lo = int(scrollbar.minimum())
-            hi = int(scrollbar.maximum())
-        except Exception:
-            lo, hi = 0, int(target)
-        target = max(lo, min(int(target), hi))
         scrollbar.blockSignals(True)
-        try:
+    sync_scroll = int(target)
+    try:
+        update_fixed_width(widget, new_zoom)
+        if scrollbar is not None:
+            try:
+                lo = int(scrollbar.minimum())
+                hi = int(scrollbar.maximum())
+            except Exception:
+                lo, hi = 0, int(target)
+            target = max(lo, min(int(target), hi))
             scrollbar.setValue(int(target))
-        finally:
-            scrollbar.blockSignals(False)
-        try:
-            sync_scroll = int(scrollbar.value())
-        except Exception:
+            try:
+                sync_scroll = int(scrollbar.value())
+            except Exception:
+                sync_scroll = int(target)
+        else:
             sync_scroll = int(target)
-        if _timeline_debug_enabled():
-            gutter_debug(
-                "tick=%s zoom-scroll source=%s scroll_old=%s target=%s clamped=%s",
-                _next_tick(), source, scroll_old, target, sync_scroll,
-            )
-    else:
-        sync_scroll = int(target)
+    finally:
+        if scrollbar is not None:
+            scrollbar.blockSignals(False)
+    if _timeline_debug_enabled():
+        gutter_debug(
+            "tick=%s zoom-scroll source=%s scroll_old=%s target=%s clamped=%s",
+            _next_tick(), source, scroll_old, target, sync_scroll,
+        )
     try:
         nxt = _snapshot_with_zoom(widget, new_zoom)
     except Exception:
@@ -792,11 +815,18 @@ def fit_view(widget) -> None:
     update_fixed_width(widget)
     widget.update()
 
-def update_fixed_width(widget) -> None:
+def update_fixed_width(widget, zoom: float | None = None) -> None:
+    """Sync the content widget's fixed width to *zoom* (default: live zoom).
+
+    ``zoom`` lets a zoom commit widen the content to the NEW zoom before the
+    scrollbar range is read, without writing ``widget._zoom_level`` outside
+    :func:`commit_state`.
+    """
     if widget._total_frames <= 0:
         return
+    zoom_level = float(widget._zoom_level) if zoom is None else float(zoom)
     content_width = int(
-        math.ceil(widget.LEFT_GUTTER + get_logical_width(widget) + right_inset(widget))
+        math.ceil(widget.LEFT_GUTTER + logical_width_for_zoom(widget, zoom_level) + right_inset(widget))
     )
     viewport_width = max(1, get_viewport_width(widget) - right_inset(widget))
     final_width = max(content_width, viewport_width + right_inset(widget))
@@ -805,9 +835,10 @@ def update_fixed_width(widget) -> None:
         try:
             if _timeline_debug_enabled():
                 gutter_debug(
-                    "tick=%s fixed-width %s->%s gutter=%s logical=%.1f",
+                    "tick=%s fixed-width %s->%s gutter=%s logical=%.1f zoom=%.6f",
                     _next_tick(), widget.width(), final_width,
-                    widget.LEFT_GUTTER, get_logical_width(widget),
+                    widget.LEFT_GUTTER, logical_width_for_zoom(widget, zoom_level),
+                    zoom_level,
                 )
             widget.setFixedWidth(final_width)
         finally:

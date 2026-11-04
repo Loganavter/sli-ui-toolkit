@@ -1001,10 +1001,16 @@ def test_scroll_round_trip_no_thrash(qapp, qtbot):
         try:
             widget._refresh_viewport_state()
             home = widget._state.scroll_x
+            # A zoom-in from the fitted view leaves an ANCHORED scroll (the
+            # centre time), not 0: the round trip below targets that home
+            # rather than the minimum, otherwise it would assert "back to 0"
+            # and silently re-pin the pre-anchor behaviour (home was 0 before
+            # commit_zoom clamped against the post-widen range: now 52689).
+            assert home > bar.minimum()
             bar.setValue(bar.maximum())
             qapp.processEvents()
             assert widget._state.scroll_x == bar.value()
-            bar.setValue(bar.minimum())
+            bar.setValue(home)
             qapp.processEvents()
             assert widget._state.scroll_x == home
             # Forth + back: at most one commit per real step, none for rest.

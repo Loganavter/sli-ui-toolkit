@@ -96,6 +96,54 @@ def _center_tolerance(widget, zoom: float) -> float:
     return max(2.0 / max(float(ppu), 1e-9), 0.25)
 
 
+def _anchor_tolerance(widget, zoom: float) -> float:
+    """A strict ``2 px`` at *zoom* (no time floor) for the fitted-view anchor.
+
+    ``_center_tolerance`` carries a 0.25 s floor for the CI runs where the
+    fitted-view measurement is taken at min zoom (a handful of px/s); the
+    zoomed-in anchor is measured at ≥ 768 px/s here, where a 1 px scrollbar
+    step is ~0.001 s, so the pixel bound is meaningful and a drift of even one
+    frame slot cannot hide under it.
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    ppu = timeline_viewport.pixels_per_second_for_zoom(widget, zoom)
+    return 2.0 / max(float(ppu), 1e-9)
+
+
+def _time_at_viewport_x(widget, viewport_x: float) -> float:
+    """Time under *viewport_x* (content x = live scroll + *viewport_x*)."""
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    area = timeline_viewport.get_scroll_area(widget)
+    scroll = area.horizontalScrollBar().value() if area else 0
+    return timeline_viewport.cursor_time_at_x(
+        widget, float(scroll) + float(viewport_x)
+    )
+
+
+def _ctrl_wheel_zoom(widget, delta_y: int, x: float) -> None:
+    """Deliver one Ctrl+wheel tick at content x (the widget's own handler)."""
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+
+    event = QWheelEvent(
+        QPointF(x, 100.0),
+        QPointF(x, 100.0),
+        QPoint(0, 0),
+        QPoint(0, int(delta_y)),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.ControlModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    widget.wheelEvent(event)
+
+
 def _make_widget(qapp, n: int = 60, width: int = 800, height: int = 240):
     from sli_ui_toolkit.ui.widgets.composite.timeline_widget.widget import (
         TimelineWidget,
@@ -442,6 +490,143 @@ def test_set_zoom_anchor_variants_hold_center(qapp):
             assert len(zoom_got) == 1
         finally:
             w.close()
+
+
+def test_zoom_in_from_fitted_view_holds_center(qapp):
+    """A zoom-in straight from a fitted view must keep the centre block.
+
+    Red before the clamp-order fix: ``viewport.commit_zoom`` clamped the anchor
+    target against the host scrollbar range as it was BEFORE
+    ``update_fixed_width`` widened the content. A fitted view has
+    ``maximum() == minimum() == 0``, so every anchor target clamped to 0 and the
+    view jumped back to the start of the recording instead of staying centred.
+    Measured on the pre-fix tree at ``set_zoom(0.2)``: scroll 0, centre block
+    index 8.28 against 1253.05 before the zoom — 31866 px of drift, i.e. the
+    exact anchor target that was thrown away. After: scroll 31866, centre index
+    1253.05 (0.0 px).
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    area, w = _make_scrolled_widget(qapp, n=120)
+    try:
+        vpw, before = _center_measure(w, qapp)
+        if vpw <= 0:
+            pytest.skip("the timeline viewport is not realized in this environment")
+        bar = timeline_viewport.get_scroll_area(w).horizontalScrollBar()
+        assert bar.maximum() == bar.minimum(), "the fitted view must have no scroll range"
+        w.set_zoom(0.2)
+        qapp.processEvents()
+        # The anchor survived: a pre-widen clamp leaves the scroll at 0.
+        assert bar.value() > 0
+        _vpw_after, after = _center_measure(w, qapp)
+        assert after is not None
+        assert abs(before - after) <= _anchor_tolerance(w, 0.2)
+    finally:
+        w.close()
+        area.close()
+
+
+def test_zoom_in_from_fitted_view_holds_time_under_cursor(qapp):
+    """The Ctrl+wheel path (same ``commit_zoom``) holds the cursor anchor.
+
+    Red before the clamp-order fix: three coalesced ticks from the fitted view
+    left the scroll at 0, so the time under a cursor at viewport x=500 drifted
+    209.7 px (634.6 frames). It is the same lost-clamp-target defect as the API
+    path — the wheel anchors the cursor, not the centre, so the centre measure
+    is the wrong instrument here. After: 0.3 px.
+    """
+    area, w = _make_scrolled_widget(qapp, n=120)
+    try:
+        vpw, _centre = _center_measure(w, qapp)
+        if vpw <= 0:
+            pytest.skip("the timeline viewport is not realized in this environment")
+        cursor_viewport_x = 500.0
+        before = _time_at_viewport_x(w, cursor_viewport_x)
+        for _ in range(3):
+            _ctrl_wheel_zoom(w, 120, cursor_viewport_x)
+        qapp.processEvents()
+        qapp.processEvents()
+        after = _time_at_viewport_x(w, cursor_viewport_x)
+        assert abs(before - after) <= _anchor_tolerance(w, w._zoom_level)
+    finally:
+        w.close()
+        area.close()
+
+
+def test_fit_then_zoom_holds_center(qapp):
+    """An explicit fit followed by a zoom keeps the centre block.
+
+    The gesture shape a double-click-to-fit host produces (the timeline has no
+    double-click handler of its own, so the fit entry point is
+    ``TimelineWidget.fit_view``). Red before the fix: ``set_zoom(0.35)`` right
+    after ``fit_view()`` left the scroll at 0 and the centre 55924.5 px away.
+    After: 0.4 px.
+    """
+    area, w = _make_scrolled_widget(qapp, n=120)
+    try:
+        w.fit_view()
+        qapp.processEvents()
+        vpw, before = _center_measure(w, qapp)
+        if vpw <= 0:
+            pytest.skip("the timeline viewport is not realized in this environment")
+        w.set_zoom(0.35)
+        qapp.processEvents()
+        _vpw_after, after = _center_measure(w, qapp)
+        assert after is not None
+        assert abs(before - after) <= _anchor_tolerance(w, 0.35)
+    finally:
+        w.close()
+        area.close()
+
+
+def test_resize_after_zoom_keeps_the_anchored_scroll(qapp):
+    """A resize after a zoom re-clamps; it must not throw the anchor away.
+
+    ``viewport_geometry_changed`` on the settle flush re-commits and re-applies
+    the fixed width, so a resize is a re-clamp path too. It owns no anchor of
+    its own: the host keeps the scroll VALUE, so a widened viewport moves the
+    centre pixel by exactly half the width change (measured after the fix: 100.0
+    px for +200 px of viewport width, scroll 31866 -> 31866 — the same host
+    scroll semantics as before this change, not an anchor loss). What the fix
+    changes is which value survives: pre-fix the zoom-in had already collapsed
+    it to 0 (31866 of anchor thrown away); post-fix the anchored 31866 is
+    preserved and the range never clamps it.
+    """
+    from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+        viewport as timeline_viewport,
+    )
+
+    area, w = _make_scrolled_widget(qapp, n=120)
+    try:
+        vpw, before = _center_measure(w, qapp)
+        if vpw <= 0:
+            pytest.skip("the timeline viewport is not realized in this environment")
+        w.set_zoom(0.2)
+        qapp.processEvents()
+        qapp.processEvents()
+        bar = timeline_viewport.get_scroll_area(w).horizontalScrollBar()
+        anchored = int(bar.value())
+        assert anchored > 0
+        _vpw_pre, centre_pre = _center_measure(w, qapp)
+
+        area.resize(vpw + 200, 240)
+        qapp.processEvents()
+        w._layout_settle.flush()
+        qapp.processEvents()
+
+        vpw_post, centre_post = _center_measure(w, qapp)
+        assert centre_post is not None and centre_pre is not None
+        assert int(bar.value()) == anchored, "the resize clamped the anchored scroll"
+        assert int(bar.value()) <= int(bar.maximum())
+        delta_vp = int(vpw_post) - int(vpw)
+        pps = timeline_viewport.pixels_per_second_for_zoom(w, w._zoom_level)
+        drift_px = abs(centre_post - centre_pre) * pps
+        assert abs(drift_px - abs(delta_vp) / 2.0) <= 2.0
+    finally:
+        w.close()
+        area.close()
 
 
 def test_set_zoom_invalid_anchor_raises(qapp):
