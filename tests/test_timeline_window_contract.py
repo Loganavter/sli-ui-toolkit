@@ -349,6 +349,63 @@ def test_set_pps_roundtrip_and_fail_open(qapp):
         empty.close()
 
 
+def test_explicit_view_change_retires_the_pending_ingest_fit(qapp):
+    """A deliberate fit/zoom/scroll supersedes the deferred ingest fit.
+
+    ``set_data`` does not fit synchronously: ``ingest_data`` sets
+    ``_needs_fit_view`` and arms the settle gate 120 ms out. That deferred fit
+    must never land on top of a view the caller has already framed — measured
+    before the fix: ``set_data`` then ``set_zoom(0.5)`` snapped back to
+    ``min_zoom`` (and a user scroll back to 0) when the gate fired, and the
+    same flush delivered inside a slow centering test's own ``processEvents()``
+    moved the centre 41.5 s and emitted a second ``zoomChanged`` (green on the
+    warm rerun of the same seed, red alone). So an explicit ``fit_view``,
+    ``set_zoom`` or host scroll retires the flag, and a late flush is inert.
+    """
+    # 1. An explicit fit satisfies the deferred one.
+    area, w = _make_scrolled_widget(qapp, n=120)
+    try:
+        assert w._needs_fit_view is False, "set_data's fit was left deferred"
+    finally:
+        w.close()
+        area.close()
+
+    # 2. A zoom inside the ingest window survives the flush.
+    area, w = _make_scrolled_widget(qapp, n=0)
+    try:
+        w.set_data(_snaps(120), fps=30)
+        assert w._needs_fit_view is True, "ingest must defer its fit"
+        w.set_zoom(0.5)
+        zoom = w._zoom_level
+        w._layout_settle.flush()
+        assert w._zoom_level == zoom, "the deferred fit overrode an explicit zoom"
+    finally:
+        w.close()
+        area.close()
+
+    # 3. A user scroll inside the ingest window survives the flush.
+    area, w = _make_scrolled_widget(qapp, n=120)
+    try:
+        w.set_zoom(0.5)  # a scroll range exists before the second ingest
+        w.set_data(_snaps(120), fps=30)
+        assert w._needs_fit_view is True
+        from sli_ui_toolkit.ui.widgets.composite.timeline_widget import (
+            viewport as timeline_viewport,
+        )
+
+        bar = timeline_viewport.get_scroll_area(w).horizontalScrollBar()
+        zoom = w._zoom_level
+        bar.setValue(min(500, bar.maximum()))
+        scrolled = bar.value()
+        assert scrolled > 0
+        w._layout_settle.flush()
+        assert bar.value() == scrolled, "the deferred fit threw away a user scroll"
+        assert w._zoom_level == zoom
+    finally:
+        w.close()
+        area.close()
+
+
 def test_set_zoom_anchor_variants_hold_center(qapp):
     """Both ``anchor`` spellings forward into the commit cursor policy.
 
@@ -372,10 +429,11 @@ def test_set_zoom_anchor_variants_hold_center(qapp):
             zoom_got: list[float] = []
             w.zoomChanged.connect(lambda z: zoom_got.append(z))
             w.set_zoom(0.6, anchor=anchor)
-            # Two turns: the scroll area adjusts its range in the first, the
-            # viewport width the anchor is measured against lands in the second.
-            # One turn made this test depend on the runner's layout timing (it
-            # failed with a 41.9 drift while the same build was green locally).
+            # Two turns so the scroll area has applied the new range and the
+            # repaint before the second measurement. This is not what the old
+            # flake here was about: that one raced the ingest settle gate, not
+            # the layout timing (see
+            # ``test_scrolled_embedding_has_no_pending_ingest_fit``).
             qapp.processEvents()
             qapp.processEvents()
             _vpw_after, after = _center_measure(w, qapp)
