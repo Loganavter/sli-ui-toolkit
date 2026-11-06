@@ -220,7 +220,7 @@ def draw_rows(widget, painter: QPainter, *, width: int, rows_top: int, rows_bott
             # Center line last (see track_single branch above).
             timeline_primitives.draw_center_line(painter, lane_x0, lane_x1, row_center_y, center_line)
 
-def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_start_x: float, footer_height: int, footer_top: int, scrollbar_strip_top: int, ruler_top: int, ruler_bottom: int, scroll_offset: int, viewport_width: int, duration: float, logical_width: float, start_x: float, end_x: float, footer_bg: QColor, sep_strong: QColor, sep_soft: QColor, grid_col: QColor, text_col: QColor, sb_idle: QColor, sb_hover: QColor) -> None:
+def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_start_x: float, footer_height: int, footer_top: int, ruler_top: int, ruler_bottom: int, duration: float, logical_width: float, start_x: float, end_x: float, footer_bg: QColor, sep_strong: QColor, sep_soft: QColor, grid_col: QColor, text_col: QColor, sb_idle: QColor, sb_hover: QColor) -> None:
     foot_x0 = max(content_start_x, start_x)
     foot_x1 = min(float(width), end_x)
     if foot_x1 > foot_x0:
@@ -228,7 +228,9 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
     painter.setPen(timeline_primitives._pen_for(sep_strong, 1))
     painter.drawLine(0, int(footer_top), width, int(footer_top))
     timeline_primitives.draw_vertical_scrollbar_track(widget, painter, footer_bg)
-    sb_rect = QRectF(scroll_offset + content_start_x, scrollbar_strip_top, max(0.0, viewport_width - content_start_x), widget.SCROLLBAR_STRIP_HEIGHT)
+    # Inner scrollbar strip: owned by the geometry entry point, never a local
+    # offset computation here.
+    sb_rect = timeline_viewport.sb_strip_rect(widget)
     timeline_viewport.draw_inner_scrollbar(widget, painter, sb_rect, sb_idle, sb_hover)
     painter.setPen(timeline_primitives._pen_for(sep_soft, 1))
     painter.drawLine(0, int(ruler_top) - 1, width, int(ruler_top) - 1)
@@ -282,17 +284,14 @@ def draw_footer_and_ruler(widget, painter: QPainter, *, width: int, content_star
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, label_text)
     painter.restore()
 
-def draw_sticky_gutter_overlay(widget, painter: QPainter, *, scroll_offset: int, rows_top: int, rows_bottom: int, footer_top: int, gutter_bg: QColor, track_bg: QColor, text_col: QColor, sep_color: QColor | None = None, sep_soft: QColor | None = None, damage_top: float | None = None, damage_bottom: float | None = None) -> None:
-    gx = scroll_offset
+def draw_sticky_gutter_overlay(widget, painter: QPainter, *, rows_top: int, rows_bottom: int, footer_top: int, gutter_bg: QColor, track_bg: QColor, text_col: QColor, sep_color: QColor | None = None, sep_soft: QColor | None = None, damage_top: float | None = None, damage_bottom: float | None = None) -> None:
+    # The sticky gutter sits at the visible window's left edge: in CONTENT
+    # coordinates that is the host scroll offset, read from the geometry owner.
+    gx = timeline_viewport.content_geometry(widget).scroll
     if _timeline_debug_enabled():
-        try:
-            _sa = timeline_viewport.get_scroll_area(widget)
-            _live = _sa.horizontalScrollBar().value() if _sa else scroll_offset
-        except Exception:
-            _live = scroll_offset
         gutter_debug(
-            "tick=%s overlay gx_arg=%s live=%s skew=%s clip=[%.1f,%.1f] gutter=%s",
-            _next_tick(), scroll_offset, _live, (_live != scroll_offset),
+            "tick=%s overlay gx=%s clip=[%.1f,%.1f] gutter=%s",
+            _next_tick(), gx,
             max(0.0, damage_top) if damage_top is not None else 0.0,
             min(float(footer_top), damage_bottom) if damage_bottom is not None else float(footer_top),
             widget.LEFT_GUTTER,
@@ -393,12 +392,10 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
       and public widget methods are untouched by this module.
     """
     if _timeline_debug_enabled():
-        _sa = timeline_viewport.get_scroll_area(widget)
-        _so = _sa.horizontalScrollBar().value() if _sa else -1
-        _vpw = timeline_viewport.get_viewport_width(widget)
+        _geo = timeline_viewport.content_geometry(widget)
         _lw = timeline_viewport.get_logical_width(widget)
         _sw = timeline_viewport.get_slot_width(widget)
-        _timeline_paint_debug("paint id=%s rect=%s width=%s logical=%s slot=%s scroll=%s vpw=%s right_inset=%s total=%s thumb_n=%s", id(widget), event.rect(), widget.width(), _lw, _sw, _so, _vpw, timeline_viewport.right_inset(widget), widget._total_frames, len(widget._thumbnails))
+        _timeline_paint_debug("paint id=%s rect=%s width=%s logical=%s slot=%s scroll=%s visible=%s right_inset=%s total=%s thumb_n=%s", id(widget), event.rect(), widget.width(), _lw, _sw, _geo.scroll, _geo.visible_width, _geo.visible_width - _geo.content_rect.width(), widget._total_frames, len(widget._thumbnails))
     # Paint contract: no geometry mutation here. Scrollbar sync happens in
     # the resize/settle/scroll paths (widget.py); see the docstring above.
     colors = timeline_theme.build_theme_colors(widget)
@@ -425,29 +422,27 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
     slot_width = timeline_viewport.get_slot_width(widget)
     content_scroll_y = timeline_viewport.vertical_scroll_value(widget)
     strip_top = -content_scroll_y
+    # ALL rectangles come from the single geometry entry point (CONTENT
+    # coordinates): the footer top, the visible window, the inner scrollbar
+    # strip, the band and the playhead inputs.
+    geo = timeline_viewport.content_geometry(widget)
     footer_height_val = timeline_viewport.footer_height(widget)
-    footer_top = widget.height() - footer_height_val
-    scrollbar_strip_top = footer_top
+    footer_top = geo.footer_top
     ruler_top = footer_top + widget.SCROLLBAR_STRIP_HEIGHT + 2
     ruler_bottom = widget.height() - 6
-    content_start_x = widget.LEFT_GUTTER
-    scroll_area = timeline_viewport.get_scroll_area(widget)
-    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-    viewport_width = timeline_viewport.get_viewport_width(widget)
-    visible_right = scroll_offset + viewport_width
-    content_right = visible_right - timeline_viewport.right_inset(widget)
-    content_viewport_width = max(0, viewport_width - timeline_viewport.right_inset(widget))
+    content_start_x = geo.gutter
+    content_right = geo.scroll + geo.content_rect.width()
     clip_rect = event.rect()
     if _timeline_debug_enabled():
         try:
-            _band = timeline_viewport.gutter_band_rect(widget, int(scroll_offset))
+            _band = timeline_viewport.gutter_band_rect(widget, int(geo.scroll))
         except Exception:
             _band = None
         gutter_debug(
             "tick=%s paint-gutter damage=%s band=%s hit=%s gutter=%s scroll=%s zoom=%s",
             _next_tick(), clip_rect, _band,
             (bool(clip_rect.intersects(_band)) if _band is not None else None),
-            widget.LEFT_GUTTER, scroll_offset,
+            widget.LEFT_GUTTER, geo.scroll,
             getattr(widget, "_zoom_level", -1.0),
         )
     start_x = max(content_start_x, clip_rect.left())
@@ -492,14 +487,14 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
                 if x_edge < start_x - sel_pad or x_edge > end_x + sel_pad:
                     continue
                 painter.fillRect(QRectF(x_edge - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
-    draw_footer_and_ruler(widget, painter, width=content_right, content_start_x=content_start_x, footer_height=footer_height_val, footer_top=footer_top, scrollbar_strip_top=scrollbar_strip_top, ruler_top=ruler_top, ruler_bottom=ruler_bottom, scroll_offset=scroll_offset, viewport_width=content_viewport_width, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x, footer_bg=footer_bg, sep_strong=sep_strong, sep_soft=sep_soft, grid_col=grid_col, text_col=text_col, sb_idle=sb_idle, sb_hover=sb_hover)
+    draw_footer_and_ruler(widget, painter, width=content_right, content_start_x=content_start_x, footer_height=footer_height_val, footer_top=footer_top, ruler_top=ruler_top, ruler_bottom=ruler_bottom, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x, footer_bg=footer_bg, sep_strong=sep_strong, sep_soft=sep_soft, grid_col=grid_col, text_col=text_col, sb_idle=sb_idle, sb_hover=sb_hover)
     x_head = timeline_viewport.visual_pos_from_index(widget, widget._scrub_visual_index if widget._scrub_visual_index is not None else widget._visual_index)
     # Playhead cull: the handle geometry (HANDLE_WIDTH) plus the single
     # DAMAGE_PAD — derived from the shared constant, never a literal.
     head_pad = widget.HANDLE_WIDTH + timeline_layout.DAMAGE_PAD
     if start_x - head_pad <= x_head <= end_x + head_pad:
         timeline_primitives.draw_playhead(widget, painter, x_head=x_head, footer_top=footer_top, width=content_right)
-    draw_sticky_gutter_overlay(widget, painter, scroll_offset=scroll_offset, rows_top=rows_top, rows_bottom=rows_bottom, footer_top=footer_top, gutter_bg=gutter_bg, track_bg=track_bg, text_col=text_col, sep_color=sep_strong, sep_soft=sep_soft, damage_top=float(clip_rect.top()), damage_bottom=float(clip_rect.bottom()))
+    draw_sticky_gutter_overlay(widget, painter, rows_top=rows_top, rows_bottom=rows_bottom, footer_top=footer_top, gutter_bg=gutter_bg, track_bg=track_bg, text_col=text_col, sep_color=sep_strong, sep_soft=sep_soft, damage_top=float(clip_rect.top()), damage_bottom=float(clip_rect.bottom()))
     draw_sticky_right_gutter_overlay(
         widget,
         painter,

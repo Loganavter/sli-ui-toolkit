@@ -758,7 +758,9 @@ def test_min_zoom_equals_fitted_frame_span(qapp):
     w, vp = _tstate_widget(qapp)
     try:
         assert vp.right_inset(w) == 0
-        available = 800 - w.LEFT_GUTTER
+        # With no host scroll area the visible width IS the widget's own width
+        # (P2: the old parent-chain fallback reported a hard-coded 800 here).
+        available = w.width() - w.LEFT_GUTTER
         base = vp.get_base_tile_width(w)
         expected = available / ((w._total_frames - 1) * base)
         assert vp.calculate_min_zoom(w) == expected
