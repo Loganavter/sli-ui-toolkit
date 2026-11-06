@@ -108,6 +108,10 @@ class MinimalistScrollBar(QScrollBar):
         # activity the bar hides instantly; any value change / hover / drag
         # brings it back. None keeps the bar always visible.
         self._auto_hide_seconds: float | None = None
+        # Owner-suppressed bar (see ``set_suppressed``): scroll activity and a
+        # persistent auto-hide policy must not bring it back while the host
+        # owns this axis (e.g. a timeline that draws its own footer bar).
+        self._suppressed = False
         self._idle_timer = QTimer(self)
         self._idle_timer.setSingleShot(True)
         self._idle_timer.timeout.connect(self._on_idle_timeout)
@@ -310,7 +314,10 @@ class MinimalistScrollBar(QScrollBar):
 
     def _on_activity(self, *_args) -> None:
         # Scroll activity (mirrored value changes), hover, or drag keeps the
-        # bar around; it also re-shows a hidden bar.
+        # bar around; it also re-shows a hidden bar — unless the owner has
+        # suppressed it for an axis it draws itself.
+        if self._suppressed:
+            return
         if self._auto_hide_seconds is None:
             return
         if not self.isVisible():
@@ -320,6 +327,8 @@ class MinimalistScrollBar(QScrollBar):
         self._restart_idle_timer()
 
     def _poke(self) -> None:
+        if self._suppressed:
+            return
         if self._auto_hide_seconds is None:
             return
         if not self.isVisible():
@@ -338,12 +347,33 @@ class MinimalistScrollBar(QScrollBar):
         self._auto_hide_seconds = float(seconds) if seconds is not None else None
         if self._auto_hide_seconds is None:
             self._idle_timer.stop()
+            if self._suppressed:
+                return
             if not self.isVisible():
                 super().setVisible(True)
             self._anim_alpha = 1.0
             self.update()
         else:
             self._restart_idle_timer()
+
+    def set_suppressed(self, suppressed: bool) -> None:
+        """Keep the bar hidden regardless of scroll activity.
+
+        Used by a host that draws its own control for this axis: the native
+        scrollbar is still the scrolling mechanism, but the overlay thumb
+        must never appear. Unsuppressing restores the normal show/hide rules
+        on the next visibility sync.
+        """
+        suppressed = bool(suppressed)
+        if self._suppressed == suppressed:
+            return
+        self._suppressed = suppressed
+        if suppressed:
+            self._idle_timer.stop()
+            if self.isVisible():
+                self._anim_alpha = 0.0
+                super().setVisible(False)
+                self.update()
 
     def set_animated_visible(self, visible: bool) -> None:
         """Show/hide instantly (kept name for caller compatibility)."""
@@ -404,6 +434,10 @@ class OverlayScrollArea(QScrollArea):
         self._reserve_scrollbar_space = (
             cfg.reserve_space if reserve_scrollbar_space is None else bool(reserve_scrollbar_space)
         )
+        # Opt-in axis ownership: True keeps today's overlay thumb on the
+        # horizontal axis; False lets a host draw its own horizontal control
+        # (the native scrollbar stays the scrolling mechanism either way).
+        self._h_scrollbar_enabled = True
         self.setFrameShape(QScrollArea.Shape.NoFrame)
         self.setWidgetResizable(False if widget_resizable is False else True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -536,6 +570,27 @@ class OverlayScrollArea(QScrollArea):
 
     def scrollbar_gap(self) -> int:
         return self._scrollbar_gap
+
+    def set_horizontal_scrollbar_enabled(self, enabled: bool) -> None:
+        """Show or hide the overlay horizontal thumb (default: shown).
+
+        ``False`` is for hosts that draw their own horizontal control for
+        this axis (e.g. a timeline footer bar): the overlay thumb is never
+        made visible and no bottom viewport margin is reserved for it. The
+        native ``QAbstractScrollArea`` horizontal scrollbar keeps its range,
+        value and programmatic control — it is the scrolling mechanism, and
+        disabling the overlay does not touch it. The vertical overlay thumb
+        is unaffected.
+        """
+        enabled = bool(enabled)
+        if self._h_scrollbar_enabled == enabled:
+            return
+        self._h_scrollbar_enabled = enabled
+        self.custom_h_scrollbar.set_suppressed(not enabled)
+        self._update_scrollbar_visibility()
+
+    def horizontal_scrollbar_enabled(self) -> bool:
+        return self._h_scrollbar_enabled
 
     def set_scrollbar_auto_hide(self, seconds: float | None) -> None:
         """Idle auto-hide for the overlay bars (default 1.2s; ``None`` keeps
@@ -783,17 +838,22 @@ class OverlayScrollArea(QScrollArea):
         native_v = self.verticalScrollBar()
         native_h = self.horizontalScrollBar()
         v_show = native_v.maximum() > native_v.minimum()
-        h_show = native_h.maximum() > native_h.minimum()
+        # A disabled overlay bar is never shown, so it also reserves no
+        # margin — even while the native axis overflows.
+        h_show = self._h_scrollbar_enabled and native_h.maximum() > native_h.minimum()
         sdbg(
             f"OverlayScrollArea visibility v_max={native_v.maximum()} v_min={native_v.minimum()} "
             f"h_max={native_h.maximum()} h_min={native_h.minimum()} "
-            f"v_show={v_show} h_show={h_show} reserve={self._reserve_scrollbar_space}"
+            f"v_show={v_show} h_show={h_show} h_enabled={self._h_scrollbar_enabled} "
+            f"reserve={self._reserve_scrollbar_space}"
         )
         self.custom_v_scrollbar.set_animated_visible(v_show)
         self.custom_h_scrollbar.set_animated_visible(h_show)
         # Reserve the bar's gap only while that axis actually overflows.
         # When everything fits there is no bar to make room for, so the
         # viewport takes the full size instead of holding a dead gutter.
+        # A disabled overlay bar (host-owned axis) reserves nothing even
+        # on overflow.
         # Margins only ever grow the other axis's need (a narrower viewport
         # cannot un-overflow horizontal, a shorter one cannot un-overflow
         # vertical), so no oscillate at the fits boundary.
