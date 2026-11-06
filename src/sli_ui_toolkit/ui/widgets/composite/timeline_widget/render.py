@@ -364,6 +364,86 @@ def draw_sticky_right_gutter_overlay(widget, painter: QPainter, *, gutter_x: flo
     )
     painter.restore()
 
+def paint_selection_wash(
+    widget,
+    painter: QPainter,
+    geo: timeline_viewport.ContentGeometry,
+    *,
+    start_x: float,
+    end_x: float,
+) -> None:
+    """Paint the selection wash, its edge handles and its grips.
+
+    One implementation for both frames that draw it: the parent pass
+    (:func:`paint_timeline`) and the strip-band overlay
+    (``overlay.TimelineOverlay``). Coordinates are CONTENT ones (the parent's
+    paint frame); a child widget translates its painter onto that frame and
+    passes the child's content span as ``start_x``/``end_x``, so the culling
+    below is the same cull — never a second copy with its own margins.
+    """
+    if not widget._has_selection:
+        return
+    content_right = geo.scroll + geo.content_rect.width()
+    footer_top = geo.footer_top
+    x_anchor = timeline_viewport.frame_to_pos(widget, widget._anchor_index)
+    x_drag = timeline_viewport.frame_to_pos(widget, widget._drag_index)
+    x_start = min(x_anchor, x_drag)
+    x_end = max(x_anchor, x_drag)
+    sel_x0 = max(x_start, start_x)
+    sel_x1 = min(x_end, content_right, end_x)
+    if sel_x1 <= sel_x0:
+        return
+    accent = timeline_theme.build_theme_colors(widget)["accent"]
+    # Selection culls against the single DAMAGE_PAD (a superset of
+    # the 2px edge / 6px grip widths, so nothing visible is ever
+    # dropped); the handle widths below stay exact for drawing.
+    sel_pad = timeline_layout.DAMAGE_PAD
+    fill = timeline_primitives._alpha_color(accent, 45)
+    painter.fillRect(QRectF(sel_x0, 0, sel_x1 - sel_x0, footer_top), fill)
+    # Edge handles so the range can be resized / moved after Shift+drag.
+    handle = timeline_primitives._alpha_color(accent, 220)
+    edge_w = 2.0
+    for x_edge in (x_start, x_end):
+        if x_edge < start_x - sel_pad or x_edge > end_x + sel_pad:
+            continue
+        painter.fillRect(QRectF(x_edge - edge_w * 0.5, 0, edge_w, footer_top), handle)
+    grip_h = 10.0
+    grip_w = 6.0
+    grip_y = max(2.0, (widget.STRIP_HEIGHT - grip_h) * 0.5)
+    for x_edge in (x_start, x_end):
+        if x_edge < start_x - sel_pad or x_edge > end_x + sel_pad:
+            continue
+        painter.fillRect(QRectF(x_edge - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
+
+def paint_playhead(
+    widget,
+    painter: QPainter,
+    geo: timeline_viewport.ContentGeometry,
+    *,
+    start_x: float,
+    end_x: float,
+) -> None:
+    """Paint the playhead line for one content span, culled against it.
+
+    Shared by the parent pass and the strip-band overlay (see
+    :func:`paint_selection_wash` for the coordinate/culling contract). The
+    cull pad is the handle geometry plus the single ``DAMAGE_PAD`` — derived
+    from the shared constant, never a literal.
+    """
+    content_right = geo.scroll + geo.content_rect.width()
+    x_head = timeline_viewport.visual_pos_from_index(
+        widget,
+        widget._scrub_visual_index
+        if widget._scrub_visual_index is not None
+        else widget._visual_index,
+    )
+    head_pad = widget.HANDLE_WIDTH + timeline_layout.DAMAGE_PAD
+    if not (start_x - head_pad <= x_head <= end_x + head_pad):
+        return
+    timeline_primitives.draw_playhead(
+        widget, painter, x_head=x_head, footer_top=geo.footer_top, width=content_right
+    )
+
 def paint_timeline(widget, painter: QPainter, event) -> None:
     """Paint entry for ``TimelineWidget.paintEvent``.
 
@@ -399,7 +479,6 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
     # Paint contract: no geometry mutation here. Scrollbar sync happens in
     # the resize/settle/scroll paths (widget.py); see the docstring above.
     colors = timeline_theme.build_theme_colors(widget)
-    accent = colors["accent"]
     text_col = colors["text_col"]
     canvas_bg = colors["canvas_bg"]
     gutter_bg = colors["gutter_bg"]
@@ -459,41 +538,9 @@ def paint_timeline(widget, painter: QPainter, event) -> None:
     rows_top = widget.STRIP_HEIGHT - content_scroll_y
     draw_rows(widget, painter, width=content_right, rows_top=rows_top, rows_bottom=rows_bottom, content_start_x=content_start_x, start_x=start_x, end_x=end_x, duration=duration, logical_width=logical_width, gutter_bg=gutter_bg, track_bg=track_bg, lane_bg=lane_bg, text_col=text_col, sep_soft=sep_soft)
     painter.restore()
-    if widget._has_selection:
-        x_anchor = timeline_viewport.frame_to_pos(widget, widget._anchor_index)
-        x_drag = timeline_viewport.frame_to_pos(widget, widget._drag_index)
-        x_start = min(x_anchor, x_drag)
-        x_end = max(x_anchor, x_drag)
-        sel_x0 = max(x_start, start_x)
-        sel_x1 = min(x_end, content_right, end_x)
-        if sel_x1 > sel_x0:
-            # Selection culls against the single DAMAGE_PAD (a superset of
-            # the 2px edge / 6px grip widths, so nothing visible is ever
-            # dropped); the handle widths below stay exact for drawing.
-            sel_pad = timeline_layout.DAMAGE_PAD
-            fill = timeline_primitives._alpha_color(accent, 45)
-            painter.fillRect(QRectF(sel_x0, 0, sel_x1 - sel_x0, footer_top), fill)
-            # Edge handles so the range can be resized / moved after Shift+drag.
-            handle = timeline_primitives._alpha_color(accent, 220)
-            edge_w = 2.0
-            for x_edge in (x_start, x_end):
-                if x_edge < start_x - sel_pad or x_edge > end_x + sel_pad:
-                    continue
-                painter.fillRect(QRectF(x_edge - edge_w * 0.5, 0, edge_w, footer_top), handle)
-            grip_h = 10.0
-            grip_w = 6.0
-            grip_y = max(2.0, (widget.STRIP_HEIGHT - grip_h) * 0.5)
-            for x_edge in (x_start, x_end):
-                if x_edge < start_x - sel_pad or x_edge > end_x + sel_pad:
-                    continue
-                painter.fillRect(QRectF(x_edge - grip_w * 0.5, grip_y, grip_w, grip_h), handle)
+    paint_selection_wash(widget, painter, geo, start_x=start_x, end_x=end_x)
     draw_footer_and_ruler(widget, painter, width=content_right, content_start_x=content_start_x, footer_height=footer_height_val, footer_top=footer_top, ruler_top=ruler_top, ruler_bottom=ruler_bottom, duration=duration, logical_width=logical_width, start_x=start_x, end_x=end_x, footer_bg=footer_bg, sep_strong=sep_strong, sep_soft=sep_soft, grid_col=grid_col, text_col=text_col, sb_idle=sb_idle, sb_hover=sb_hover)
-    x_head = timeline_viewport.visual_pos_from_index(widget, widget._scrub_visual_index if widget._scrub_visual_index is not None else widget._visual_index)
-    # Playhead cull: the handle geometry (HANDLE_WIDTH) plus the single
-    # DAMAGE_PAD — derived from the shared constant, never a literal.
-    head_pad = widget.HANDLE_WIDTH + timeline_layout.DAMAGE_PAD
-    if start_x - head_pad <= x_head <= end_x + head_pad:
-        timeline_primitives.draw_playhead(widget, painter, x_head=x_head, footer_top=footer_top, width=content_right)
+    paint_playhead(widget, painter, geo, start_x=start_x, end_x=end_x)
     draw_sticky_gutter_overlay(widget, painter, rows_top=rows_top, rows_bottom=rows_bottom, footer_top=footer_top, gutter_bg=gutter_bg, track_bg=track_bg, text_col=text_col, sep_color=sep_strong, sep_soft=sep_soft, damage_top=float(clip_rect.top()), damage_bottom=float(clip_rect.bottom()))
     draw_sticky_right_gutter_overlay(
         widget,

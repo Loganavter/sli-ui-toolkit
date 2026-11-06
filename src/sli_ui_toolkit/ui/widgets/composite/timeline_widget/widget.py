@@ -17,6 +17,7 @@ from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 
 from .models import TimelineCallbacks
+from .overlay import TimelineOverlay
 from .strip_band import StripBand, StripBandRelease, StripBandRenderer
 from . import interaction as timeline_interaction
 from . import layout as timeline_layout
@@ -124,6 +125,10 @@ class TimelineWidget(QWidget):
         # GPU filmstrip band child, opt-in via enable_strip_band(); None
         # keeps the QPainter thumbnail path (render.draw_thumbnail_strip).
         self._strip_band: StripBand | None = None
+        # Paint-only sibling raised above the band: a child composites above
+        # the parent's paint, so the band hides the playhead/selection the
+        # parent already drew — the overlay re-draws exactly those two on top.
+        self._strip_overlay: TimelineOverlay | None = None
         self._row_layout: list[tuple] = []
         self._hover_points: list[tuple[QRectF, str]] = []
         self._hover_tooltip_text = None
@@ -401,6 +406,14 @@ class TimelineWidget(QWidget):
         """The GPU filmstrip band child, or ``None`` while it is not enabled."""
         return self._strip_band
 
+    def strip_band_overlay(self) -> TimelineOverlay | None:
+        """The playhead/selection overlay above the band, or ``None``.
+
+        Created together with the band and destroyed with it; hidden whenever
+        no band is covering the strip row.
+        """
+        return self._strip_overlay
+
     def strip_band_active(self) -> bool:
         """Whether the band is covering the strip row (so tiles are its job).
 
@@ -410,6 +423,17 @@ class TimelineWidget(QWidget):
         """
         band: StripBand | None = getattr(self, "_strip_band", None)
         return band is not None and band.isVisible() and band.renderer() is not None
+
+    def _ensure_strip_overlay(self) -> TimelineOverlay | None:
+        """Create the band's overlay sibling once; ``None`` without a band."""
+        band: StripBand | None = getattr(self, "_strip_band", None)
+        if band is None or getattr(self, "_destroyed", False):
+            return None
+        overlay: TimelineOverlay | None = getattr(self, "_strip_overlay", None)
+        if overlay is None:
+            overlay = TimelineOverlay(self)
+            self._strip_overlay = overlay
+        return overlay
 
     def enable_strip_band(
         self,
@@ -423,8 +447,11 @@ class TimelineWidget(QWidget):
         resources. The band is a paint-only child over the strip row, so
         while it is visible the parent stops painting thumbnails underneath
         (the background fill stays). A child widget composites above the
-        parent's paint, so chrome the parent draws across that row (the
-        playhead line, the selection wash) must be drawn by ``render`` too.
+        parent's paint, so the chrome the parent draws across that row (the
+        playhead line, the selection wash) would be hidden: the toolkit
+        raises a paint-only overlay sibling above the band
+        (:class:`TimelineOverlay`) that re-draws exactly those two with the
+        parent's own paint functions, so the renderer only has to draw tiles.
         Returns the band for further wiring.
         """
         band = self._strip_band
@@ -434,22 +461,30 @@ class TimelineWidget(QWidget):
         band.set_renderer(render, release)
         self.sync_strip_band()
         band.show()
+        overlay = self._ensure_strip_overlay()
+        if overlay is not None:
+            overlay.show()
         self.update()
         return band
 
     def disable_strip_band(self) -> None:
-        """Drop the band child and its callbacks; the QPainter path returns.
+        """Drop the band child, its overlay and their callbacks.
 
         Idempotent. Hides first so no frame can call a renderer whose host
-        already dropped its resources, then deletes on the next event loop.
+        already dropped its resources; both children are deleted on the next
+        event loop.
         """
         band = self._strip_band
-        if band is None:
-            return
+        overlay = self._strip_overlay
         self._strip_band = None
-        band.set_renderer(None, None)
-        band.hide()
-        band.deleteLater()
+        self._strip_overlay = None
+        if band is not None:
+            band.set_renderer(None, None)
+            band.hide()
+            band.deleteLater()
+        if overlay is not None:
+            overlay.hide()
+            overlay.deleteLater()
         self.update()
 
     def strip_band_rect(self) -> QRect:
@@ -457,11 +492,15 @@ class TimelineWidget(QWidget):
         return timeline_viewport.strip_band_rect(self)
 
     def sync_strip_band(self) -> None:
-        """Place the band and push the current view into it.
+        """Place the band, push the current view, and raise the overlay.
 
         No-op while the band is not enabled. Called by the widget itself on
         resize and on every viewport commit (scroll/zoom); a host that drives
         its scroll area directly can call it per tick.
+
+        Order matters: the overlay is placed from ``band.band_rect()`` (the
+        same geometry-owner rect the band got) and raised AFTER ``place``, so
+        it stays the topmost child over the band.
         """
         band: StripBand | None = getattr(self, "_strip_band", None)
         if band is None or getattr(self, "_destroyed", False):
@@ -469,6 +508,12 @@ class TimelineWidget(QWidget):
         band.place(self.strip_band_rect())
         scroll_x, zoom = timeline_viewport.strip_band_view(self)
         band.set_view(scroll_x, zoom)
+        overlay = self._ensure_strip_overlay()
+        if overlay is None:
+            return
+        overlay.set_band_rect(band.band_rect())
+        overlay.raise_()
+        overlay.setVisible(band.isVisible())
 
     def set_thumbnails(self, thumbnails: dict):
         """Bulk generation replace: one store update, one prune, one paint.
