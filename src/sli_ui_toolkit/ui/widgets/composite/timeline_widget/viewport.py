@@ -6,7 +6,7 @@ from typing import Any
 
 from PySide6.QtCore import QPointF, QRect, QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPixmap
-from PySide6.QtWidgets import QScrollArea, QWidget
+from PySide6.QtWidgets import QScrollArea
 
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
@@ -22,6 +22,91 @@ from .theme import resolve_accent_color
 
 def footer_height(widget) -> int:
     return scaled_px(42) + widget.SCROLLBAR_STRIP_HEIGHT
+
+
+@dataclass(frozen=True, slots=True)
+class ContentGeometry:
+    """Every timeline rectangle, in CONTENT coordinates — one owner.
+
+    The host scrolls this widget, so a content x becomes a screen x as
+    ``x - scroll`` (:func:`to_viewport_x` / :func:`to_viewport_rect` are the
+    only place that subtraction happens). ``scroll`` is the host's horizontal
+    offset and the only place it is read. ``width`` is the content width (the
+    widget's fixed width — what the host scrolls); ``visible_width`` is the
+    width of the window the host gives us. ``content_rect`` is that window in
+    content coordinates with the vertical-scrollbar lane (the right gutter)
+    removed — the area content may paint into. ``band_rect`` is the filmstrip
+    band and ``gutter_rect`` the sticky-gutter damage band (``LEFT_GUTTER + 2``
+    so the separator and the chevron stay inside it).
+    """
+
+    scroll: int
+    width: int
+    visible_width: int
+    gutter: int
+    footer_top: int
+    content_rect: QRect
+    band_rect: QRect
+    gutter_rect: QRect
+
+
+def content_geometry(widget) -> ContentGeometry:
+    """The single geometry entry point: every consumer takes its rect here.
+
+    Builds the one snapshot from the host (scroll offset, visible width) and
+    the widget's metrics (gutter, footer, vertical offset, right inset). No
+    consumer computes ``scroll + viewport`` or ``x - scroll`` on its own any
+    more — ``strip_band_rect``, ``gutter_band_rect``, ``sb_strip_rect``,
+    ``update_fixed_width``, the paint passes and the playhead inputs all read
+    this, and viewport-space conversion is :func:`to_viewport_x` /
+    :func:`to_viewport_rect`.
+    """
+    scroll_area = get_scroll_area(widget)
+    scroll = 0
+    try:
+        if scroll_area is not None and scroll_area.horizontalScrollBar() is not None:
+            scroll = int(scroll_area.horizontalScrollBar().value())
+    except Exception:
+        scroll = 0
+    width = max(0, int(widget.width()))
+    visible_width = get_viewport_width(widget)
+    gutter = int(getattr(widget, "LEFT_GUTTER", 0))
+    try:
+        footer_top = max(0, int(widget.height() - footer_height(widget)))
+    except Exception:
+        footer_top = 0
+    right = right_inset(widget)
+    content_width = max(0, visible_width - right)
+    content_rect = QRect(scroll, 0, content_width, footer_top)
+    band = QRect(
+        scroll + gutter,
+        -vertical_scroll_value(widget),
+        max(0, content_width - gutter),
+        int(getattr(widget, "STRIP_HEIGHT", 0)),
+    )
+    band_rect = band.intersected(QRect(0, 0, width, footer_top))
+    gutter_rect = QRect(scroll, 0, max(0, gutter + 2), footer_top)
+    return ContentGeometry(
+        scroll=scroll,
+        width=width,
+        visible_width=visible_width,
+        gutter=gutter,
+        footer_top=footer_top,
+        content_rect=content_rect,
+        band_rect=band_rect,
+        gutter_rect=gutter_rect,
+    )
+
+
+def to_viewport_x(geo: ContentGeometry, x: float) -> float:
+    """Content x -> on-screen x. The only place ``scroll`` is subtracted."""
+    return float(x) - float(geo.scroll)
+
+
+def to_viewport_rect(geo: ContentGeometry, rect: QRect) -> QRect:
+    """Content rect -> on-screen rect (same single subtraction)."""
+    return QRect(rect).translated(-int(geo.scroll), 0)
+
 
 def vertical_scrollbar_width(widget) -> int:
     return MINIMAL_SCROLLBAR_WIDTH
@@ -78,11 +163,11 @@ def vertical_scrollbar_state(widget) -> tuple[bool, QRect | None, int, int]:
         return False, None, max_scroll, viewport_h
     width = vertical_scrollbar_width(widget)
     gutter_width = vertical_scrollbar_gutter_width(widget)
-    scroll_area = get_scroll_area(widget)
-    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-    viewport_width = get_viewport_width(widget)
+    geo = content_geometry(widget)
+    # The bar is a real child of this (content) widget, so its x is a CONTENT
+    # x: the visible window's right edge, minus the lane, centred in it.
     geometry = QRect(
-        max(0, scroll_offset + viewport_width - gutter_width + (gutter_width - width) // 2),
+        max(0, geo.scroll + geo.visible_width - gutter_width + (gutter_width - width) // 2),
         content_top,
         width,
         viewport_h,
@@ -407,10 +492,8 @@ def _snapshot_with_zoom(widget, zoom: float) -> TimelineViewportState:
     programmatic ``setValue`` so the snapshot carries the post-commit
     scroll position.
     """
-    try:
-        right = right_inset(widget)
-    except Exception:
-        right = 0
+    geo = content_geometry(widget)
+    right = max(0, geo.visible_width - geo.content_rect.width())
     if widget._total_frames > 0:
         logical = logical_width_for_zoom(widget, float(zoom))
         content_width = int(
@@ -418,23 +501,13 @@ def _snapshot_with_zoom(widget, zoom: float) -> TimelineViewportState:
         )
     else:
         content_width = 0
-    viewport_width = get_viewport_width(widget)
-    scroll_area = get_scroll_area(widget)
-    try:
-        scroll_x = (
-            int(scroll_area.horizontalScrollBar().value())
-            if scroll_area is not None and scroll_area.horizontalScrollBar() is not None
-            else 0
-        )
-    except Exception:
-        scroll_x = 0
     return TimelineViewportState(
         zoom=float(zoom),
         min_zoom=float(calculate_min_zoom(widget)),
         left_gutter=int(widget.LEFT_GUTTER),
         content_width=int(content_width),
-        viewport_width=int(viewport_width),
-        scroll_x=int(scroll_x),
+        viewport_width=int(geo.visible_width),
+        scroll_x=int(geo.scroll),
     )
 
 
@@ -560,7 +633,8 @@ def commit_zoom(
         pass
     scroll_area = get_scroll_area(widget)
     scrollbar = None
-    scroll_old = 0
+    geo = content_geometry(widget)
+    scroll_old = int(geo.scroll)
     if _timeline_debug_enabled():
         try:
             _old_zoom = float(getattr(widget, "_zoom_level", -1.0))
@@ -573,16 +647,8 @@ def commit_zoom(
         )
     if scroll_area is not None:
         scrollbar = scroll_area.horizontalScrollBar()
-        try:
-            scroll_old = int(scrollbar.value())
-        except Exception:
-            scroll_old = 0
     if cursor_x is None:
-        try:
-            viewport_width = int(get_viewport_width(widget))
-        except Exception:
-            viewport_width = 0
-        cursor_viewport_x = float(viewport_width) / 2.0
+        cursor_viewport_x = float(geo.visible_width) / 2.0
         cursor_time = cursor_time_at_x(widget, float(scroll_old) + cursor_viewport_x)
     else:
         cursor_time = cursor_time_at_x(widget, float(cursor_x))
@@ -679,13 +745,10 @@ def _strip_visible_span(widget) -> tuple[float, float, float] | None:
     if logical_width <= 0 or slot_width <= 0 or base_tile <= 0:
         return None
     content_start_x = float(widget.LEFT_GUTTER)
-    scroll_area = get_scroll_area(widget)
-    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-    viewport_width = get_viewport_width(widget)
-    visible_right = scroll_offset + viewport_width
-    content_right = visible_right - right_inset(widget)
-    start_x = max(content_start_x, float(scroll_offset))
-    end_x = min(float(content_right), content_start_x + logical_width)
+    geo = content_geometry(widget)
+    start_x = max(content_start_x, float(geo.scroll))
+    content_right = float(geo.content_rect.x() + geo.content_rect.width())
+    end_x = min(content_right, content_start_x + logical_width)
     if end_x <= start_x:
         return None
     return (content_start_x, start_x, end_x)
@@ -759,18 +822,35 @@ def compute_total_frames(widget) -> int:
     return max(1, int(math.ceil(duration * widget._fps)) + 1)
 
 def get_viewport_width(widget) -> int:
-    viewport_width = 800
-    parent = widget.parent()
-    if parent:
-        if isinstance(parent, QScrollArea):
-            viewport_width = parent.viewport().width()
-        elif isinstance(parent, QWidget):
-            grandparent = parent.parent()
-            if isinstance(grandparent, QScrollArea):
-                viewport_width = grandparent.viewport().width()
-            else:
-                viewport_width = parent.width()
-    return viewport_width
+    """Visible content width: how much of the content is on screen.
+
+    The host ``QScrollArea``'s viewport when the timeline is hosted (the
+    normal case — the host scrolls the content widget, so its viewport is the
+    visible window). Without a scroll host the visible extent is what the
+    widget actually shows, clipped by every ancestor and by the window
+    (``visibleRegion``); that is the width the host gave us, not the content's
+    own fixed width. The old ``parent().width()`` fallback reported the
+    content width back whenever a container was laid out around the fixed
+    widget — a fitted view then read ``min_zoom == current zoom`` and refused
+    to zoom out (measured ~0.5). An unrealized widget has no visible region
+    yet, so its own width is the only honest answer there.
+    """
+    scroll_area = get_scroll_area(widget)
+    if scroll_area is not None:
+        try:
+            return max(0, int(scroll_area.viewport().width()))
+        except Exception:
+            return 0
+    # No host scroll area: this widget is the window onto the content, so its
+    # own width IS the visible width (see ``update_fixed_width``: without a
+    # host the width is never pinned to the content). The old parent chain
+    # reported a container's width — the content's own fixed width whenever a
+    # container was laid out around it — which froze ``min_zoom`` at the
+    # current zoom and refused to zoom out (measured ~0.5 in the report).
+    try:
+        return max(0, int(widget.width()))
+    except Exception:
+        return 0
 
 def calculate_min_zoom(widget) -> float:
     """Min zoom: the precisely-fitted zoom (content == available width).
@@ -781,10 +861,8 @@ def calculate_min_zoom(widget) -> float:
     """
     if widget._total_frames <= 0:
         return 0.1
-    viewport_width = max(
-        1,
-        get_viewport_width(widget) - widget.LEFT_GUTTER - right_inset(widget),
-    )
+    geo = content_geometry(widget)
+    viewport_width = max(1, geo.content_rect.width() - geo.gutter)
     content_at_zoom1 = frame_span(widget) * get_base_tile_width(widget)
     if content_at_zoom1 <= 0:
         return 1.0
@@ -829,15 +907,25 @@ def update_fixed_width(widget, zoom: float | None = None) -> None:
     ``zoom`` lets a zoom commit widen the content to the NEW zoom before the
     scrollbar range is read, without writing ``widget._zoom_level`` outside
     :func:`commit_state`.
+
+    Only a host scroll area needs a fixed content width — it is what the host
+    scrolls. Without one the widget IS the window onto the content (the paint
+    clips to its own width), so its width is the host's and the visible width;
+    pinning it to the content width made ``min_zoom`` follow the content and a
+    timeline without a ``QScrollArea`` could not zoom out.
     """
     if widget._total_frames <= 0:
         return
+    if get_scroll_area(widget) is None:
+        widget.update()
+        return
+    geo = content_geometry(widget)
+    right = max(0, geo.visible_width - geo.content_rect.width())
     zoom_level = float(widget._zoom_level) if zoom is None else float(zoom)
     content_width = int(
-        math.ceil(widget.LEFT_GUTTER + logical_width_for_zoom(widget, zoom_level) + right_inset(widget))
+        math.ceil(geo.gutter + logical_width_for_zoom(widget, zoom_level) + right)
     )
-    viewport_width = max(1, get_viewport_width(widget) - right_inset(widget))
-    final_width = max(content_width, viewport_width + right_inset(widget))
+    final_width = max(content_width, max(1, geo.visible_width - right) + right)
     if widget.width() != final_width:
         widget._suppress_resize_recalc = True
         try:
@@ -1045,30 +1133,13 @@ def strip_band_rect(widget) -> QRect:
     offset and the footer (ruler, scrollbar) is never covered, so the band
     cannot hide the parent's own QPainter chrome. Empty when the content area
     has no width (nothing to render).
+
+    Geometry comes from :func:`content_geometry` — the band is a child of this
+    widget (which the host scrolls), so its rect is in CONTENT coordinates and
+    both edges carry the scroll offset (the P0 frame invariant: on screen its
+    left edge is the gutter and its width is the visible content width).
     """
-    # ONE frame, and it is the CONTENT's: the band is a child of this widget
-    # (which the host scrolls), so both edges carry ``scroll_offset``. The
-    # earlier version mixed the frames — gutter in content coords, right edge in
-    # viewport coords — and the width became ``visible + scroll`` (measured
-    # 2026-11-04: scroll 8236 -> width 9140 for a 904-wide area), which stretched
-    # every cell up to 10x (the owner's "~350 px cells") and slid the band under
-    # the sticky gutter. On SCREEN the band must stay at the gutter: its x minus
-    # the scroll is ``LEFT_GUTTER``, its width is the visible content width.
-    # The visible RANGE is the band's view (``strip_band_view``), not its rect.
-    scroll_area = get_scroll_area(widget)
-    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-    left = int(scroll_offset + widget.LEFT_GUTTER)
-    content_right = int(scroll_offset + get_viewport_width(widget) - right_inset(widget))
-    band = QRect(
-        left,
-        -vertical_scroll_value(widget),
-        max(0, content_right - left),
-        int(widget.STRIP_HEIGHT),
-    )
-    visible = QRect(
-        0, 0, int(widget.width()), int(widget.height() - footer_height(widget))
-    )
-    return band.intersected(visible)
+    return QRect(content_geometry(widget).band_rect)
 
 
 def strip_band_view(widget) -> tuple[int, float]:
@@ -1077,20 +1148,16 @@ def strip_band_view(widget) -> tuple[int, float]:
     ``scroll_x`` is the host scroll area's horizontal offset, ``zoom`` the
     committed zoom level — plain data, no frame/track knowledge.
     """
-    scroll_area = get_scroll_area(widget)
-    scroll_x = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-    return int(scroll_x), float(getattr(widget, "_zoom_level", 1.0))
+    return int(content_geometry(widget).scroll), float(getattr(widget, "_zoom_level", 1.0))
 
 
 def sb_strip_rect(widget) -> QRectF:
-    scroll_area = get_scroll_area(widget)
-    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-    viewport_width = max(0, get_viewport_width(widget) - right_inset(widget))
-    footer_top = widget.height() - footer_height(widget)
+    """The inner (footer) scrollbar strip, in CONTENT coordinates."""
+    geo = content_geometry(widget)
     return QRectF(
-        scroll_offset + widget.LEFT_GUTTER,
-        footer_top,
-        max(0.0, viewport_width - widget.LEFT_GUTTER),
+        geo.scroll + geo.gutter,
+        geo.footer_top,
+        max(0.0, float(geo.content_rect.width() - geo.gutter)),
         widget.SCROLLBAR_STRIP_HEIGHT,
     )
 
@@ -1116,9 +1183,8 @@ def show_hover_tooltip(widget) -> None:
         )
 
 def is_on_gutter_handle(widget, x: int) -> bool:
-    scroll_area = get_scroll_area(widget)
-    scroll_offset = scroll_area.horizontalScrollBar().value() if scroll_area else 0
-    return abs(x - (scroll_offset + widget.LEFT_GUTTER)) <= widget.GUTTER_RESIZE_MARGIN
+    geo = content_geometry(widget)
+    return abs(to_viewport_x(geo, x) - geo.gutter) <= widget.GUTTER_RESIZE_MARGIN
 
 
 def damage_pad() -> float:
@@ -1214,31 +1280,26 @@ def visible_row_gutter_window(
     )
 
 
-def gutter_band_rect(widget, scroll: int) -> QRect:
+def gutter_band_rect(widget, scroll: int | None = None) -> QRect:
     """Gutter damage band in content coords, chevron/gradient-covering.
 
     ``[scroll, scroll + LEFT_GUTTER + 2] x [0, footer_top]``: the sticky
     overlay paints the gutter at ``gx = scroll`` with a ``LEFT_GUTTER + 2``
     clip, the group chevron lives at ``gx + 8 .. gx + 26`` (inside), the
     wash/edge gradients span the full gutter rect, and the ``+ 2`` covers
-    the 1 px separator drawn at ``gx + LEFT_GUTTER``. Same geometry as
-    ``widget.gutter_band_rect_for_scroll`` (which wave C may unify with
-    this helper); kept here so the drag path can band-repaint without
-    touching ``widget.py``.
+    the 1 px separator drawn at ``gx + LEFT_GUTTER``.
+
+    The rect is :attr:`ContentGeometry.gutter_rect`; *scroll* is the
+    correction-repaint offset (``commit_zoom`` repaints the band at the scroll
+    value it just committed, and tests probe other offsets) and only shifts the
+    geometry-owned rect. Same geometry as
+    ``widget.gutter_band_rect_for_scroll`` (which delegates here).
     """
-    try:
-        footer_top = int(widget.height() - footer_height(widget))
-    except Exception:
-        try:
-            footer_top = int(widget.height())
-        except Exception:
-            footer_top = 0
-    footer_top = max(0, footer_top)
-    try:
-        gutter_w = int(widget.LEFT_GUTTER) + 2
-    except Exception:
-        gutter_w = 2
-    return QRect(int(scroll), 0, max(0, gutter_w), footer_top)
+    geo = content_geometry(widget)
+    rect = QRect(geo.gutter_rect)
+    if scroll is not None and int(scroll) != geo.scroll:
+        rect = rect.translated(int(scroll) - geo.scroll, 0)
+    return rect
 
 
 def hover_points_for_rows(
