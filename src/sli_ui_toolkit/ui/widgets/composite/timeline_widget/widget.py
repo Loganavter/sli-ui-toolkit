@@ -308,7 +308,15 @@ class TimelineWidget(QWidget):
     def resizeEvent(self, event: QResizeEvent):
         super().resizeEvent(event)
         timeline_interaction.resize_event(self, event)
-        self.sync_strip_band()
+        # ``_suppress_resize_recalc`` marks our OWN width pin
+        # (``viewport.update_fixed_width``) inside a bigger operation: the
+        # zoom commit pins the width BEFORE it writes the zoom, so placing the
+        # band here would hand it the pre-commit zoom/scroll (measured
+        # 2026-11-04: the first of two band places per zoom tick was stale).
+        # The operation that owns the pin places the band after its commit
+        # (``_commitState`` / the trailing sync of the resize pass).
+        if not self._suppress_resize_recalc:
+            self.sync_strip_band()
 
     def _on_host_scroll(self, *_args) -> None:
         """Host scrollbar step (delegates to ``interaction.host_scroll``)."""
@@ -586,6 +594,11 @@ class TimelineWidget(QWidget):
         timeline_layout.ensure_preferred_height(self)
         timeline_viewport.update_fixed_width(self)
         timeline_viewport.update_vertical_scrollbar(self)
+        # The gutter metrics just moved, so the band's rect moved with them.
+        # ``update_fixed_width`` pins the width with recalc suppressed, so its
+        # resizeEvent no longer places the band (see ``resizeEvent``); this is
+        # the authoritative place for the scale change.
+        self.sync_strip_band()
         self.update()
 
     def _show_hover_tooltip(self) -> None:

@@ -13,6 +13,7 @@ from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from . import layout as timeline_layout
 from . import viewport as timeline_viewport
 from .debug import _timeline_debug, _timeline_debug_enabled, _next_tick, gutter_debug
+from .state import TimelineViewportState
 
 # --- named interaction tuning (Phase 2 T-life) --------------------------------
 # Former hardcodes, one definition site each (i18n/timings/sizes/slop live
@@ -632,16 +633,48 @@ def show_event(widget) -> None:
     widget._layout_settle.ping()
 
 
-def viewport_geometry_changed(widget, source: str = "") -> None:
-    """Recompute fitted state, commit, and refresh fixed width (no emits here)."""
+def fitted_state(widget) -> TimelineViewportState:
+    """The state a FIT would commit at the live geometry.
+
+    ``recompute_fitted_state`` only clamps a view that is *already* within its
+    fitted tolerance, which a live resize of a fitted view no longer is (the
+    viewport width moved ``min_zoom`` by more than that). A fitted view must
+    stay fitted, so the pass builds the state explicitly at the new
+    ``min_zoom`` through the geometry module's snapshot builder — the same
+    payload ``viewport.fit_view`` computes — without its extra commit.
+    """
+    return timeline_viewport._snapshot_with_zoom(
+        widget, timeline_viewport.calculate_min_zoom(widget)
+    )
+
+
+def viewport_geometry_changed(widget, source: str = "", *, fit: bool = False) -> None:
+    """Recompute fitted state, commit, and refresh fixed width (no emits here).
+
+    ``fit`` asks for the fitted zoom instead of the current one
+    (``fitted_state``): a live resize of a fitted view re-frames in ONE commit
+    instead of calling ``fit_view`` (which commits) and then committing the
+    same geometry again.
+
+    A pass that would commit the state already in ``widget._state`` is
+    skipped: the commit would be a no-change one, and the settle flush runs
+    this on every resize-shaped event — that duplicate call was the extra
+    commit per resize turn. Nothing else is skipped: the fixed width is still
+    synced (a clamp can move the host scrollbar without moving the state).
+    """
     if not widget.has_snapshots():
         return
     if widget._suppress_resize_recalc:
         return
     _timeline_debug("_onViewportGeometryChanged source=%s width=%s zoom=%s last_min=%s", source, widget.width(), widget._zoom_level, widget._last_min_zoom)
     timeline_viewport.update_vertical_scrollbar(widget)
-    nxt = widget._recomputeFittedState()
-    widget._commitState(nxt, source=source)
+    nxt = fitted_state(widget) if fit else widget._recomputeFittedState()
+    if nxt != getattr(widget, "_state", None):
+        widget._commitState(nxt, source=source)
+    if fit:
+        # The fitted flag: "is this view fitted?" must follow the re-framed
+        # zoom, or the next resize would read the old one and skip the fit.
+        widget._fitted_zoom = float(nxt.zoom)
     try:
         timeline_viewport.update_fixed_width(widget)
     except Exception:
@@ -739,18 +772,20 @@ def schedule_live_resize(widget) -> None:
             # viewport width, so narrowing without re-fitting leaves the content
             # at the old zoom — wider than the shrunken viewport, i.e. a
             # horizontal scrollbar. A zoom the user chose is left alone.
+            # The re-fit is the SAME pass as the geometry commit (``fit=True``):
+            # a separate ``fit_view`` call would commit the fit and then commit
+            # the identical geometry again — two commits for one resize turn.
             # A fit the ingest already armed belongs to the settle gate: taking
             # it here would retire the deferred one and the gate's flush would
             # have nothing to do (test_armed_gate_still_runs_the_deferred_fit).
             if getattr(widget, "_needs_fit_view", False):
-                pass
+                viewport_geometry_changed(widget, "liveResize")
             else:
                 fitted_zoom = getattr(widget, "_fitted_zoom", None)
-                if fitted_zoom is not None and abs(
+                is_fitted = fitted_zoom is not None and abs(
                     float(widget._zoom_level) - float(fitted_zoom)
-                ) <= 1e-9:
-                    timeline_viewport.fit_view(widget)
-            viewport_geometry_changed(widget, "liveResize")
+                ) <= 1e-9
+                viewport_geometry_changed(widget, "liveResize", fit=is_fitted)
         except Exception:
             pass
         try:
@@ -783,7 +818,17 @@ def layout_settle(widget) -> None:
 
 
 def host_scroll(widget, *args) -> None:
-    """Host-scrollbar step: sync the gutter band, then recompute geometry."""
+    """Host-scrollbar step: sync the gutter band, then recompute geometry.
+
+    ``rangeChanged`` is wired here too (a range is part of the scrollbar's
+    contract), but a range change is NEVER a user scroll: it is our own
+    ``setFixedWidth`` moving the bar's bounds, or the host's geometry doing the
+    same. Committing on it added one viewport state per width write (measured
+    2026-11-04: a programmatic range change produced two ``hostScroll``
+    commits for a view that never moved) — and with the value unchanged there
+    is no view to commit. A range shrink that clamps the value still reaches
+    us as a ``valueChanged`` step, which is a real scroll and commits below.
+    """
     try:
         sa = timeline_viewport.get_scroll_area(widget)
         cur_x = int(sa.horizontalScrollBar().value()) if sa is not None and sa.horizontalScrollBar() is not None else 0
@@ -792,18 +837,20 @@ def host_scroll(widget, *args) -> None:
     _state = getattr(widget, "_state", None)
     prev_x = _state.scroll_x if _state is not None else None
     is_range = len(args) == 2
-    if not is_range and prev_x is not None and cur_x == prev_x:
+    if is_range:
+        return
+    if prev_x is not None and cur_x == prev_x:
         timeline_viewport.update_vertical_scrollbar(widget)
         widget.update()
         return
     # An explicit scroll position supersedes the deferred ingest fit: without
     # this the settle flush re-fits (min zoom, scroll 0) on top of a user
-    # scroll that landed inside the ingest window. A RANGE change is not a user
-    # scroll — ``rangeChanged`` is wired here too, so our own ``setFixedWidth``
-    # would silently drop the protected fit (measured 2026-11-04: a range-only
-    # call with ``_needs_fit_view`` True left it False).
-    if not is_range:
-        widget._needs_fit_view = False
+    # scroll that landed inside the ingest window. A RANGE change never gets
+    # here (returned above), so our own ``setFixedWidth`` cannot drop the
+    # protected fit (measured 2026-11-04: a range-only call with
+    # ``_needs_fit_view`` True left it False — the reason the range branch
+    # used to be excluded from the retirement below).
+    widget._needs_fit_view = False
     # Signals-live scroll step: the content widget window already moved
     # synchronously while the geometry-changed cycle below only posts async
     # paints. Union the gutter band into the damage synchronously so the
