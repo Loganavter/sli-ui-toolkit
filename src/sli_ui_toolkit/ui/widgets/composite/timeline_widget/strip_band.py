@@ -7,9 +7,11 @@ this widget owns only the Qt-side lifecycle and the view state:
   so the parent's QPainter chrome *outside* that row (gutter labels, track
   rows, ruler, footer, scrollbar) is never underneath it;
 * a child widget composites above the parent's paint, so anything the parent
-  draws *across* the strip row — the playhead line, the selection wash — is
-  hidden inside the band rect; the renderer draws those itself (it receives
-  the band, so ``band.view()``/``band.band_rect()`` are its inputs);
+  draws *across* the strip row is hidden inside the band rect. The renderer
+  draws tiles only: the toolkit raises a paint-only sibling above the band
+  (``overlay.TimelineOverlay``, wired by ``TimelineWidget``) which re-draws
+  the playhead line and the selection wash with the parent's own paint
+  functions — the host never has to reproduce the chrome;
 * it is paint-only (transparent to mouse events, no focus), so the host keeps
   hit-testing scrub / wheel zoom on the timeline itself;
 * it never reads thumbnails, frames or scenes — :meth:`set_view` stores the
