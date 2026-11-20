@@ -1159,10 +1159,18 @@ day_btn.set_data(True, QColor(0, 200, 0))        # Has data, green
 ## Press animations & blocking handlers
 
 Buttons play a Material-style ripple animation from the press point. The ripple
-is driven by a `QTimer` that ticks every ~16 ms on the **main GUI thread**, same
-as every other Qt animation. Duration ~280 ms (`RippleEffect.DURATION_MS`),
-alpha ~12 % (light) / ~16 % (dark) — aligned with the Material Design 3 motion
-tokens.
+is driven by a `QTimer` that ticks every ~8 ms on the **main GUI thread**, same
+as every other Qt animation; the elapsed time is read from a `QElapsedTimer`,
+so a slow frame or a blocked event loop shortens the remaining frames instead of
+stretching the whole wave. Duration 200 ms (`RippleEffect.DURATION_MS`) — inside
+the toolkit's 100–200 ms motion band. The overlay opacity ramps in over the
+first ~10 %, holds its peak while the radius travels, and fades over the last
+third: a fade from the first frame leaves the travelling edge at an unreadable
+contrast before it reaches the button's border. Peak alpha ~12 % (light) /
+~16 % (dark), aligned with the Material Design 3 state layer.
+
+The envelope lives in `wave_opacity` / `wave_radius` (`buttons/layers/ripple.py`)
+and is independent of both the duration and the theme.
 
 ### Why animations may freeze
 
@@ -1194,12 +1202,12 @@ from sli_ui_toolkit import (
 )
 
 # Parallel process-wide knobs (same idea as flyout timings):
-set_ripple_duration_ms(280)                 # system ripple length
+set_ripple_duration_ms(200)                 # system ripple length
 set_default_defer_click(DEFER_CLICK_AWAIT_RIPPLE)  # await that length
 
 # Or via configure_toolkit(...):
 configure_toolkit(
-    ripple_duration_ms=280,
+    ripple_duration_ms=200,
     default_defer_click=DEFER_CLICK_AWAIT_RIPPLE,
 )
 ```
