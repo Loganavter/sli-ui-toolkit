@@ -30,6 +30,8 @@ from sli_ui_toolkit.ui.widgets.buttons.layers.ripple import (
     RippleEffect,
     ease_out_slow_in,
     wave_alpha,
+    wave_edge_band,
+    wave_edge_step,
     wave_geometry,
 )
 from sli_ui_toolkit.widgets import Button
@@ -39,7 +41,7 @@ from sli_ui_toolkit.widgets import Button
 
 
 def test_alpha_fades_in_holds_and_fades_out() -> None:
-    expand = 225
+    expand = 240
     assert wave_alpha(0, expand) == 0.0
     assert wave_alpha(FADE_IN_MS / 2, expand) == pytest.approx(0.5)
     assert wave_alpha(FADE_IN_MS, expand) == 1.0
@@ -83,10 +85,23 @@ def test_radius_is_centre_based_not_press_based() -> None:
     assert start_radius < radius
 
 
+def test_edge_step_and_rim_scale_with_the_control() -> None:
+    short = wave_edge_step(QPointF(8, 22), QRectF(0, 0, 160, 44), 240)
+    long = wave_edge_step(QPointF(60, 22), QRectF(0, 0, 1200, 44), 240, pad_px=10)
+    assert short < 16
+    assert 75 <= long <= 90
+    # The rim is one frame of travel: the band must be at least the step, or
+    # consecutive frames leave a seam (the "doubling").
+    assert wave_edge_band(600, long) >= long
+    assert wave_edge_band(600, long) <= 0.35 * 600
+    # ... but a slow edge keeps a crisp rim (10 % floor).
+    assert wave_edge_band(600, 10) == pytest.approx(60)
+
+
 def test_defaults_are_the_m3_expansion_length() -> None:
     reset_feedback_defaults()
-    assert get_ripple_duration_ms() == 225
-    assert RippleEffect.DURATION_MS == 225
+    assert get_ripple_duration_ms() == 240
+    assert RippleEffect.DURATION_MS == 240
     assert RippleEffect.TICK_MS <= 10
 
 
@@ -101,16 +116,16 @@ def test_set_ripple_duration_ms_keeps_class_attribute_in_sync() -> None:
 # ---------------------------------------------------------------- effect
 
 
-def test_long_control_stretches_the_expansion_into_the_platform_window(qtbot) -> None:
-    """A wide control sweeps slower; a short one keeps the 225 ms base."""
-    for width, expected in ((160, 225), (400, 225), (1200, 450)):
+def test_every_width_uses_the_reference_expansion(qtbot) -> None:
+    """No distance stretch: 225 ms everywhere, plus the fade-out."""
+    for width in (160, 400, 800, 1200):
         button = Button(text="x", size=(width, 44))
         qtbot.addWidget(button)
         button.show()
         ripple = button._ripple
         ripple.trigger(QPointF(10, 10))
-        assert ripple.expand_ms() == expected, (width, ripple.expand_ms())
-        assert ripple.total_ms() == expected + FADE_OUT_MS
+        assert ripple.expand_ms() == 240, (width, ripple.expand_ms())
+        assert ripple.total_ms() == 240 + FADE_OUT_MS
         ripple.cancel()
         button.close()
 
@@ -193,7 +208,12 @@ def _painted_rest(button: Button) -> QImage:
 
 
 def test_per_frame_edge_step_is_bounded_on_a_long_button(qtbot) -> None:
-    """The acceptance for "the wave doubles": no 60 Hz step above ~50 px."""
+    """The acceptance for "the wave doubles": the rim covers the per-frame step.
+
+    At 240 ms a 1200 px control moves the edge ~84 px per 60 Hz frame; the
+    outer 15 % of the radius (~90 px at full expansion) has to be at least
+    that wide for consecutive frames to overlap.
+    """
     button = _button(qtbot, 1200)
     ripple = button._ripple
     base = _painted(button)
@@ -217,7 +237,7 @@ def test_per_frame_edge_step_is_bounded_on_a_long_button(qtbot) -> None:
         edges.append(next((x for x in range(len(deltas) - 1, -1, -1) if deltas[x] >= threshold), None))
     steps = [b - a for a, b in zip(edges, edges[1:]) if a is not None and b is not None]
     assert steps, "no wave frames measured"
-    assert max(steps) <= 50, f"per-frame step {max(steps)} px (edges={edges})"
+    assert max(steps) <= 90, f"per-frame step {max(steps)} px (edges={edges})"
     ripple.cancel()
 
 
