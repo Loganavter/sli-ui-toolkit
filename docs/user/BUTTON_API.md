@@ -1162,15 +1162,31 @@ Buttons play a Material-style ripple animation from the press point. The ripple
 is driven by a `QTimer` that ticks every ~8 ms on the **main GUI thread**, same
 as every other Qt animation; the elapsed time is read from a `QElapsedTimer`,
 so a slow frame or a blocked event loop shortens the remaining frames instead of
-stretching the whole wave. Duration 200 ms (`RippleEffect.DURATION_MS`) — inside
-the toolkit's 100–200 ms motion band. The overlay opacity ramps in over the
-first ~10 %, holds its peak while the radius travels, and fades over the last
-third: a fade from the first frame leaves the travelling edge at an unreadable
-contrast before it reaches the button's border. Peak alpha ~12 % (light) /
-~16 % (dark), aligned with the Material Design 3 state layer.
+stretching the whole wave.
 
-The envelope lives in `wave_opacity` / `wave_radius` (`buttons/layers/ripple.py`)
-and is independent of both the duration and the theme.
+Geometry and phases follow the reference Material 3 implementations (Compose
+`RippleAnimation`, Flutter `InkRipple`):
+
+- the wave **starts at 0.3 × the longest side** (never a dot) and ends at
+  **half the diagonal + 10 dp** — a circle measured from the rect's **centre**,
+  not from the press point to the farthest corner;
+- the **centre slides** from the press point to the rect centre while it grows,
+  so a long button ends with one centred circle instead of two fronts racing to
+  its ends;
+- phases: **fade in 75 ms** (linear), **expand 225 ms** (cubic-bezier
+  `0.4, 0, 0.2, 1`), **fade out 150 ms** (linear). `set_ripple_duration_ms`
+  sets the expand phase (`RippleEffect.DURATION_MS`, default 225 ms).
+
+A wide control stretches the expand phase with its longest side (capped at
+450 ms, the Android view ripple's own enter duration): at a fixed 225 ms a
+1200 px button moved the edge ~90 px per 60 Hz frame, which the eye reads as
+two positions. The rim is a soft radial fade over the outer 15 % of the radius
+for the same reason — a hard 1 px edge shows its previous frame next to the
+current one once it moves more than ~25 px per frame.
+
+Peak alpha ~12 % (light) / ~16 % (dark), aligned with the Material Design 3
+state layer. The motion lives in `wave_alpha` / `wave_geometry`
+(`buttons/layers/ripple.py`) and is independent of the theme.
 
 ### Why animations may freeze
 
@@ -1202,12 +1218,12 @@ from sli_ui_toolkit import (
 )
 
 # Parallel process-wide knobs (same idea as flyout timings):
-set_ripple_duration_ms(200)                 # system ripple length
+set_ripple_duration_ms(225)                 # ripple expansion length
 set_default_defer_click(DEFER_CLICK_AWAIT_RIPPLE)  # await that length
 
 # Or via configure_toolkit(...):
 configure_toolkit(
-    ripple_duration_ms=200,
+    ripple_duration_ms=225,
     default_defer_click=DEFER_CLICK_AWAIT_RIPPLE,
 )
 ```
