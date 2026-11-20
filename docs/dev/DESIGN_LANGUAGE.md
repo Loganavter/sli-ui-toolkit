@@ -210,16 +210,17 @@ changes, `OutQuad` for flyout placement:
 | Check/toggle | 150–160 ms |
 | Flyout open/close | 150 ms |
 | Slider thumb press | 100 ms |
-| Button ripple | 225 ms expand + 75 ms in + 150 ms out (up to 450 ms expand on wide controls) |
+| Button ripple | 240 ms expand + 75 ms in + 90 ms out (rim blurs to one frame of travel) |
 
 The button ripple is the one animation with its own model: it follows the
 Material 3 reference (Compose `RippleAnimation` / Flutter `InkRipple`) — start
 radius 0.3 × the longest side, end at half the diagonal from the rect centre,
 centre sliding from the press point to the centre, phases 75 / 225 / 150 ms
 (`wave_alpha` / `wave_geometry` in `ui/widgets/buttons/layers/ripple.py`). The
-expand phase stretches with the control's longest side (225–450 ms) and the rim
-is a soft fade, because a fixed-duration sweep of a wide control moves the edge
-faster than 60 Hz can resolve. Its clock is wall time, not a tick count.
+expand stays at its base length on every width (stretching it read as slow and
+viscous); instead the rim widens to one 60 Hz frame of the edge's travel
+(10–35 % of the radius), so a fast edge becomes a moving band rather than two
+positions. Its clock is wall time, not a tick count.
 
 ## Contrast Targets
 

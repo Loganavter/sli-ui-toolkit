@@ -11,7 +11,7 @@ from typing import Literal
 # Wait for the current system ripple duration before emitting clicked.
 DEFER_CLICK_AWAIT_RIPPLE: Literal["ripple"] = "ripple"
 
-_DEFAULT_RIPPLE_DURATION_MS = 225
+_DEFAULT_RIPPLE_DURATION_MS = 240
 _ripple_duration_ms = _DEFAULT_RIPPLE_DURATION_MS
 _default_defer_click: bool | int | str = False
 _default_underline_fade: bool = True

@@ -1173,16 +1173,16 @@ Geometry and phases follow the reference Material 3 implementations (Compose
 - the **centre slides** from the press point to the rect centre while it grows,
   so a long button ends with one centred circle instead of two fronts racing to
   its ends;
-- phases: **fade in 75 ms** (linear), **expand 225 ms** (cubic-bezier
-  `0.4, 0, 0.2, 1`), **fade out 150 ms** (linear). `set_ripple_duration_ms`
-  sets the expand phase (`RippleEffect.DURATION_MS`, default 225 ms).
+- phases: **fade in 75 ms** (linear), **expand 240 ms** (cubic-bezier
+  `0.4, 0, 0.2, 1`), **fade out 90 ms** (linear). `set_ripple_duration_ms`
+  sets the expand phase (`RippleEffect.DURATION_MS`, default 240 ms).
 
-A wide control stretches the expand phase with its longest side (capped at
-450 ms, the Android view ripple's own enter duration): at a fixed 225 ms a
-1200 px button moved the edge ~90 px per 60 Hz frame, which the eye reads as
-two positions. The rim is a soft radial fade over the outer 15 % of the radius
-for the same reason — a hard 1 px edge shows its previous frame next to the
-current one once it moves more than ~25 px per frame.
+The rim is a soft radial fade **one 60 Hz frame of the edge's own travel wide**
+(clamped to 10–35 % of the radius): an 160 px button keeps a crisp edge, a
+1200 px one gets motion blur proportional to its speed. Without it the edge of
+a wide control moves ~80 px per frame and shows its previous position next to
+the current one — the "doubled" wave. The phase does not stretch with the
+control: at 300–450 ms it read as slow and viscous.
 
 Peak alpha ~12 % (light) / ~16 % (dark), aligned with the Material Design 3
 state layer. The motion lives in `wave_alpha` / `wave_geometry`
@@ -1218,12 +1218,12 @@ from sli_ui_toolkit import (
 )
 
 # Parallel process-wide knobs (same idea as flyout timings):
-set_ripple_duration_ms(225)                 # ripple expansion length
+set_ripple_duration_ms(240)                 # ripple expansion length
 set_default_defer_click(DEFER_CLICK_AWAIT_RIPPLE)  # await that length
 
 # Or via configure_toolkit(...):
 configure_toolkit(
-    ripple_duration_ms=225,
+    ripple_duration_ms=240,
     default_defer_click=DEFER_CLICK_AWAIT_RIPPLE,
 )
 ```
