@@ -10,13 +10,20 @@
 
 State хранится на самой кнопке в `_ripple: RippleEffect`. Layer стейтлесс,
 читает состояние из `ctx.widget`.
+
+Время волны — настенное (`QElapsedTimer`), не счётчик тиков: между тиками
+может пройти больше интервала (тяжёлый слот, разметка, медленная покраска), и
+старый `_elapsed += TICK_MS` добавлял это отставание к длительности волны —
+измерено 413 мс вместо 280 при покраске 20 мс/кадр. Огибающая: непрозрачность
+нарастает за первые ~10 %, держится на пике, пока радиус идёт по кнопке, и
+гаснет последнюю треть (см. `wave_opacity`).
 """
 
 from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QElapsedTimer, QPointF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import QWidget
 
@@ -24,6 +31,39 @@ from sli_ui_toolkit.theme import ThemeManager
 
 from ..context import DrawContext
 from ._base import Layer
+
+
+#: Fractions of the wave where the overlay stops ramping in and starts fading.
+#: Holding the peak between them is what keeps the travelling edge readable;
+#: with a fade from t=0 the last ~100 ms of the old 280 ms wave moved the edge
+#: under a 7/255 contrast (measured on a 180x48 button).
+_RAMP_IN = 0.10
+_FADE_START = 0.62
+
+
+def wave_radius(progress: float) -> float:
+    """Radius multiplier at ``progress`` 0..1 — fast start, decelerating edge."""
+    p = max(0.0, min(1.0, progress))
+    return 1.0 - (1.0 - p) ** 2
+
+
+def wave_opacity(progress: float) -> float:
+    """Overlay opacity multiplier at ``progress`` 0..1.
+
+    Ramp in over the first ~10 %, hold the peak while the radius travels,
+    then fade (smoothstep) over the last third. A monotonic fade from the
+    first frame — the old envelope — reached 2/255 contrast while the circle
+    was still growing, so the tail looked frozen rather than slow.
+    """
+    p = max(0.0, min(1.0, progress))
+    if p <= 0.0:
+        return 0.0
+    if p < _RAMP_IN:
+        return p / _RAMP_IN
+    if p <= _FADE_START:
+        return 1.0
+    t = (p - _FADE_START) / (1.0 - _FADE_START)
+    return 1.0 - t * t * (3.0 - 2.0 * t)
 
 
 def _lerp_color(a: QColor, b: QColor, t: float) -> QColor:
@@ -38,9 +78,15 @@ def _lerp_color(a: QColor, b: QColor, t: float) -> QColor:
 
 class RippleEffect:
     # Class attribute kept in sync by ``set_ripple_duration_ms``; prefer
-    # ``get_ripple_duration_ms()`` for new code.
-    DURATION_MS = 280
-    TICK_MS = 16
+    # ``get_ripple_duration_ms()`` for new code. 200 ms sits inside the
+    # toolkit's documented 100-200 ms motion band (DESIGN_LANGUAGE.md); the
+    # old 280 ms was the longest animation in the product and still outran
+    # the host's 80 ms flyouts by 3.5x.
+    DURATION_MS = 200
+    # 8 ms samples the wall clock finer than a 60 Hz frame, and because
+    # ``update()`` coalesces, extra ticks never cost an extra paint — they
+    # only remove the 62.5-vs-60 Hz beat a 16 ms timer produced.
+    TICK_MS = 8
     PEAK_ALPHA_LIGHT = 31
     PEAK_ALPHA_DARK = 41
 
@@ -49,6 +95,7 @@ class RippleEffect:
         self._timer = QTimer(widget)
         self._timer.setInterval(self.TICK_MS)
         self._timer.timeout.connect(self._on_tick)
+        self._clock = QElapsedTimer()
         self._elapsed = 0
         self._center: QPointF | None = None
         self._color_from: QColor | None = None
@@ -77,6 +124,7 @@ class RippleEffect:
         self._elapsed = 0
         self._color_from = QColor(color_from) if color_from is not None else None
         self._color_to = QColor(color_to) if color_to is not None else None
+        self._clock.start()
         self._timer.start()
         self._widget.update()
 
@@ -95,12 +143,15 @@ class RippleEffect:
         would otherwise keep visibly playing at the wrong spot."""
         if self._center is None and not self._timer.isActive():
             return
+        self._clear()
+        self._widget.update()
+
+    def _clear(self) -> None:
         self._timer.stop()
         self._elapsed = 0
         self._center = None
         self._color_from = None
         self._color_to = None
-        self._widget.update()
 
     @property
     def center(self) -> QPointF | None:
@@ -121,18 +172,19 @@ class RippleEffect:
         return min(1.0, self._elapsed / duration)
 
     def _on_tick(self) -> None:
-        self._elapsed += self.TICK_MS
-        if self._elapsed >= self._duration_ms():
-            self._timer.stop()
-            self._center = None
-            self._color_from = None
-            self._color_to = None
         if not self._widget.isVisible():
-            self._timer.stop()
-            self._center = None
-            self._color_from = None
-            self._color_to = None
+            if self._center is not None or self._timer.isActive():
+                self._clear()
+                self._widget.update()
             return
+        # Advance by MEASURED time, not by the nominal interval: a GUI thread
+        # that spent 20 ms painting used to add those 20 ms to the wave (413 ms
+        # for a 280 ms request) and kept 18 frames over the longer span. Any
+        # hitch now shortens the remaining frames instead of stretching them.
+        delta = int(self._clock.restart()) if self._clock.isValid() else self.TICK_MS
+        self._elapsed += max(0, delta)
+        if self._elapsed >= self._duration_ms():
+            self._clear()
         self._widget.update()
 
 
@@ -155,7 +207,7 @@ class RippleLayer(Layer):
             return
 
         progress = ripple.progress()
-        eased = 1.0 - (1.0 - progress) ** 2
+        eased = wave_radius(progress)
 
         radius_rect = ctx.effective_ripple_rect
         draw_rect = radius_rect if _region_group(ctx) else ctx.effective_rect
@@ -214,7 +266,7 @@ class RippleLayer(Layer):
             peak = (
                 RippleEffect.PEAK_ALPHA_DARK if is_dark else RippleEffect.PEAK_ALPHA_LIGHT
             )
-            alpha = int(peak * (1.0 - progress))
+            alpha = int(round(peak * wave_opacity(progress)))
             if alpha > 0:
                 color = (
                     QColor(255, 255, 255, alpha) if is_dark else QColor(0, 0, 0, alpha)

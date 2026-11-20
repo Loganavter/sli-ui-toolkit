@@ -201,7 +201,8 @@ supported across versions.
 
 ## Animation Timing
 
-All transitions use `QEasingCurve.Type.OutCubic`:
+Transitions use an ease-out curve — `QEasingCurve.Type.OutCubic` for state
+changes, `OutQuad` for flyout placement:
 
 | Transition | Duration |
 |-----------|----------|
@@ -209,6 +210,14 @@ All transitions use `QEasingCurve.Type.OutCubic`:
 | Check/toggle | 150–160 ms |
 | Flyout open/close | 150 ms |
 | Slider thumb press | 100 ms |
+| Button ripple | 200 ms |
+
+The button ripple is the one animation with its own envelope: the radius uses
+an ease-out quad while the overlay opacity ramps in over the first ~10 %, holds
+its peak until 62 %, then fades (`wave_opacity` / `wave_radius` in
+`ui/widgets/buttons/layers/ripple.py`). Its clock is wall time, not a tick
+count, so a slow frame shortens the remaining frames instead of stretching the
+wave.
 
 ## Contrast Targets
 
