@@ -204,7 +204,7 @@ def _ripple_remaining_ms(widget: QWidget) -> int:
         if not is_active():
             continue
         elapsed = int(getattr(effect, "_elapsed", 0) or 0)
-        duration = int(getattr(effect, "DURATION_MS", 200) or 200)
+        duration = int(getattr(effect, "DURATION_MS", 225) or 225)
         best = max(best, max(0, duration - elapsed))
     return best
 
@@ -237,7 +237,7 @@ def max_active_ripple_remaining_ms(app: QApplication | None = None) -> int:
 
         cap = get_ripple_duration_ms()
     except Exception:
-        cap = 200
+        cap = 225
     best = 0
     for top in app.topLevelWidgets():
         best = max(best, _tree_ripple_remaining_ms(top))

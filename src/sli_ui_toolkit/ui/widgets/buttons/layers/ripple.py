@@ -13,57 +13,126 @@ State хранится на самой кнопке в `_ripple: RippleEffect`. 
 
 Время волны — настенное (`QElapsedTimer`), не счётчик тиков: между тиками
 может пройти больше интервала (тяжёлый слот, разметка, медленная покраска), и
-старый `_elapsed += TICK_MS` добавлял это отставание к длительности волны —
-измерено 413 мс вместо 280 при покраске 20 мс/кадр. Огибающая: непрозрачность
-нарастает за первые ~10 %, держится на пике, пока радиус идёт по кнопке, и
-гаснет последнюю треть (см. `wave_opacity`).
+счётчик тиков добавлял это отставание к длительности волны. Геометрия и фазы —
+по референсным реализациям Material 3 (Compose `RippleAnimation`, Flutter
+`InkRipple`): старт `0.3 x длинная сторона`, конец — полдиагонали от центра
+(+10 dp), центр едет от точки нажатия к центру контрола, фазы 75 / 225 / 150 мс.
+Длинная сторона растягивает фазу расширения (225…450 мс), иначе край на
+широком контроле прыгает ~90 px за кадр, и край рисуется мягким градиентом.
 """
 
 from __future__ import annotations
 
 import math
 
-from PySide6.QtCore import QElapsedTimer, QPointF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath
+from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QRadialGradient
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 
 from ..context import DrawContext
 from ._base import Layer
 
 
-#: Fractions of the wave where the overlay stops ramping in and starts fading.
-#: Holding the peak between them is what keeps the travelling edge readable;
-#: with a fade from t=0 the last ~100 ms of the old 280 ms wave moved the edge
-#: under a 7/255 contrast (measured on a 180x48 button).
-_RAMP_IN = 0.10
-_FADE_START = 0.62
+#: Material 3 ripple phases (Compose `RippleAnimation`, Flutter `InkRipple`):
+#: fade in 75 ms, expand 225 ms, fade out 150 ms. The expand length is the
+#: host-facing knob (`set_ripple_duration_ms`); the two fades are fixed.
+FADE_IN_MS = 75
+FADE_OUT_MS = 150
+#: Compose starts the wave at `0.3 x longest side` and ends it at half the
+#: diagonal (+ padding) — a circle measured from the CENTRE. This layer used
+#: to grow from the press point to the farthest corner instead, which makes
+#: the edge of a long control travel its whole width in the same time (a
+#: 1200 px button moved the edge ~100 px per 60 Hz frame: it read as two
+#: strobing fronts rather than a wave).
+START_RADIUS_FRACTION = 0.30
+END_RADIUS_PAD_DP = 10.0
+#: The reference implementations animate the expansion in a fixed 225 ms
+#: because their surfaces are phone-sized. On a desktop-wide control the same
+#: 225 ms sweeps the whole width and the edge teleports ~90 px per frame; the
+#: expansion therefore stretches with the swept distance, inside the window
+#: the platform implementations themselves use (M3 225 ms … Android views
+#: 450 ms) and never faster than this many px per ms.
+EXPAND_PX_PER_MS = 1.9
+MAX_EXPAND_MS = 450
+#: The outer fraction of the radius that fades to transparent. A hard 1 px
+#: edge sampled at 60 Hz shows its previous position next to the current one
+#: once it moves more than ~25 px per frame; a soft rim reads as a wash.
+SOFT_EDGE_FRACTION = 0.85
 
 
-def wave_radius(progress: float) -> float:
-    """Radius multiplier at ``progress`` 0..1 — fast start, decelerating edge."""
-    p = max(0.0, min(1.0, progress))
-    return 1.0 - (1.0 - p) ** 2
+def _bezier_axis(t: float, c1: float, c2: float) -> float:
+    u = 1.0 - t
+    return 3.0 * u * u * t * c1 + 3.0 * u * t * t * c2 + t * t * t
 
 
-def wave_opacity(progress: float) -> float:
-    """Overlay opacity multiplier at ``progress`` 0..1.
-
-    Ramp in over the first ~10 %, hold the peak while the radius travels,
-    then fade (smoothstep) over the last third. A monotonic fade from the
-    first frame — the old envelope — reached 2/255 contrast while the circle
-    was still growing, so the tail looked frozen rather than slow.
-    """
+def ease_out_slow_in(progress: float) -> float:
+    """Cubic-bezier(0.4, 0, 0.2, 1) — the M3 ripple expansion curve."""
     p = max(0.0, min(1.0, progress))
     if p <= 0.0:
         return 0.0
-    if p < _RAMP_IN:
-        return p / _RAMP_IN
-    if p <= _FADE_START:
+    if p >= 1.0:
         return 1.0
-    t = (p - _FADE_START) / (1.0 - _FADE_START)
-    return 1.0 - t * t * (3.0 - 2.0 * t)
+    lo, hi = 0.0, 1.0
+    for _ in range(24):
+        t = (lo + hi) / 2.0
+        if _bezier_axis(t, 0.4, 0.2) < p:
+            lo = t
+        else:
+            hi = t
+    return _bezier_axis((lo + hi) / 2.0, 0.0, 1.0)
+
+
+def wave_alpha(elapsed_ms: float, expand_ms: float) -> float:
+    """Overlay opacity for the three M3 phases as a function of wall time."""
+    t = max(0.0, elapsed_ms)
+    if t < FADE_IN_MS:
+        return t / FADE_IN_MS
+    if t <= expand_ms:
+        return 1.0
+    return max(0.0, 1.0 - (t - expand_ms) / FADE_OUT_MS)
+
+
+def wave_geometry(
+    press: QPointF, rect: QRectF, progress: float, *, pad_px: float = 0.0
+) -> tuple[QPointF, float]:
+    """Centre and radius of the wave at ``progress`` (bounded M3 ripple).
+
+    The radius interpolates from ``START_RADIUS_FRACTION`` of the long side to
+    half the diagonal, while the centre slides from the press point to the
+    rect's centre — so a long control ends with one centred circle instead of
+    two fronts racing to the ends.
+    """
+    p = max(0.0, min(1.0, progress))
+    start = START_RADIUS_FRACTION * max(rect.width(), rect.height())
+    end = math.hypot(rect.width(), rect.height()) / 2.0 + pad_px
+    radius = start + (end - start) * ease_out_slow_in(p)
+    centre = rect.center()
+    return (
+        QPointF(
+            press.x() + (centre.x() - press.x()) * p,
+            press.y() + (centre.y() - press.y()) * p,
+        ),
+        radius,
+    )
+
+
+def _soft_disc(center: QPointF, radius: float, color: QColor) -> QRadialGradient:
+    """Radial brush that fades the outer ``SOFT_EDGE_FRACTION`` of the disc.
+
+    A hard edge sampled at 60 Hz shows as two positions once it moves more
+    than ~25 px per frame; the soft rim turns the same step into a moving
+    gradient band (the edge width scales with the radius).
+    """
+    gradient = QRadialGradient(center, max(0.01, float(radius)))
+    gradient.setColorAt(0.0, color)
+    gradient.setColorAt(SOFT_EDGE_FRACTION, color)
+    edge = QColor(color)
+    edge.setAlpha(0)
+    gradient.setColorAt(1.0, edge)
+    return gradient
 
 
 def _lerp_color(a: QColor, b: QColor, t: float) -> QColor:
@@ -78,11 +147,9 @@ def _lerp_color(a: QColor, b: QColor, t: float) -> QColor:
 
 class RippleEffect:
     # Class attribute kept in sync by ``set_ripple_duration_ms``; prefer
-    # ``get_ripple_duration_ms()`` for new code. 200 ms sits inside the
-    # toolkit's documented 100-200 ms motion band (DESIGN_LANGUAGE.md); the
-    # old 280 ms was the longest animation in the product and still outran
-    # the host's 80 ms flyouts by 3.5x.
-    DURATION_MS = 200
+    # ``get_ripple_duration_ms()`` for new code. This is the EXPANSION phase
+    # (the M3 `RadiusDuration`); the fade in/out phases are fixed.
+    DURATION_MS = 225
     # 8 ms samples the wall clock finer than a 60 Hz frame, and because
     # ``update()`` coalesces, extra ticks never cost an extra paint — they
     # only remove the 62.5-vs-60 Hz beat a 16 ms timer produced.
@@ -97,6 +164,7 @@ class RippleEffect:
         self._timer.timeout.connect(self._on_tick)
         self._clock = QElapsedTimer()
         self._elapsed = 0
+        self._expand_ms = self._duration_ms()
         self._center: QPointF | None = None
         self._color_from: QColor | None = None
         self._color_to: QColor | None = None
@@ -105,6 +173,24 @@ class RippleEffect:
         from sli_ui_toolkit.ui.widgets.buttons.feedback import get_ripple_duration_ms
 
         return get_ripple_duration_ms()
+
+    def _speed_limited_expand_ms(self) -> int:
+        """Expansion length for this press: the base, stretched for long sweeps.
+
+        The swept distance is the control's longest side; at 225 ms a
+        1200 px side moves the edge ~90 px per 60 Hz frame, which the eye
+        reads as two positions. Stretching the expansion keeps the edge
+        inside the platform's own window (225 … 450 ms).
+        """
+        base = self._duration_ms()
+        try:
+            longest = max(self._widget.width(), self._widget.height())
+        except RuntimeError:  # widget already deleted
+            longest = 0
+        if longest <= 0:
+            return base
+        scaled = int(longest / EXPAND_PX_PER_MS)
+        return max(base, min(MAX_EXPAND_MS, scaled))
 
     def trigger(
         self,
@@ -122,6 +208,7 @@ class RippleEffect:
         """
         self._center = QPointF(pos)
         self._elapsed = 0
+        self._expand_ms = self._speed_limited_expand_ms()
         self._color_from = QColor(color_from) if color_from is not None else None
         self._color_to = QColor(color_to) if color_to is not None else None
         self._clock.start()
@@ -132,10 +219,22 @@ class RippleEffect:
         return self._center is not None
 
     def remaining_ms(self) -> int:
-        """Milliseconds left in the wave, or ``0`` when idle."""
+        """Milliseconds left in the wave (expansion + fade), or ``0`` idle."""
         if self._center is None:
             return 0
-        return max(0, self._duration_ms() - self._elapsed)
+        return max(0, self.total_ms() - self._elapsed)
+
+    def expand_ms(self) -> int:
+        """Length of this press's expansion phase (speed-limited base)."""
+        return self._expand_ms
+
+    def total_ms(self) -> int:
+        """Expansion plus the fade-out that follows it."""
+        return self._expand_ms + FADE_OUT_MS
+
+    def elapsed_ms(self) -> int:
+        """Wall-clock milliseconds since the press started."""
+        return self._elapsed
 
     def cancel(self) -> None:
         """Stop and clear the wave immediately, e.g. when the widget is
@@ -166,7 +265,7 @@ class RippleEffect:
         return self._color_to
 
     def progress(self) -> float:
-        duration = self._duration_ms()
+        duration = self._expand_ms
         if duration <= 0:
             return 1.0
         return min(1.0, self._elapsed / duration)
@@ -183,7 +282,7 @@ class RippleEffect:
         # hitch now shortens the remaining frames instead of stretching them.
         delta = int(self._clock.restart()) if self._clock.isValid() else self.TICK_MS
         self._elapsed += max(0, delta)
-        if self._elapsed >= self._duration_ms():
+        if self._elapsed >= self.total_ms():
             self._clear()
         self._widget.update()
 
@@ -206,21 +305,14 @@ class RippleLayer(Layer):
         if center is None:
             return
 
-        progress = ripple.progress()
-        eased = wave_radius(progress)
-
         radius_rect = ctx.effective_ripple_rect
         draw_rect = radius_rect if _region_group(ctx) else ctx.effective_rect
-        corners = (
-            (radius_rect.left(), radius_rect.top()),
-            (radius_rect.right(), radius_rect.top()),
-            (radius_rect.left(), radius_rect.bottom()),
-            (radius_rect.right(), radius_rect.bottom()),
+        center, radius = wave_geometry(
+            center,
+            radius_rect,
+            ripple.progress(),
+            pad_px=float(scaled_px(END_RADIUS_PAD_DP)),
         )
-        max_radius = max(
-            math.hypot(center.x() - cx, center.y() - cy) for cx, cy in corners
-        )
-        radius = max_radius * eased
         if radius <= 0:
             return
 
@@ -258,7 +350,7 @@ class RippleLayer(Layer):
             # затем растущий круг color_to «открывает» новое состояние из точки клика.
             p.setBrush(QBrush(ripple.color_from))
             p.drawRect(draw_rect)
-            p.setBrush(QBrush(ripple.color_to))
+            p.setBrush(_soft_disc(center, radius, ripple.color_to))
             p.drawEllipse(center, radius, radius)
         else:
             # Overlay-mode: полупрозрачная тёмная/светлая прослойка, как M3-state-layer.
@@ -266,12 +358,12 @@ class RippleLayer(Layer):
             peak = (
                 RippleEffect.PEAK_ALPHA_DARK if is_dark else RippleEffect.PEAK_ALPHA_LIGHT
             )
-            alpha = int(round(peak * wave_opacity(progress)))
+            alpha = int(round(peak * wave_alpha(ripple.elapsed_ms(), ripple.expand_ms())))
             if alpha > 0:
                 color = (
                     QColor(255, 255, 255, alpha) if is_dark else QColor(0, 0, 0, alpha)
                 )
-                p.setBrush(color)
+                p.setBrush(_soft_disc(center, radius, color))
                 p.drawEllipse(center, radius, radius)
 
         p.restore()

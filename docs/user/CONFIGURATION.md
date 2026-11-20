@@ -66,7 +66,7 @@ configure_toolkit(
         flyout_animation_duration_ms=150,
     ),
     overlay_resolver=lambda widget: getattr(widget.window(), "overlay_layer", None),
-    ripple_duration_ms=200,
+    ripple_duration_ms=225,
 )
 
 # 4. Theme — register your palette(s) and pick a starting theme.
@@ -142,7 +142,7 @@ change; unset keywords leave the current process-wide value untouched
 | `rating_gesture_factory` | `Callable[..., object]` | Factory for the drag-rating gesture helper used by rating list items. | Rating items use the toolkit's built-in gesture handling. |
 | `dragdrop_service_getter` | `Callable[[], object \| None]` | Supplies a custom drag-drop service singleton. | `ToolkitDragDropService.get_instance()` (built-in). |
 | `context_menu_surface` | `"in_window" \| "popup"` | Process-wide default surface for `ContextMenu` when a call site doesn't specify one explicitly. | `"in_window"`. |
-| `ripple_duration_ms` | `int` | Shorthand for `set_ripple_duration_ms(...)` (button press ripple duration). | `200`. |
+| `ripple_duration_ms` | `int` | Shorthand for `set_ripple_duration_ms(...)` (ripple expansion phase, ms). | `225`. |
 | `default_defer_click` | `bool \| int \| str` | Shorthand for `set_default_defer_click(...)`. | `False` (clicked fires immediately). |
 | `default_underline_fade` | `bool` | Shorthand for `set_default_underline_fade(...)`. | `True`. |
 | `ui_scale_factor` | `float` | Interface scale factor: multiplies fonts, icons, tokens, and widget geometry (logical px, independent of the OS/Qt display scale). Applied live via `UiScale` — subscribed widgets relayout/repaint on the spot. Clamped to the `UiScale` safety range 0.5–2.5 (the Improve-ImgSLI settings UI exposes the full range via "Interface Scale"). | `1.0` (no scaling). |
