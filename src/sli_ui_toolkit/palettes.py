@@ -29,6 +29,9 @@ FLUENT_LIGHT = {
     "Highlight": QColor("#0078D4"),
     "HighlightedText": QColor("#ffffff"),
     "accent": QColor("#0078D4"),
+    # Checked-state colours, so a host can restyle the box without forking the painter (see CheckBox).
+    "checkbox.check": QColor("#ffffff"),
+    "checkbox.background.checked": QColor("#0078D4"),
     "surface.background": QColor("#ffffff"),
     "surface.list": QColor("#f0f0f0"),
     "list_item.background.selected": QColor("#0078D4"),
@@ -119,6 +122,8 @@ FLUENT_DARK = {
     "Highlight": QColor("#0078D4"),
     "HighlightedText": QColor("#ffffff"),
     "accent": QColor("#0096FF"),
+    "checkbox.check": QColor("#ffffff"),
+    "checkbox.background.checked": QColor("#0096FF"),
     "surface.background": QColor("#2b2b2b"),
     "surface.list": QColor("#3c3c3c"),
     "list_item.background.selected": QColor("#0078D4"),

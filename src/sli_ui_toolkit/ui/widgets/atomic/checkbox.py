@@ -59,12 +59,15 @@ class _CheckIndicatorLayer(Layer):
                 else QColor(border.red(), border.green(), border.blue(), disabled_alpha)
             )
             painter.setPen(QPen(border_color, widget.OUTLINE_WIDTH))
-            accent_fill = QColor(accent)
+            accent_fill = QColor(tm.try_get_color(widget.CHECKED_FILL_TOKEN) or accent)
             base_alpha = int(120 + 135 * widget._checked_progress)
             if is_disabled:
                 base_alpha = int(base_alpha * 0.6)
-            accent_fill.setAlpha(max(0, min(255, base_alpha)))
-            painter.setBrush(QBrush(accent_fill))
+            # The token's own alpha scales the animation instead of being overwritten by it: an opaque token keeps the
+            # toolkit's look exactly, and a token with alpha 0 asks for an outline-and-glyph box (no fill at all).
+            # Overwriting the alpha made "transparent fill" inexpressible - measured on RVE's check-square look.
+            accent_fill.setAlpha(max(0, min(255, int(base_alpha * accent_fill.alpha() / 255))))
+            painter.setBrush(QBrush(accent_fill) if accent_fill.alpha() > 0 else Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(indicator_rect, indicator_radius, indicator_radius)
         else:
             border_color = (
@@ -83,7 +86,9 @@ class _CheckIndicatorLayer(Layer):
             painter.drawRoundedRect(indicator_rect, indicator_radius, indicator_radius)
 
         if is_checked:
-            glyph_color = QColor(Qt.GlobalColor.white)
+            glyph_color = QColor(
+                tm.try_get_color(widget.CHECK_COLOR_TOKEN) or QColor(Qt.GlobalColor.white)
+            )
             if is_disabled:
                 glyph_color.setAlpha(disabled_alpha)
 
@@ -167,6 +172,12 @@ class CheckBox(Button):
 
     inspect_spec: ClassVar[InspectSpec]
     widget_descriptor: ClassVar["WidgetDescriptor"]
+
+    #: Colours the checked state paints from. Defaults keep the toolkit's own look (white check on an `accent` fill);
+    #: a host whose design language differs - a monochrome box with an outline and a tick, for instance - points these
+    #: at its own tokens instead of forking the painter. A fully transparent fill means "outline + glyph only".
+    CHECK_COLOR_TOKEN = "checkbox.check"
+    CHECKED_FILL_TOKEN = "checkbox.background.checked"
 
     INDICATOR_SIZE = 20
     INDICATOR_RADIUS = 4
@@ -331,7 +342,8 @@ CheckBox.inspect_spec = InspectSpec(
         SpecField("hover_progress", "hoverProgress"),
         SpecField("checked_progress", "checkedProgress"),
     ),
-    token_family=("accent", "dialog.border", "dialog.text", "dialog.button.hover"),
+    token_family=("accent", "dialog.border", "dialog.text", "dialog.button.hover",
+                  "checkbox.check", "checkbox.background.checked"),
     docs='docs/user/INPUTS_API.md',
 )
 
