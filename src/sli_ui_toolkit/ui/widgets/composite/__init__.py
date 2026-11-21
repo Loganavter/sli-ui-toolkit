@@ -90,6 +90,7 @@ from sli_ui_toolkit.ui.widgets.composite.calendar_widget import (
 
 from sli_ui_toolkit.ui.widgets.composite.console_view import ConsoleView, ConsoleLine
 from sli_ui_toolkit.ui.widgets.composite.rich_text_view import RichTextView
+from sli_ui_toolkit.ui.widgets.composite.text_list_widget import TextListWidget
 
 __all__ = [
     "BaseFlyout",
@@ -145,6 +146,7 @@ __all__ = [
     "ConsoleLine",
     "ConsoleView",
     "RichTextView",
+    "TextListWidget",
     "StripBand",
     "TimelineCallbacks",
     "TimelineWidget",
