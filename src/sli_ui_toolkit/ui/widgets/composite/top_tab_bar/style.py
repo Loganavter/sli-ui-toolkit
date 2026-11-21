@@ -11,7 +11,9 @@ default. `flat=True` drops the folder outline and the join cover, so a selected 
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from PySide6.QtCore import Qt
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,12 @@ class TabStyle:
     selected_token: str = "accent"
     #: Token for a tab's text.
     text_token: str = "dialog.text"
+    #: When the overflow bar is shown - Qt's own policy, not a rule of this widget's invention:
+    #: `AsNeeded` (only while the tabs do not fit), `AlwaysOff`, `AlwaysOn` (shown disabled when they fit).
+    scroll_policy: Qt.ScrollBarPolicy = field(default=Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    #: `True` reserves the bar's row under the tabs ALWAYS - the way a normal scrollbar occupies its space - so showing
+    #: the bar on hover cannot reflow the strip. `False` (the toolkit default) keeps a stock `QTabWidget`'s geometry.
+    reserve_scroll_row: bool = False
 
     def tab_radius(self, default: int) -> int:
         return default if self.radius is None else max(0, int(self.radius))

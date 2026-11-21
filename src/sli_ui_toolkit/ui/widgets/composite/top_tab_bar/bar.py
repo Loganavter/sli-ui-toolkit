@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from PySide6.QtCore import QPointF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPointF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
@@ -127,6 +127,8 @@ class TopTabBar(QWidget):
         self._layout = layout
 
         self._h_offset = 0
+        self._hovering = False
+        self.setMouseTracking(True)
         self._h_scroll = MinimalistScrollBar(Qt.Orientation.Horizontal, self)
         self._h_scroll.set_animated_visible(False)
         self._h_scroll.valueChanged.connect(self._on_h_scroll)
@@ -193,6 +195,7 @@ class TopTabBar(QWidget):
 
         index = len(self._tabs) - 1
         button.clicked.connect(lambda _i=index: self._on_tab_clicked(_i))
+        button.installEventFilter(self)
         self._layout.addWidget(button)
         self._sync_h_scroll()
 
@@ -348,6 +351,27 @@ class TopTabBar(QWidget):
         super().showEvent(event)
         self._sync_h_scroll()
 
+    def enterEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._hovering = True
+        self._sync_h_scroll()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802 - Qt API
+        self._hovering = False
+        self._sync_h_scroll()
+        super().leaveEvent(event)
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        # A tab is a CHILD: hovering it sends the bar a `Leave`, so the strip would drop its hover the moment the pointer
+        # is on a tab. The buttons report their own enter/leave instead.
+        if watched is not self and event.type() == QEvent.Type.Enter:
+            self._hovering = True
+            self._sync_h_scroll()
+        elif watched is not self and event.type() == QEvent.Type.Leave:
+            self._hovering = False
+            self._sync_h_scroll()
+        return super().eventFilter(watched, event)
+
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         """Shrink the tabs to fit instead of hiding the last ones.
 
@@ -442,7 +466,10 @@ class TopTabBar(QWidget):
         width = self._content_width()
         tab_height = self._scaled_tab_height()
         self._strip.setFixedSize(width, tab_height)
-        self.setFixedHeight(tab_height)
+        # A host that wants a normal-scrollbar reservation states it: the row stays reserved, so showing the bar on hover
+        # cannot reflow the strip. The default keeps a stock `QTabWidget`'s geometry.
+        extra = scaled_px(self.SCROLL_STRIP_H) if self._style.reserve_scroll_row else 0
+        self.setFixedHeight(tab_height + extra)
         self._place_strip()
         self._sync_h_scroll()
         self.updateGeometry()
@@ -451,10 +478,27 @@ class TopTabBar(QWidget):
     SCROLL_STRIP_H = 4
 
     def _sync_h_scroll(self) -> None:
-        """A horizontal bar only while the tabs overflow, with its own row under the tabs."""
+        """A horizontal bar only while the tabs overflow AND the pointer is on the strip, in its own row under the tabs."""
+        policy = self._style.scroll_policy
+        if policy == Qt.ScrollBarPolicy.ScrollBarAlwaysOff:
+            self._h_scroll.set_animated_visible(False)
+            self._h_scroll.hide()
+            self._h_offset = 0
+            self._place_strip()
+            if self.height() != self._scaled_tab_height():
+                self.setFixedHeight(self._scaled_tab_height())
+            return
         maximum = max(0, self.required_width() - self.width())
         bar_h = scaled_px(self.SCROLL_STRIP_H)
         tab_height = self._scaled_tab_height()
+        hovering = bool(self._hovering or self._strip.underMouse() or self.underMouse())
+        if policy != Qt.ScrollBarPolicy.ScrollBarAlwaysOn and not hovering:
+            # The bar is a HOVER affordance: it appears while the pointer is over the strip and disappears otherwise.
+            self._h_scroll.set_animated_visible(False)
+            self._h_scroll.hide()
+            self._h_offset = 0
+            self._place_strip()
+            return
         if maximum <= 0:
             # Not "fade it out": a bar that fits must not show a scrollbar at all. `set_animated_visible(False)` leaves the
             # widget created and mapped in some styles, which read as "always visible" on a strip that had nothing to
