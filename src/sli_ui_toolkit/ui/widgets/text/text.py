@@ -330,6 +330,15 @@ class Text(QWidget):
         self._color_override = QColor(color) if color is not None else None
         self._apply_style()
 
+    def setColor(self, color: QColor | None) -> None:
+        """Set an explicit text colour, the setter for the constructor's ``color=``.
+
+        Missing until a host needed it: a designer stylesheet's `color:` had nowhere to go on a toolkit label, so a
+        warning label stayed the body colour. Mirrors ``setColorToken`` (which sets the token instead).
+        """
+        self._color_override = QColor(color) if color is not None else None
+        self._apply_style()
+
     def setColorToken(self, token: str | None) -> None:
         self._color_token_override = token
         self._apply_style()
