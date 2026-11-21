@@ -92,7 +92,9 @@ class TextListWidget(SurfacePanel):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        inset = max(0, int(radius))
+        # No layout inset: the plate IS the widget, and its rounded corners are painted by `SurfacePanel`. Insetting by
+        # the radius shrank the plate by 20 px inside its own rect - measured on an empty queue list, whose whole visible
+        # content is that plate (2.7 % against the stock 1.4 %).
         self._scroll = OverlayScrollArea(self, reserve_scrollbar_space=True)
         if scrollbar_width is not None:
             self._scroll.set_scrollbar_width(scrollbar_width)
@@ -103,7 +105,7 @@ class TextListWidget(SurfacePanel):
         self._rows.setAutoFillBackground(False)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(inset, inset, inset, inset)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._scroll)
 
@@ -163,6 +165,18 @@ class TextListWidget(SurfacePanel):
         self.currentRowChanged.emit(index)
 
     # -- geometry -------------------------------------------------------
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        """The stock `QListWidget`'s own default (256x192, scaled).
+
+        A migrating layout was laid out against that box: with any other hint the list takes a different share of the
+        row and squeezes its neighbour - measured on a queue page where the button column lost 79 px to the list and the
+        output list grew 48 px taller.
+        """
+        return QSize(256, 192)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(0, 0)
 
     def row_height(self) -> int:
         return self._row_height
