@@ -79,6 +79,8 @@ class IconListWidget(QWidget):
         row_height: int = 44,
         selected_icon_mode: SelectedIconMode = "invert",
         button_factory: Callable[[IconListItem], Button] | None = None,
+        row_spacing: int = 8,
+        content_margins: tuple[int, int, int, int] | None = None,
     ) -> None:
         super().__init__(parent)
         self._row_height = int(row_height)
@@ -108,10 +110,14 @@ class IconListWidget(QWidget):
 
         self._host = QWidget()
         self._host_layout = QVBoxLayout(self._host)
+        # Nav-list density by default (an 8 px gutter and an 8 px gap between rows). A host migrating a COMPACT stock
+        # list states its own numbers: the defaults give 44 px rows with 8 px of air, which is right for navigation and
+        # wrong for a file queue (measured: the queue page moved 1.8 % with the nav spacing alone).
+        left, top, right, bottom = content_margins if content_margins is not None else (8, 4, 8, 4)
         self._host_layout.setContentsMargins(
-            scaled_px(8), scaled_px(4), scaled_px(8), scaled_px(4)
+            scaled_px(left), scaled_px(top), scaled_px(right), scaled_px(bottom)
         )
-        self._host_layout.setSpacing(scaled_px(8))
+        self._host_layout.setSpacing(scaled_px(row_spacing))
         self._host_layout.addStretch(1)
         self._scroll.setWidget(self._host)
         # QScrollArea.setWidget flips autoFillBackground on for the content

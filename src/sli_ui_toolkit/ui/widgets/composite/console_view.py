@@ -98,6 +98,9 @@ class ConsoleView(QWidget):
         self._visual: list[VisualLine] = []
         self._layout_dirty = True
 
+        self._readonly_requested = True
+        self._v_scroll_policy = None
+        self._h_scroll_policy = None
         self._sel_anchor: tuple[int, int] | None = None
         self._sel_cursor: tuple[int, int] | None = None
         self._dragging = False
@@ -201,9 +204,25 @@ class ConsoleView(QWidget):
         """
         self._font = pin_font_size(QFont(font))
         self._font_external = True
-        self.setFont(font)
+        # The BASE class on purpose: `setFont` below routes through here, so calling the override would recurse.
+        QWidget.setFont(self, font)
         self._mark_dirty()
         self.update()
+
+    def setFont(self, font: QFont) -> None:  # noqa: N802 - Qt spelling
+        """A host that sets the font the Qt way (`apply(widget, pt)`, `widget.setFont(...)`) gets the same pinned face.
+
+        The console paints from its own `_font`, so a plain inherited setFont would change nothing visible - the trap
+        the toolkit already paid for once with `QLabel`-shaped labels.
+
+        The constructor's own font application arrives HERE before the fields exist (`apply_ui_font` calls `setFont`
+        while `_pad` is still unset), so an early call goes to the base class: routing it into `set_font` marked the
+        layout dirty and read `self._pad` - measured as the host crashing on boot, with every test still green.
+        """
+        if not hasattr(self, "_pad"):
+            QWidget.setFont(self, font)
+            return
+        self.set_font(font)
 
     # -- QTextEdit-compatible surface (a host migrating a log keeps its calls) ---------------------------
 
@@ -223,6 +242,18 @@ class ConsoleView(QWidget):
         document = QTextDocument()
         document.setHtml(str(html))
         self.setPlainText(document.toPlainText())
+
+    def setReadOnly(self, read_only: bool) -> None:  # noqa: N802
+        """No-op: a console is always read-only. Present so a migrated `QTextEdit` keeps its call."""
+        self._readonly_requested = bool(read_only)
+
+    def setVerticalScrollBarPolicy(self, policy) -> None:  # noqa: N802
+        """No-op: the console owns its scrollbar (it appears only when the content overflows)."""
+        self._v_scroll_policy = policy
+
+    def setHorizontalScrollBarPolicy(self, policy) -> None:  # noqa: N802
+        """No-op: the console wraps lines and never scrolls horizontally."""
+        self._h_scroll_policy = policy
 
     def verticalScrollBar(self) -> "_ConsoleScrollBar":  # noqa: N802
         """A `QScrollBar`-shaped facade over the console's own scroll.

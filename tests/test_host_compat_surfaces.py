@@ -54,3 +54,18 @@ def test_list_take_item_returns_the_text_and_drops_the_row(qapp):
     assert rows.count() == 1
     assert rows.item(0).text() == "b"
     assert rows.takeItem(5) is None
+
+
+def test_set_font_during_construction_is_safe(qapp):
+    # `apply_ui_font` calls setFont while the console's own fields are still unset; routing that call into the painted
+    # font path read `self._pad` and crashed a host at boot (every test here was green at the time).
+    view = ConsoleView()
+    view.setFont(view.font())            # the constructor's own call, replayed
+    assert view.font() is not None
+    # And a real host-sized font still reaches the painted face.
+    from PySide6.QtGui import QFont
+
+    font = QFont()
+    font.setPixelSize(18)
+    view.setFont(font)
+    assert view.font().pixelSize() == 18
