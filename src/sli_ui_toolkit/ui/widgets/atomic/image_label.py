@@ -36,6 +36,7 @@ from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
@@ -169,12 +170,21 @@ class ImageLabel(QWidget):
         return QSize(round(size.width()), round(size.height()))
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
-        # Scaled contents must be allowed to shrink below the native image,
-        # otherwise a layout can never give it a small slot. Unscaled keeps
-        # the image intact and reports the native logical size instead.
-        if self._scaled_contents:
-            return QSize()
-        return self.sizeHint()
+        """The smallest slot the image can take.
+
+        Scaled contents can shrink, but not to nothing: a label with an explicit ``setMaximumSize`` (an info icon in a
+        row, 25x25) has to hold that slot, or a row whose other members add up to the whole width starves it to 0 px -
+        measured on a migrated row where the icon disappeared while the stock `QLabel` kept its 25 px. Unscaled keeps
+        the image intact and reports the native logical size.
+        """
+        if not self._scaled_contents:
+            return self.sizeHint()
+        maximum = self.maximumSize()
+        hint = self.sizeHint()
+        width = hint.width() if maximum.width() >= 16777215 else min(hint.width(), maximum.width())
+        height = hint.height() if maximum.height() >= 16777215 else min(hint.height(), maximum.height())
+        unit = scaled_px(1)
+        return QSize(width if width > 0 else unit, height if height > 0 else unit)
 
     # -- painting -------------------------------------------------------
 
