@@ -4,6 +4,49 @@
 
 ### Added
 
+- **`CheckBox` has Qt's tri-state, so a host's `QCheckBox` mock can go.**
+  `CheckBox(text, tristate=True)` (or `setTristate(True)`) cycles
+  Unchecked → PartiallyChecked → Checked on clicks and `Space` — the exact order
+  measured on stock `QCheckBox` 6.11.2 — and answers `checkState()` /
+  `setCheckState()` with `Qt.CheckState`, plus Qt's `stateChanged(int)` signal.
+  The measured signal order is Qt's: `toggled(bool)` only when the checked bool
+  changes (so partial → checked emits `stateChanged` alone), then
+  `stateChanged(int)`; `isChecked()` is true for the partial state and a bool
+  `setChecked` collapses it (Qt's `checkStateSet`). The indeterminate mark
+  paints as a dash in the accent-filled indicator from the existing
+  `checkbox.check` / `checkbox.background.checked` tokens — no new tokens, and
+  a two-state `CheckBox` paints pixel-identically to before (pinned by
+  comparison against itself). Tests: `tests/test_checkbox_tristate.py` (10 —
+  the default two-state control, the click/Space cycle, the signal order and
+  its idempotence, `setChecked` collapsing partial, `setTristate(False)`
+  restoring two-state clicks, and three paint probes: dash vs tick, filled vs
+  empty, and tri-state-checked == two-state-checked pixel for pixel).
+- **`Button` carries Qt's `autoExclusive` and `autoRepeat`, with Qt's
+  measured semantics.** `auto_exclusive=True` / `setAutoExclusive()` unchecks
+  the siblings in the same parent that are also exclusive and checkable, and a
+  checked exclusive button stays checked when clicked (no `toggled`) — probed
+  on stock `QPushButton` 6.11.2, where a non-exclusive sibling is left checked
+  beside the exclusive pair, and that is the behaviour implemented.
+  `auto_repeat=True` re-emits `pressed`/`clicked` (and the region-scoped pair)
+  after `auto_repeat_delay`, then every `auto_repeat_interval` until release,
+  leaving the widget, disabling it, or clearing the flag; the defaults are
+  Qt's **measured** 300 / 100 ms (`QPushButton().autoRepeatDelay()` is 300, not
+  the 500 in the Qt docs summary this was briefed from). Both flags default
+  off, so an unconfigured `Button` behaves exactly as before (a sibling test
+  pins that unexclusive toggles still stack). `isCheckable()` is public now
+  (Qt parity; the host's Find Action code branches on it). A repeat tick does
+  not flip a toggle: Qt's stock checkable button toggles on every tick, which
+  would thrash the value under the held pointer, and the contract here is
+  `pressed`/`clicked`. Tests:
+  `tests/test_button_auto_exclusive_repeat.py` (16 — defaults, old behaviour
+  without the flag, the three-button exclusive group with the third unchecking
+  the others, re-click keeping checked, mixed exclusive/plain siblings,
+  non-checkable siblings, programmatic `setChecked`, `isCheckable`, repeat
+  counts over a measured hold, interval vs delay rates, silence by default,
+  stop on release / on flag clear, region signals, and no per-tick state
+  flip). Full suite 2072 passed / 4 skipped, mypy 0 new errors (7 pre-existing
+  in untouched modules).
+
 - **Tabs can be styled any way a host wants, and a strip that does not fit reports the width it needs or scrolls.**
   `TopTabHost(tab_style=TabStyle(...))` states gap under the strip, flat buttons (a plate on the selected tab, no
   folder outline, no join cover, no accent underline), radius, padding, spacing, a minimum width and the selection

@@ -645,6 +645,10 @@ Button(
     toggle: bool = False,
     long_press: bool = False,
     long_press_ms: int = 600,
+    auto_exclusive: bool = False,
+    auto_repeat: bool = False,
+    auto_repeat_delay: int = 300,
+    auto_repeat_interval: int = 100,
     badge: int | None = None,
     badge_key: str | None = None,
     show_underline: bool = False,
@@ -678,6 +682,10 @@ Button(
 | `toggle` | `bool` | `False` | Toggleable button (on/off state) |
 | `long_press` | `bool` | `False` | Detect press-and-hold |
 | `long_press_ms` | `int` | `600` | Time (ms) before long-press triggers |
+| `auto_exclusive` | `bool` | `False` | Qt `QAbstractButton::autoExclusive`: when this button becomes checked it unchecks the checkable, also-exclusive siblings in the same parent, and clicking it while checked keeps it checked. See [Qt parity knobs](#qt-parity-knobs-autoexclusive--autorepeat). |
+| `auto_repeat` | `bool` | `False` | Qt `QAbstractButton::autoRepeat`: re-emit `pressed`/`clicked` while the button is held. |
+| `auto_repeat_delay` | `int` | `300` | Hold time (ms) before the first repeat (Qt's measured default). |
+| `auto_repeat_interval` | `int` | `100` | Time (ms) between repeats (Qt's default). |
 | `badge` | `int` | `None` | Number badge (top-right corner) |
 | `badge_key` | `str \| None` | `None` | Declarative translation key for the badge; re-resolved on each language change (numeric/plain badges are untouched). |
 | `show_underline` | `bool` | `False` | Show underline decoration |
@@ -785,6 +793,39 @@ button.setRegionChecked("copy", True)
 button.update_region("copy", enabled=False, text="Copied!")
 button.region("copy").checked = True
 ```
+
+### Qt parity knobs (`autoExclusive` / `autoRepeat`)
+
+Both mirror `QAbstractButton` and default off, so an unconfigured button
+behaves exactly as before.
+
+```python
+# Radio-like row of checkable buttons: one checked at a time.
+for label in ("Left", "Centre", "Right"):
+    Button(label, toggle=True, auto_exclusive=True, parent=row)
+
+# Spinner-style button: pressed/clicked repeat while the pointer is held.
+arrow = Button("chevron_right", auto_repeat=True,
+               auto_repeat_delay=300, auto_repeat_interval=100)
+arrow.setAutoRepeatDelay(400)
+arrow.setAutoRepeatInterval(60)
+```
+
+- `setAutoExclusive(bool)` / `autoExclusive()` — a checked exclusive button
+  unchecks the siblings in the same parent that are **also** exclusive and
+  checkable; a plain (non-exclusive or non-checkable) sibling is left alone,
+  matching Qt. Clicking an already-checked exclusive button keeps it checked
+  and emits no `toggled`.
+- `setAutoRepeat(bool)` / `autoRepeat()`, `setAutoRepeatDelay(ms)` /
+  `autoRepeatDelay()`, `setAutoRepeatInterval(ms)` / `autoRepeatInterval()` —
+  a held press re-emits `pressed`/`clicked` (and the region-scoped
+  `regionPressed`/`regionClicked`) after the delay, then at the interval until
+  release, leaving the widget, disabling it, or clearing the flag. A repeat
+  tick does **not** flip a `toggle=True` button (Qt's stock checkable button
+  flips on every tick; a toolkit toggle must not thrash the value under the
+  pointer).
+- `isCheckable()` — true when a gesture may toggle the button (`toggle=True`
+  or a `toggle=True` region).
 
 ### Visual Properties
 
