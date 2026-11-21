@@ -197,16 +197,11 @@ class ImageLabel(QWidget):
         """Where the pixmap lands, in logical px, for the current widget size."""
         native = self._logical_pixmap_size()
         if self._scaled_contents:
-            area = QSizeF(self.size())
-            mode = (
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding
-                if area.width() < native.width() or area.height() < native.height()
-                else Qt.AspectRatioMode.KeepAspectRatio
-            )
-            fitted = native.scaled(area, mode)
-            rect = QRectF(QPointF(0.0, 0.0), fitted)
-            rect.moveCenter(QRectF(self.rect()).center())
-            return rect
+            # QLabel semantics, deliberately: `setScaledContents(True)` stretches the pixmap over the whole contents
+            # rect and does NOT preserve the aspect ratio. Keeping the aspect (this widget's first behaviour) made a
+            # logo sit 1-2% differently from the widget it replaced in the host - measured, and it is the difference a
+            # page-level pixel diff sees.
+            return QRectF(self.rect())
         rect = QRectF(QPointF(0.0, 0.0), native)
         rect.moveTopLeft(self._aligned_top_left(native.toSize()))
         return rect

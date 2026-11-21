@@ -86,17 +86,17 @@ def test_scaled_contents_fills_the_widget(qapp):
     assert image.pixelColor(99, 49) == _RED
 
 
-def test_scaled_contents_letterboxes_instead_of_stretching(qapp):
-    # A portrait 1:2 image in a square widget: contain keeps 1:2 (50x100 at
-    # the centre) and leaves the sides transparent. A QLabel stretch would
-    # paint the whole widget.
+def test_scaled_contents_stretches_like_qlabel(qapp):
+    # QLabel semantics: `setScaledContents(True)` fills the whole contents rect and does NOT preserve the aspect ratio.
+    # The widget's first behaviour letterboxed a 1:2 image in a square widget; a host replacing QLabel measures that as
+    # a 1-2% page difference, so the widget follows QLabel (measured against the host's stock build).
     label = ImageLabel()
     label.setPixmap(_solid_pixmap(20, 40))
     label.setScaledContents(True)
     image = _render(label, (100, 100))
 
-    _assert_transparent(image, 0, 50)
-    _assert_transparent(image, 99, 50)
+    assert image.pixelColor(0, 50) == _RED
+    assert image.pixelColor(99, 50) == _RED
     assert image.pixelColor(50, 50) == _RED
 
 
