@@ -4,6 +4,10 @@
 
 ### Added
 
+- **`progress.track.background` is a palette token** (light `#e6e6e6`, dark `#3c3c3c`). A host whose page overrides a
+  single progress bar's track had no way to carry that colour once its stylesheet was gone: `slider.track.background`
+  is the global bar colour, and a host-only token cannot be registered (the palette builder refuses names FLUENT
+  does not carry). Measured on the migrating host: the bar's track is `417x25` of the page.
 - **A host can tell the tab host NOT to paint its pane: `TopTabHost(pane_fill_token=None)`.** The pane always
   cleared its rectangle and filled a surface, so a page that paints its own body showed the pane's colour in every
   gap inside the tabs - measured on a migrated page where the stock build was uniform `#16191d` (its QSS painted
