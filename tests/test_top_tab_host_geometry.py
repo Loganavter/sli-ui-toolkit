@@ -35,3 +35,15 @@ def test_flat_geometry_matches_a_stock_tab_widget(qapp):
 def test_pane_inset_is_independent_of_the_radius(qapp):
     host = _host(qapp, pane_radius=10, pane_inset=0)
     assert host.pages_stack.geometry().left() == 0
+
+
+def test_pane_inset_accepts_four_sides(qapp):
+    """A host replacing a `QStackedWidget` that carried `padding:5px 10px` needs unequal gutters.
+
+    Measured on a migrated page: with a uniform inset the pages were 10 px left of the stock baseline and 20 px wider,
+    because the stylesheet's padding was the only thing setting that gutter.
+    """
+    host = _host(qapp, pane_inset=(10, 5, 10, 5))
+    margins = host._pane.layout().contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (10, 5, 10, 5)
+    assert (host.pages_stack.x(), host.pages_stack.y()) == (10, 5)

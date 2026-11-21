@@ -48,7 +48,7 @@ class TopTabHost(QWidget):
         pane_radius: int | tuple[int, int, int, int] = DEFAULT_PANE_RADIUS,
         expand_tabs: bool = False,
         close_policy: CloseButtonPolicy = CloseButtonPolicy.NONE,
-        pane_inset: int | None = None,
+        pane_inset: int | tuple[int, int, int, int] | None = None,
         chrome_inset: int = 1,
         tab_radius: int = DEFAULT_TAB_RADIUS,
         pane_fill_token: str | None = "surface.background",
@@ -68,9 +68,20 @@ class TopTabHost(QWidget):
         # measured on a migrated page: with the defaults the tab bar pushed the pane 7 px down and 2 px in, and every
         # widget below shifted. `pane_inset=None` keeps the radius-derived inset.
         self._chrome_inset = max(0, int(chrome_inset))
-        self._content_inset = (
-            content_inset_for_radii(self._pane_radii) if pane_inset is None else max(0, int(pane_inset))
-        )
+        #: Per-side pane padding. A host replacing a stock `QStackedWidget` that carried `padding:5px 10px` in its
+        #: stylesheet needs 10 px horizontally and 5 vertically - a uniform `int` cannot express that, and the gutters
+        #: move every page inside the stack when the stylesheet goes (measured: pages shifted 10 px left, 5 up, and
+        #: grew 20 px wide).
+        if pane_inset is None:
+            _inset = content_inset_for_radii(self._pane_radii)
+            self._content_margins = (_inset, _inset, _inset, _inset)
+        elif isinstance(pane_inset, (tuple, list)):
+            _l, _t, _r, _b = (max(0, int(v)) for v in pane_inset)
+            self._content_margins = (_l, _t, _r, _b)
+        else:
+            _v = max(0, int(pane_inset))
+            self._content_margins = (_v, _v, _v, _v)
+        self._content_inset = self._content_margins[0]
 
         root = QVBoxLayout(self)
         root.setContentsMargins(
@@ -101,12 +112,7 @@ class TopTabHost(QWidget):
 
         self._pane = TopTabPane(self)
         pane_layout = QVBoxLayout(self._pane)
-        pane_layout.setContentsMargins(
-            self._content_inset,
-            self._content_inset,
-            self._content_inset,
-            self._content_inset,
-        )
+        pane_layout.setContentsMargins(*self._content_margins)
         pane_layout.setSpacing(0)
 
         self.pages_stack = QStackedWidget(self._pane)
