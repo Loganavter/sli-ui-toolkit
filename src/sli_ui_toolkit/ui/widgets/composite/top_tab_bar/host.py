@@ -47,14 +47,22 @@ class TopTabHost(QWidget):
         pane_radius: int | tuple[int, int, int, int] = DEFAULT_PANE_RADIUS,
         expand_tabs: bool = False,
         close_policy: CloseButtonPolicy = CloseButtonPolicy.NONE,
+        pane_inset: int | None = None,
+        chrome_inset: int = 1,
     ) -> None:
         super().__init__(parent)
         self._pane_radii = _normalize_pane_radii(pane_radius)
         self._pane_radius = self._pane_radii[0]
         self._pages: list[QWidget] = []
         self._labels: list[str] = []
-        self._chrome_inset = 1
-        self._content_inset = content_inset_for_radii(self._pane_radii)
+        # Stock-geometry answers: a host replacing a QTabWidget needs its pane to start exactly where the stock stack
+        # did. PANE_CONTENT_INSET (2) and the 1 px chrome are right for a rounded pane and wrong for a flat one -
+        # measured on a migrated page: with the defaults the tab bar pushed the pane 7 px down and 2 px in, and every
+        # widget below shifted. `pane_inset=None` keeps the radius-derived inset.
+        self._chrome_inset = max(0, int(chrome_inset))
+        self._content_inset = (
+            content_inset_for_radii(self._pane_radii) if pane_inset is None else max(0, int(pane_inset))
+        )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(
