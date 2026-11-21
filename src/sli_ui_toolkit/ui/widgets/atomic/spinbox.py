@@ -50,7 +50,8 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         self.setValidator(QIntValidator(-999999, 999999, self))
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setText(str(default_value))
-        self.setMinimumWidth(self.minimumSizeHint().width())
+        self._min_width_explicit = False
+        self._pin_content_width()
         self.setFixedHeight(scaled_px(32))
 
         self.editingFinished.connect(self._on_editing_finished)
@@ -68,8 +69,27 @@ class SpinBox(WheelScrollPolicyMixin, CustomLineEdit):
         self._minimum = min_val
         self._maximum = max_val
         self.setValue(self._value)
-        self.setMinimumWidth(self.minimumSizeHint().width())
+        self._pin_content_width()
         self.updateGeometry()
+
+    def _pin_content_width(self) -> None:
+        """Widen to the value text - unless the HOST stated a minimum.
+
+        A page that says `setMinimumSize(75, 30)` (the Designer's statement) had its width replaced by this control's
+        own hint on every `setRange`, so the field rendered 57 px instead of 75 (measured). The explicit flag is the
+        same shape as the buttons' `_corner_radius_explicit`.
+        """
+        if getattr(self, "_min_width_explicit", False):
+            return
+        super().setMinimumWidth(self.minimumSizeHint().width())
+
+    def setMinimumWidth(self, width: int) -> None:  # noqa: N802 - Qt API
+        self._min_width_explicit = True
+        super().setMinimumWidth(width)
+
+    def setMinimumSize(self, width, height=None) -> None:  # noqa: N802 - Qt API
+        self._min_width_explicit = True
+        super().setMinimumSize(width, height) if height is not None else super().setMinimumSize(width)
 
     def value(self) -> int:
         return self._value
@@ -260,7 +280,7 @@ class DoubleSpinBox(SpinBox):
         return max(scaled_px(44), text_width + margins)
 
     def _update_content_width(self) -> None:
-        self.setMinimumWidth(self.minimumSizeHint().width())
+        self._pin_content_width()
 
     def _on_editing_finished(self):
         text = self.text().strip()

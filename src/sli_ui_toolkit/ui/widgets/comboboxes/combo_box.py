@@ -649,6 +649,10 @@ class ComboBox(Button):
         self._items[index].normalized_text = normalize_for_search(text)
         self._invalidate_visible_cache()
         self._sync_field_tooltip()
+        # The width hint is the widest ITEM, so filling an empty item with text must re-ask for geometry: a host that
+        # adds empty items and fills them from its retranslate() (the Designer's own pattern) otherwise keeps the width
+        # of the empty field - measured 100 px where the stock combo was 145, eliding "sudo_scene_detect".
+        self.updateGeometry()
         self.update()
 
     def setItemData(self, index: int, data: Any):

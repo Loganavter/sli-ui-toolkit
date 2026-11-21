@@ -36,7 +36,7 @@ class Stepper(StepButtonsMixin, SpinBox):
         super().__init__(parent, default_value=default_value, **kwargs)
         self._step_size = max(1, int(step))
         self._init_step_gutter(show_step_buttons)
-        self.setMinimumWidth(self.minimumSizeHint().width())
+        self._pin_content_width()
         self.updateGeometry()
         self.update()
 
