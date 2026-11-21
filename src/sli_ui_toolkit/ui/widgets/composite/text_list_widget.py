@@ -182,7 +182,13 @@ class TextListWidget(SurfacePanel):
         return QSize(*_STOCK_LIST_HINT)
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
-        return QSize(0, 0)
+        """`QListWidget`'s own floor (70x70, scaled).
+
+        Not zero: `QBoxLayout` distributes a row's leftover space using each item's minimum, and a zero minimum lets the
+        list take the whole slack - measured on a queue page where the list was 335 px against the stock 256 and the
+        button column beside it lost 79 px.
+        """
+        return QSize(scaled_px(70), scaled_px(70))
 
     def row_height(self) -> int:
         return self._row_height
