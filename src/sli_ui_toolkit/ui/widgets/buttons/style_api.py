@@ -282,6 +282,10 @@ class _ButtonStyleApi:
         else:
             self._icon_unchecked = self._icon_checked = icon
         self._sync_main_region(icon=icon)
+        # An icon changes the hint (an icon-only button is icon + padding), and a hint measured before the icon arrives
+        # stays at the standalone 36x36: a host's icon buttons then render a third smaller than stated (measured: a nav
+        # rail at 55x45 became 36x36).
+        self.updateGeometry()
         self.update()
 
     def setText(self, text: str):
@@ -377,6 +381,7 @@ class _ButtonStyleApi:
         """
         self._icon_size_px = max(1, int(min(size.width(), size.height())))
         self.setProperty("iconSizePx", self._icon_size_px)
+        self.updateGeometry()
         controller = getattr(self, "_controller", None)
         for region in getattr(controller, "regions", ()) or ():
             if getattr(region, "id", None) == "_main":
@@ -433,6 +438,15 @@ class _ButtonStyleApi:
             wrapped = self._wrapped_height_for_width(max(w, self.width()))
             if wrapped > h:
                 h = wrapped
+            return QSize(w, h)
+        if self._icon_unchecked and not self._has_text and not self._rows:
+            # An ICON-ONLY button sizes like Qt's QToolButton: the icon plus the content padding, with the standalone
+            # 36 px floor as a minimum. The old rule returned 36x36 whatever the icon was, so a host that states an icon
+            # size (a 35 px nav glyph in 55x45) got a smaller control and every icon row shifted.
+            pad = self._content_padding
+            # no icon→text gap here: there is no text to separate from
+            w = max(scaled_px(36), scaled_px(self._icon_size_px) + scaled_px(int(pad[0]) + int(pad[2])))
+            h = max(scaled_px(36), scaled_px(self._icon_size_px) + scaled_px(int(pad[1]) + int(pad[3])))
             return QSize(w, h)
         if self._has_wrapped_rows():
             # Region-only content (no ``text``/``rows``): the historic 36×36

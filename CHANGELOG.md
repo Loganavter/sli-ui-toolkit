@@ -4,6 +4,10 @@
 
 ### Added
 
+- **An icon-only button sizes to its icon plus padding** (Qt's `QToolButton` rule), floored at the standalone 36 px.
+  The hint used to be 36x36 whatever the icon was, so a host stating 35 px glyphs in a 55x45 slot got 36x36 and
+  every icon row shifted - measured on a nav rail that shrank from 55x45 to 36x36. `setIcon`/`setIconSize` also ask
+  for a new geometry now; before, a hint measured before the icon arrived was never recomputed.
 - **The host decides how a tab button is built** (`TopTabHost(tab_factory=…)`). Before, the strip always constructed
   its own `TopTabButton`, so any visual detail the host wanted (padding, radius, a plate that stands away from the
   content, a different height) needed a new knob inside the widget - a guess about which detail would come next, and

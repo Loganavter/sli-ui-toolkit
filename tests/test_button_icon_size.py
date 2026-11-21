@@ -56,3 +56,22 @@ def test_the_construction_time_size_still_wins(qapp):
     button.setIcon(_white_icon())
     button.resize(55, 45)
     assert _painted_box(button) == (35, 35)
+
+
+def test_an_icon_only_button_sizes_to_its_icon_plus_padding(qapp):
+    """Qt's QToolButton rule: an icon-only control is the icon plus margins, floored at 36.
+
+    The old rule returned 36x36 whatever the icon was, so a host stating 35 px glyphs in a 55x45 slot got 36x36 and every
+    icon row shifted (owner report: the nav rail buttons shrank).
+    """
+    button = Button(size=(0, 0), content_padding=(10, 5, 10, 5))
+    button.setIcon(_white_icon())
+    button.setIconSize(QSize(35, 35))
+    assert (button.sizeHint().width(), button.sizeHint().height()) == (55, 45)
+
+
+def test_a_small_icon_keeps_the_standalone_floor(qapp):
+    button = Button(size=(0, 0))
+    button.setIcon(_white_icon())
+    button.setIconSize(QSize(10, 10))
+    assert button.sizeHint().width() >= 36 and button.sizeHint().height() >= 36
