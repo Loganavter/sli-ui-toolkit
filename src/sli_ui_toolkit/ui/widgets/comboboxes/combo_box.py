@@ -16,7 +16,7 @@ from PySide6.QtGui import QFontMetrics, QMouseEvent
 from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
-from sli_ui_toolkit.ui.managers.ui_font import paint_font
+from sli_ui_toolkit.ui.managers.ui_font import measure_text_width, paint_font
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import Button
@@ -700,16 +700,26 @@ class ComboBox(Button):
         pass
 
     def _content_width_hint(self) -> int:
-        # Measure with the paint font (design size × UiScale) — the field
-        # layer draws through ``paint_font``, so a raw-font hint under-
-        # measures at scale > 1.0 and long labels elide inside the field.
+        """Widest item, measured exactly as ``_ComboFieldContentLayer`` paints it.
+
+        Same font (``paint_font``: design size × UiScale), same horizontal
+        padding on both sides, and a width that survives Qt's own elider. A raw
+        ``horizontalAdvance`` is what bit the host (2026-11-22): the hint landed
+        on ``text + 2·padding``, the painted text rect is ``width - 2·padding``,
+        and ``QFontMetrics.elidedText`` still elides at a limit equal to the
+        advance — "sudo_scene_detect" (advance 106, hint 130, measured at scale
+        1.0) painted as "sudo_scene_dete…". ``measure_text_width`` carries the
+        glyph-fudge that makes an exactly-fitting string stay unelided.
+        """
         fm = QFontMetrics(paint_font(self))
         text_width = 0
         for item in self._items:
-            text_width = max(text_width, fm.horizontalAdvance(item.text))
+            text_width = max(text_width, measure_text_width(fm, item.text))
         if self._minimum_contents_length > 0:
-            text_width = max(text_width, fm.horizontalAdvance("M" * self._minimum_contents_length))
-        return max(scaled_px(100), text_width + scaled_px(24))
+            text_width = max(
+                text_width, measure_text_width(fm, "M" * self._minimum_contents_length)
+            )
+        return max(scaled_px(100), text_width + 2 * scaled_px(self.TEXT_HORIZONTAL_PADDING))
 
     def sizeHint(self) -> QSize:
         return QSize(self._content_width_hint(), scaled_px(self.BASE_HEIGHT))

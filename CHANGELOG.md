@@ -4,6 +4,30 @@
 
 ### Added
 
+- **`SpinBox`/`DoubleSpinBox` can carry Qt's own ▲/▼ step gutter, so a host's
+  `QSpinBox` mock can go.** `SpinBox(show_step_buttons=True, field_height=29,
+  step_button_width=20)` adds the shape stock `QSpinBox` has — one narrow
+  column on the right, ▲ above ▼ — reusing `StepButtonsMixin`'s hold-to-repeat,
+  pressed overlay and accent wash (no new tokens: `accent`,
+  `input.border.thin`, and the ghost `Button` content colour). Measured off the
+  host's migrated Designer rows: field 29 px, gutter 20 px, halves 15 + 14 px;
+  clicking the lower arrow moves `2.00 → 1.50` at `single_step=0.5`. The arrows
+  step by `singleStep` (int on `SpinBox`, float on `DoubleSpinBox`, snapped like
+  `setValue`), each goes disabled at its own bound (`0 - singleStep` is inert at
+  the minimum), `setStepButtonsVisible(False)` returns a plain field, and the
+  text area — margins and `sizeHint` — shrinks by exactly the gutter width
+  (right margin 8 → 28 px, hint 71 → 91 px on a 0…10 field). `StepButtonsMixin`
+  gained `STEP_LAYOUT` (`"horizontal"` default, `"vertical"`) and an optional
+  `_step_button_enabled(delta)` hook, so `Stepper` (44 px side-by-side gauge,
+  22 px arrows) and `TimeLineEdit` paint and lay out exactly as before. Every
+  new argument defaults to today's behaviour (`show_step_buttons=False`), so an
+  unconfigured `SpinBox` is the old control. Tests:
+  `tests/test_spinbox_step_gutter.py` (11 — the host's 29/20 numbers through the
+  constructor, the stacked rects, the exact gutter-sized text shrink, the
+  hidden-gutter fallback, a rendered grab with a glyph in each half, a
+  `QTest.mouseClick` on the lower and the upper arrow, bound disabling, the int
+  variant, the untouched plain `SpinBox`, and `Stepper` still side-by-side).
+
 - **`CheckBox` has Qt's tri-state, so a host's `QCheckBox` mock can go.**
   `CheckBox(text, tristate=True)` (or `setTristate(True)`) cycles
   Unchecked → PartiallyChecked → Checked on clicks and `Space` — the exact order
@@ -92,6 +116,22 @@
 
 ### Fixed
 
+- **A `ComboBox` never elides an item that its own `sizeHint` says fits.**
+  The hint measured `paint_font` (right) but added only `2 × 12` px of padding
+  to a raw `horizontalAdvance`, so on the host's retranslate()-filled item
+  `sudo_scene_detect` it landed at 130 px: the painted text rect is
+  `width - 2·padding = 106`, and `QFontMetrics.elidedText` elides at a limit
+  equal to the advance (measured: 106 → `sudo_scene_dete…`, 107 → the whole
+  string), so a field sized by its own hint still elided. `_content_width_hint`
+  now measures through `measure_text_width` — the toolkit's advance/boundingRect
+  normalizer — and adds the same `TEXT_HORIZONTAL_PADDING` on both sides the
+  content layer paints with: 139 px for that item, and the layer's own
+  `elidedText` call at that width returns the full string. Also checked: a
+  name-with-the-same-font-at-scale case and the existing `setItemText`
+  re-measure stay green. Tests: `tests/test_field_width_contract.py` (4 —
+  including `test_a_combo_never_sizes_below_the_text_it_paints`, which asserts
+  `sizeHint().width() >= painted advance + 2·padding` **and** re-runs Qt's
+  elider at the resulting text-rect width).
 - **`TextListWidget`'s inner scroll area is `Preferred`, which is what makes the list take `QListWidget`'s share of
   its row.** A layout item inherits the expansion of the widget's own layout, and an Expanding child made the
   list claim its row's leftover: measured on a migrated queue page, the list took 330 px against the stock 256 and

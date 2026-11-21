@@ -172,7 +172,7 @@ the value captured on entry. Ask for the state with `slider.is_editing()`
 control or to the ring — a control without `is_editing()` keeps the older
 behaviour. See `docs/dev/NAVIGATION.md` §1.1.
 
-`SpinBox(parent=None, default_value=0, *, alignment=Qt.AlignmentFlag.AlignCenter, wheel_requires_focus=False, underline_color=None, underline_thickness=None, focused_underline_color=None, focused_underline_thickness=None)`
+`SpinBox(parent=None, default_value=0, *, alignment=Qt.AlignmentFlag.AlignCenter, wheel_requires_focus=False, underline_color=None, underline_thickness=None, focused_underline_color=None, focused_underline_thickness=None, single_step=1, show_step_buttons=False, step_button_width=None, field_height=32)`
 shares the alignment/underline/`wheel_requires_focus` knobs documented above
 for `CustomLineEdit`, plus range/value control:
 
@@ -180,6 +180,23 @@ for `CustomLineEdit`, plus range/value control:
 spin = SpinBox(default_value=50, alignment=Qt.AlignmentFlag.AlignRight)
 spin.setRange(0, 100)
 ```
+
+`show_step_buttons=True` gives the field Qt's own ▲/▼ gutter — one narrow
+column on the right, up above down, `STEP_BUTTON_WIDTH` (20 px by default,
+override with `step_button_width`) wide. The arrows step by `singleStep`, go
+inert at the range bound on their side, and `setStepButtonsVisible(False)`
+returns a plain field; the text area shrinks by exactly the gutter. The gutter
+defaults off, so a token-free `SpinBox` keeps its old geometry.
+`field_height` (design px, 32 by default) is the field height — the stock
+`QSpinBox` row the host mirrors is 29.
+
+```python
+count = SpinBox(default_value=4, show_step_buttons=True, field_height=29, step_button_width=20)
+```
+
+`DoubleSpinBox` takes the same three arguments plus `single_step` / `decimals`
+and steps by its float `singleStep`. `Stepper` keeps its wide side-by-side
+gauge (`step=`, `setStep`) on top of the same shared gutter.
 
 `Switch(parent=None)` takes no constructor config beyond `parent` — state
 text and its visibility are runtime setters:

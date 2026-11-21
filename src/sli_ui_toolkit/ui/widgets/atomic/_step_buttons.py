@@ -12,6 +12,15 @@ A host widget mixes this in and implements two hooks:
 * ``_step(delta)`` — apply one step (``+1`` up, ``-1`` down);
 * ``_step_gutter_width()`` — how much horizontal room the text must leave.
 
+Optional host hooks: ``_step_button_enabled(delta)`` (default: always enabled —
+a numeric host turns it off at its own bound) and ``_sync_text_margins()``.
+
+Two gutters exist, and a host picks one with ``STEP_LAYOUT``: ``"horizontal"``
+(``TimeLineEdit``, ``Stepper`` — two square buttons side by side) and
+``"vertical"`` (``SpinBox`` — one narrow column, ▲ above ▼, the shape Qt's own
+``QSpinBox`` has). The paint, the repeat timers and the pressed overlay are the
+same code in both.
+
 The host keeps ownership of its own text/validation; this module only owns the
 buttons, their layout, the repeat behaviour and the gutter paint.
 """
@@ -79,6 +88,9 @@ class StepButtonsMixin(_StepMixinBase):
     STEP_BUTTON_GAP = 0
     STEP_BUTTON_OVERLAP = 1
     STEP_ARROW_SIZE = 22
+    #: "horizontal" = ▲/▼ side by side (the width is ``2 × STEP_BUTTON_WIDTH``);
+    #: "vertical" = ▲ above ▼ in one ``STEP_BUTTON_WIDTH`` wide column.
+    STEP_LAYOUT = "horizontal"
     REPEAT_START_DELAY_MS = 350
     REPEAT_INTERVAL_MS = 70
 
@@ -90,7 +102,19 @@ class StepButtonsMixin(_StepMixinBase):
     def _step_gutter_width(self) -> int:
         if not getattr(self, "_show_step_buttons", False):
             return 0
+        if self.STEP_LAYOUT == "vertical":
+            return self.STEP_BUTTON_WIDTH
         return self.STEP_BUTTON_WIDTH * 2 + self.STEP_BUTTON_GAP
+
+    def _step_button_enabled(self, delta: int) -> bool:
+        """Whether an arrow may still move the value (a numeric host overrides).
+
+        The gutter is drawn and the arrows are widgets even when a bound makes
+        them inert; a host that keeps its value bounded answers per direction,
+        so the field itself says "no more" instead of silently swallowing
+        presses (the shape ``QAbstractSpinBox`` gives with its own arrows).
+        """
+        return True
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -130,26 +154,56 @@ class StepButtonsMixin(_StepMixinBase):
 
     # -- geometry -----------------------------------------------------------
 
+    def _stacked_button_height(self) -> int:
+        """Height of the upper (▲) button in the vertical layout.
+
+        The odd pixel goes to the upper half so both buttons stay at least
+        1 px tall in a 29 px field (14 + 15, measured) and the pair covers the
+        full height without a seam.
+        """
+        height = max(1, self.height())
+        return max(1, (height + 1) // 2)
+
     def _up_button_rect(self) -> QRect:
         height = max(1, self.height())
+        if self.STEP_LAYOUT == "vertical":
+            width = self.STEP_BUTTON_WIDTH
+            return QRect(self.width() - width, 0, width, self._stacked_button_height())
         right = self.width()
         left = right - self.STEP_BUTTON_WIDTH * 2 - self.STEP_BUTTON_GAP
         return QRect(left, 0, self.STEP_BUTTON_WIDTH + self.STEP_BUTTON_OVERLAP, height)
 
     def _down_button_rect(self) -> QRect:
         height = max(1, self.height())
+        if self.STEP_LAYOUT == "vertical":
+            width = self.STEP_BUTTON_WIDTH
+            top = self._stacked_button_height()
+            return QRect(self.width() - width, top, width, max(1, height - top))
         right = self.width()
         return QRect(right - self.STEP_BUTTON_WIDTH, 0, self.STEP_BUTTON_WIDTH, height)
 
     def _button_area_rect(self) -> QRect:
-        left = self._up_button_rect().left()
+        up_rect = self._up_button_rect()
+        if self.STEP_LAYOUT == "vertical":
+            return QRect(
+                up_rect.left(),
+                1,
+                max(1, up_rect.width()),
+                max(1, self.height() - 2),
+            )
+        left = up_rect.left()
         return QRect(left, 1, max(1, self.width() - left - 1), max(1, self.height() - 2))
 
     def _sync_step_buttons(self) -> None:
-        for button in (self._up_button, self._down_button):
-            button.setVisible(self._show_step_buttons)
-            button.setEnabled(self.isEnabled() and self._show_step_buttons)
-        if self._show_step_buttons:
+        if getattr(self, "_up_button", None) is None:
+            # A host can reach this through setValue()/setEnabled() before its
+            # own gutter exists; the buttons are created right after.
+            return
+        visible = self._show_step_buttons
+        for button, delta in ((self._up_button, 1), (self._down_button, -1)):
+            button.setVisible(visible)
+            button.setEnabled(self.isEnabled() and visible and self._step_button_enabled(delta))
+        if visible:
             up_rect = self._up_button_rect()
             down_rect = self._down_button_rect()
             self._up_button.setFixedSize(up_rect.size())
@@ -183,12 +237,18 @@ class StepButtonsMixin(_StepMixinBase):
         divider.setAlpha(max(32, int(divider.alpha() * 0.75)))
         painter.setPen(QPen(divider, 0.66))
         painter.drawLine(button_area.left(), 4, button_area.left(), self.height() - 5)
-        painter.drawLine(
-            self._down_button_rect().left(),
-            4,
-            self._down_button_rect().left(),
-            self.height() - 5,
-        )
+        if self.STEP_LAYOUT == "vertical":
+            # One column of two arrows: the split between ▲ and ▼ is a
+            # horizontal rule, inset so it does not touch the field border.
+            split = self._down_button_rect().top()
+            painter.drawLine(button_area.left() + 3, split, button_area.right() - 3, split)
+        else:
+            painter.drawLine(
+                self._down_button_rect().left(),
+                4,
+                self._down_button_rect().left(),
+                self.height() - 5,
+            )
 
     # -- buttons / repeat ---------------------------------------------------
 
