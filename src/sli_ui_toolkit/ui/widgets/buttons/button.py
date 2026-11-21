@@ -17,6 +17,8 @@ capability API, state/value API и paint plumbing.
 """
 
 from __future__ import annotations
+
+import warnings
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import dataclasses
@@ -231,11 +233,18 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         for signal, slot in pairs:
             for _ in range(64):
                 try:
-                    signal.disconnect(slot)
-                except Exception:
-                    # Best-effort: RuntimeError (no such connection),
-                    # TypeError, or SystemError depending on teardown
-                    # order — none of them may fail destruction.
+                    with warnings.catch_warnings():
+                        # PySide reports "no such connection" as a RuntimeWarning (and returns False), while other
+                        # teardown orders raise. Both are normal here: the slot may have been disconnected already
+                        # (a subclass, or the singleton torn down first). Unsuppressed, every button in a window
+                        # printed one warning per remaining attempt at shutdown - hundreds of lines of noise.
+                        warnings.simplefilter("ignore", RuntimeWarning)
+                        removed = signal.disconnect(slot)
+                except (RuntimeError, TypeError, SystemError):
+                    # Best-effort: none of these may fail destruction.
+                    break
+                if not removed:
+                    # Nothing left to remove; looping again would only re-warn.
                     break
 
     toggled = Signal(bool)
