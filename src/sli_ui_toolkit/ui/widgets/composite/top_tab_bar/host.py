@@ -49,6 +49,7 @@ class TopTabHost(QWidget):
         close_policy: CloseButtonPolicy = CloseButtonPolicy.NONE,
         pane_inset: int | None = None,
         chrome_inset: int = 1,
+        tab_radius: int = DEFAULT_TAB_RADIUS,
     ) -> None:
         super().__init__(parent)
         self._pane_radii = _normalize_pane_radii(pane_radius)
@@ -78,7 +79,7 @@ class TopTabHost(QWidget):
             tab_height=tab_height,
             expand_tabs=expand_tabs,
             show_indicator=False,
-            corner_radius=DEFAULT_TAB_RADIUS,
+            corner_radius=tab_radius,
             close_policy=close_policy,
         )
         self.tab_bar.setObjectName("TopTabBar")
