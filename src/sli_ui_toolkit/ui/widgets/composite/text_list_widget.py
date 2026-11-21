@@ -27,6 +27,12 @@ if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 
+#: `QListWidget`'s own default size hint. NOT scaled: the stock widget reports this box at every UI scale, and a
+#: migrating layout was laid out against it - scaling it multiplied the hint by the live factor and the list clamped to
+#: its own maximum instead (measured: 335 px where the stock is 256).
+_STOCK_LIST_HINT = (256, 192)
+
+
 class _Rows(QWidget):
     """The painted rows: the whole model, drawn inside the scroll area's content widget."""
 
@@ -173,7 +179,7 @@ class TextListWidget(SurfacePanel):
         row and squeezes its neighbour - measured on a queue page where the button column lost 79 px to the list and the
         output list grew 48 px taller.
         """
-        return QSize(256, 192)
+        return QSize(*_STOCK_LIST_HINT)
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
         return QSize(0, 0)
