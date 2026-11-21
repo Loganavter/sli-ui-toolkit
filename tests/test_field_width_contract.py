@@ -71,3 +71,16 @@ def test_without_an_explicit_minimum_the_control_still_sizes_itself(qapp):
     field = DoubleSpinBox()
     field.setRange(1.0, 100000.0)
     assert field.minimumWidth() >= 44
+
+
+def test_qt_range_halves_answer_on_both_variants(qapp):
+    """The host's glue calls `setMaximum`/`setMinimum` (Qt's own names) on its spin fields."""
+    from sli_ui_toolkit.widgets import Stepper
+
+    for field in (DoubleSpinBox(), Stepper()):
+        field.setRange(0, 4) if not isinstance(field, DoubleSpinBox) else field.setRange(0.0, 4.0)
+        field.setMaximum(7)
+        assert field.maximum() == 7
+        field.setMinimum(2)
+        assert field.minimum() == 2
+        assert field.value() >= 2

@@ -127,6 +127,19 @@ class SpinBox(WheelScrollPolicyMixin, StepButtonsMixin, CustomLineEdit):
         padding = scaled_px(self.H_PADDING)
         self.setTextMargins(padding, 0, padding + self._step_gutter_width(), 0)
 
+    def maximum(self) -> int:
+        """Qt's getter; `setRange` is the composite, these are the two halves the host's glue calls."""
+        return self._maximum
+
+    def minimum(self) -> int:
+        return self._minimum
+
+    def setMaximum(self, max_val: int) -> None:  # noqa: N802 - Qt API
+        self.setRange(self._minimum, max_val)
+
+    def setMinimum(self, min_val: int) -> None:  # noqa: N802 - Qt API
+        self.setRange(min_val, self._maximum)
+
     def setRange(self, min_val: int, max_val: int):
         self._minimum = min_val
         self._maximum = max_val
