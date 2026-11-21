@@ -429,6 +429,8 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         if corner_radius is None:
             corner_radius = 2 if self._has_text else 6
         self._corner_radius_px = corner_radius
+        #: True when the caller stated a radius; the automatic "text arrived" defaults must not overwrite it.
+        self._corner_radius_explicit = corner_radius is not None
         # Corner-radii tuples are design px; the scaled copy feeds hit-test
         # and paint paths consistently and is re-derived in on_scale_changed.
         self._design_corner_radii: tuple[int, int, int, int] | None = (

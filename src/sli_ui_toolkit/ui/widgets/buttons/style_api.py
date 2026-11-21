@@ -340,8 +340,12 @@ class _ButtonStyleApi:
             self.setMaximumWidth(16777215)
             self.setMinimumHeight(max(32, self.minimumHeight()))
             self.setMaximumHeight(16777215)
-            self._corner_radius_px = 2
-            self.setProperty("cornerRadiusPx", 2)
+            # Only a button that has no radius of its own gets the default: a caller who passed `corner_radius=`
+            # (RVE passes 10 for its design) had it overwritten the moment the label arrived - a 10 px rounded plate
+            # rendered square (measured on every text button built with `text=""` and filled in later).
+            if not getattr(self, "_corner_radius_explicit", False):
+                self._corner_radius_px = 2
+                self.setProperty("cornerRadiusPx", 2)
         elif not has_text and had_text:
             # Icon-only 36×36 design floor: recorded as the design fixed size
             # so ``on_scale_changed`` re-derives it at the live factor (a raw
@@ -349,8 +353,9 @@ class _ButtonStyleApi:
             # later UiScale change).
             self._design_fixed_size = (36, 36)
             self.setFixedSize(scaled_px(36), scaled_px(36))
-            self._corner_radius_px = 6
-            self.setProperty("cornerRadiusPx", 6)
+            if not getattr(self, "_corner_radius_explicit", False):
+                self._corner_radius_px = 6
+                self.setProperty("cornerRadiusPx", 6)
         self.updateGeometry()
         self.update()
 
