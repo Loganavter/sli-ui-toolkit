@@ -60,6 +60,7 @@ from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import (
     IconListItem,
     IconListWidget,
 )
+from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.style import TabStyle
 from sli_ui_toolkit.ui.widgets.composite.top_tab_bar import (
     TopTabBar,
     TopTabHost,
@@ -111,6 +112,7 @@ __all__ = [
     "IconListItem",
     "IconListWidget",
     "TopTabBar",
+    "TabStyle",
     "TopTabHost",
     "TopTabItem",
     "IndexedToggleFlyout",

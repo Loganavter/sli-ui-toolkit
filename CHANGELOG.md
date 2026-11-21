@@ -4,6 +4,13 @@
 
 ### Added
 
+- **Tabs can be styled any way a host wants, and a strip that does not fit reports the width it needs or scrolls.**
+  `TopTabHost(tab_style=TabStyle(...))` states gap under the strip, flat buttons (a plate on the selected tab, no
+  folder outline, no join cover, no accent underline), radius, padding, spacing, a minimum width and the selection
+  token - with today's folder look as the default. `TopTabBar.required_width()` answers how wide the strip must be
+  to show every tab at its natural size, and a narrower bar **scrolls horizontally** (overlay bar, wheel included)
+  instead of clipping its last tabs with no affordance - measured on a host whose fifth tab was simply hidden.
+  `TopTabHost(pane_fill_token=None)` additionally drops the pane fill, and `TabStyle(border=False)` its stroke.
 - **`progress.track.background` is a palette token** (light `#e6e6e6`, dark `#3c3c3c`). A host whose page overrides a
   single progress bar's track had no way to carry that colour once its stylesheet was gone: `slider.track.background`
   is the global bar colour, and a host-only token cannot be registered (the palette builder refuses names FLUENT

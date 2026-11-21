@@ -18,3 +18,4 @@ __all__ = [
     "TopTabHost",
     "TopTabItem",
 ]
+from .style import TabStyle

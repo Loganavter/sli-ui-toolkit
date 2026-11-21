@@ -70,6 +70,7 @@ def paint_pane_chrome(
     pane_radii: tuple[int, int, int, int],
     selected_cover: QRect | None,
     fill_token: str | None = "surface.background",
+    border: bool = True,
 ) -> None:
     """Draw the pane's fill/stroke (and optional top join cover).
 
@@ -79,7 +80,7 @@ def paint_pane_chrome(
     """
     tm = ThemeManager.get_instance()
     bg = None if fill_token is None else QColor(tm.try_get_color(fill_token) or _pane_fill_color(tm) or QColor(0, 0, 0))
-    border = tm.try_get_color("separator.color")
+    border = tm.try_get_color("separator.color") if border else None
 
     painter = QPainter(pane)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)

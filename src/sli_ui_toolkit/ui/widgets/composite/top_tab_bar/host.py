@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
+from .style import TabStyle
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import CloseButtonPolicy
 from sli_ui_toolkit.ui.widgets.composite.top_tab_bar import chrome as pane_chrome
@@ -51,10 +52,13 @@ class TopTabHost(QWidget):
         chrome_inset: int = 1,
         tab_radius: int = DEFAULT_TAB_RADIUS,
         pane_fill_token: str | None = "surface.background",
+        tab_style: "TabStyle | None" = None,
     ) -> None:
         super().__init__(parent)
         # `None` = the host's page paints its own body and the pane must stay transparent (see `paint_pane_chrome`).
         self._pane_fill_token = pane_fill_token
+        self._tab_style = tab_style or TabStyle()
+        self._bar_gap = max(0, int(self._tab_style.gap))
         self._pane_radii = _normalize_pane_radii(pane_radius)
         self._pane_radius = self._pane_radii[0]
         self._pages: list[QWidget] = []
@@ -82,11 +86,17 @@ class TopTabHost(QWidget):
             tab_height=tab_height,
             expand_tabs=expand_tabs,
             show_indicator=False,
-            corner_radius=tab_radius,
+            corner_radius=self._tab_style.tab_radius(tab_radius),
+            style=self._tab_style,
             close_policy=close_policy,
         )
         self.tab_bar.setObjectName("TopTabBar")
+        # A bar that is wider than its host used to run past the pane and clip its last tabs with no affordance: the bar
+        # may now shrink below its content hint (it elides its tabs to fit - see `TopTabBar._fit_tabs`).
+        self.tab_bar.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         root.addWidget(self.tab_bar)
+        if self._bar_gap:
+            root.addSpacing(self._bar_gap)
         self.tab_bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
 
         self._pane = TopTabPane(self)

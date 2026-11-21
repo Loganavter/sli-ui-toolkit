@@ -33,11 +33,14 @@ class TopTabContent(Content):
     button (the adaptive-tab slot contract)."""
 
     def __init__(
-        self, text: str, *, show_indicator: bool = True, close_zone: int = 0
+        self, text: str, *, show_indicator: bool = True, close_zone: int = 0,
+        flat: bool = False, style: "TabStyle | None" = None,
     ) -> None:
         self.text = text
         self.show_indicator = show_indicator
         self.close_zone = max(0, int(close_zone))
+        self.flat = bool(flat)
+        self.style = style
 
     def draw(self, ctx, tm: ThemeManager) -> None:
         widget = ctx.widget
@@ -47,7 +50,25 @@ class TopTabContent(Content):
         font = paint_font(widget)
         p.setFont(font)
 
-        if selected and not self.show_indicator:
+        if self.flat:
+            # Flat buttons: a plate for the selected tab, nothing for the rest - the host's "buttons, not tabs" look.
+            # No folder outline, no accent underline, no join cover.
+            if selected:
+                token = getattr(self.style, "selected_token", "accent")
+                colour = tm.try_get_color(token)
+                if colour is not None and colour.isValid():
+                    radius = 0
+                    radii = getattr(widget, "_corner_radii_px", None)
+                    if isinstance(radii, tuple) and radii:
+                        radius = int(radii[0])
+                    path = QPainterPath()
+                    rect = QRectF(widget.rect()).adjusted(0.0, 0.0, 0.0, 0.0)
+                    path.addRoundedRect(rect, float(radius), float(radius))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(QColor(colour))
+                    p.drawPath(path)
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+        elif selected and not self.show_indicator:
             self._draw_folder_outline(ctx, tm)
 
         if selected:
@@ -60,7 +81,7 @@ class TopTabContent(Content):
             p.setPen(style.foreground_color or _text_color(ctx, tm))
 
         text_rect = QRect(0, 0, widget.width(), widget.height())
-        if self.show_indicator and selected:
+        if self.show_indicator and selected and not self.flat:
             text_rect = text_rect.adjusted(0, 0, 0, -INDICATOR_H)
         if self.close_zone:
             text_rect = text_rect.adjusted(0, 0, -self.close_zone, 0)
@@ -73,7 +94,7 @@ class TopTabContent(Content):
         )
         p.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, text)
 
-        if self.show_indicator and selected:
+        if self.show_indicator and selected and not self.flat:
             accent = tm.try_get_color("accent")
             if accent is None or not accent.isValid():
                 return
@@ -128,8 +149,10 @@ class TopTabButton(Button):
     itself hovered (the hover coordinator only sees the child).
     """
 
-    def __init__(self, *args, close_zone: int = 0, **kwargs) -> None:
+    def __init__(self, *args, close_zone: int = 0, flat: bool = False, style=None, **kwargs) -> None:
         kwargs["toggle"] = False
+        self._flat = bool(flat)
+        self._style = style
         super().__init__(*args, **kwargs)
         self._close_zone = max(0, int(close_zone))
         self._close_button: QWidget | None = None
@@ -195,6 +218,8 @@ class TopTabButton(Button):
             self._text,
             show_indicator=self._show_indicator,
             close_zone=self._close_zone,
+            flat=self._flat,
+            style=self._style,
         )
 
     def _build_region_content(self, region):
@@ -202,6 +227,8 @@ class TopTabButton(Button):
             self._text,
             show_indicator=self._show_indicator,
             close_zone=self._close_zone,
+            flat=self._flat,
+            style=self._style,
         )
 
     def sizeHint(self) -> QSize:

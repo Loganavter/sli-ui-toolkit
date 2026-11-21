@@ -9,11 +9,13 @@ from PySide6.QtGui import QColor, QCursor, QPen
 from PySide6.QtWidgets import QHBoxLayout, QSizePolicy, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
+from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons import DrawContext, Layer
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
 from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import CloseButtonPolicy
+from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.style import TabStyle
 from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.constants import (
     DEFAULT_TAB_RADIUS,
     TAB_BAR_H_MARGIN,
@@ -88,6 +90,7 @@ class TopTabBar(QWidget):
         corner_radius: int = DEFAULT_TAB_RADIUS,
         close_policy: CloseButtonPolicy = CloseButtonPolicy.NONE,
         close_zone: int = 20,
+        style: "TabStyle | None" = None,
     ) -> None:
         super().__init__(parent)
         self._tab_height = int(tab_height)
@@ -96,6 +99,7 @@ class TopTabBar(QWidget):
         self._corner_radius = int(corner_radius)
         self._close_policy = CloseButtonPolicy(close_policy)
         self._close_zone = max(0, int(close_zone))
+        self._style = style or TabStyle()
         self._close_size = max(12, min(int(close_zone), self._tab_height))
         self._tabs: list[TabSpec] = []
         self._current_index: int = -1
@@ -111,10 +115,6 @@ class TopTabBar(QWidget):
             QSizePolicy.Policy.MinimumExpanding,
             QSizePolicy.Policy.Fixed,
         )
-        outer = QHBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
         self._strip = QWidget(self)
         self._strip.setObjectName("TopTabStrip")
         self._strip.setSizePolicy(
@@ -123,15 +123,13 @@ class TopTabBar(QWidget):
         )
         layout = QHBoxLayout(self._strip)
         layout.setContentsMargins(TAB_BAR_H_MARGIN, 0, TAB_BAR_H_MARGIN, 0)
-        layout.setSpacing(TAB_SPACING)
+        layout.setSpacing(self._style.tab_spacing(TAB_SPACING))
         self._layout = layout
 
-        outer.addWidget(
-            self._strip,
-            0,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-        )
-        outer.addStretch(1)
+        self._h_offset = 0
+        self._h_scroll = MinimalistScrollBar(Qt.Orientation.Horizontal, self)
+        self._h_scroll.set_animated_visible(False)
+        self._h_scroll.valueChanged.connect(self._on_h_scroll)
         self._sync_strip_geometry()
 
         try:
@@ -167,7 +165,14 @@ class TopTabBar(QWidget):
             toggle=True,
             size=(0, tab_height),
             variant="top_tab",
-            corner_radii=(self._corner_radius, self._corner_radius, 0, 0),
+            corner_radii=(
+                self._style.tab_radius(self._corner_radius),
+                self._style.tab_radius(self._corner_radius),
+                0,
+                0,
+            ),
+            flat=self._style.flat,
+            style=self._style,
             close_zone=(
                 self._scaled_close_size() + TAB_CLOSE_MARGIN if closable else 0
             ),
@@ -176,7 +181,7 @@ class TopTabBar(QWidget):
         button.setFixedHeight(tab_height)
         if self._expand_tabs:
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            button.setMinimumWidth(TAB_MIN_WIDTH)
+            button.setMinimumWidth(self._style.tab_min_width(TAB_MIN_WIDTH))
         else:
             button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
             button.setFixedWidth(button.sizeHint().width())
@@ -189,6 +194,7 @@ class TopTabBar(QWidget):
         index = len(self._tabs) - 1
         button.clicked.connect(lambda _i=index: self._on_tab_clicked(_i))
         self._layout.addWidget(button)
+        self._sync_h_scroll()
 
         if closable:
             # Embedded in the tab's right edge (adaptive-tab close-slot
@@ -338,6 +344,37 @@ class TopTabBar(QWidget):
         if item is not None:
             item.setData(Qt.ItemDataRole.UserRole, value)
 
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
+        self._sync_h_scroll()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        """Shrink the tabs to fit instead of hiding the last ones.
+
+        A bar narrower than its content used to clip the overflowing tabs with no affordance at all - the host's last tab
+        ("Log") simply disappeared behind the pane. Now the redundant width is taken from each tab proportionally down to
+        a floor, and the label elides; every tab stays reachable at any width.
+        """
+        super().resizeEvent(event)
+        self._sync_h_scroll()
+
+    def _fit_tabs(self) -> None:
+        if not self._tabs or self._expand_tabs:
+            return
+        margins = self._layout.contentsMargins()
+        available = max(0, self.width() - margins.left() - margins.right())
+        widths = [button.sizeHint().width() for button in (tab.button for tab in self._tabs)]
+        spacing = self._layout.spacing() * max(0, len(widths) - 1)
+        if sum(widths) + spacing <= available:
+            for tab, width in zip(self._tabs, widths):
+                tab.button.setFixedWidth(width)
+            return
+        floor = max(24, self._style.tab_min_width(TAB_MIN_WIDTH) // 2)
+        budget = max(floor * len(widths), available - spacing)
+        scale = budget / max(1, sum(widths))
+        for tab, width in zip(self._tabs, widths):
+            tab.button.setFixedWidth(max(floor, int(width * scale)))
+
     def sizeHint(self) -> QSize:
         return QSize(self._content_width(), self._scaled_tab_height())
 
@@ -346,16 +383,16 @@ class TopTabBar(QWidget):
         # the squeeze test) — the bar must not force the host wider than it
         # wants, so the minimum is just the chrome floor, not the content.
         return QSize(self._layout.contentsMargins().left()
-                     + self._layout.contentsMargins().right() + TAB_MIN_WIDTH,
+                     + self._layout.contentsMargins().right() + self._style.tab_min_width(TAB_MIN_WIDTH),
                      self._scaled_tab_height())
 
     def _content_width(self) -> int:
         margins = self._layout.contentsMargins()
         width = margins.left() + margins.right()
         if not self._tabs:
-            return max(width, TAB_MIN_WIDTH)
+            return max(width, self._style.tab_min_width(TAB_MIN_WIDTH))
         widths = [
-            max(TAB_MIN_WIDTH, tab.button.sizeHint().width())
+            max(self._style.tab_min_width(TAB_MIN_WIDTH), tab.button.sizeHint().width())
             for tab in self._tabs
         ]
         width += sum(widths)
@@ -363,12 +400,70 @@ class TopTabBar(QWidget):
             width += self._layout.spacing() * (len(widths) - 1)
         return width
 
+    def required_width(self) -> int:
+        """The width this strip needs to show EVERY tab at its natural size.
+
+        A host that can size its column uses this instead of guessing, and a host that cannot gets a scrollbar rather
+        than tabs hidden behind the pane.
+        """
+        return self._content_width()
+
+    def scroll_offset(self) -> int:
+        return self._h_offset
+
+    def set_scroll_offset(self, offset: int) -> None:
+        maximum = max(0, self.required_width() - self.width())
+        self._h_offset = max(0, min(maximum, int(offset)))
+        self._place_strip()
+        if self._h_scroll.value() != self._h_offset:
+            self._h_scroll.blockSignals(True)
+            self._h_scroll.setValue(self._h_offset)
+            self._h_scroll.blockSignals(False)
+
+    def _on_h_scroll(self, value: int) -> None:
+        self._h_offset = int(value)
+        self._place_strip()
+
+    def _place_strip(self) -> None:
+        tab_height = self._scaled_tab_height()
+        self._strip.move(-self._h_offset, 0)
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 - Qt API
+        """A wheel over the strip scrolls it while the tabs overflow, and leaves the event alone when they fit."""
+        if self.required_width() > self.width():
+            delta = event.angleDelta().y() or event.angleDelta().x()
+            if delta:
+                self.set_scroll_offset(self._h_offset - int(delta / 120) * max(24, self.width() // 4))
+                event.accept()
+                return
+        super().wheelEvent(event)
+
     def _sync_strip_geometry(self) -> None:
         width = self._content_width()
         tab_height = self._scaled_tab_height()
         self._strip.setFixedSize(width, tab_height)
         self.setFixedHeight(tab_height)
+        self._place_strip()
+        self._sync_h_scroll()
         self.updateGeometry()
+
+    def _sync_h_scroll(self) -> None:
+        """A horizontal bar only while the tabs overflow, sized to the strip's range."""
+        maximum = max(0, self.required_width() - self.width())
+        bar_h = scaled_px(6)
+        if maximum <= 0:
+            self._h_scroll.set_animated_visible(False)
+            self._h_offset = 0
+            self._place_strip()
+            return
+        self._h_scroll.setGeometry(0, max(0, self.height() - bar_h), self.width(), bar_h)
+        self._h_scroll.setRange(0, maximum)
+        self._h_scroll.setPageStep(max(1, self.width()))
+        self._h_scroll.setSingleStep(max(1, self.width() // 8))
+        self._h_scroll.blockSignals(True)
+        self._h_scroll.setValue(min(self._h_offset, maximum))
+        self._h_scroll.blockSignals(False)
+        self._h_scroll.set_animated_visible(True)
 
     def _on_tab_clicked(self, idx: int) -> None:
         if idx == self._current_index:
