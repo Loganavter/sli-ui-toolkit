@@ -368,7 +368,19 @@ class _ButtonStyleApi:
         self.update()
 
     def setIconSize(self, size: QSize):
-        self._icon_size_px = max(1, size.width())
+        """Qt's name for the painted icon box - and the box lives in the REGION spec, not in this field.
+
+        Diagnosis (2026-11-22): the constructor passes ``icon_size`` into the main region spec, and the painter takes
+        ``ctx.region_icon_size_px`` first (painter.py:113). The setter only wrote ``_icon_size_px`` and the property, so
+        the region kept the construction value: a stated 35 px icon painted 22 px, while ``Button(icon_size=35)``
+        painted 35. Traced by wrapping ``IconContent.draw``: region=22, ctx.icon=35, style=35, prop=35.
+        """
+        self._icon_size_px = max(1, int(min(size.width(), size.height())))
+        self.setProperty("iconSizePx", self._icon_size_px)
+        controller = getattr(self, "_controller", None)
+        for region in getattr(controller, "regions", ()) or ():
+            if getattr(region, "id", None) == "_main":
+                region.icon_size_px = self._icon_size_px
         self.update()
 
     def set_footer_mode(self, is_footer: bool):
