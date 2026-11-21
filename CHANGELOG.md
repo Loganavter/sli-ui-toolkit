@@ -4,6 +4,9 @@
 
 ### Added
 
+- **A flat tab's plate can be inset** (`TabStyle.plate_margin`). Drawn on the button's full rect the plate runs into
+  the strip's bottom edge and the pane cuts its bottom corners - "rounded on top, square at the bottom", measured on a
+  host's tab strip. The inset keeps the radius visible and gives the strip air under the buttons.
 - **`SpinBox`/`DoubleSpinBox` can carry Qt's own ▲/▼ step gutter, so a host's
   `QSpinBox` mock can go.** `SpinBox(show_step_buttons=True, field_height=29,
   step_button_width=20)` adds the shape stock `QSpinBox` has — one narrow
