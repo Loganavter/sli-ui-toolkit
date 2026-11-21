@@ -51,6 +51,11 @@ class _CheckIndicatorLayer(Layer):
         neutral_hover = tm.get_color("dialog.button.hover")
         disabled_alpha = 110
         indicator_radius = scaled_px(widget.INDICATOR_RADIUS)
+        # The stroke's own rect: a pen of `OUTLINE_WIDTH` centred on an integer edge is drawn half outside the box and
+        # antialiases into two grey rows - the stock `QCheckBox::indicator` border is crisp white. Half a pen width
+        # inwards puts the line on whole pixels.
+        stroke = float(widget.OUTLINE_WIDTH)
+        stroke_rect = indicator_rect.adjusted(stroke / 2, stroke / 2, -stroke / 2, -stroke / 2)
 
         if is_checked:
             border_color = (
@@ -68,7 +73,7 @@ class _CheckIndicatorLayer(Layer):
             # Overwriting the alpha made "transparent fill" inexpressible - measured on RVE's check-square look.
             accent_fill.setAlpha(max(0, min(255, int(base_alpha * accent_fill.alpha() / 255))))
             painter.setBrush(QBrush(accent_fill) if accent_fill.alpha() > 0 else Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(indicator_rect, indicator_radius, indicator_radius)
+            painter.drawRoundedRect(stroke_rect, indicator_radius, indicator_radius)
         else:
             border_color = (
                 border
@@ -83,7 +88,7 @@ class _CheckIndicatorLayer(Layer):
                 painter.setBrush(QBrush(hover_fill))
             else:
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(indicator_rect, indicator_radius, indicator_radius)
+            painter.drawRoundedRect(stroke_rect, indicator_radius, indicator_radius)
 
         if is_checked:
             glyph_color = QColor(
