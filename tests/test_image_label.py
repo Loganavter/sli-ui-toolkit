@@ -67,7 +67,10 @@ def test_dpr_tagged_pixmap_hint_divides_out_the_ratio(qapp):
 
 
 def test_unscaled_pixmap_is_centred_with_transparent_corners(qapp):
+    # Centring is an explicit alignment now: the default is QLabel's (AlignLeft|AlignVCenter), pinned by the parity
+    # tests against QLabel itself.
     label = ImageLabel()
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     label.setPixmap(_solid_pixmap(20, 20))
     image = _render(label, (100, 100))
 

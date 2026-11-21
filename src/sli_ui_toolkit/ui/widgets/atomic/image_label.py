@@ -9,21 +9,20 @@ transparent surface (or an optional ``background_token`` resolved through
 
 Scaling semantics
 -----------------
-Unlike ``QLabel``, ``setScaledContents(True)`` keeps the image's aspect
-ratio instead of stretching it: the pixmap is scaled with
-``KeepAspectRatioByExpanding`` (cover — it fills the widget and is clipped)
-when the widget is smaller than the image, and with ``KeepAspectRatio``
-(contain — it is centred with the spare space left transparent) when the
-image has to grow into the widget. ``QLabel``'s distorting stretch is
-deliberately not reproduced: a screenshot or thumbnail is content, and a
-non-uniform scale is a silent wrong aspect ratio.
+``setScaledContents(True)`` stretches the pixmap over the contents rect without
+preserving the aspect ratio — QLabel's behaviour, measured: a host replacing a
+``QLabel`` saw a 1-2 % page deviation while this widget kept the ratio instead.
 
-With ``setScaledContents(False)`` the pixmap is drawn at its own logical
-size, aligned by ``setAlignment`` and clipped by the widget boundary. The
-logical size is the pixmap's ``deviceIndependentSize()``, so a 2× screenshot
+With ``setScaledContents(False)`` the pixmap is drawn at its own logical size,
+aligned by ``setAlignment`` and clipped by the widget boundary. Placement uses
+``QStyle::alignedRect`` arithmetic (integer division, RTL-aware) because that is
+what QLabel does: at an odd difference the float form landed one pixel off on
+every row. The default alignment is QLabel's too (``AlignLeft | AlignVCenter``),
+so a widget that never calls ``setAlignment`` places its pixmap identically.
+The logical size is the pixmap's ``deviceIndependentSize()``, so a 2× screenshot
 tagged with ``setDevicePixelRatio(2)`` is drawn at its intended size and
-stays crisp: the target rectangle is in logical px and the painter applies
-the widget's ratio on the way to device pixels.
+stays crisp: the target rectangle is in logical px and the painter applies the
+widget's ratio on the way to device pixels.
 """
 
 from __future__ import annotations
@@ -64,7 +63,7 @@ class ImageLabel(QWidget):
         *,
         pixmap: QPixmap | None = None,
         scaled_contents: bool = False,
-        alignment: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignCenter,
+        alignment: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         background_token: str | None = None,
     ) -> None:
         # ``parent`` is the first positional argument on purpose: Designer
@@ -180,16 +179,28 @@ class ImageLabel(QWidget):
     # -- painting -------------------------------------------------------
 
     def _aligned_top_left(self, size: QSize) -> QPointF:
-        rect = self.rect()
-        x = float(rect.x())
-        if self._alignment & Qt.AlignmentFlag.AlignHCenter:
-            x += (rect.width() - size.width()) / 2.0
-        elif self._alignment & Qt.AlignmentFlag.AlignRight:
+        """``QStyle::alignedRect`` arithmetic, integer and layout-aware.
+
+        QLabel places an unscaled pixmap with ``QStyle::alignedRect``, which divides
+        ``(available - size) / 2`` in **integers** and flips the horizontal flag on a
+        right-to-left layout. Matching that matters at odd differences: a 40x20 image in
+        a 47x27 widget lands at y=3 with QLabel and at y=4 with float maths, and a host
+        replacing the widget measures that one-pixel shift on every row.
+        """
+        rect = self.contentsRect()
+        alignment = Qt.AlignmentFlag(self._alignment)
+        if self.layoutDirection() == Qt.LayoutDirection.RightToLeft:
+            alignment ^= Qt.AlignmentFlag.AlignLeft
+            alignment ^= Qt.AlignmentFlag.AlignRight
+        x = rect.x()
+        if alignment & Qt.AlignmentFlag.AlignHCenter:
+            x += (rect.width() - size.width()) // 2
+        elif alignment & Qt.AlignmentFlag.AlignRight:
             x += rect.width() - size.width()
-        y = float(rect.y())
-        if self._alignment & Qt.AlignmentFlag.AlignVCenter:
-            y += (rect.height() - size.height()) / 2.0
-        elif self._alignment & Qt.AlignmentFlag.AlignBottom:
+        y = rect.y()
+        if alignment & Qt.AlignmentFlag.AlignVCenter:
+            y += (rect.height() - size.height()) // 2
+        elif alignment & Qt.AlignmentFlag.AlignBottom:
             y += rect.height() - size.height()
         return QPointF(x, y)
 
@@ -201,7 +212,7 @@ class ImageLabel(QWidget):
             # rect and does NOT preserve the aspect ratio. Keeping the aspect (this widget's first behaviour) made a
             # logo sit 1-2% differently from the widget it replaced in the host - measured, and it is the difference a
             # page-level pixel diff sees.
-            return QRectF(self.rect())
+            return QRectF(self.contentsRect())
         rect = QRectF(QPointF(0.0, 0.0), native)
         rect.moveTopLeft(self._aligned_top_left(native.toSize()))
         return rect
@@ -211,6 +222,18 @@ class ImageLabel(QWidget):
         if self._background_token:
             painter.fillRect(self.rect(), self._theme_manager.get_color(self._background_token))
         if self._pixmap.isNull():
+            return
+        if self._scaled_contents:
+            # QLabel scales the pixmap once and blits it at the contents rect's top-left; drawing the source rect
+            # straight into a float target (the obvious form) resamples differently at the edges - measured as 19-36
+            # stray pixels per label against the stock widget.
+            ratio = self.devicePixelRatioF()
+            target = self.contentsRect().size() * ratio
+            scaled = self._pixmap.scaled(
+                target, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
+            )
+            scaled.setDevicePixelRatio(ratio)
+            painter.drawPixmap(self.contentsRect().topLeft(), scaled)
             return
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
         # Target is logical px; QPainter applies this widget's device ratio
