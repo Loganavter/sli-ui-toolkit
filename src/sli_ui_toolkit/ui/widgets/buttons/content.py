@@ -280,6 +280,12 @@ class TextContent(Content):
         p.setPen(_text_color(ctx, tm))
         rect = _rect(ctx)
 
+        # A text-only button follows its own ``content_align``: it used to hard-code AlignCenter, so a host asking for
+        # a left-aligned label got a centred one and the only way out was to stop using the button's text entirely
+        # (measured on RVE, whose QPushButton rule is `text-align: left`).
+        h_align = (
+            getattr(ctx, "content_align", Qt.AlignmentFlag.AlignHCenter) & Qt.AlignmentFlag.AlignHorizontal_Mask
+        ) or Qt.AlignmentFlag.AlignHCenter
         lines = self.text.split("\n") if "\n" in self.text else [self.text]
         if len(lines) > 1:
             fm = p.fontMetrics()
@@ -288,9 +294,9 @@ class TextContent(Content):
             start_y = rect.y() + (rect.height() - total_h) // 2
             for i, line in enumerate(lines):
                 r = QRect(rect.x(), start_y + i * line_h, rect.width(), line_h)
-                p.drawText(r, Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter, line)
+                p.drawText(r, h_align | Qt.AlignmentFlag.AlignVCenter, line)
         else:
-            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text)
+            p.drawText(rect, h_align | Qt.AlignmentFlag.AlignVCenter, self.text)
 
 
 @dataclass
@@ -304,7 +310,9 @@ class ButtonRow:
     weight: str = "normal"
     color: QColor | None = None
     ratio: float = 0.5
-    h_align: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignHCenter
+    #: Horizontal alignment of this row. ``None`` inherits the button's ``content_align`` - a text-only button whose
+    #: content is asked to sit left used to ignore that and centre anyway (RVE's buttons are left-aligned labels).
+    h_align: Qt.AlignmentFlag | None = None
     strikethrough: bool = False
     italic: bool = False
     # When True and the text is wider than the row, scroll left→right in a loop
@@ -569,7 +577,11 @@ class RowsContent(Content):
         else:
             color = style.foreground_color or tm.get_color("dialog.text")
         pen = color if isinstance(color, QColor) else QColor(color)
-        h_align = getattr(row, "h_align", Qt.AlignmentFlag.AlignHCenter)
+        h_align = getattr(row, "h_align", None)
+        if h_align is None:
+            h_align = getattr(ctx, "content_align", Qt.AlignmentFlag.AlignHCenter) & Qt.AlignmentFlag.AlignHorizontal_Mask
+        if not h_align:
+            h_align = Qt.AlignmentFlag.AlignHCenter
         text = row.text or ""
         fm = QFontMetrics(f)
         # Marquee measures/draws against the unpadded width so the crawl can
