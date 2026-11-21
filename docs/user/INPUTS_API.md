@@ -126,13 +126,21 @@ button = Button(icon="line_weight", wheel_requires_focus=True)
 spin.setWheelRequiresFocus(False)
 ```
 
-`CheckBox(text=None, parent=None)` and `RadioButton(text=None, parent=None)`
-are theme-painted repaints of `QCheckBox`/`QRadioButton` — the only
-custom-typed constructor arguments are `text`/`parent`; everything else
-(tristate, `setChecked`, `setCheckState`, ...) is the standard Qt API.
+`CheckBox(text=None, parent=None, *, tristate=False)` and
+`RadioButton(text=None, parent=None)` paint themselves through the shared
+`Button` pipeline (there is no stock `QCheckBox`/`QRadioButton` underneath).
+
+`CheckBox` answers Qt's check-state surface. Two-state by default
+(`setChecked`/`isChecked`); with `tristate=True` — or `setTristate(True)` —
+clicks and `Space` cycle Unchecked → PartiallyChecked → Checked,
+`checkState()`/`setCheckState()` speak `Qt.CheckState`, and `stateChanged(int)`
+fires alongside `toggled(bool)`. The indeterminate state paints as a dash in a
+filled indicator; `isChecked()` is true for it, exactly as in Qt.
 
 ```python
 check = CheckBox("Enable feature")
+tri = CheckBox("Mixed", tristate=True)
+tri.setCheckState(Qt.CheckState.PartiallyChecked)
 radio = RadioButton("Option A")
 ```
 

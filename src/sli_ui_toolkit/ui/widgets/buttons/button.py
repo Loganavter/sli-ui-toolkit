@@ -27,7 +27,7 @@ import time
 from collections.abc import Sequence
 from typing import Any, ClassVar, TYPE_CHECKING, cast
 
-from PySide6.QtCore import QEvent, QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, Qt, QTimer, Signal
 import shiboken6 as sip
 
 logger = logging.getLogger(__name__)
@@ -271,6 +271,11 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         toggle: bool = False,
         long_press: bool = False,
         long_press_ms: int = 600,
+        auto_exclusive: bool = False,
+        auto_repeat: bool = False,
+        # Qt's own defaults, measured on QAbstractButton 6.11.2: 300 / 100 ms.
+        auto_repeat_delay: int = 300,
+        auto_repeat_interval: int = 100,
         badge: int | str | None = None,
         badge_key: str | None = None,
         show_underline: bool = False,
@@ -419,6 +424,20 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self._width_texts: tuple[str, ...] = (
             tuple(str(t) for t in width_texts) if width_texts else ()
         )
+
+        # Qt ``QAbstractButton`` parity for generated stock-UI hosts. Both are
+        # opt-in: an unconfigured Button keeps today's behaviour exactly.
+        self._auto_exclusive = bool(auto_exclusive)
+        self._auto_repeat = bool(auto_repeat)
+        self._auto_repeat_delay = max(0, int(auto_repeat_delay))
+        self._auto_repeat_interval = max(1, int(auto_repeat_interval))
+        self._auto_repeat_holding = False
+        self._auto_repeat_region: str | None = None
+        # Two-stage repeat (delay, then interval) on one timer: the first
+        # timeout flips it out of single-shot mode (see _auto_repeat_tick).
+        self._auto_repeat_timer = QTimer(self)
+        self._auto_repeat_timer.setSingleShot(True)
+        self._auto_repeat_timer.timeout.connect(self._auto_repeat_tick)
 
         self._variant = variant
         self._density = density
@@ -1011,12 +1030,57 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     def isChecked(self) -> bool:
         return self._checked
 
+    # -------- public API: Qt ``QAbstractButton`` semantics --------
+
+    def isCheckable(self) -> bool:
+        """True when a user gesture may toggle this button (Qt parity)."""
+        if self._has_toggle:
+            return True
+        return any(bool(getattr(region, "toggle", False)) for region in self._regions)
+
+    def setAutoExclusive(self, enabled: bool) -> None:
+        """Make exclusive siblings in the same parent share one checked button.
+
+        Qt semantics: when this button becomes checked, every sibling that is
+        also ``autoExclusive`` and checkable is unchecked, and clicking an
+        already-checked exclusive button keeps it checked. Off by default.
+        """
+        self._auto_exclusive = bool(enabled)
+
+    def autoExclusive(self) -> bool:
+        return self._auto_exclusive
+
+    def setAutoRepeat(self, enabled: bool) -> None:
+        """Re-emit ``pressed``/``clicked`` while the button is held (Qt parity)."""
+        self._auto_repeat = bool(enabled)
+        if not self._auto_repeat:
+            self._auto_repeat_stop()
+
+    def autoRepeat(self) -> bool:
+        return self._auto_repeat
+
+    def setAutoRepeatDelay(self, delay_ms: int) -> None:
+        self._auto_repeat_delay = max(0, int(delay_ms))
+
+    def autoRepeatDelay(self) -> int:
+        return self._auto_repeat_delay
+
+    def setAutoRepeatInterval(self, interval_ms: int) -> None:
+        self._auto_repeat_interval = max(1, int(interval_ms))
+
+    def autoRepeatInterval(self) -> int:
+        return self._auto_repeat_interval
+
     def setRegionChecked(self, region_id: str, checked: bool, *, emit: bool = True) -> None:
         """Programmatically set the CHECKED state of any region (not just `"_main"`).
 
         Generalizes `setChecked` — same effect a user click would have on a
         `toggle=True` region. When the region belongs to a ``group=``, CHECKED
         mirrors to every sibling in that group (same as HOVERED/PRESSED).
+
+        A checked button with ``autoExclusive`` unchecks its exclusive
+        siblings in the same parent (Qt ``QAbstractButton`` semantics), for
+        programmatic writes as well as clicks.
         """
         checked = bool(checked)
         linked = self._linked_region_ids(region_id)
@@ -1032,6 +1096,28 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
             self.regionToggled.emit(region_id, checked)
             if region_id == "_main" or "_main" in linked:
                 self.toggled.emit(checked)
+        if checked:
+            self._uncheck_auto_exclusive_siblings()
+
+    def _uncheck_auto_exclusive_siblings(self) -> None:
+        """Qt ``autoExclusive``: one checked button per parent among peers.
+
+        Only siblings that are themselves ``autoExclusive`` and checkable are
+        uncheckable by this group (measured against ``QPushButton``: a
+        non-exclusive sibling stays checked beside an exclusive one).
+        """
+        if not self._auto_exclusive:
+            return
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        for sibling in parent.children():
+            if not isinstance(sibling, Button) or sibling is self:
+                continue
+            if not sibling.autoExclusive() or not sibling.isCheckable():
+                continue
+            if sibling.isChecked():
+                sibling.setChecked(False)
 
     # -------- paint --------
 

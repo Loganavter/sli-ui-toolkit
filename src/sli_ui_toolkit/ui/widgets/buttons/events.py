@@ -58,8 +58,17 @@ class _ButtonEvents:
     _hovered_region: str | None
     _flyout_open: bool
     _has_toggle: bool
+    # Read-only here; assigned in Button.__init__ (the mixin split hides it).
+    _auto_exclusive: bool
+    _auto_repeat: bool
+    _auto_repeat_delay: int
+    _auto_repeat_interval: int
+    _auto_repeat_holding: bool
+    _auto_repeat_region: str | None
+    _auto_repeat_timer: QTimer
     hover_host: Any
     get_capability: Callable[..., Any]
+    setRegionChecked: Callable[..., None]
     _sync_region_aliases: Callable[[], None]
     _dispatch_region_behavior: Callable[..., None]
     _resolve_ripple_colors: Callable[..., Any]
@@ -101,6 +110,10 @@ class _ButtonEvents:
             self.setHoverActive(False)
             self._set_region_state(self._pressed_region, ButtonState.PRESSED, False)
             self._pressed_region = None
+            # Leaving the widget ends the gesture for everything that reads
+            # PRESSED; a repeat timer left running would keep clicking a
+            # control the pointer already left.
+            self._auto_repeat_stop()
         from PySide6.QtWidgets import QWidget
         QWidget.leaveEvent(self, event)
 
@@ -223,6 +236,7 @@ class _ButtonEvents:
                 self.regionPressed.emit(region_id)  # type: ignore[call-overload]
                 if region_id == "_main":
                     self.pressed.emit()  # type: ignore[call-overload]
+                self._auto_repeat_start(region_id)
                 # Accept so nested Buttons (e.g. rating +/- on RatingListItem)
                 # do not propagate to the parent row and trigger itemSelected.
                 event.accept()
@@ -240,6 +254,7 @@ class _ButtonEvents:
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
+            self._auto_repeat_stop()
             region_id = self._pressed_region
             lp_cap = self.get_capability(LongPressCapability, region_id=region_id)
             if lp_cap:
@@ -261,13 +276,7 @@ class _ButtonEvents:
                 region = self._region_by_id(region_id)
                 has_toggle = bool(region.toggle) if region is not None else self._has_toggle
                 if has_toggle:
-                    checked = ButtonState.CHECKED not in self._controller.states(region_id)
-                    self._set_region_state(region_id, ButtonState.CHECKED, checked)
-                    self.regionToggled.emit(region_id, checked)  # type: ignore[call-overload]
-                    linked = self._linked_region_ids(region_id)
-                    if region_id == "_main" or "_main" in linked:
-                        self._checked = checked
-                        self.toggled.emit(checked)  # type: ignore[call-overload]
+                    self._toggle_from_user(region_id)
                 if self._defer_click_ms is not None:
                     clicked_region = region_id
                     QTimer.singleShot(
@@ -401,10 +410,82 @@ class _ButtonEvents:
         if not sip.isValid(self):
             return
         if self._has_toggle:
-            self.setChecked(not self._checked)
+            self._toggle_from_user("_main")
         if self._defer_click_ms is not None:
             QTimer.singleShot(self._defer_click_ms, self._emit_click_signals)
         else:
+            self._emit_click_signals()
+
+    def _toggle_from_user(self, region_id: str) -> None:
+        """Flip the checked state for a user gesture (click, Space, Enter).
+
+        One seam for the mouse and keyboard paths so a subclass can change the
+        cycle once (``CheckBox``'s tri-state) instead of forking both event
+        handlers. ``autoExclusive`` follows Qt's ``QAbstractButton``: a checked
+        exclusive button cannot be unchecked by clicking it.
+        """
+        checked_now = ButtonState.CHECKED in self._controller.states(region_id)
+        if checked_now and getattr(self, "_auto_exclusive", False):
+            return
+        self.setRegionChecked(region_id, not checked_now)
+
+    # -------- auto-repeat --------
+
+    def _auto_repeat_start(self, region_id: str) -> None:
+        """Arm Qt's two-stage repeat: one delay, then a steady interval.
+
+        The region is captured here on purpose: hover reconciliation clears
+        ``_pressed_region`` when the pointer is reported elsewhere (the
+        HoverCoordinator does that for every un-hovered button), and the
+        repeat belongs to the region the gesture started on.
+        """
+        if not getattr(self, "_auto_repeat", False):
+            return
+        self._auto_repeat_holding = True
+        self._auto_repeat_region = region_id
+        timer = self._auto_repeat_timer
+        timer.setSingleShot(True)
+        timer.setInterval(max(0, int(self._auto_repeat_delay)))
+        timer.start()
+
+    def _auto_repeat_stop(self) -> None:
+        self._auto_repeat_holding = False
+        self._auto_repeat_region = None
+        timer = getattr(self, "_auto_repeat_timer", None)
+        if timer is not None:
+            timer.stop()
+
+    def _auto_repeat_tick(self) -> None:
+        """Re-emit this press's ``pressed``/``clicked`` while the button is held.
+
+        Qt's QAbstractButton re-fires its click flow on every repeat tick; the
+        toolkit mirrors the named contract (``pressed`` + ``clicked``) and not
+        the per-tick state flip of a checkable stock button, which would
+        thrash a toggle while the user is only holding the pointer down.
+        """
+        if not self._auto_repeat_holding or not self.isEnabled():
+            self._auto_repeat_stop()
+            return
+        timer = self._auto_repeat_timer
+        if timer.isSingleShot():
+            timer.setSingleShot(False)
+            timer.setInterval(max(1, int(self._auto_repeat_interval)))
+            timer.start()
+        region_id = self._auto_repeat_region
+        if region_id is None:
+            return
+        self.regionPressed.emit(region_id)  # type: ignore[call-overload]
+        if not sip.isValid(self):  # type: ignore[attr-defined]
+            return
+        if region_id == "_main":
+            self.pressed.emit()  # type: ignore[call-overload]
+        self._dispatch_region_behavior(region_id, "click")
+        if not sip.isValid(self):  # type: ignore[attr-defined]
+            return
+        self.regionClicked.emit(region_id)  # type: ignore[call-overload]
+        if not sip.isValid(self):  # type: ignore[attr-defined]
+            return
+        if region_id == "_main" or "_main" in self._linked_region_ids(region_id):
             self._emit_click_signals()
 
     def _emit_deferred_region_click(self, region_id: str | None) -> None:
@@ -441,6 +522,8 @@ class _ButtonEvents:
     # -------- enabled state --------
 
     def setEnabled(self, enabled: bool):
+        if not enabled:
+            self._auto_repeat_stop()
         QWidget.setEnabled(self, enabled)  # type: ignore[arg-type]
         if enabled:
             region_enabled = {region.id: region.enabled for region in self._regions}

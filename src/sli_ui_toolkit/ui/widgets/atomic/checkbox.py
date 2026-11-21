@@ -11,6 +11,7 @@ from PySide6.QtCore import (
     QSize,
     Qt,
     Property,
+    Signal,
 )
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
 
@@ -44,6 +45,13 @@ class _CheckIndicatorLayer(Layer):
         is_disabled = ButtonState.DISABLED in states
         is_hovered = ButtonState.HOVERED in states
         is_checked = ButtonState.CHECKED in states
+        # Qt paints the indeterminate state as a filled box with a dash, so the
+        # fill/glyph branches key off "filled" rather than "checked".
+        is_partial = (
+            getattr(widget, "_check_state", Qt.CheckState.Unchecked)
+            == Qt.CheckState.PartiallyChecked
+        )
+        is_filled = is_checked or is_partial
 
         accent = tm.get_color("accent")
         border = tm.get_color("dialog.border")
@@ -57,7 +65,7 @@ class _CheckIndicatorLayer(Layer):
         stroke = float(widget.OUTLINE_WIDTH)
         stroke_rect = indicator_rect.adjusted(stroke / 2, stroke / 2, -stroke / 2, -stroke / 2)
 
-        if is_checked:
+        if is_filled:
             border_color = (
                 border
                 if not is_disabled
@@ -90,46 +98,68 @@ class _CheckIndicatorLayer(Layer):
                 painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(stroke_rect, indicator_radius, indicator_radius)
 
-        if is_checked:
+        if is_filled:
             glyph_color = QColor(
                 tm.try_get_color(widget.CHECK_COLOR_TOKEN) or QColor(Qt.GlobalColor.white)
             )
             if is_disabled:
                 glyph_color.setAlpha(disabled_alpha)
 
-            painter.save()
-            center = indicator_rect.center()
-            painter.translate(center)
-            painter.rotate(widget.CHECK_ROTATION_DEG)
-            painter.translate(-center)
-
-            painter.setPen(
-                QPen(
-                    glyph_color,
-                    widget.CHECK_STROKE_WIDTH,
-                    Qt.PenStyle.SolidLine,
-                    Qt.PenCapStyle.RoundCap,
-                    Qt.PenJoinStyle.MiterJoin,
+            if is_partial:
+                # Qt's indeterminate mark: a horizontal dash, unrotated.
+                painter.setPen(
+                    QPen(
+                        glyph_color,
+                        widget.CHECK_STROKE_WIDTH,
+                        Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap,
+                    )
                 )
-            )
+                dash_y = indicator_rect.center().y()
+                painter.drawLine(
+                    QPointF(
+                        indicator_rect.left() + indicator_rect.width() * widget.DASH_X1,
+                        dash_y,
+                    ),
+                    QPointF(
+                        indicator_rect.left() + indicator_rect.width() * widget.DASH_X2,
+                        dash_y,
+                    ),
+                )
+            else:
+                painter.save()
+                center = indicator_rect.center()
+                painter.translate(center)
+                painter.rotate(widget.CHECK_ROTATION_DEG)
+                painter.translate(-center)
 
-            x1 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X1
-            y1 = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y1_NORM
-            x2 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X2
-            y2_pre = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y2_PRE
-            x3 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X3
-            y3_pre = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y3_PRE
+                painter.setPen(
+                    QPen(
+                        glyph_color,
+                        widget.CHECK_STROKE_WIDTH,
+                        Qt.PenStyle.SolidLine,
+                        Qt.PenCapStyle.RoundCap,
+                        Qt.PenJoinStyle.MiterJoin,
+                    )
+                )
 
-            cx = indicator_rect.center().y()
-            y2 = cx + widget.CHECK_BOTTOM_FACTOR * (y2_pre - cx)
-            y3 = cx + widget.CHECK_TOP_FACTOR * (y3_pre - cx)
+                x1 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X1
+                y1 = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y1_NORM
+                x2 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X2
+                y2_pre = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y2_PRE
+                x3 = indicator_rect.left() + indicator_rect.width() * widget.CHECK_X3
+                y3_pre = indicator_rect.top() + indicator_rect.height() * widget.CHECK_Y3_PRE
 
-            path = QPainterPath()
-            path.moveTo(QPointF(x1, y1))
-            path.lineTo(QPointF(x2, y2))
-            path.lineTo(QPointF(x3, y3))
-            painter.drawPath(path)
-            painter.restore()
+                cx = indicator_rect.center().y()
+                y2 = cx + widget.CHECK_BOTTOM_FACTOR * (y2_pre - cx)
+                y3 = cx + widget.CHECK_TOP_FACTOR * (y3_pre - cx)
+
+                path = QPainterPath()
+                path.moveTo(QPointF(x1, y1))
+                path.lineTo(QPointF(x2, y2))
+                path.lineTo(QPointF(x3, y3))
+                painter.drawPath(path)
+                painter.restore()
 
         if widget._text:
             painter.setPen(
@@ -165,18 +195,37 @@ class _CheckIndicatorLayer(Layer):
             )
 
 
+_NEXT_CHECK_STATE = {
+    Qt.CheckState.Unchecked: Qt.CheckState.PartiallyChecked,
+    Qt.CheckState.PartiallyChecked: Qt.CheckState.Checked,
+    Qt.CheckState.Checked: Qt.CheckState.Unchecked,
+}
+
+
 class CheckBox(Button):
     """Checkbox toggle, built on the shared ``Button`` painter pipeline, so it
     picks up ``FocusLayer``'s keyboard-focus ring like every other toolkit
     control.
 
-    Two-state only (no ``Qt.CheckState.PartiallyChecked`` indeterminate) —
-    nothing in this toolkit's host apps used tri-state, and ``Button``'s own
-    ``_checked`` is a plain bool.
+    Two-state by default. ``CheckBox(text, tristate=True)`` mirrors Qt's
+    ``QCheckBox`` with ``setTristate(True)``: clicks/keys cycle
+    Unchecked → PartiallyChecked → Checked, ``checkState()`` answers the
+    ``Qt.CheckState``, and the indeterminate mark paints as a dash. With the
+    flag unset the widget behaves exactly as it always has.
     """
 
     inspect_spec: ClassVar[InspectSpec]
     widget_descriptor: ClassVar["WidgetDescriptor"]
+
+    #: Qt emits ``stateChanged(int)`` alongside ``toggled``; hosts that read
+    #: the tri-state listen to this one (``toggled`` cannot express partial).
+    stateChanged = Signal(int)
+
+    # Class-level defaults keep inspection/painting safe before __init__ has
+    # stored the instance values (a paint cannot run that early, but a spec
+    # read or a subclass query can).
+    _tristate: bool = False
+    _check_state: Qt.CheckState = Qt.CheckState.Unchecked
 
     #: Colours the checked state paints from. Defaults keep the toolkit's own look (white check on an `accent` fill);
     #: a host whose design language differs - a monochrome box with an outline and a tick, for instance - points these
@@ -201,14 +250,27 @@ class CheckBox(Button):
     CHECK_Y3_PRE = 0.34
     CHECK_BOTTOM_FACTOR = 0.75
     CHECK_TOP_FACTOR = 0.55
+    # Indeterminate dash, as fractions of the indicator box.
+    DASH_X1 = 0.24
+    DASH_X2 = 0.76
 
-    def __init__(self, text: str | None = None, parent=None):
+    def __init__(
+        self,
+        text: str | None = None,
+        parent=None,
+        *,
+        tristate: bool = False,
+    ):
         super().__init__(
             text=text or "",
             toggle=True,
             corner_radius=6,
             layers=[_CheckIndicatorLayer(), FocusLayer()],
             parent=parent,
+        )
+        self._tristate = bool(tristate)
+        self._check_state = (
+            Qt.CheckState.Checked if self.isChecked() else Qt.CheckState.Unchecked
         )
         self._hover_progress = 0.0
         self._checked_progress = 1.0 if self.isChecked() else 0.0
@@ -230,6 +292,56 @@ class CheckBox(Button):
 
     def text(self) -> str:
         return self._text
+
+    # -------- public API: Qt ``QCheckBox`` tri-state --------
+
+    def isTristate(self) -> bool:
+        return self._tristate
+
+    def setTristate(self, enabled: bool) -> None:
+        """Enable Qt's check-state cycle (Unchecked → Partial → Checked).
+
+        Mirrors ``QCheckBox::setTristate``: the flag only governs *cycling*;
+        ``setCheckState`` may store ``PartiallyChecked`` regardless, as in Qt.
+        """
+        self._tristate = bool(enabled)
+
+    def checkState(self) -> Qt.CheckState:
+        return self._check_state
+
+    def setCheckState(self, state: Qt.CheckState) -> None:
+        """Set the check state, emitting exactly what Qt emits.
+
+        Qt's order is ``toggled(bool)`` (only when the bool changes), then
+        ``stateChanged(int)`` — measured on ``QCheckBox`` 6.11: unchecked →
+        partial fires both, partial → checked fires only ``stateChanged``.
+        """
+        state = state if isinstance(state, Qt.CheckState) else Qt.CheckState(int(state))
+        if state == self._check_state:
+            return
+        self.setChecked(state != Qt.CheckState.Unchecked)
+        # ``setChecked``/``setRegionChecked`` normalise to a bool state; the
+        # tri-state value is the one this call was asked for.
+        self._check_state = state
+        self.update()
+        self.stateChanged.emit(state.value)
+
+    def _toggle_from_user(self, region_id: str) -> None:
+        if not self._tristate:
+            super()._toggle_from_user(region_id)
+            return
+        self.setCheckState(_NEXT_CHECK_STATE[self.checkState()])
+
+    def setRegionChecked(self, region_id: str, checked: bool, *, emit: bool = True) -> None:
+        super().setRegionChecked(region_id, checked, emit=emit)
+        if region_id != "_main":
+            return
+        # Qt's ``QCheckBox::checkStateSet``: a bool write collapses the
+        # tri-state to Checked/Unchecked (even when the bool did not change).
+        self._check_state = (
+            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        )
+        self.update()
 
     def get_hover_progress(self) -> float:
         return self._hover_progress
@@ -344,6 +456,8 @@ CheckBox.inspect_spec = InspectSpec(
     family="CheckBox",
     state=(
         SpecField("checked", "isChecked"),
+        SpecField("tristate", "isTristate"),
+        SpecField("check_state", "checkState"),
         SpecField("hover_progress", "hoverProgress"),
         SpecField("checked_progress", "checkedProgress"),
     ),
