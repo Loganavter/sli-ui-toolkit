@@ -22,7 +22,22 @@ class ToastProgressBar(QWidget):
     chunk or paint a distinct unfilled track across platforms.
     """
 
-    def __init__(self, parent: QWidget | None = None, *, height: int = 6) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        height: int = 6,
+        track_token: str = "toast.progress.background",
+        fill_token: str = "toast.progress.fill",
+    ) -> None:
+        """`track_token`/`fill_token` let a host point the bar at ITS OWN tokens.
+
+        A toast bar and a page's render progress are the same shape but not the same plate: a host migrating off a
+        stylesheet had its trough on `progress.track.background`, and inheriting the toast's translucent token would have
+        changed the colour of a control that had not changed at all (measured: a #343b47 trough vs a #24000000 wash).
+        """
+        self._track_token = str(track_token)
+        self._fill_token = str(fill_token)
         super().__init__(parent)
         self.setObjectName("ToastProgressBar")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
@@ -57,7 +72,7 @@ class ToastProgressBar(QWidget):
         return self._maximum
 
     def _track_color(self) -> QColor:
-        color = self._theme.try_get_color("toast.progress.background")
+        color = self._theme.try_get_color(self._track_token)
         if color is not None and color.isValid():
             return QColor(color)
         # Fallback when host palette omits the token.
@@ -66,7 +81,7 @@ class ToastProgressBar(QWidget):
         return base
 
     def _fill_color(self) -> QColor:
-        color = self._theme.try_get_color("toast.progress.fill")
+        color = self._theme.try_get_color(self._fill_token)
         if color is not None and color.isValid():
             return QColor(color)
         accent = self._theme.try_get_color("accent")

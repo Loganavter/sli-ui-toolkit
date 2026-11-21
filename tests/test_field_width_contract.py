@@ -84,3 +84,13 @@ def test_qt_range_halves_answer_on_both_variants(qapp):
         field.setMinimum(2)
         assert field.minimum() == 2
         assert field.value() >= 2
+
+
+def test_a_host_can_point_the_progress_track_at_its_own_token(qapp):
+    """A page's render bar is not a toast: the trough token must be the host's."""
+    from sli_ui_toolkit.ui.widgets.composite.toast.progress_bar import ToastProgressBar
+
+    bar = ToastProgressBar(track_token="progress.track.background")
+    assert bar._track_token == "progress.track.background"
+    default = ToastProgressBar()
+    assert default._track_token == "toast.progress.background"
