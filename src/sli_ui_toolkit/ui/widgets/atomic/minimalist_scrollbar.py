@@ -416,6 +416,7 @@ class OverlayScrollArea(QScrollArea):
         scrollbar_auto_hide: Any = _UNSET,
         corner_radius: int | None = None,
         widget_resizable: bool | None = None,
+        content_inset: int = 0,
     ):
         """Scroll area with an overlay-style thin scrollbar.
 
@@ -427,6 +428,14 @@ class OverlayScrollArea(QScrollArea):
         Both axes get an overlay bar (vertical + horizontal); each appears
         only while its axis overflows. ``widget_resizable=False`` keeps
         fixed-size content (the area never stretches it to the viewport).
+
+        ``content_inset`` reproduces a stock ``QScrollArea``'s frame inset:
+        the stock widget's default ``StyledPanel`` frame shrinks the viewport
+        by one pixel on every side, so a host replacing it with this widget
+        loses 2 px of content width and every child shifts - measured on a
+        migrated page whose content went 1008 -> 1010 px wide. The inset is
+        applied together with the bar's reserved margin (this class owns
+        ``setViewportMargins``, so a host cannot set its own).
         """
         super().__init__(parent)
         cfg = config or OverlayScrollbarConfig()
@@ -450,6 +459,7 @@ class OverlayScrollArea(QScrollArea):
         self._scrollbar_gap = max(
             0, int(cfg.gap if scrollbar_gap is None else scrollbar_gap)
         )
+        self._content_inset = max(0, int(content_inset))
         self._stored_items_count = 0
         self._update_timer = QTimer(self)
         self._update_timer.setSingleShot(True)
@@ -860,7 +870,8 @@ class OverlayScrollArea(QScrollArea):
         try:
             _rm = self._scrollbar_width if (self._reserve_scrollbar_space and v_show) else 0
             _bm = self._scrollbar_width if (self._reserve_scrollbar_space and h_show) else 0
-            self.setViewportMargins(0, 0, _rm, _bm)
+            _i = self._content_inset
+            self.setViewportMargins(_i, _i, _i + _rm, _i + _bm)
         except Exception:
             pass
         self._position_scrollbars()
@@ -943,8 +954,14 @@ class SurfaceScrollArea(OverlayScrollArea):
         parent: QWidget | None = None,
         *,
         surface_token: str | None = "surface.background",
+        **scroll_area_options,
     ) -> None:
-        super().__init__(parent)
+        # Everything OverlayScrollArea accepts (content_inset, reserve policy,
+        # scrollbar width/gap, corner radius, widget_resizable) is forwarded:
+        # the surface token is the only thing this subclass adds, and a host
+        # that replaces a stock scroll area needs both the surface answer and
+        # the stock geometry.
+        super().__init__(parent, **scroll_area_options)
         self.set_corner_radius(0)
         self._surface_token: str | None = None
         self.viewport().setAutoFillBackground(False)
