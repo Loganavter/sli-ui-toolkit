@@ -96,7 +96,11 @@ class TextListWidget(SurfacePanel):
         self._padding = tuple(scaled_px(v) for v in (padding or (6, 4, 6, 4)))
         self._text_pixel_size = max(1, int(text_pixel_size))
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # Preferred, like the `QListWidget` this replaces. NOT Expanding: a box layout caches an item's expanding
+        # directions when it is inserted, so a host that sets `Preferred` AFTER inserting the widget leaves the layout
+        # believing it expands - measured on a queue row where the list took 330 px against the stock 256 and squeezed
+        # the button column from 200 to 104. Preferred by default makes the host's own call a no-op.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
         # No layout inset: the plate IS the widget, and its rounded corners are painted by `SurfacePanel`. Insetting by
         # the radius shrank the plate by 20 px inside its own rect - measured on an empty queue list, whose whole visible
