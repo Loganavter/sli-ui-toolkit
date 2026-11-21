@@ -168,6 +168,18 @@ class RichTextView(SurfacePanel):
         self.label.setFont(font)
         self._sync_height()
 
+    def setTextPixelSize(self, pixel_size: int) -> None:  # noqa: N802
+        """Size the text in PIXELS.
+
+        A host whose design states pixel sizes (RVE: 12 px controls) cannot use `setFontPointSize`, which converts
+        through the screen DPI (12 pt became 16 px and every line of a migrated pane grew) - the same trap the toolkit's
+        spin boxes had with the locale.
+        """
+        font = QFont(self.label.font())
+        font.setPixelSize(max(1, int(pixel_size)))
+        self.label.setFont(font)
+        self._sync_height()
+
     def padding(self) -> tuple[int, int, int, int]:
         return self._padding
 

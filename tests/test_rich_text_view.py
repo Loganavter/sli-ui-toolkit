@@ -69,3 +69,15 @@ def test_plain_text_reads_through_the_markup(qapp):
     assert "<" not in plain
     assert "bold" in plain and "second" in plain
     assert view.text() == plain
+
+
+def test_text_size_in_pixels_is_not_converted_through_dpi(qapp):
+    # A host that states pixel sizes cannot use point sizes: `setFontPointSize(12)` rendered 16 px on a 96 dpi screen
+    # and every line of a migrated pane grew.
+    from PySide6.QtGui import QFontInfo
+
+    view = _view(qapp)
+    view.setTextPixelSize(12)
+    assert QFontInfo(view.label.font()).pixelSize() == 12
+    view.setTextPixelSize(15)
+    assert QFontInfo(view.label.font()).pixelSize() == 15
