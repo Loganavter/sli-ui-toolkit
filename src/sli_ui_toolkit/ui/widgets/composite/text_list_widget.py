@@ -106,6 +106,11 @@ class TextListWidget(SurfacePanel):
         # the radius shrank the plate by 20 px inside its own rect - measured on an empty queue list, whose whole visible
         # content is that plate (2.7 % against the stock 1.4 %).
         self._scroll = OverlayScrollArea(self, reserve_scrollbar_space=True)
+        # The INNER scroll area must not be Expanding: a layout item inherits the expansion of the widget's own layout,
+        # and an Expanding child made the whole list claim its row's leftover - measured on a queue page where the list
+        # took 330 px against the stock 256 and the button column beside it lost 79 px. With Preferred the split is
+        # exactly QListWidget's.
+        self._scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         if scrollbar_width is not None:
             self._scroll.set_scrollbar_width(scrollbar_width)
         self._rows = _Rows(self)

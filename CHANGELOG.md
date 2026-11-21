@@ -31,6 +31,11 @@
 
 ### Fixed
 
+- **`TextListWidget`'s inner scroll area is `Preferred`, which is what makes the list take `QListWidget`'s share of
+  its row.** A layout item inherits the expansion of the widget's own layout, and an Expanding child made the
+  list claim its row's leftover: measured on a migrated queue page, the list took 330 px against the stock 256 and
+  the button column beside it lost 79 px. With the inner area Preferred the row splits 256/200 exactly like the
+  stock list, and the page measures 1.46 % instead of 2.72 %.
 - **A checkbox outline is a crisp 1 px line, not a blurred 2 px one.** The indicator's `drawRoundedRect` centred a 1 px pen on an integer edge, so half of it fell outside the box and antialiased into two grey rows - measured against the stock QSS box (crisp white border) on a migrated settings row. The stroke is drawn on a rect inset by half a pen width; the box keeps its size, the border lands on whole pixels.
 - **`ImageLabel` keeps the slot a host gives it: `minimumSizeHint` is the pixmap's size clamped by the widget's maximum, not zero.** With scaled contents the label reported no minimum, so a row whose other members add up to the whole width starved an info icon to 0 px while the stock `QLabel` kept its 25 - measured on a migrated settings row where the icon disappeared entirely. Unscaled behaviour is unchanged.
 - **A double spin box prints and parses its value through the LOCALE, like Qt's `QDoubleSpinBox`.** The formatter was `f"{value:.{decimals}f}"`, so a Russian desktop showed `3.5` where the stock widget shows `3,5` - a host replacing the widget measured a text change on every setting row. `_format` now uses `QLocale().toString`, and the editor accepts the locale separator as well as a plain `.` (it parsed with `float(text)`, which rejects the glyph the user sees). Tests: `tests/test_spinbox_locale.py` (5).
