@@ -447,22 +447,36 @@ class TopTabBar(QWidget):
         self._sync_h_scroll()
         self.updateGeometry()
 
+    #: The overflow bar is a THIN strip of its own under the tabs - never an overlay on top of them.
+    SCROLL_STRIP_H = 4
+
     def _sync_h_scroll(self) -> None:
-        """A horizontal bar only while the tabs overflow, sized to the strip's range."""
+        """A horizontal bar only while the tabs overflow, with its own row under the tabs."""
         maximum = max(0, self.required_width() - self.width())
-        bar_h = scaled_px(6)
+        bar_h = scaled_px(self.SCROLL_STRIP_H)
+        tab_height = self._scaled_tab_height()
         if maximum <= 0:
+            # Not "fade it out": a bar that fits must not show a scrollbar at all. `set_animated_visible(False)` leaves the
+            # widget created and mapped in some styles, which read as "always visible" on a strip that had nothing to
+            # scroll.
             self._h_scroll.set_animated_visible(False)
+            self._h_scroll.hide()
             self._h_offset = 0
             self._place_strip()
+            if self.height() != tab_height:
+                self.setFixedHeight(tab_height)
             return
-        self._h_scroll.setGeometry(0, max(0, self.height() - bar_h), self.width(), bar_h)
+        if self.height() != tab_height + bar_h:
+            # The bar's own row: the widget grows by the thin strip so the tabs are never covered.
+            self.setFixedHeight(tab_height + bar_h)
+        self._h_scroll.setGeometry(0, tab_height, self.width(), bar_h)
         self._h_scroll.setRange(0, maximum)
         self._h_scroll.setPageStep(max(1, self.width()))
         self._h_scroll.setSingleStep(max(1, self.width() // 8))
         self._h_scroll.blockSignals(True)
         self._h_scroll.setValue(min(self._h_offset, maximum))
         self._h_scroll.blockSignals(False)
+        self._h_scroll.show()
         self._h_scroll.set_animated_visible(True)
 
     def _on_tab_clicked(self, idx: int) -> None:

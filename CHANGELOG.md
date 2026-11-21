@@ -10,6 +10,8 @@
   token - with today's folder look as the default. `TopTabBar.required_width()` answers how wide the strip must be
   to show every tab at its natural size, and a narrower bar **scrolls horizontally** (overlay bar, wheel included)
   instead of clipping its last tabs with no affordance - measured on a host whose fifth tab was simply hidden.
+  The overflow bar is a THIN strip in its own row **under** the tabs (4 px, `SCROLL_STRIP_H`), never an overlay on top of them,
+  and it is hidden outright when nothing overflows (a faded-out bar still read as "always visible").
   `TopTabHost(pane_fill_token=None)` additionally drops the pane fill, and `TabStyle(border=False)` its stroke.
 - **`progress.track.background` is a palette token** (light `#e6e6e6`, dark `#3c3c3c`). A host whose page overrides a
   single progress bar's track had no way to carry that colour once its stylesheet was gone: `slider.track.background`
