@@ -20,17 +20,22 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QTextDocument
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import OverlayScrollArea
+from sli_ui_toolkit.ui.widgets.atomic.surface_panel import SurfacePanel
 from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
 
-class RichTextView(QWidget):
-    """Word-wrapped rich text in a scrolling viewport; no stylesheet, no `QTextEdit`."""
+class RichTextView(SurfacePanel):
+    """Word-wrapped rich text in a scrolling viewport, on a token-painted plate.
+
+    The plate is the pane's own look (a `surface.list` fill with a 10 px radius is what a read-only editor carried in a
+    stylesheet); it is a `SurfacePanel` so the colour comes from a token and the corners are painted, never styled.
+    """
 
     widget_descriptor: "WidgetDescriptor | None" = None
 
@@ -39,12 +44,18 @@ class RichTextView(QWidget):
         parent: QWidget | None = None,
         *,
         padding: tuple[int, int, int, int] = (10, 5, 10, 5),
-        background_token: str | None = None,
+        background_token: str | None = "surface.list",
+        radius: int = 10,
         scrollbar_width: int | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(parent, background_token=background_token, radius=radius)
         self._padding = tuple(max(0, int(value)) for value in padding)
         self._font_point_size: float | None = None
+        self._readonly_requested = True
+        self._size_adjust_policy = None
+        self._line_wrap_mode = None
+        self._v_scroll_policy = None
+        self._h_scroll_policy = None
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self._scroll = OverlayScrollArea(self, reserve_scrollbar_space=True)
@@ -58,10 +69,11 @@ class RichTextView(QWidget):
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self._scroll.setWidget(self.label)
 
-        from PySide6.QtWidgets import QVBoxLayout
-
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # The plate's radius needs the content off its corners, and a rounded plate must not have a square child
+        # painting over it - the scroll area starts inside the same inset the radius implies.
+        inset = max(0, int(radius))
+        layout.setContentsMargins(inset, inset, inset, inset)
         layout.setSpacing(0)
         layout.addWidget(self._scroll)
 
@@ -89,11 +101,59 @@ class RichTextView(QWidget):
         self.label.setText(document.toHtml())
         self._sync_height()
 
+    def setReadOnly(self, read_only: bool) -> None:  # noqa: N802
+        """No-op: the pane is a read-only view. Present so a migrated `QTextEdit` keeps the Designer's call."""
+        self._readonly_requested = bool(read_only)
+
+    def setVerticalScrollBarPolicy(self, policy) -> None:  # noqa: N802
+        """No-op: the pane's overlay bar appears when the content overflows."""
+        self._v_scroll_policy = policy
+
+    def setHorizontalScrollBarPolicy(self, policy) -> None:  # noqa: N802
+        """No-op: the pane wraps text and never scrolls horizontally."""
+        self._h_scroll_policy = policy
+
+    def setSizeAdjustPolicy(self, policy) -> None:  # noqa: N802
+        """No-op: the pane sizes itself from its viewport; present for a migrated `QTextEdit`/`QScrollArea` call."""
+        self._size_adjust_policy = policy
+
+    def setLineWrapMode(self, mode) -> None:  # noqa: N802
+        """No-op: the content always wraps (``WidgetWidth`` is the only mode a pane needs)."""
+        self._line_wrap_mode = mode
+
+    def setStyleSheet(self, sheet: str) -> None:  # noqa: N802
+        """Refuse styling the way every toolkit widget does - the look is painted, not styled."""
+        if sheet and sheet.strip():
+            raise ValueError("RichTextView paints its look from tokens; a stylesheet would be silently ignored")
+
+    def verticalScrollBar(self):  # noqa: N802
+        """The overlay bar, so a host that pins a pane to the bottom keeps working."""
+        return self._scroll.verticalScrollBar()
+
+    def append(self, text: str) -> None:
+        """Append one line, the way a log/notes pane is fed."""
+        self.label.setText(self.label.text() + "<br>" + str(text))
+        self._sync_height()
+
+    def _plain(self) -> str:
+        """The visible TEXT, not the stored markup.
+
+        A host (and the host's structural dumper) asks a text pane for its plain text; returning the HTML source made a
+        migrated pane report its whole markup as content - measured as a 22 % text difference on a page that paints the
+        same words.
+        """
+        source = self.label.text()
+        if "<" not in source:
+            return source
+        document = QTextDocument()
+        document.setHtml(source)
+        return document.toPlainText()
+
     def toPlainText(self) -> str:  # noqa: N802
-        return self.label.text()
+        return self._plain()
 
     def text(self) -> str:
-        return self.label.text()
+        return self._plain()
 
     def clear(self) -> None:
         self.setText("")

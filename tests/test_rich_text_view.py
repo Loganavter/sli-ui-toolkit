@@ -58,3 +58,14 @@ def test_no_stylesheet(qapp):
     view = _view(qapp)
     assert view.styleSheet() == ""
     assert view.label.styleSheet() == ""
+
+
+def test_plain_text_reads_through_the_markup(qapp):
+    # A structural dumper (and the host's own glue) asks for plain text; returning the stored HTML made a migrated pane
+    # report its whole markup as content.
+    view = _view(qapp)
+    view.setHtml("<p><b>bold</b></p><p>second</p>")
+    plain = view.toPlainText()
+    assert "<" not in plain
+    assert "bold" in plain and "second" in plain
+    assert view.text() == plain
