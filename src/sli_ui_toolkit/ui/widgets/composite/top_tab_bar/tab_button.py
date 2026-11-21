@@ -28,17 +28,6 @@ register_top_tab_variant()
 
 
 
-def plate_rect(widget, style) -> QRectF:
-    """The selected tab's plate, inset by `TabStyle.plate_margin` on every side.
-
-    Drawn on the button's full rect it runs into the strip's bottom edge, where the pane cuts the bottom corners: the
-    plate then reads as rounded on top and square at the bottom.
-    """
-    raw = getattr(style, "plate_margin", 0) or 0
-    margin = scaled_px(raw) if raw else 0   # an unset margin must not shrink the plate by `scaled_px(0)`
-    return QRectF(widget.rect()).adjusted(margin, margin, -margin, -margin)
-
-
 class TopTabContent(Content):
     """Centered label; folder outline or accent underline when selected.
     ``close_zone`` reserves space at the right edge for an embedded close
@@ -74,7 +63,7 @@ class TopTabContent(Content):
                     if isinstance(radii, tuple) and radii:
                         radius = int(radii[0])
                     path = QPainterPath()
-                    rect = plate_rect(widget, self.style)
+                    rect = QRectF(widget.rect())
                     if rect.width() > 0 and rect.height() > 0:
                         path.addRoundedRect(rect, float(radius), float(radius))
                     p.setPen(Qt.PenStyle.NoPen)

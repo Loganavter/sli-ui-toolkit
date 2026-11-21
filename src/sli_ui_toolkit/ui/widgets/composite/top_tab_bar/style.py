@@ -30,10 +30,6 @@ class TabStyle:
     radius: int | None = None
     #: Horizontal text padding inside a tab; `None` keeps `TAB_H_PAD`.
     padding: int | None = None
-    #: Inset of the selected tab's plate from the strip's edges (design px, all four sides). A plate that runs to the
-    #: strip's bottom edge has its bottom corners cut by the pane, so a flat style reads as "square bottom": the inset
-    #: is what keeps the radius visible and gives the strip air under the buttons.
-    plate_margin: int = 0
     #: Gap between neighbouring tabs; `None` keeps `TAB_SPACING`.
     spacing: int | None = None
     #: Floor for a tab's width, so a label is not elided away; `None` keeps `TAB_MIN_WIDTH`.

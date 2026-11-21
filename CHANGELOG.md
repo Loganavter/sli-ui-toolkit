@@ -4,9 +4,12 @@
 
 ### Added
 
-- **A flat tab's plate can be inset** (`TabStyle.plate_margin`). Drawn on the button's full rect the plate runs into
-  the strip's bottom edge and the pane cuts its bottom corners - "rounded on top, square at the bottom", measured on a
-  host's tab strip. The inset keeps the radius visible and gives the strip air under the buttons.
+- **The host decides how a tab button is built** (`TopTabHost(tab_factory=…)`). Before, the strip always constructed
+  its own `TopTabButton`, so any visual detail the host wanted (padding, radius, a plate that stands away from the
+  content, a different height) needed a new knob inside the widget - a guess about which detail would come next, and
+  a plate drawn on the button's full rect had its bottom corners cut by the pane. The factory receives
+  `(text, tab_height, style)`, returns any widget with Qt's button API (`isChecked`/`setChecked`, `clicked`,
+  `setText`, `sizeHint`) and keeps its own geometry; the bar wires the state and the width policy.
 - **`SpinBox`/`DoubleSpinBox` can carry Qt's own ▲/▼ step gutter, so a host's
   `QSpinBox` mock can go.** `SpinBox(show_step_buttons=True, field_height=29,
   step_button_width=20)` adds the shape stock `QSpinBox` has — one narrow

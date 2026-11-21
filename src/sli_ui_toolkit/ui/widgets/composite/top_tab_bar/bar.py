@@ -91,8 +91,13 @@ class TopTabBar(QWidget):
         close_policy: CloseButtonPolicy = CloseButtonPolicy.NONE,
         close_zone: int = 20,
         style: "TabStyle | None" = None,
+        tab_factory=None,
     ) -> None:
         super().__init__(parent)
+        #: `factory(text, tab_height, style) -> QWidget` lets the HOST build its own tab button. The bar then only wires
+        #: it (checked state, click routing, width policy) and leaves its look and its height to the caller - the
+        #: alternative was a knob per visual detail, with the bar guessing what the host wanted.
+        self._tab_factory = tab_factory
         self._tab_height = int(tab_height)
         self._expand_tabs = bool(expand_tabs)
         self._show_indicator = bool(show_indicator)
@@ -162,8 +167,11 @@ class TopTabBar(QWidget):
     def add_item(self, text: str, data: object | None = None) -> TabItem:
         closable = self._close_policy is not CloseButtonPolicy.NONE
         tab_height = self._scaled_tab_height()
-        button = TopTabButton(
-            text=text,
+        if self._tab_factory is not None:
+            button = self._tab_factory(text, tab_height, self._style)
+        else:
+            button = TopTabButton(
+                text=text,
             toggle=True,
             size=(0, tab_height),
             variant="top_tab",
@@ -175,12 +183,15 @@ class TopTabBar(QWidget):
             ),
             flat=self._style.flat,
             style=self._style,
-            close_zone=(
-                self._scaled_close_size() + TAB_CLOSE_MARGIN if closable else 0
-            ),
-        )
-        button.set_show_indicator(self._show_indicator)
-        button.setFixedHeight(tab_height)
+                close_zone=(
+                    self._scaled_close_size() + TAB_CLOSE_MARGIN if closable else 0
+                ),
+            )
+        if hasattr(button, "set_show_indicator"):
+            button.set_show_indicator(self._show_indicator)
+        if self._tab_factory is None:
+            # The built-in button is fixed to the strip's height; a host-built one states its own (that is the point).
+            button.setFixedHeight(tab_height)
         if self._expand_tabs:
             button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             button.setMinimumWidth(self._style.tab_min_width(TAB_MIN_WIDTH))
@@ -258,7 +269,12 @@ class TopTabBar(QWidget):
         self._current_index = idx
         for i, tab in enumerate(self._tabs):
             selected = i == idx
-            tab.button.set_selected(selected)
+            # `set_selected` is the built-in button's spelling of "checked" plus its plate; a HOST-built button only has
+            # the Qt API, and the bar must not require its own class back (`tab_factory`).
+            if hasattr(tab.button, "set_selected"):
+                tab.button.set_selected(selected)
+            else:
+                tab.button.setChecked(selected)
             self._sync_tab_chrome(tab, selected)
         prev_item = TabItem(self, prev) if 0 <= prev < len(self._tabs) else None
         curr_item = TabItem(self, idx) if 0 <= idx < len(self._tabs) else None

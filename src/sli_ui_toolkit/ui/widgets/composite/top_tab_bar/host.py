@@ -53,6 +53,7 @@ class TopTabHost(QWidget):
         tab_radius: int = DEFAULT_TAB_RADIUS,
         pane_fill_token: str | None = "surface.background",
         tab_style: "TabStyle | None" = None,
+        tab_factory=None,
     ) -> None:
         super().__init__(parent)
         # `None` = the host's page paints its own body and the pane must stay transparent (see `paint_pane_chrome`).
@@ -100,6 +101,7 @@ class TopTabHost(QWidget):
             corner_radius=self._tab_style.tab_radius(tab_radius),
             style=self._tab_style,
             close_policy=close_policy,
+            tab_factory=tab_factory,
         )
         self.tab_bar.setObjectName("TopTabBar")
         # A bar that is wider than its host used to run past the pane and clip its last tabs with no affordance: the bar
