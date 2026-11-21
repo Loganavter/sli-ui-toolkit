@@ -6,6 +6,7 @@ from sli_ui_toolkit.ui.widgets.atomic.custom_group_widget import (
 from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.atomic.drop_zone_label import DropZoneLabel
 from sli_ui_toolkit.ui.widgets.atomic.image_label import ImageLabel
+from sli_ui_toolkit.ui.widgets.atomic.surface_panel import SurfacePanel
 from sli_ui_toolkit.ui.widgets.atomic.checkbox import CheckBox
 from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton, RadioButtonGroup
 from sli_ui_toolkit.ui.widgets.atomic.slider import Slider

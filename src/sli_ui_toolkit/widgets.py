@@ -14,6 +14,7 @@ from sli_ui_toolkit.ui.widgets.atomic import (
     MinimalistScrollBar,
     OverlayScrollArea,
     OverlayScrollbarConfig,
+    SurfacePanel,
     SurfaceScrollArea,
     RadioButton,
     RadioButtonGroup,

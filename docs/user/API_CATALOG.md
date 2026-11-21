@@ -295,7 +295,7 @@ One painted text widget (`Text`), typography options, and built-in presets:
 | `TextScrollArea` | Scroll host for one painted `Text` (the composition `TextView` used to be): toolkit scrollbar, transparent viewport, rounded border overlay, `set_panel_fill(color|None)`, and `canvas()`/`editor()` for the hosted surface. Import: `sli_ui_toolkit.ui.widgets.composite`. |
 | `LabelVariantSpec` | Preset entry for the variant registry (`register_text_variant` / `get_text_variant`, also re-exported under the old `register_label_variant` / `get_label_variant` names). |
 | `DropZoneLabel` | Drag-and-drop zone visuals with file accept logic (internally a `Label`, kept for that subclass). |
-| `ImageLabel` | Painted static-image label: `setPixmap`/`pixmap`, `setScaledContents` (aspect-preserving cover/contain instead of `QLabel`'s distorting stretch), `setAlignment`, transparent or `background_token` surface, DPR-aware `sizeHint`. No text — `setText` warns and is ignored. |
+| `ImageLabel` | Painted static-image label: `setPixmap`/`pixmap`, `setScaledContents` (stretches over the contents rect like `QLabel`), `setAlignment` (defaults to QLabel's left+vcenter, placed with `QStyle::alignedRect` arithmetic), transparent or `background_token` surface, DPR-aware `sizeHint`. No text — `setText` warns and is ignored. Byte-identical to `QLabel` for unscaled pixmaps. |
 
 > **`Label` / `LabelConfig` are no longer part of the public surface** (text-unification wave C).
 > The class still exists at `sli_ui_toolkit.ui.widgets.atomic.text_labels.Label` for the three
@@ -319,7 +319,8 @@ setters for every widget below: **[INPUTS_API.md](INPUTS_API.md)**.
 | `ComboBox` / `ScrollableComboBox` | Custom-painted combo box family. |
 | `TimeLineEdit` | Compact toolkit-painted `HH:mm` input. |
 | `MinimalistScrollBar` / `OverlayScrollArea` | Thin/overlay-style scrollbars. |
-| `SurfaceScrollArea` | Scroll area painting its surface from a theme token (`dialog.background` default) — token fill or transparent mode. |
+| `SurfaceScrollArea` | Scroll area painting its surface from a theme token (`dialog.background` default) — token fill or transparent mode; `content_inset` reproduces a stock `QScrollArea` frame. |
+| `SurfacePanel` | Container that paints a token background (`background_token`, optional `radius` and `border_token`) — the toolkit answer to a page's `QWidget{background-color}` rule, with no stylesheet involved. |
 | `LoadingSpinner` | Animated conical-gradient loading spinner. |
 | `CustomGroupWidget` / `CustomGroupBuilder` | Grouped widget container with builder pattern. |
 
