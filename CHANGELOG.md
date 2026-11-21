@@ -4,6 +4,11 @@
 
 ### Added
 
+- **A host can tell the tab host NOT to paint its pane: `TopTabHost(pane_fill_token=None)`.** The pane always
+  cleared its rectangle and filled a surface, so a page that paints its own body showed the pane's colour in every
+  gap inside the tabs - measured on a migrated page where the stock build was uniform `#16191d` (its QSS painted
+  every widget) and the pane showed `#1f232a` underneath. `None` skips both the clear and the fill; the rounded
+  stroke stays.
 - **`TextListWidget` reports `QListWidget`'s own minimum (70x70, scaled) instead of zero.** A zero minimum lets a
   box layout hand the list its row's whole leftover; the stock list keeps 70 px and the row keeps its split.
 - **`TextListWidget` — a compact flat text list, so a host's queue stops being a stock `QListWidget`.** `IconListWidget` is a navigation list (one `Button` per row, 44 px rows, a plate behind each); migrating a queue of names to it measured **+3.2 % on the page**, because the row chrome is a different control, not a different style of the same one. `TextListWidget` paints text rows of a stated height (22 px default) with one selection band, hover feedback, keyboard Up/Down and the calls a `QListWidget` host makes (`addItem`/`insertItem`/`takeItem`/`clear`/`count`/`itemText`/`currentRow`/`setCurrentRow`), on a token plate with no stylesheet. Tests: `tests/test_text_list_widget.py` (7).

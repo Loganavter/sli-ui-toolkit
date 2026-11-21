@@ -69,20 +69,27 @@ def paint_pane_chrome(
     *,
     pane_radii: tuple[int, int, int, int],
     selected_cover: QRect | None,
+    fill_token: str | None = "surface.background",
 ) -> None:
-    """Draw opaque surface + rounded fill/stroke (and optional top join cover)."""
+    """Draw the pane's fill/stroke (and optional top join cover).
+
+    ``fill_token=None`` paints NO surface: a host whose page already paints its own body needs the pane transparent,
+    or every gap inside the tabs shows the pane's colour instead of the page's - measured on a migrated page where the
+    stock build (page QSS on every widget) was uniform `#16191d` and the toolkit pane showed `#1f232a` underneath.
+    """
     tm = ThemeManager.get_instance()
-    bg = _pane_fill_color(tm)
+    bg = None if fill_token is None else QColor(tm.try_get_color(fill_token) or _pane_fill_color(tm) or QColor(0, 0, 0))
     border = tm.try_get_color("separator.color")
 
     painter = QPainter(pane)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-    # Opaque clear of the full rectangular pane first — kills neighbour garbage
-    # in the corner pixels outside the rounded fill.
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(_surface_color(tm))
-    painter.drawRect(QRectF(pane.rect()))
+    if fill_token is not None:
+        # Opaque clear of the full rectangular pane first - kills neighbour garbage in the corner pixels outside the
+        # rounded fill. Skipped when the host asked for no surface: the page behind must show through everywhere.
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(_surface_color(tm))
+        painter.drawRect(QRectF(pane.rect()))
 
     if bg is None and border is None:
         painter.end()

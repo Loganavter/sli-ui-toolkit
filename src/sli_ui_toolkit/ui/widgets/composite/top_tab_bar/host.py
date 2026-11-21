@@ -50,8 +50,11 @@ class TopTabHost(QWidget):
         pane_inset: int | None = None,
         chrome_inset: int = 1,
         tab_radius: int = DEFAULT_TAB_RADIUS,
+        pane_fill_token: str | None = "surface.background",
     ) -> None:
         super().__init__(parent)
+        # `None` = the host's page paints its own body and the pane must stay transparent (see `paint_pane_chrome`).
+        self._pane_fill_token = pane_fill_token
         self._pane_radii = _normalize_pane_radii(pane_radius)
         self._pane_radius = self._pane_radii[0]
         self._pages: list[QWidget] = []

@@ -67,6 +67,14 @@ class RichTextView(SurfacePanel):
         self.label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.label.setContentsMargins(*self._padding)
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        # The pane's plate is the widget's own (`SurfacePanel`), and the label must not paint a surface of its own over
+        # it: a themed label carries the dialog colour, which showed as #1f232a inside a #2c313c pane - measured as 57 %
+        # of the pane's pixels differing on a migrated settings page.
+        import os as _os
+        if _os.environ.get("RVE_RICH_TRACE"):
+            print(f"RichTextView: label translucent={self.label.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)}", flush=True)
+        self.label.setAutoFillBackground(False)
+        self.label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._scroll.setWidget(self.label)
 
         layout = QVBoxLayout(self)

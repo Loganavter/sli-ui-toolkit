@@ -41,6 +41,7 @@ class TopTabPane(QFrame):
             self,
             pane_radii=self._host._pane_radii,
             selected_cover=cover,
+            fill_token=self._host._pane_fill_token,
         )
 
     def resizeEvent(self, event) -> None:  # noqa: N802
