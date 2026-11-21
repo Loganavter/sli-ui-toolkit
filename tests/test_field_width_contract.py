@@ -8,9 +8,16 @@ Two measured defects (2026-11-22, a host migrating its pages off a compatibility
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QFontMetrics
 
+from sli_ui_toolkit.managers import scaled_px
+from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.widgets import ComboBox, DoubleSpinBox
+
+#: The host's own item, measured live: `horizontalAdvance` 106 px, a 130 px
+#: field, and the layer still painted "sudo_scene_dete…".
+HOST_ITEM = "sudo_scene_detect"
 
 
 def test_combo_width_follows_item_text_set_later(qapp):
@@ -18,9 +25,37 @@ def test_combo_width_follows_item_text_set_later(qapp):
     for _ in range(4):
         combo.addItem("")
     empty_width = combo.sizeHint().width()
-    for index, text in enumerate(["mean", "mean_segmented", "sudo_scene_detect", "pyscenedetect"]):
+    for index, text in enumerate(["mean", "mean_segmented", HOST_ITEM, "pyscenedetect"]):
         combo.setItemText(index, text)
     assert combo.sizeHint().width() > empty_width
+
+
+def test_a_combo_never_sizes_below_the_text_it_paints(qapp):
+    """``sizeHint`` must cover the layer's own text rect, or the item elides.
+
+    ``_ComboFieldContentLayer`` paints into ``width - 2·TEXT_HORIZONTAL_PADDING``
+    with ``paint_font`` and ``QFontMetrics.elidedText``. A hint that only equals
+    ``advance + 2·padding`` lands exactly ON that limit — and Qt elides at a
+    limit equal to the advance (measured: limit 106 → "sudo_scene_dete…",
+    107 → the whole string). So the hint has to carry the measured text width
+    plus the same padding, with room for the elider.
+    """
+    combo = ComboBox()
+    combo.addItem(HOST_ITEM)
+
+    fm = QFontMetrics(paint_font(combo))
+    pad = scaled_px(combo.TEXT_HORIZONTAL_PADDING)
+    painted_text_width = fm.horizontalAdvance(HOST_ITEM)
+    hint = combo.sizeHint().width()
+
+    assert hint >= painted_text_width + 2 * pad, (
+        f"sizeHint {hint} < painted {painted_text_width} + padding {2 * pad}"
+    )
+    text_rect_width = hint - 2 * pad
+    assert fm.elidedText(HOST_ITEM, Qt.TextElideMode.ElideRight, text_rect_width) == HOST_ITEM, (
+        f"the field would still elide {HOST_ITEM!r} at its own hint width {hint}"
+    )
+    assert combo.minimumSizeHint().width() >= painted_text_width + 2 * pad
 
 
 def test_an_explicit_minimum_survives_set_range(qapp):

@@ -133,7 +133,7 @@ including `sizeHint`s and fixed sizes — and re-flows live via
 | `RadioButton` | 20×20 px indicator, fully round | inherited from `CheckBox` |
 | `Switch` | 44×22 px track, 12 px knob, 2 px knob margin | `Switch.TRACK_WIDTH` / `TRACK_HEIGHT` / `KNOB_DIAMETER` / `KNOB_MARGIN` |
 | `Slider` | 5 px track height, 8 px thumb radius | `Slider.TRACK_HEIGHT` / `RADIUS` |
-| `SpinBox` | Fixed 32 px height, width based on numeric range | `setFixedHeight(32)` |
+| `SpinBox` | Fixed 32 px height (`field_height` overrides; the host's stock row is 29), width based on numeric range + gutter | `setFixedHeight(scaled_px(field_height))`; opt-in ▲/▼ gutter: one `STEP_BUTTON_WIDTH` (20 px) right-hand column, stacked, arrows 10 px |
 | `TimeLineEdit` | Fixed 32 px `HH:mm` input + two right-side 22 px step buttons | `CustomLineEdit.setFixedHeight(32)` |
 | `CustomLineEdit` | Fixed 32 px height | `setFixedHeight(32)` |
 | `ComboBox` | 33 px fixed height, 8 px corner radius, 24 px arrow area | `ComboBox.BASE_HEIGHT` |
