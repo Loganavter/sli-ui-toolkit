@@ -205,6 +205,33 @@ class ConsoleView(QWidget):
         self._mark_dirty()
         self.update()
 
+    # -- QTextEdit-compatible surface (a host migrating a log keeps its calls) ---------------------------
+
+    def setPlainText(self, text: str) -> None:  # noqa: N802 - QTextEdit spelling
+        """Replace the whole content with `text` (one console line per source line)."""
+        self.set_lines([ConsoleLine(line) for line in str(text).split("\n")])
+
+    def setHtml(self, html: str) -> None:  # noqa: N802
+        """Accept a QTextEdit `setHtml` call and show its PLAIN text.
+
+        A painted console has no rich-text engine: a log pane's HTML is the Designer's empty paragraph, and a host that
+        passed real markup would lose its formatting here rather than at paint time. Stated in the docstring, not
+        silently truncated.
+        """
+        from PySide6.QtGui import QTextDocument
+
+        document = QTextDocument()
+        document.setHtml(str(html))
+        self.setPlainText(document.toPlainText())
+
+    def verticalScrollBar(self) -> "_ConsoleScrollBar":  # noqa: N802
+        """A `QScrollBar`-shaped facade over the console's own scroll.
+
+        Hosts pin a log to the bottom with `verticalScrollBar().setValue(maximum())`; without this the call fails on a
+        migrated pane. Only the surface a log host uses is provided - value, setValue, maximum, minimum.
+        """
+        return _ConsoleScrollBar(self)
+
     def lines(self) -> tuple[ConsoleLine, ...]:
         return tuple(self._lines)
 
@@ -457,8 +484,12 @@ class ConsoleView(QWidget):
                 i = j
         return spans or [(0, length)]
 
+    def _content_height(self) -> int:
+        """Painted content height in px - one owner for the scroll range and the scrollbar facade."""
+        return 2 * self._pad + len(self._visual) * self._row_height
+
     def _update_scroll_range(self) -> None:
-        content_height = 2 * self._pad + len(self._visual) * self._row_height
+        content_height = self._content_height()
         maximum = max(0, content_height - self.height())
         bar = self._vbar
         bar.blockSignals(True)
@@ -591,3 +622,23 @@ class ConsoleView(QWidget):
 
 
 __all__ = ["ConsoleLine", "ConsoleView", "VisualLine"]
+
+
+class _ConsoleScrollBar:
+    """The `QScrollBar` subset a log host calls, mapped onto `ConsoleView`'s own scroll state."""
+
+    def __init__(self, view: "ConsoleView") -> None:
+        self._view = view
+
+    def value(self) -> int:
+        return self._view.scroll_value()
+
+    def setValue(self, value: int) -> None:  # noqa: N802 - QScrollBar spelling
+        self._view.set_scroll_value(int(value))
+
+    def minimum(self) -> int:
+        return 0
+
+    def maximum(self) -> int:
+        content = self._view._content_height()
+        return max(0, content - self._view.height())

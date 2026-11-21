@@ -88,6 +88,8 @@ from sli_ui_toolkit.ui.widgets.composite.calendar_widget import (
     CalendarYearInfo,
 )
 
+from sli_ui_toolkit.ui.widgets.composite.console_view import ConsoleView, ConsoleLine
+
 __all__ = [
     "BaseFlyout",
     "AdaptiveTabStrip",
@@ -130,7 +132,7 @@ __all__ = [
     "ToastNotification",
     "ToastManager",
     "ToastProgressBar",
-                    "CalendarDayButton",
+    "CalendarDayButton",
     "CalendarDayInfo",
     "CalendarMonthInfo",
     "CalendarViewModel",
@@ -139,6 +141,8 @@ __all__ = [
     "SunburstChartWidget",
     "SunburstSegmentData",
     "SunburstSegmentItem",
+    "ConsoleLine",
+    "ConsoleView",
     "StripBand",
     "TimelineCallbacks",
     "TimelineWidget",

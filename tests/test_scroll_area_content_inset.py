@@ -50,3 +50,19 @@ def test_inset_adds_to_the_reserved_bar_margin(qapp):
 def test_surface_scroll_area_forwards_the_option(qapp):
     area = _area(cls=SurfaceScrollArea, surface_token=None, content_inset=1)
     assert area.viewportMargins().left() == 1
+
+
+def test_an_overlay_area_paints_nothing_behind_its_content(qapp):
+    # The stock area this replaces was transparent through the page's stylesheet; deleting that stylesheet revealed the
+    # palette `Window` role on half a migrated page (measured). Both the viewport and the content widget stay unpainted.
+    area = _area()
+    assert area.viewport().autoFillBackground() is False
+    assert area.widget().autoFillBackground() is False
+
+
+def test_surface_scroll_area_still_pins_after_a_widget_swap(qapp):
+    area = _area(cls=SurfaceScrollArea, surface_token=None)
+    replacement = QWidget()
+    replacement.setMinimumSize(200, 2000)
+    area.setWidget(replacement)
+    assert replacement.autoFillBackground() is False

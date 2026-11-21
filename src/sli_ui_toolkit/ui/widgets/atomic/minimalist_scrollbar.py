@@ -438,6 +438,11 @@ class OverlayScrollArea(QScrollArea):
         ``setViewportMargins``, so a host cannot set its own).
         """
         super().__init__(parent)
+        # An overlay area paints nothing behind its content: the host's surface shows through, exactly like the
+        # stock area this replaces when the page's stylesheet said `QScrollArea{background:transparent}`. Without the
+        # pin the viewport auto-fills the palette `Window` role - measured on a migrated page: half the page turned
+        # `dialog.background` (#1f232a) instead of the page colour (#16191d) the moment the page's QSS was deleted.
+        self.viewport().setAutoFillBackground(False)
         cfg = config or OverlayScrollbarConfig()
         self._corner_radius = 8 if corner_radius is None else max(0, int(corner_radius))
         self._reserve_scrollbar_space = (
@@ -537,6 +542,9 @@ class OverlayScrollArea(QScrollArea):
         super().setWidget(widget)
         if widget is not None:
             widget.installEventFilter(self)
+            # QScrollArea flips autoFillBackground on for the content widget; an attribute survives polish, a palette
+            # does not. `SurfaceScrollArea` paints its own plate and pins this again with its own reasoning.
+            widget.setAutoFillBackground(False)
         self._queue_scrollbar_sync()
 
     def eventFilter(self, watched, event):

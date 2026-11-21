@@ -242,6 +242,42 @@ class IconListWidget(QWidget):
         self._rebuild_visible()
         return _ListItem(self, len(self._rows) - 1)
 
+    # -- QListWidget-compatible model (a host migrating a list keeps its calls) --------------------------
+
+    def _specs(self) -> list[IconListItem]:
+        """Current rows as `IconListItem`s, so an insert/remove can rebuild through one code path."""
+        return [
+            IconListItem(
+                text=row.text,
+                icon=row.icon,
+                data=row.data_roles.get(int(Qt.ItemDataRole.UserRole)),
+                row_height=row.row_height,
+                selected_icon=row.selected_icon,
+            )
+            for row in self._rows
+        ]
+
+    def addItem(self, text: str) -> None:  # noqa: N802 - QListWidget spelling
+        """Append one text row (the call a migrated `QListWidget` makes)."""
+        self.add_item(str(text))
+
+    def insertItem(self, index: int, text: str) -> None:  # noqa: N802
+        """Insert a text row at `index`. Rebuilds the rows: `_append_row` wires each button with the row index it had
+        at build time, so inserting in place would leave every later click pointing one row off."""
+        specs = self._specs()
+        index = max(0, min(int(index), len(specs)))
+        specs.insert(index, IconListItem(text=str(text), row_height=self._row_height))
+        self.set_items(specs)
+
+    def takeItem(self, index: int) -> str | None:  # noqa: N802
+        """Remove the row at `index` and return its text (QListWidget returns the item; the text is what hosts use)."""
+        specs = self._specs()
+        if not 0 <= index < len(specs):
+            return None
+        removed = specs.pop(int(index))
+        self.set_items(specs)
+        return removed.text
+
     def clear(self) -> None:
         for row in self._rows:
             row.button.hide()
