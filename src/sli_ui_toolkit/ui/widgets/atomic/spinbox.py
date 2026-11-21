@@ -1,7 +1,7 @@
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 from typing import TYPE_CHECKING, ClassVar
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QLocale, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QFocusEvent, QIntValidator
 from PySide6.QtWidgets import QSizePolicy
 
@@ -204,7 +204,13 @@ class DoubleSpinBox(SpinBox):
         self._update_content_width()
 
     def _format(self, value: float) -> str:
-        return f"{value:.{self._decimals}f}"
+        """Format through the LOCALE, like Qt's own QDoubleSpinBox does.
+
+        A hardcoded `f"{value:.1f}"` prints `3.5` on a Russian desktop where the stock widget prints `3,5` - a host
+        replacing the widget then sees a glyph change on every spin box (measured on the settings page: the text axis,
+        not geometry). `setDecimals` still decides how many digits are shown.
+        """
+        return QLocale().toString(float(value), "f", self._decimals)
 
     def setDecimals(self, decimals: int) -> None:
         self._decimals = max(0, int(decimals))
@@ -258,10 +264,14 @@ class DoubleSpinBox(SpinBox):
 
     def _on_editing_finished(self):
         text = self.text().strip()
-        try:
-            val = float(text) if text else self._default_value
-        except ValueError:
-            val = self._default_value
+        # The user types what the locale shows (`3,5`), so parse with the same locale and keep a plain `.` accepted.
+        parsed, ok = QLocale().toDouble(text) if text else (0.0, False)
+        if not ok and text:
+            try:
+                parsed, ok = float(text), True
+            except ValueError:
+                ok = False
+        val = parsed if ok else self._default_value
         self.setValue(val)
 
     def wheelEvent(self, event):
