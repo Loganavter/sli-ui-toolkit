@@ -970,8 +970,7 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         self.set_wheel_requires_focus(spec.wheel_requires_focus)
         self.setProperty("variant", self._variant)
         self.setProperty("density", self._density)
-        if not getattr(self, "_icon_size_explicit", False):
-            self._icon_size_px = int(spec.shape.icon_size)
+        self._icon_size_px = int(spec.shape.icon_size)
         self.setProperty("iconSizePx", self._icon_size_px)
         if spec.shape.corner_radius is not None:
             self._corner_radius_px = int(spec.shape.corner_radius)

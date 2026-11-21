@@ -368,21 +368,8 @@ class _ButtonStyleApi:
         self.update()
 
     def setIconSize(self, size: QSize):
-        """Qt's name for the painted icon box, and it must SURVIVE a spec rebuild.
-
-        ``_apply_spec_widget_properties`` re-derives ``_icon_size_px`` from the spec on every theme/scale rebuild, so a
-        host's stated size was silently replaced by the spec default (measured on a migrated nav button: 35 px -> 24 px,
-        0.38 % of the page). The flag is the same shape as ``_corner_radius_explicit``.
-        """
-        # The painter draws a SQUARE icon, so a non-square request must not overflow its smaller side.
-        self._icon_size_px = max(1, int(min(size.width(), size.height())))
-        self._icon_size_explicit = True
-        self.setProperty("iconSizePx", self._icon_size_px)
+        self._icon_size_px = max(1, size.width())
         self.update()
-
-    def iconSize(self) -> QSize:
-        """Qt's getter for the box `setIconSize` states (the painter reads the scalar)."""
-        return QSize(int(self._icon_size_px), int(self._icon_size_px))
 
     def set_footer_mode(self, is_footer: bool):
         self._is_footer = is_footer
@@ -581,7 +568,6 @@ class _ButtonStyleApi:
 
     def setIconSizePx(self, size_px: int):
         size_px = max(1, int(size_px))
-        self._icon_size_explicit = True
         if self._icon_size_px != size_px:
             self._icon_size_px = size_px
             self.setProperty("iconSizePx", size_px)
