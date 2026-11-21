@@ -78,3 +78,17 @@ class _ComboFieldContentLayer(Layer):
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
             fm.elidedText(display_text, Qt.TextElideMode.ElideRight, text_rect.width()),
         )
+        # The affordance: a chevron at the right edge, the same glyph `ScrollableComboBox` draws. Without it the field
+        # reads as a text input - the plain `ComboBox` had no arrow at all (measured against a stock QComboBox, which
+        # shows one in a fixed-height plate).
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QPolygon
+
+        p.setPen(QPen(QColor(tm.get_color("dialog.text")), 1.5))
+        center_x = rect.x() + rect.width() - pad_x
+        center_y = rect.center().y()
+        p.drawPolyline(QPolygon([
+            QPoint(center_x - 4, center_y - 1),
+            QPoint(center_x, center_y + 2),
+            QPoint(center_x + 4, center_y - 1),
+        ]))
