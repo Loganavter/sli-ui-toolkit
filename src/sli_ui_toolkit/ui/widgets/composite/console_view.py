@@ -19,6 +19,7 @@ from typing import Iterable
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import (
     QColor,
+    QLinearGradient,
     QFont,
     QFontMetrics,
     QGuiApplication,
@@ -50,6 +51,8 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
 _RADIUS = 6
 _PADDING = 6
 _BOTTOM_TOLERANCE = 2
+#: Height of the clipped-edge ramp, design px - enough to read as a fade, short enough not to hide a text line.
+_EDGE_FADE_HEIGHT = 24
 
 
 @dataclass(frozen=True)
@@ -104,6 +107,11 @@ class ConsoleView(QWidget):
         self._readonly_requested = True
         self._v_scroll_policy = None
         self._h_scroll_policy = None
+        # Follow-the-tail state: True while the view sits at the bottom, so new lines pin it there. Scrolling away turns
+        # it off and coming back turns it on again - one rule, no separate "user scrolled" bookkeeping to get wrong.
+        self._follow = True
+        self._edge_fade = False
+        self._edge_fade_colour: QColor | None = None
         self._sel_anchor: tuple[int, int] | None = None
         self._sel_cursor: tuple[int, int] | None = None
         self._dragging = False
@@ -150,8 +158,8 @@ class ConsoleView(QWidget):
         bold: bool = False,
         italic: bool = False,
     ) -> ConsoleLine:
-        """Append a line, following the tail only when already at the bottom."""
-        at_bottom = self.is_at_bottom()
+        """Append a line, following the tail while the view is at the bottom."""
+        following = self._should_follow()
         line = ConsoleLine(
             str(text),
             QColor(color) if color is not None else None,
@@ -163,7 +171,7 @@ class ConsoleView(QWidget):
         self._trim()
         self._mark_dirty()
         self._update_scroll_range()
-        if at_bottom:
+        if following:
             self.scroll_to_bottom()
         self.update()
         return line
@@ -177,16 +185,35 @@ class ConsoleView(QWidget):
         texts = [str(line) for line in lines]
         if not texts:
             return 0
-        at_bottom = self.is_at_bottom()
+        following = self._should_follow()
         self._plain_text_cache = None
         for text in texts:
             self._lines.append(ConsoleLine(text))
         self._trim()
         self._mark_dirty()
         self._update_scroll_range()
-        if at_bottom:
+        if following:
             self.scroll_to_bottom()
         return len(texts)
+
+    def append_console_lines(self, lines: Iterable[ConsoleLine]) -> int:
+        """Append already-classified lines in one batch (colour/bold per line, one layout invalidation).
+
+        The host's log filter decides what a line is - an error, a warning, a phase marker - and this is how that
+        decision reaches the paint: `append_lines` takes plain text and paints every row the same.
+        """
+        pending = list(lines)
+        if not pending:
+            return 0
+        following = self._should_follow()
+        self._plain_text_cache = None
+        self._lines.extend(pending)
+        self._trim()
+        self._mark_dirty()
+        self._update_scroll_range()
+        if following:
+            self.scroll_to_bottom()
+        return len(pending)
 
     def set_lines(self, lines: Iterable[ConsoleLine]) -> None:
         """Replace the whole model (theme recolor / bulk rebuild).
@@ -194,7 +221,7 @@ class ConsoleView(QWidget):
         The scroll position is preserved unless the view was already at the
         bottom, in which case it stays pinned there.
         """
-        was_bottom = self.is_at_bottom()
+        following = self._should_follow()
         prev_value = self._vbar.value()
         self._plain_text_cache = None
         self._lines = list(lines)
@@ -202,7 +229,7 @@ class ConsoleView(QWidget):
         self._clear_selection()
         self._mark_dirty()
         self._update_scroll_range()
-        if was_bottom:
+        if following:
             self.scroll_to_bottom()
         else:
             self._vbar.setValue(min(prev_value, self._vbar.maximum()))
@@ -312,6 +339,7 @@ class ConsoleView(QWidget):
 
     def scroll_to_bottom(self) -> None:
         self._vbar.setValue(self._vbar.maximum())
+        self._follow = True
 
     def is_at_bottom(self) -> bool:
         return self._vbar.value() >= self._vbar.maximum() - _BOTTOM_TOLERANCE
@@ -321,6 +349,57 @@ class ConsoleView(QWidget):
 
     def set_scroll_value(self, value: int) -> None:
         self._vbar.setValue(int(value))
+
+    def set_auto_follow(self, enabled: bool) -> None:
+        """Pin new lines to the bottom (``True``) or leave the scroll where the user put it (``False``).
+
+        This is the sticky-scroll contract the owner asked for (2026-11-22): while the view sits at the bottom it keeps
+        itself there as the log grows; scrolling up detaches it, scrolling back to the bottom re-attaches it. The state is
+        DERIVED from the scroll position (``_should_follow``), so no separate flag can drift out of sync with what the
+        user sees.
+        """
+        self._follow = bool(enabled)
+        if self._follow:
+            self.scroll_to_bottom()
+
+    def auto_follow(self) -> bool:
+        return bool(self._follow)
+
+    def _should_follow(self) -> bool:
+        """Follow when the view is at the bottom AND has not been detached by a scroll away."""
+        if not self._follow:
+            return False
+        if self._vbar.maximum() <= 0:
+            return True
+        return self.is_at_bottom()
+
+    # -- clipped-edge fade --------------------------------------------------
+
+    def set_edge_fade_enabled(self, enabled: bool) -> None:
+        """Fade the content that continues past the top/bottom edge (``False`` by default).
+
+        A painted 24 px gradient in the SURFACE colour, drawn over the rows - not a ``QGraphicsEffect``: an effect
+        renders the whole widget into an offscreen pixmap on every paint, which a log pane cannot afford (it froze the
+        GUI thread, see `_EdgeFade` in `minimalist_scrollbar`). One ``fillRect`` per edge keeps it free.
+        """
+        enabled = bool(enabled)
+        if enabled == self._edge_fade:
+            return
+        self._edge_fade = enabled
+        self.update()
+
+    def edge_fade_enabled(self) -> bool:
+        return bool(self._edge_fade)
+
+    def set_edge_fade_colour(self, colour) -> None:
+        """Override the ramp colour; ``None`` restores the console's own surface colour."""
+        self._edge_fade_colour = QColor(colour) if colour is not None else None
+        self.update()
+
+    def edge_fade_sides(self) -> tuple[bool, bool]:
+        """(top, bottom) - the edges where content continues past the viewport."""
+        bar = self._vbar
+        return (bar.value() > bar.minimum(), bar.value() < bar.maximum())
 
     # -- geometry / introspection (used by the widget and by tests) ---------
 
@@ -456,12 +535,45 @@ class ConsoleView(QWidget):
             self._paint_visual_line(painter, visual_index, y, fm)
             y += self._row_height
 
+        self._paint_edge_fade(painter, rounded)
+
         pen = QPen(QColor(self._border_color))
         pen.setWidthF(0.66)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rounded, radius, radius)
         painter.end()
+
+    def _paint_edge_fade(self, painter: QPainter, bounds: QRectF) -> None:
+        """Ramp the surface over the edge that continues (see ``set_edge_fade_enabled``)."""
+        if not self._edge_fade:
+            return
+        top, bottom = self.edge_fade_sides()
+        if not (top or bottom):
+            return
+        colour = QColor(self._edge_fade_colour) if self._edge_fade_colour is not None else QColor(self._bg_color)
+        if not colour.isValid():
+            return
+        height = min(scaled_px(_EDGE_FADE_HEIGHT), max(1, self.height() // 2))
+        solid = QColor(colour)
+        solid.setAlpha(255)
+        clear = QColor(colour)
+        clear.setAlpha(0)
+        painter.save()
+        painter.setClipRect(bounds)
+        if top:
+            gradient = QLinearGradient(0, 0, 0, height)
+            gradient.setColorAt(0.0, solid)
+            gradient.setColorAt(1.0, clear)
+            painter.fillRect(QRectF(0, 0, bounds.width(), height), gradient)
+        if bottom:
+            gradient = QLinearGradient(0, self.height() - height, 0, self.height())
+            gradient.setColorAt(0.0, clear)
+            gradient.setColorAt(1.0, solid)
+            painter.fillRect(
+                QRectF(0, self.height() - height, bounds.width(), height), gradient
+            )
+        painter.restore()
 
     def _paint_visual_line(
         self, painter: QPainter, visual_index: int, y: int, fm: QFontMetrics
@@ -699,6 +811,9 @@ class ConsoleView(QWidget):
         self.update()
 
     def _on_scroll_value_changed(self, _value: int) -> None:
+        # The scroll moved (wheel, bar drag, keys, a host's setValue): the follow state follows the position, so being
+        # at the bottom always means "keep me here" and being away from it always means "leave me alone".
+        self._follow = self.is_at_bottom() or self._vbar.maximum() <= 0
         self.update()
 
     # -- size hints ---------------------------------------------------------

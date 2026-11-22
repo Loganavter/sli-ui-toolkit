@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -52,17 +52,27 @@ class _Rows(QWidget):
         self._owner.paint_rows(self)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        row = self._owner.row_at(event.position().y())
-        if row is not None:
-            self._owner.setCurrentRow(row)
-        super().mousePressEvent(event)
+        # The list owns the selection model; the rows widget only reports where the pointer landed. A right press that
+        # lands inside the selection must NOT collapse it - the context menu then acts on what the user selected.
+        self._owner._on_rows_press(event)
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+        event.accept()
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._owner._on_rows_move(event):
+            event.accept()
+            return
         row = self._owner.row_at(event.position().y())
         if row != self._owner._hover_row:
             self._owner._hover_row = row
             self.update()
         super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        self._owner._on_rows_release(event)
+        super().mouseReleaseEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         if self._owner._hover_row is not None:
@@ -92,6 +102,12 @@ class TextListWidget(SurfacePanel):
         self._items: list[str] = []
         self._current = -1
         self._hover_row: int | None = None
+        self._selected: set[int] = set()
+        self._anchor: int | None = None
+        self._selection_mode = "single"
+        self._band: QRectF | None = None
+        self._band_origin: tuple[float, float] | None = None
+        self._band_base: set[int] = set()
         self._row_height = max(8, scaled_px(row_height))
         self._padding = tuple(scaled_px(v) for v in (padding or (6, 4, 6, 4)))
         self._text_pixel_size = max(1, int(text_pixel_size))
@@ -140,12 +156,19 @@ class TextListWidget(SurfacePanel):
         self._items.insert(index, str(text))
         if self._current >= index:
             self._current += 1
+        self._selected = {row + 1 if row >= index else row for row in self._selected}
+        if self._anchor is not None and self._anchor >= index:
+            self._anchor += 1
         self._resize_rows()
 
     def takeItem(self, index: int) -> str | None:  # noqa: N802
         if not 0 <= index < len(self._items):
             return None
         removed = self._items.pop(int(index))
+        self._selected.discard(int(index))
+        self._selected = {row - 1 if row > index else row for row in self._selected}
+        if self._anchor is not None and self._anchor > index:
+            self._anchor -= 1
         if self._current == index:
             self._current = -1
             self.currentRowChanged.emit(-1)
@@ -157,12 +180,16 @@ class TextListWidget(SurfacePanel):
     def clear(self) -> None:
         self._items.clear()
         self._current = -1
+        self._selected.clear()
+        self._anchor = None
         self._resize_rows()
         self.currentRowChanged.emit(-1)
 
     def setItems(self, items) -> None:  # noqa: N802
         self._items = [str(item) for item in items]
         self._current = -1
+        self._selected.clear()
+        self._anchor = None
         self._resize_rows()
         self.currentRowChanged.emit(-1)
 
@@ -173,11 +200,149 @@ class TextListWidget(SurfacePanel):
         index = int(index)
         if index < -1 or index >= len(self._items):
             return
-        if index == self._current:
-            return
         self._current = index
+        self._select_only(index) if index >= 0 else self.clearSelection()
+        self._anchor = index if index >= 0 else None
         self._rows.update()
         self.currentRowChanged.emit(index)
+
+    # -- selection ------------------------------------------------------
+    #
+    # One model for all three ways a user picks rows: click, ctrl/shift+click, and a rubber band dragged across the
+    # rows (the file-manager gesture the owner asked for, 2026-11-22). A single-selection list keeps behaving exactly
+    # as before - `SelectionMode.Single` is the default, so an existing host changes nothing by not calling
+    # `setSelectionMode`.
+
+    selectionChanged = Signal()
+
+    def selectionMode(self) -> str:  # noqa: N802 - QListWidget spelling
+        return self._selection_mode
+
+    def setSelectionMode(self, mode) -> None:  # noqa: N802 - QListWidget spelling
+        """``Single``/``Multi``/``Extended`` as Qt enums or strings; anything unrecognised means single.
+
+        Extended is the file-manager behaviour: a plain click selects one row, Ctrl toggles, Shift extends from the last
+        click, and dragging anywhere over the rows draws a band that selects what it touches.
+        """
+        name = getattr(mode, "name", None) or str(mode)
+        name = name.lower().replace("selection", "")
+        self._selection_mode = name if name in ("single", "multi", "extended") else "single"
+        if self._selection_mode == "single" and len(self._selected) > 1:
+            keep = self._current if self._current in self._selected else max(self._selected)
+            self._selected = {keep}
+        self._rows.update()
+
+    def selectedRows(self) -> list[int]:  # noqa: N802 - QListWidget spelling
+        return sorted(self._selected)
+
+    def selectedItems(self) -> list[str]:  # noqa: N802 - QListWidget spelling
+        return [self._items[row] for row in self.selectedRows()]
+
+    def selectedCount(self) -> int:  # noqa: N802 - QListWidget spelling
+        return len(self._selected)
+
+    def setSelectedRows(self, rows) -> None:
+        wanted = {int(row) for row in rows if 0 <= int(row) < len(self._items)}
+        if wanted == self._selected:
+            return
+        self._selected = wanted
+        self._rows.update()
+        self.selectionChanged.emit()
+
+    def selectAll(self) -> None:  # noqa: N802 - QListWidget spelling
+        self.setSelectedRows(range(len(self._items)))
+
+    def clearSelection(self) -> None:  # noqa: N802 - QListWidget spelling
+        self._anchor = None
+        self.setSelectedRows(())
+
+    def isSelected(self, row: int) -> bool:  # noqa: N802 - QListWidget spelling
+        return int(row) in self._selected
+
+    def _select_only(self, row: int) -> None:
+        self.setSelectedRows((row,))
+
+    def _select_range(self, first: int, last: int) -> None:
+        low, high = (first, last) if first <= last else (last, first)
+        self.setSelectedRows(range(low, high + 1))
+
+    def _toggle(self, row: int) -> None:
+        selection = set(self._selected)
+        selection.symmetric_difference_update({row})
+        self.setSelectedRows(selection)
+
+    def _on_rows_press(self, event) -> None:
+        index = self.row_at(event.position().y())
+        modifiers = event.modifiers()
+        if event.button() == Qt.MouseButton.RightButton:
+            # A right press outside the selection moves it to the row under the cursor (file-manager behaviour); a
+            # right press INSIDE it keeps the selection so the menu acts on everything the user picked.
+            if index is not None and index not in self._selected:
+                self._current = index
+                self._select_only(index)
+                self._anchor = index
+                self._rows.update()
+                self.currentRowChanged.emit(index)
+            return
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        additive = bool(modifiers & Qt.KeyboardModifier.ControlModifier)
+        if index is None:
+            if not additive:
+                self.clearSelection()
+            self._start_band(event.position(), additive)
+            return
+        self._current = index
+        if additive:
+            self._toggle(index)
+            self._anchor = index
+        elif (modifiers & Qt.KeyboardModifier.ShiftModifier) and self._anchor is not None:
+            self._select_range(self._anchor, index)
+        else:
+            self._select_only(index)
+            self._anchor = index
+        self._rows.update()
+        self.currentRowChanged.emit(index)
+        self._start_band(event.position(), additive)
+
+    def _start_band(self, position, additive: bool) -> None:
+        if self._selection_mode == "single":
+            self._band_origin = None
+            return
+        self._band_origin = (position.x(), position.y())
+        self._band = QRectF(position.x(), position.y(), 0.0, 0.0)
+        self._band_base = set(self._selected) if additive else set()
+
+    def _on_rows_move(self, event) -> bool:
+        """Extend the rubber band; returns True when the list consumed the move."""
+        if self._band_origin is None or not (event.buttons() & Qt.MouseButton.LeftButton):
+            return False
+        origin_x, origin_y = self._band_origin
+        x, y = event.position().x(), event.position().y()
+        self._band = QRectF(
+            min(origin_x, x), min(origin_y, y), abs(x - origin_x), abs(y - origin_y)
+        )
+        top, bottom = self._band.top(), self._band.bottom()
+        first = self.row_at(top)
+        last = self.row_at(bottom) if bottom > top else first
+        if first is None:
+            first = 0 if top <= self.content_height() else None
+        if last is None:
+            last = len(self._items) - 1 if bottom >= 0 else None
+        touched = set(self._band_base)
+        if first is not None and last is not None:
+            touched.update(range(min(first, last), max(first, last) + 1))
+        self.setSelectedRows(touched)
+        self._rows.update()
+        return True
+
+    def _on_rows_release(self, event) -> None:
+        if self._band is None and self._band_origin is None:
+            return
+        self._band = None
+        self._band_origin = None
+        self._band_base = set()
+        self._rows.update()
 
     # -- geometry -------------------------------------------------------
 
@@ -236,7 +401,7 @@ class TextListWidget(SurfacePanel):
         width = target.width() - left - right
         for index, text in enumerate(self._items):
             row = QRectF(left, top + index * self._row_height, width, self._row_height)
-            if index == self._current:
+            if index in self._selected:
                 painter.fillRect(row, selected_fill)
             elif index == self._hover_row:
                 painter.fillRect(row, hover_fill)
@@ -247,11 +412,36 @@ class TextListWidget(SurfacePanel):
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
                 metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, int(row.width())),
             )
+        self._paint_band(painter, target)
+
+    def _paint_band(self, painter: QPainter, target: QWidget) -> None:
+        """The rubber rectangle, in the theme's accent colour (file-manager look)."""
+        if self._band is None:
+            return
+        accent = self._token("accent", "#3b82f6")
+        fill = QColor(accent)
+        fill.setAlpha(48)
+        painter.fillRect(self._band, fill)
+        pen = QPen(accent)
+        pen.setWidthF(1.0)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(self._band)
 
     # -- keyboard -------------------------------------------------------
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt API
         key = event.key()
+        if (event.modifiers() & Qt.KeyboardModifier.ControlModifier) and key == Qt.Key.Key_A:
+            if self._selection_mode != "single":
+                self.selectAll()
+                event.accept()
+                return
+        if key == Qt.Key.Key_Escape:
+            self.clearSelection()
+            self._rows.update()
+            event.accept()
+            return
         if key in (Qt.Key.Key_Down, Qt.Key.Key_Up) and self._items:
             if self._current < 0:
                 # First arrow from "nothing selected" lands on the first row, whichever direction (QListWidget's own
@@ -259,6 +449,13 @@ class TextListWidget(SurfacePanel):
                 self.setCurrentRow(0)
                 return
             step = 1 if key == Qt.Key.Key_Down else -1
-            self.setCurrentRow(max(0, min(len(self._items) - 1, self._current + step)))
+            target = max(0, min(len(self._items) - 1, self._current + step))
+            if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) and self._anchor is not None:
+                self._current = target
+                self._select_range(self._anchor, target)
+                self._rows.update()
+                self.currentRowChanged.emit(target)
+                return
+            self.setCurrentRow(target)
             return
         super().keyPressEvent(event)
