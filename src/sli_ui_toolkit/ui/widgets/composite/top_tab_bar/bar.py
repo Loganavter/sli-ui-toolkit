@@ -431,10 +431,10 @@ class TopTabBar(QWidget):
         width = margins.left() + margins.right()
         if not self._tabs:
             return max(width, self._style.tab_min_width(TAB_MIN_WIDTH))
-        widths = [
-            max(self._style.tab_min_width(TAB_MIN_WIDTH), tab.button.sizeHint().width())
-            for tab in self._tabs
-        ]
+        # The width a tab ACTUALLY occupies: `tab_min_width` is applied to the button when it is built (a fixed width
+        # for the built-in button, a minimum in expand mode), so flooring here again invented an overflow - five tabs
+        # whose hints summed to 500 were reported as 516 and the strip showed a scrollbar with nothing to scroll.
+        widths = [max(tab.button.minimumWidth(), tab.button.sizeHint().width()) for tab in self._tabs]
         width += sum(widths)
         if len(widths) > 1:
             width += self._layout.spacing() * (len(widths) - 1)

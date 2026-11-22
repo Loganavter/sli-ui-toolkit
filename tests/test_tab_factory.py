@@ -8,7 +8,7 @@ from __future__ import annotations
 from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QWidget
 
-from sli_ui_toolkit.widgets import Button, TopTabHost
+from sli_ui_toolkit.widgets import Button, TabStyle, TopTabHost
 
 
 def _factory(text: str, tab_height: int, style):
@@ -42,3 +42,23 @@ def test_the_bar_still_tracks_the_selection_on_a_host_button(qapp):
     qapp.processEvents()
     assert host.tab_bar._tabs[1].button.isChecked()
     assert not host.tab_bar._tabs[0].button.isChecked()
+
+
+def test_no_scrollbar_when_the_tabs_already_fit(qapp):
+    """`required_width` used to floor every tab at `min_width`, inventing an overflow and a phantom scrollbar.
+
+    Five tabs whose hints summed to 466 were reported as 516 in a 498 px bar: the strip showed a scrollbar with nothing
+    to scroll (owner report 2026-11-22).
+    """
+    host = TopTabHost(tab_factory=_factory, tab_style=TabStyle(flat=True, gap=8, min_width=88))
+    for label in ("General", "Encoder Options", "Render Queue", "Advanced", "Logs"):
+        host.addTab(QWidget(), label)
+    host.resize(520, 60)
+    host.show()
+    qapp.processEvents()
+
+    bar = host.tab_bar
+    assert bar.required_width() <= bar.width(), (
+        f"required {bar.required_width()} > width {bar.width()}: the strip claims an overflow it does not have"
+    )
+    assert not bar._h_scroll.isVisible(), "a bar that fits must not paint a scrollbar"
