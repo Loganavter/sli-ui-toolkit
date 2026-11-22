@@ -83,6 +83,7 @@ class _Rows(QWidget):
         row = self._owner.row_at(event.position().y())
         if row != self._owner._hover_row:
             self._owner._hover_row = row
+            self._owner.setToolTip(self._owner.row_tooltip(row) if row is not None else "")
             self.update()
         super().mouseMoveEvent(event)
 
@@ -129,6 +130,12 @@ class TextListWidget(SurfacePanel):
         self._row_height = max(8, scaled_px(row_height))
         self._padding = tuple(scaled_px(v) for v in (padding or (6, 4, 6, 4)))
         self._text_pixel_size = max(1, int(text_pixel_size))
+        #: Host hook: `painter, index, rect, metrics, text, selected, hovered -> None`. The default draws the elided text
+        #: (this widget stays a TEXT list). A host whose rows carry more than text - a progress bar, a right-aligned
+        #: status - paints them here instead of pushing widgets into a text list (owner, 2026-11-22).
+        self._row_painter = None
+        #: Host hook: `index -> str`, read when the cursor moves onto a row (the toolkit's tooltip interceptor shows it).
+        self._row_tooltip_provider = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         # Preferred, like the `QListWidget` this replaces. NOT Expanding: a box layout caches an item's expanding
         # directions when it is inserted, so a host that sets `Preferred` AFTER inserting the widget leaves the layout
@@ -180,6 +187,26 @@ class TextListWidget(SurfacePanel):
         return super().eventFilter(watched, event)
 
     # -- model ----------------------------------------------------------
+
+    def set_row_painter(self, painter) -> None:
+        """Paint rows yourself: `painter(painter, index, rect, metrics, text, selected, hovered)`."""
+        self._row_painter = painter
+        self._rows.update()
+
+    def row_painter(self):
+        return self._row_painter
+
+    def set_row_tooltip_provider(self, provider) -> None:
+        """Hover text per row: `provider(index) -> str`; ``None`` clears it."""
+        self._row_tooltip_provider = provider
+
+    def row_tooltip(self, index: int) -> str:
+        if self._row_tooltip_provider is None or index is None or index < 0:
+            return ""
+        try:
+            return str(self._row_tooltip_provider(int(index)) or "")
+        except Exception:
+            return ""
 
     def count(self) -> int:
         return len(self._items)
@@ -513,14 +540,22 @@ class TextListWidget(SurfacePanel):
                 painter.fillRect(row, selected_fill)
             elif index == self._hover_row:
                 painter.fillRect(row, hover_fill)
-            painter.setPen(text_color)
-            baseline = row.y() + (self._row_height + metrics.ascent() - metrics.descent()) / 2
-            painter.drawText(
-                QRectF(row.x(), row.y(), row.width(), row.height()),
-                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, int(row.width())),
-            )
+            if self._row_painter is not None:
+                self._row_painter(
+                    painter, index, row, metrics, text,
+                    index in self._selected, index == self._hover_row,
+                )
+            else:
+                painter.setPen(text_color)
+                painter.drawText(
+                    QRectF(row.x(), row.y(), row.width(), row.height()),
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                    metrics.elidedText(text, Qt.TextElideMode.ElideMiddle, int(row.width())),
+                )
         self._paint_band(painter, target)
+        # ALWAYS end the painter: leaving it active makes Qt print "QBackingStore::endPaint() called with active painter"
+        # and painting stalls - the window stops answering (measured 2026-11-22, the row painter made this path run).
+        painter.end()
 
     def panel_radius(self) -> int:
         """The plate's corner radius in px (0 = square)."""

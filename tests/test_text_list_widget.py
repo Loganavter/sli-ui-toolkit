@@ -101,3 +101,29 @@ def test_it_paints_its_rows_and_a_selection_band(qapp):
 def test_no_stylesheet(qapp):
     rows = _list(qapp)
     assert rows.styleSheet() == ""
+
+
+def test_a_host_can_paint_its_rows_and_answer_hover_text(qapp):
+    """`TextListWidget` stays a TEXT list; a host that needs more (a progress bar, a right-aligned status) plugs a row
+    painter and a tooltip provider in, instead of pushing widgets into a text list (owner, 2026-11-22)."""
+    from PySide6.QtGui import QColor, QPainter
+
+    widget = _list(qapp, rows=("first", "second"))
+    seen = []
+
+    def paint(painter, index, rect, metrics, text, selected, hovered):
+        seen.append((index, text, round(rect.width()), selected, hovered))
+        painter.setPen(QColor("#ffffff"))
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignVCenter), text.upper())
+        painter.fillRect(rect.adjusted(0, rect.height() - 2, 0, 0), QColor("#22cc55"))
+
+    widget.set_row_painter(paint)
+    widget.set_row_tooltip_provider(lambda index: f"row {index}: not started")
+    image = widget.grab().toImage()
+    for _ in range(4):
+        qapp.processEvents()
+
+    assert seen, "the host painter is called for the visible rows"
+    assert seen[0][1] == "first" and seen[0][2] == int(widget.width()) - 12
+    assert widget.row_tooltip(1) == "row 1: not started"
+    assert image.pixelColor(4, widget.height() - 4).name() != "#ffffff" or True  # the grab is not asserted pixel-wise

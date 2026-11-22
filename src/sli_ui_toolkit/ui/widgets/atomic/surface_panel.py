@@ -101,22 +101,31 @@ class SurfacePanel(QWidget):
         if fill is None and border is None:
             return
         painter = QPainter(self)
-        # A square fill covers whole pixels; antialiasing it would leave a translucent 1 px rim (measured: corner alpha
-        # 63 instead of 255). A rounded fill needs it.
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, bool(self._radius))
-        # Half-pixel inset for the 1 px stroke: on the widget edge it is otherwise clipped to half its width.
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5) if self._radius or border is not None else QRectF(self.rect())
-        if fill is not None:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(fill)
-            if self._radius:
-                painter.drawRoundedRect(rect, self._radius, self._radius)
-            else:
-                painter.drawRect(rect)
-        if border is not None:
-            painter.setPen(QPen(border, 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            if self._radius:
-                painter.drawRoundedRect(rect, self._radius, self._radius)
-            else:
-                painter.drawRect(rect)
+        if not painter.isActive():
+            return
+        try:
+            # A square fill covers whole pixels; antialiasing it would leave a translucent 1 px rim (measured: corner
+            # alpha 63 instead of 255). A rounded fill needs it.
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, bool(self._radius))
+            # Half-pixel inset for the 1 px stroke: on the widget edge it is otherwise clipped to half its width.
+            rect = (QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+                    if self._radius or border is not None else QRectF(self.rect()))
+            if fill is not None:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(fill)
+                if self._radius:
+                    painter.drawRoundedRect(rect, self._radius, self._radius)
+                else:
+                    painter.drawRect(rect)
+            if border is not None:
+                painter.setPen(QPen(border, 1))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                if self._radius:
+                    painter.drawRoundedRect(rect, self._radius, self._radius)
+                else:
+                    painter.drawRect(rect)
+        finally:
+            # END IT. A painter left active when the paint cycle finishes makes Qt warn "QBackingStore::endPaint() called
+            # with active painter" and the window stops answering under repaint pressure - every page and panel is a
+            # SurfacePanel, so this one omission stalls the whole app (measured 2026-11-22).
+            painter.end()
