@@ -2,7 +2,16 @@
 
 ## Unreleased
 
-### Added
+### Fixed
+
+- **`TopTabHost` gives every page the stack's geometry.** `QStackedLayout` in its default `StackOne` mode lays out only
+  the page it shows, so the others keep their size from the last time they were current (Qt's 640x480 at creation, or
+  the window's old width). Switching to one of those showed it clipped at that stale width, and the strip it did not
+  cover kept the previous page's pixels - measured in the host app as pages at 434x592 and 480x515 inside a 500x571
+  host, controls cut mid-word, healed only by a window resize. The host now resizes EVERY page on a stack resize and
+  settles each page's layout (`settle_layout`), and fits the page on a tab switch before it paints - the idiom the
+  inspector pane already used (`ui/inspector/view.py:108-128`); the guarantee belongs in the host so no consumer repeats
+  the event filter.
 
 - **An auto-hiding scrollbar no longer flashes when its widget is first created.** The overlay bar had one state -
   "the axis overflows" - and the auto-hide timer removed it seconds later, so every new scrollable widget showed its

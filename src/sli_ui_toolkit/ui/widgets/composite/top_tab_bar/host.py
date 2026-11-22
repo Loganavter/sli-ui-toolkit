@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
 from .style import TabStyle
@@ -133,6 +133,14 @@ class TopTabHost(QWidget):
             QSizePolicy.Policy.Expanding,
         )
 
+        # `QStackedLayout` in its default StackOne mode lays out ONLY the current page; the others keep whatever size
+        # they had when they were last current. Switch to one of those and it is shown at that stale size: its content
+        # clips at the old width and the strip that was never covered keeps the previous page's pixels - the host app
+        # measured pages at 434x592 and 480x515 inside a 500x571 host, cut exactly at the stale width, healed only by a
+        # window resize (RVE, 2026-11-22; BlinkTable documented the same mechanism and patched it per pane in
+        # docs/dev/rendering/investigations/ui-inspector-csd-corner-clip.md:80-97). The guarantee belongs HERE, so no
+        # consumer has to repeat the event filter.
+        self.pages_stack.installEventFilter(self)
         self.tab_bar.currentChanged.connect(self._on_bar_changed)
         try:
             ThemeManager.get_instance().theme_changed.connect(self._refresh_pane)
@@ -141,7 +149,47 @@ class TopTabHost(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
+        self._fit_pages()
         self._pane.update()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        if watched is self.pages_stack and event.type() == QEvent.Type.Resize:
+            self._fit_pages()
+        return super().eventFilter(watched, event)
+
+    def _fit_pages(self) -> None:
+        """Resize EVERY page to the stack and settle each page's own layout in the same call.
+
+        `QStackedLayout` in its default `StackOne` mode lays out only the page it shows; the others keep whatever size
+        they had when they were last current (Qt's 640x480 at creation, or the window's old width). Show one of those and
+        it paints clipped at that stale rect - and the strip it does not cover keeps the previous page's pixels. The host
+        app measured pages at 434x592 and 480x515 inside a 500x571 host, with its controls cut mid-word at the stale
+        edge, healed only by a window resize (RVE, 2026-11-22).
+
+        Every page, not just the current one, plus `settle_layout`, is the toolkit's existing idiom: the inspector pane
+        does exactly this (`ui/inspector/view.py:108-128`) because a page whose scroll area caches a `sizeHint` would
+        otherwise open one frame stale. The settled widget is the PAGE, never the stack we are filtering.
+        """
+        size = self.pages_stack.size()
+        if size.isEmpty():
+            return
+        for page in self._pages:
+            if page.size() != size:
+                page.resize(size)
+            self._settle(page)
+
+    @staticmethod
+    def _settle(page) -> None:
+        """Re-run the page's layout synchronously, refreshing its scroll area's hint if it has one."""
+        try:
+            from sli_ui_toolkit.ui.layout_settle import settle_layout
+        except Exception:                     # the helper is optional for a bare host
+            return
+        scroll_area = getattr(page, "scroll_area", None) or getattr(page, "_scroll", None)
+        try:
+            settle_layout(page, scroll_area)
+        except Exception:
+            pass
 
     def _apply_content_clip(self) -> None:
         # Masks caused neighbour-framebuffer bleed; square content is kept
@@ -263,6 +311,9 @@ class TopTabHost(QWidget):
     def _on_bar_changed(self, index: int) -> None:
         if 0 <= index < self.pages_stack.count():
             self.pages_stack.setCurrentIndex(index)
+            # Before it paints: this page may never have been current since the stack last changed size. Settled
+            # synchronously (a tab-change slot is not a resizeEvent), so the first frame after the switch agrees.
+            self._fit_pages()
         self.pages_stack.update()
         self._pane.update()
         self.currentChanged.emit(index)
