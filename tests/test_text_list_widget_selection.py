@@ -190,3 +190,26 @@ def test_the_rows_cover_the_whole_viewport_so_empty_space_still_reaches_the_list
                     Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
     )
     assert widget.selectedRows() == []
+
+
+def test_the_rows_paint_their_own_fill_so_a_width_change_cannot_leave_a_stale_strip(qapp):
+    """The content host fills its own rect before drawing rows (BlinkTable's `OpaqueFillHost` rule).
+
+    Without it the rows only cover the row rects; wherever the widget paints nothing the PREVIOUS frame stays. The owner
+    saw a selection band's tail stuck at the right of the queue after Move Up (2026-11-22) - the strip the band used to
+    occupy was never covered again.
+    """
+    widget = _list(qapp, rows=2)
+    widget.resize(300, 200)
+    qapp.processEvents()
+
+    image = widget._rows.grab().toImage()
+    plate = widget.fill_colour()
+    assert plate is not None, "the list states the colour its rows sit on"
+
+    # right of the text of row 0, and the empty area under the last row: both must be the plate, not a transparent hole
+    for x, y in ((widget.width() - 30, 10), (30, widget._rows.height() - 5)):
+        pixel = image.pixelColor(x, y)
+        assert pixel.name() == plate.name(), (
+            f"the rows widget left its own area unpainted at {(x, y)}: {pixel.name()} instead of {plate.name()}"
+        )

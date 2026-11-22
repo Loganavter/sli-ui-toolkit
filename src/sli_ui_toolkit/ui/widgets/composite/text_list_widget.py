@@ -50,6 +50,16 @@ class _Rows(QWidget):
         return self.sizeHint()
 
     def paintEvent(self, event) -> None:  # noqa: N802
+        # Fill FIRST, then draw the rows. A content host that only draws its rows leaves the rest of its own rect
+        # untouched, so when the widget changes width the vacated strip keeps the previous frame - the owner saw a
+        # selection band's tail stuck at the right of the queue after Move Up (2026-11-22). This is the reference host's
+        # rule for a content well: paint your fill explicitly, do not rely on whatever is behind you
+        # (`OpaqueFillHost.paintEvent` -> `fillRect(event.rect(), self._fill)` in BlinkTable).
+        painter = QPainter(self)
+        fill = self._owner.fill_colour()
+        if fill is not None:
+            painter.fillRect(event.rect(), fill)
+        painter.end()
         self._owner.paint_rows(self)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
@@ -440,6 +450,18 @@ class TextListWidget(SurfacePanel):
         self._rows.update()
 
     # -- painting -------------------------------------------------------
+
+    def fill_colour(self) -> QColor | None:
+        """The colour the rows sit on (the list's own plate), or ``None`` when the host paints no plate."""
+        token = self.background_token() or "surface.list"
+        try:
+            colour = QColor(ThemeManager.get_instance().try_get_color(token))
+        except Exception:
+            colour = QColor()
+        if colour.isValid():
+            colour.setAlpha(255)
+            return colour
+        return None
 
     def _token(self, name: str, fallback: str) -> QColor:
         manager = ThemeManager.get_instance()
