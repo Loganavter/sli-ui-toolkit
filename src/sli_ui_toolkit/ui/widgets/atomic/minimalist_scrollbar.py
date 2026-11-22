@@ -471,7 +471,7 @@ class _EdgeFadeEffect(QGraphicsEffect):
     HEIGHT = 24
 
     def __init__(self, area: "OverlayScrollArea") -> None:
-        super().__init__(area.widget())
+        super().__init__(area.viewport())
         self._area = area
 
     def draw(self, painter: QPainter) -> None:  # noqa: N802 - Qt API
@@ -486,19 +486,19 @@ class _EdgeFadeEffect(QGraphicsEffect):
         canvas.drawPixmap(0, 0, source)
         canvas.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
 
-        viewport = self._area.viewport()
+        # The effect sits on the VIEWPORT, so the pixmap IS the visible window: no scroll arithmetic, and every scroll
+        # repaints the viewport, which is what keeps the ramps on the edge instead of pinned to the first frame (the
+        # content widget is moved by the area, not repainted, so an effect on it stuck at its first position - owner,
+        # 2026-11-22).
         top, bottom = self._area.edge_fade_sides()
-        height = min(self.HEIGHT, max(1, viewport.height() // 2))
-        # Content coordinates: the effect is installed on the content widget, which the scroll area moves inside the
-        # viewport, so the visible window into it starts at -(bar value).
-        visible_top = -self._area.verticalScrollBar().value() - offset.y()
+        height = min(self.HEIGHT, max(1, buffer.height() // 2))
         if top:
-            ramp = QLinearGradient(0, visible_top, 0, visible_top + height)
+            ramp = QLinearGradient(0, 0, 0, height)
             ramp.setColorAt(0.0, QColor(0, 0, 0, 0))
             ramp.setColorAt(1.0, QColor(0, 0, 0, 255))
-            canvas.fillRect(QRect(0, visible_top, buffer.width(), height), ramp)
+            canvas.fillRect(QRect(0, 0, buffer.width(), height), ramp)
         if bottom:
-            edge = visible_top + viewport.height()
+            edge = buffer.height()
             ramp = QLinearGradient(0, edge - height, 0, edge)
             ramp.setColorAt(0.0, QColor(0, 0, 0, 255))
             ramp.setColorAt(1.0, QColor(0, 0, 0, 0))
@@ -679,15 +679,12 @@ class OverlayScrollArea(QScrollArea):
         if enabled == self._edge_fade_enabled:
             return
         self._edge_fade_enabled = enabled
-        content = self.widget()
         if not enabled:
-            if content is not None:
-                content.setGraphicsEffect(None)
+            self.viewport().setGraphicsEffect(None)
             self._edge_fade = None
             return
-        if content is not None:
-            self._edge_fade = _EdgeFadeEffect(self)
-            content.setGraphicsEffect(self._edge_fade)
+        self._edge_fade = _EdgeFadeEffect(self)
+        self.viewport().setGraphicsEffect(self._edge_fade)
         self._sync_edge_fade()
 
     def edge_fade_enabled(self) -> bool:
@@ -708,6 +705,7 @@ class OverlayScrollArea(QScrollArea):
             return
         # The effect caches the rendered source; a scroll or a resize changes the visible window into it.
         effect.update()
+        self.viewport().update()
 
     def set_scrollbar_width(self, width: int) -> None:
         """Reserved gutter width (px) for the overlay bar.

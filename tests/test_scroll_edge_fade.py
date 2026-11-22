@@ -80,11 +80,13 @@ def test_the_fade_is_an_effect_on_the_content_and_is_opt_in(qapp):
 
     area.set_edge_fade_enabled(True)
     assert area._edge_fade is not None
-    assert area.widget().graphicsEffect() is area._edge_fade
+    # On the VIEWPORT, not on the content: the area moves the content instead of repainting it, so an effect on the
+    # content kept its first frame and the ramp stayed pinned to the initial scroll position (owner, 2026-11-22).
+    assert area.viewport().graphicsEffect() is area._edge_fade
 
     area.set_edge_fade_enabled(False)
     assert area._edge_fade is None
-    assert area.widget().graphicsEffect() is None
+    assert area.viewport().graphicsEffect() is None
 
 
 def test_the_fade_works_by_alpha(qapp):
@@ -99,3 +101,30 @@ def test_the_fade_works_by_alpha(qapp):
 
     assert with_fade > without + 10, (
         f"the fade did not modulate the content's alpha: darkest glyph {without} -> {with_fade}")
+
+
+def test_the_fade_follows_the_scroll_position(qapp):
+    """The bands must move with the scroll - the failure the owner reported was a ramp pinned to the first frame."""
+    host, area = _area(qapp)
+    area.set_edge_fade_enabled(True)
+    for _ in range(8):
+        qapp.processEvents()
+
+    def bands() -> tuple[int, int]:
+        image = host.grab().toImage()
+        height = image.height()
+
+        def darkest(y0: int, y1: int) -> int:
+            return min(QColor(image.pixelColor(x, y)).lightness()
+                       for y in range(y0, y1) for x in range(20, 280))
+
+        return darkest(20, 40), darkest(height - 30, height - 12)
+
+    top_band, bottom_band = bands()
+    assert bottom_band > top_band, "at the top only the bottom edge may be faded"
+
+    area.verticalScrollBar().setValue(area.verticalScrollBar().maximum())
+    for _ in range(8):
+        qapp.processEvents()
+    top_band, bottom_band = bands()
+    assert top_band > bottom_band, "at the end only the top edge may be faded"
