@@ -195,8 +195,17 @@ count = SpinBox(default_value=4, show_step_buttons=True, field_height=29, step_b
 ```
 
 `DoubleSpinBox` takes the same three arguments plus `single_step` / `decimals`
-and steps by its float `singleStep`. `Stepper` keeps its wide side-by-side
-gauge (`step=`, `setStep`) on top of the same shared gutter.
+and steps by its float `singleStep`. The step is never finer than the field can
+*show*: `setDecimals(0)` on a field built with `single_step=0.1` raises the step
+to `1`, because a press that moves the value by a tenth under a text that stays
+`2` is an arrow that does nothing. `setDecimals` re-snaps the stored value onto
+that coarser grid. `Stepper` keeps its wide side-by-side gauge (`step=`,
+`setStep`) on top of the same shared gutter.
+
+The whole spin family keeps Qt's cursor split: an I-beam over the text (it is
+still edited by hand) and an arrow over the ▲/▼ gutter and its edges, decided
+by region on hover, so the pointer stops switching within the non-text part of
+the field.
 
 `Switch(parent=None)` takes no constructor config beyond `parent` — state
 text and its visibility are runtime setters:

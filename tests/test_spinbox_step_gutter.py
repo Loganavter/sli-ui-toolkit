@@ -14,7 +14,7 @@ keeps the geometry and behaviour it always had.
 from __future__ import annotations
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtTest import QTest
 
 from sli_ui_toolkit.widgets import DoubleSpinBox, SpinBox, Stepper
@@ -241,17 +241,68 @@ def test_stepper_keeps_its_wide_side_by_side_gauge(qapp):
     stepper.close()
 
 
-def test_a_step_field_keeps_one_arrow_cursor(qapp):
-    """A stepped value is not a text editor: the base line edit's I-beam over the text and the buttons' arrow made the
-    cursor flip as the pointer crossed the gutter (owner, 2026-11-22)."""
-    from PySide6.QtCore import Qt
+def test_a_step_field_keeps_its_text_cursor_and_an_arrow_over_the_gutter(qapp):
+    """Qt's own split, and the toolkit's ``Text`` precedent: I-beam over the text, arrow over the non-text region.
 
-    for factory in (lambda: Stepper(show_step_buttons=True), lambda: DoubleSpinBox(show_step_buttons=True)):
-        field = factory()
-        field.show()
-        qapp.processEvents()
-        assert field.cursor().shape() == Qt.CursorShape.ArrowCursor
-        field.setReadOnly(False)          # the base class swaps to I-beam here; a spin box must not follow
-        assert field.cursor().shape() == Qt.CursorShape.ArrowCursor
-        assert field._up_button.cursor().shape() == Qt.CursorShape.ArrowCursor
-        assert field._down_button.cursor().shape() == Qt.CursorShape.ArrowCursor
+    Pinning one arrow cursor over the whole field (an earlier attempt) cost the text its I-beam, so a value that is
+    still edited by hand stopped looking editable (owner, 2026-11-22).
+    """
+    field = _host_field()
+    qapp.processEvents()
+    assert field.cursor().shape() == Qt.CursorShape.IBeamCursor, "the text keeps its I-beam"
+    assert field._up_button.cursor().shape() == Qt.CursorShape.ArrowCursor
+    assert field._down_button.cursor().shape() == Qt.CursorShape.ArrowCursor
+
+    gutter_left = field._button_area_rect().left()
+    QTest.mouseMove(field, QPoint(gutter_left // 2, field.height() // 2))
+    qapp.processEvents()
+    assert field.cursor().shape() == Qt.CursorShape.IBeamCursor
+
+    QTest.mouseMove(field, QPoint(gutter_left + 2, field.height() // 2))
+    qapp.processEvents()
+    assert field.cursor().shape() == Qt.CursorShape.ArrowCursor
+
+    field.setReadOnly(True)
+    assert field.cursor().shape() == Qt.CursorShape.ArrowCursor, "a read-only field is not an editor"
+    field.close()
+
+
+def test_a_step_moves_the_value_the_field_can_show(qapp):
+    """A whole-number field steps by whole units, so ▲ is never a press that changes nothing on screen.
+
+    The host's migrated rows pass the adapter's fine step (``0.1``) and then pin ``decimals(0)``; with the step left at
+    0.1 every press added a tenth under a text that stayed ``2`` (owner, 2026-11-22: "the arrows do nothing").
+    """
+    field = DoubleSpinBox(show_step_buttons=True, single_step=0.1, decimals=1)
+    field.setRange(1.0, 4.0)
+    field.setValue(2.0)
+    field.setDecimals(0)
+    field.resize(field.sizeHint().width(), field.sizeHint().height())
+    field.show()
+    qapp.processEvents()
+
+    assert field.singleStep() == pytest.approx(1.0), "the step was raised to the shown precision"
+    text_before = field.text()
+    QTest.mouseClick(field._up_button, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert field.value() == pytest.approx(3.0)
+    assert field.text() != text_before, "the press is visible on screen"
+
+    QTest.mouseClick(field._down_button, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert field.value() == pytest.approx(2.0)
+    field.close()
+
+
+def test_a_fine_step_survives_a_field_that_shows_that_precision(qapp):
+    """The guard must not coarsen a field that really shows tenths (scene-change threshold and friends)."""
+    field = DoubleSpinBox(show_step_buttons=True, single_step=0.1, decimals=1)
+    field.setRange(0.0, 5.0)
+    field.setValue(2.0)
+    field.show()
+    qapp.processEvents()
+    assert field.singleStep() == pytest.approx(0.1)
+    QTest.mouseClick(field._up_button, Qt.MouseButton.LeftButton)
+    qapp.processEvents()
+    assert field.value() == pytest.approx(2.1)
+    field.close()

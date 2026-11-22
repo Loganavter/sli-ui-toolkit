@@ -81,11 +81,9 @@ class SpinBox(WheelScrollPolicyMixin, StepButtonsMixin, CustomLineEdit):
         self._min_width_explicit = False
         self.setFixedHeight(scaled_px(self._field_height))
         self._init_step_gutter(show_step_buttons)
-        # ONE cursor for the whole field. It is a stepped VALUE, not a text editor: with the base line edit's I-beam over
-        # the text and an arrow over the step buttons, the cursor flipped as the pointer crossed the gutter (owner,
-        # 2026-11-22: "the cursor is text, then just a cursor"). The field is still editable - the cursor is the only
-        # thing that changes. `Stepper`/`DoubleSpinBox` both inherit this.
-        self.setCursor(Qt.CursorShape.ArrowCursor)
+        # Hover events without a pressed button, so the cursor can follow the region under the pointer - the shape
+        # `Text` already uses for "I-beam over the glyphs, arrow elsewhere" (text.py:779-799).
+        self.setMouseTracking(True)
         self._pin_content_width()
 
         self.editingFinished.connect(self._on_editing_finished)
@@ -101,10 +99,22 @@ class SpinBox(WheelScrollPolicyMixin, StepButtonsMixin, CustomLineEdit):
         self.updateGeometry()
         self.update()
 
-    def setReadOnly(self, read_only: bool) -> None:  # noqa: N802 - Qt spelling
-        """Keep the arrow cursor: the base class swaps to I-beam for an editable line, and a spin box must not."""
-        super().setReadOnly(read_only)
-        self.setCursor(Qt.CursorShape.ArrowCursor)
+    def mouseMoveEvent(self, event):  # noqa: N802 - Qt spelling
+        super().mouseMoveEvent(event)
+        self._sync_hover_cursor(event.position().x())
+
+    def _sync_hover_cursor(self, x: float) -> None:
+        """I-beam over the text, arrow over the step gutter - Qt's own ``QSpinBox`` split.
+
+        The base line edit is a text field, so it pins an I-beam on the whole widget, and the gutter is part of that
+        widget while being no text at all. Deciding by region (not only by the button children) also covers the pixels
+        of painted gutter that no button overlaps, where the cursor used to flip back to a beam. Over a step button the
+        button's own arrow applies; this handles the text and the gutter's edges.
+        """
+        over_gutter = self._show_step_buttons and x >= self._button_area_rect().left()
+        want = Qt.CursorShape.ArrowCursor if over_gutter or self.isReadOnly() else Qt.CursorShape.IBeamCursor
+        if self.cursor().shape() != want:
+            self.setCursor(want)
 
     # -- stepping -----------------------------------------------------------
 
@@ -319,6 +329,7 @@ class DoubleSpinBox(SpinBox):
             field_height=field_height,
         )
         self._single_step = max(0.0, float(single_step))  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
+        self._reconcile_step()
         self._minimum = 0.0  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
         self._maximum = 100.0  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
         self._value = float(default_value)  # type: ignore[assignment]  # DoubleSpinBox widens SpinBox int state to float
@@ -341,15 +352,38 @@ class DoubleSpinBox(SpinBox):
         """
         return QLocale().toString(float(value), "f", self._decimals)
 
+    def _display_quantum(self) -> float:
+        """The smallest change this field can SHOW: one unit in its last displayed digit."""
+        return 10.0 ** (-self._decimals)
+
+    def _reconcile_step(self) -> None:
+        """A step finer than the shown precision is an arrow that does nothing.
+
+        A host migrating a Designer ``QDoubleSpinBox`` passes the adapter's fine step (``0.1``) and then pins the display
+        with ``setDecimals(0)`` - one whole unit per shown digit. Left alone, every ▲ press moved the value by 0.1 while
+        the text stayed ``2``, so the arrows read as dead (owner, 2026-11-22: "the arrows do nothing"). A field may not
+        step by less than it can display: the step is raised to the display quantum, and the value re-snaps onto it.
+        """
+        # `0` stays `0`: it is the host's "free entry, no snapping" statement, and its arrows are already inert
+        # (a zero step cannot move) rather than invisibly alive.
+        if 0 < self._single_step < self._display_quantum():
+            self._single_step = self._display_quantum()  # type: ignore[assignment]
+
+    def decimals(self) -> int:
+        """Qt parity: how many digits the field shows after the separator."""
+        return self._decimals
+
     def setDecimals(self, decimals: int) -> None:
         self._decimals = max(0, int(decimals))
         self.setValidator(QDoubleValidator(-1e9, 1e9, self._decimals, self))
-        self.setText(self._format(self._value))
+        self._reconcile_step()
+        self.setValue(self._value)  # re-snap onto the (possibly coarser) grid and repaint the text in one place
         self._update_content_width()
         self.updateGeometry()
 
     def setSingleStep(self, step: float) -> None:  # type: ignore[override]  # DoubleSpinBox widens SpinBox's int step to float
         self._single_step = max(0.0, float(step))  # type: ignore[assignment]  # see __init__: float state on an int-typed slot
+        self._reconcile_step()
         self._sync_step_buttons()
 
     def singleStep(self) -> float:  # type: ignore[override]  # DoubleSpinBox widens SpinBox's int step to float
