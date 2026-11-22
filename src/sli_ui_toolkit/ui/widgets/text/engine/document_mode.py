@@ -56,6 +56,10 @@ class DocumentSelection:
             return None
         return tuple(sorted(self.selection))  # type: ignore[return-value]
 
+    def caret(self) -> int | None:
+        """The caret offset: the moving end of the selection, set by every click."""
+        return None if self.selection is None else int(self.selection[1])
+
     def paint_range(self) -> tuple[int, int] | None:
         if self.selection is None or self.selection[0] == self.selection[1]:
             return None

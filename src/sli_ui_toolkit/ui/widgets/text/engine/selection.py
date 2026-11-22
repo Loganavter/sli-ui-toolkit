@@ -147,6 +147,10 @@ class SelectionState(Generic[Coord]):
         self._last_time = now
         return self.click_count
 
+    def caret(self) -> int | None:
+        """The caret offset - the moving end of the selection, set by every click."""
+        return self.focus
+
     def _same_spot(self, point) -> bool:
         """Whether ``point`` sits within the chain distance of the previous
         press. Default: per-axis distance (``(line, col)`` tuples)."""

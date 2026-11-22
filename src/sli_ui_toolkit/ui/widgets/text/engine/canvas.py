@@ -773,7 +773,11 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         self._caret_on = True
         # A rich body is read-only but still carries a caret: it blinks
         # while the surface owns focus, exactly like an editing canvas.
-        if getattr(self, "_editing", False) or getattr(self, "_rich", None) is not None:
+        if (
+            getattr(self, "_editing", False)
+            or getattr(self, "_rich", None) is not None
+            or getattr(self, "_document_layout", None) is not None
+        ):
             try:
                 self._caret_blink.start()
             except Exception:

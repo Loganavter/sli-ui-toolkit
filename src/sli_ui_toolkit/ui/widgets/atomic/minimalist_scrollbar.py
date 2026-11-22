@@ -332,6 +332,29 @@ class MinimalistScrollBar(QScrollBar):
         self.update()
         self._restart_idle_timer()
 
+    def set_thumb_thickness(self, idle: int | None = None, hover: int | None = None, drag: int | None = None) -> None:
+        """Set the thumb's idle / hover / drag thickness in px; ``None`` leaves one alone.
+
+        The three widths were module-private: the bar's *slot* is public (``MINIMAL_SCROLLBAR_WIDTH``) but how thick the
+        thumb itself draws was not, so a host that wants a heavier or lighter handle had to fork the bar. Values are
+        clamped to the slot's width (a thumb wider than its bar reads as a track), and the change repaints immediately.
+        """
+        limit = int(MINIMAL_SCROLLBAR_WIDTH)
+        changed = False
+        for name, value in (("_idle_thickness", idle), ("_hover_thickness", hover), ("_drag_thickness", drag)):
+            if value is None:
+                continue
+            clamped = max(1, min(int(value), limit))
+            if getattr(self, name) != clamped:
+                setattr(self, name, clamped)
+                changed = True
+        if changed:
+            self._update_state_targets()
+
+    def thumb_thickness(self) -> tuple[int, int, int]:
+        """The current idle / hover / drag thickness - for hosts and tests to read back."""
+        return (self._idle_thickness, self._hover_thickness, self._drag_thickness)
+
     def set_available(self, available: bool) -> None:
         """Tell the bar its axis overflows. An auto-hiding bar stays hidden until activity (see `_poke`)."""
         available = bool(available)

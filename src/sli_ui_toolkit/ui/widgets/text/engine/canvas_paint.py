@@ -223,6 +223,23 @@ class _CanvasPaintApi:
             selection_end=selection_end,
             theme=ThemeManager.get_instance(),
         )
+        # A read-only document still carries a caret: a click places it, it blinks while the body owns focus, and it is
+        # the only feedback a plain click gets (the selection highlight needs a drag). Same contract as the rich body,
+        # which paints through `RichDocumentSurface`.
+        selection = getattr(self, "_doc_selection", None)
+        offset = selection.caret() if selection is not None else None
+        if (
+            offset is not None
+            and selection.paint_range() is None
+            and self.hasFocus()
+            and bool(getattr(self, "_caret_on", True))
+        ):
+            from .layout.caret import caret_rect
+
+            rect = caret_rect(self._document_layout, offset)
+            caret_colour = ThemeManager.get_instance().try_get_color("dialog.text")
+            if rect is not None and caret_colour is not None and caret_colour.isValid():
+                painter.fillRect(rect, caret_colour)
 
     def _fold_arrow_reserve(self) -> int:
         """Constant gutter space for the fold arrow (0 when folding is
