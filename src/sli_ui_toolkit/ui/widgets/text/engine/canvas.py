@@ -325,6 +325,8 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         self._document_layout = None
         self._document_asset_resolver = None
         self._rich = None
+        #: Host-chosen link colour for the rich surface (`None` = Qt's palette link colour).
+        self._rich_link_color = None
         self._doc_selection.reset()
         self._gutter_cache = None
         self._sync_height()
@@ -402,6 +404,9 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
             self._rich.set_inset(self._rich_inset)
             if self._rich_font is not None:
                 self._rich.set_font(self._rich_font)
+        link_color = getattr(self, "_rich_link_color", None)
+        if link_color is not None:
+            self._rich.set_link_color(link_color)
         self._document_blocks = None
         self._document_index = None
         self._document_layout = None
@@ -413,6 +418,12 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         self._rich.set_html(html)
         self.relayout_rich()
         self._notify_selection()
+
+    def set_rich_link_color(self, color) -> None:
+        """Link colour for the rich surface; `None` keeps Qt's palette link colour."""
+        self._rich_link_color = color
+        if getattr(self, "_rich", None) is not None:
+            self._rich.set_link_color(color)
 
     def set_rich_font(self, font) -> None:
         """Rich body font for text the HTML does not style itself."""

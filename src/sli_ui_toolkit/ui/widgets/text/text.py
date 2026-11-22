@@ -503,6 +503,12 @@ class Text(QWidget):
             return
         self.setSelection(0, len(self._display_text))
 
+    def set_rich_link_color(self, color) -> None:
+        """Link colour for a rich body (this host's look, not Qt's stock blue)."""
+        if self._engine is not None:
+            self._engine.set_rich_link_color(color)
+        self._rich_link_color = color
+
     def set_html(self, html: str) -> None:
         """Document mode: show an HTML body (rich text with caret + selection).
 

@@ -152,6 +152,39 @@ class RichDocumentSurface:
             return None
         return int(offset)
 
+    def link_at(self, point) -> str | None:
+        """The href under a widget-space point, if any (a link must be clickable, not just blue)."""
+        layout = self._document.documentLayout()
+        if layout is None:
+            return None
+        href = str(layout.anchorAt(self._local(point)) or "")
+        return href or None
+
+    def set_link_color(self, color: QColor | None) -> None:
+        """Re-colour every anchor fragment in place.
+
+        Qt paints an anchor with the PALETTE's Link role, and a host whose look is monochrome got a stock blue it never
+        chose. Re-colouring the fragments keeps the body's own HTML colours and does not re-parse the document.
+        """
+        if color is None or not QColor(color).isValid():
+            return
+        colour = QColor(color)
+        block = self._document.begin()
+        while block.isValid():
+            iterator = block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                if fragment.isValid() and fragment.charFormat().isAnchor():
+                    cursor = QTextCursor(self._document)
+                    cursor.setPosition(fragment.position())
+                    cursor.setPosition(fragment.position() + fragment.length(),
+                                       QTextCursor.MoveMode.KeepAnchor)
+                    fmt = cursor.charFormat()
+                    fmt.setForeground(colour)
+                    cursor.mergeCharFormat(fmt)
+                iterator += 1
+            block = block.next()
+
     def press(self, point) -> None:
         """Place the caret / anchor a selection at a widget-space point."""
         offset = self._offset_at(point)

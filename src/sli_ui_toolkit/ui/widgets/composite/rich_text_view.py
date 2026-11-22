@@ -57,6 +57,7 @@ class RichTextView(SurfacePanel):
         background_token: str | None = "surface.list",
         radius: int = 10,
         scrollbar_width: int | None = None,
+        link_token: str = "dialog.text",
     ) -> None:
         super().__init__(parent, background_token=background_token, radius=radius)
         self._padding: tuple[int, int, int, int] = (
@@ -91,7 +92,11 @@ class RichTextView(SurfacePanel):
         assert engine is not None  # mode="document" always hosts the engine
         engine.set_rich_inset(self._padding)
         self._apply_body_font()
+        #: Links are painted with this token instead of Qt's palette Link role (a stock blue a monochrome host never
+        #: chose), and they are clickable: the surface hit-tests an anchor on release and `Text` opens it.
+        self._link_token = str(link_token)
         self._scroll.setWidget(self.label)
+        self._apply_link_color()
 
         layout = QVBoxLayout(self)
         # The plate's radius needs the content off its corners, and a rounded plate must not have a square child
@@ -168,9 +173,17 @@ class RichTextView(SurfacePanel):
         """Append one line, the way a log/notes pane is fed."""
         self._set_markup(self._markup + "<br>" + str(text))
 
+    def _apply_link_color(self) -> None:
+        from sli_ui_toolkit.theme import ThemeManager
+
+        colour = ThemeManager.get_instance().try_get_color(self._link_token)
+        if colour is not None and colour.isValid():
+            self.label.set_rich_link_color(QColor(colour))
+
     def _set_markup(self, markup: str) -> None:
         self._markup = markup
         self.label.set_html(markup)
+        self._apply_link_color()
         self._sync_height()
 
     def toPlainText(self) -> str:  # noqa: N802

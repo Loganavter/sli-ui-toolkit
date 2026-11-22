@@ -338,6 +338,12 @@ class _CanvasEventsApi:
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._rich is not None:
+            if event.button() == Qt.MouseButton.LeftButton and not self._rich.has_selection():
+                # A click (not a drag) on an anchor opens it: the surface had no hit-test, so a link in a host's HTML
+                # body was inert.
+                href = self._rich.link_at(event.position().toPoint())
+                if href:
+                    self.linkActivated.emit(href)
             QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]
             return
         if self._document_layout is not None:
