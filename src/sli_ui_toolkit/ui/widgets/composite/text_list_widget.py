@@ -442,6 +442,10 @@ class TextListWidget(SurfacePanel):
         return index if 0 <= index < len(self._items) else None
 
     def rows_height(self) -> int:
+        import os as _rows_env
+
+        if _rows_env.environ.get("RVE_UI_NO_ROWS_VIEWPORT"):   # bisect: back to "content height only"
+            return self.content_height()
         """The painted rows' height: the content, or the viewport when the content is shorter.
 
         A `_Rows` exactly as tall as its content leaves the rest of the viewport to the scroll area - and a press there
