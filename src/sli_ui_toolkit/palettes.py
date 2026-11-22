@@ -127,6 +127,8 @@ FLUENT_DARK = {
     "Highlight": QColor("#0078D4"),
     "HighlightedText": QColor("#ffffff"),
     "accent": QColor("#0096FF"),
+    #: See FLUENT_LIGHT["link"] - a lighter blue on a dark surface (the palette is what a host overlays).
+    "link": QColor("#4da3ff"),
     "checkbox.check": QColor("#ffffff"),
     "checkbox.background.checked": QColor("#0096FF"),
     "surface.background": QColor("#2b2b2b"),
