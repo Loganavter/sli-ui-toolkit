@@ -251,35 +251,3 @@ def test_resolve_band_rects_fallback_without_press() -> None:
     vp, content = resolve_band_rects(None, None, rect, QPoint(5, 5))
     assert vp == rect.translated(-5, -5)
     assert content == rect
-
-
-def test_the_band_border_skips_the_sides_the_viewport_cut(qapp):
-    """A band clamped to a viewport must not draw its border along the cut.
-
-    The list clamps the marquee to its visible rows (a drag keeps tracking outside it), and a border drawn on that edge
-    sits exactly on the plate's outline - the owner saw the selection's edge reach past the visible list (2026-11-22).
-    """
-    from PySide6.QtGui import QImage
-
-    def render(edges):
-        image = QImage(70, 70, QImage.Format.Format_ARGB32)
-        image.fill(QColor("#ffffff"))
-        painter = QPainter(image)
-        paint_marquee_band(painter, QRect(10, 10, 50, 50), QColor("#0078d4"), edges)
-        painter.end()
-        return image
-
-    all_sides = render(None)
-    top_bottom_only = render((True, False, True, False))
-
-    # A 1px pen at alpha 200 lands on the fill, so compare the RENDERS, not a constant: the side that keeps its border
-    # must look the same in both renders, and the side the viewport cut must not.
-    assert top_bottom_only.pixelColor(35, 10).name() == all_sides.pixelColor(35, 10).name(), (
-        "the top border is still drawn"
-    )
-    assert top_bottom_only.pixelColor(10, 35).name() != all_sides.pixelColor(10, 35).name(), (
-        "a side the viewport cut must not carry a border"
-    )
-    assert top_bottom_only.pixelColor(10, 35).name() == top_bottom_only.pixelColor(35, 30).name(), (
-        "the cut side reads as plain fill"
-    )

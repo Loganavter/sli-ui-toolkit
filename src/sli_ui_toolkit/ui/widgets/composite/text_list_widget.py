@@ -537,12 +537,12 @@ class TextListWidget(SurfacePanel):
         return path
 
     def _paint_band(self, painter: QPainter, target: QWidget) -> None:
-        """The rubber rectangle, clamped to the visible rows and bordered only on its own edges.
+        """The rubber rectangle, clamped to the visible rows.
 
-        A drag keeps tracking outside the list (MarqueeState's application filter), so `band_rect` can be far bigger than
-        the widget. Drawing it clipped leaves the band's border cut off exactly ON the plate's outline - the owner saw
-        the selection's edge reach past the visible list (2026-11-22). Clamping first and then dropping the border sides
-        the viewport cut keeps the кайма inside.
+        A drag keeps tracking outside the list (`MarqueeState`'s application filter), so `band_rect` can be far bigger
+        than the widget. Clamping the rect here - rather than painting a huge rect and letting the widget clip it - keeps
+        the band's border inside the visible list: the owner saw the кайма reach past it (2026-11-22). The border stays on
+        all four sides of the CLAMPED rect, because that rect is the selection's real extent.
         """
         band = self._marquee.band_rect
         if band.isEmpty():
@@ -553,13 +553,7 @@ class TextListWidget(SurfacePanel):
             return
         accent = self._token("accent", "#0078d4")
         self._marquee.set_accent(accent)
-        edges = (
-            band.top() >= visible.top(),
-            band.right() <= visible.right(),
-            band.bottom() <= visible.bottom(),
-            band.left() >= visible.left(),
-        )
-        paint_marquee_band(painter, clamped, accent, edges)
+        paint_marquee_band(painter, clamped, accent)
 
     # -- keyboard -------------------------------------------------------
 
