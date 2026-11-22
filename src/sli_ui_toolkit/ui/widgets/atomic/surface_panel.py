@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtCore import QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPalette, QPen
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -37,19 +37,11 @@ class SurfacePanel(QWidget):
         background_token: str | None = "surface.background",
         radius: int = 0,
         border_token: str | None = None,
-        opaque: bool = False,
     ) -> None:
         super().__init__(parent)
         self._background_token = background_token
         self._radius = max(0, int(radius))
         self._border_token = border_token
-        # Opaque host: the panel fills its WHOLE rect with the surface it sits on (palette Window) and draws its plate
-        # on top, instead of being WA_TranslucentBackground and letting whatever is behind show through. That is the
-        # reference host's OpaqueFillHost: a content host must not rely on what is behind it, because a compositor that
-        # keeps a stale frame or a parent that skips a repaint then shows through the holes (owner, 2026-11-22).
-        self._opaque = bool(opaque)
-        if self._opaque:
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self._theme_manager = ThemeManager.get_instance()
         self.setAutoFillBackground(False)
         # Without this Qt erases the widget with the palette window colour before paintEvent, so a panel with no token
@@ -61,18 +53,6 @@ class SurfacePanel(QWidget):
             pass
 
     # -- configuration --------------------------------------------------
-
-    def set_opaque(self, opaque: bool) -> None:
-        """Make the panel paint its whole rect (see `_opaque`); idempotent."""
-        opaque = bool(opaque)
-        if opaque == self._opaque:
-            return
-        self._opaque = opaque
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, not opaque)
-        self.update()
-
-    def is_opaque(self) -> bool:
-        return bool(self._opaque)
 
     def set_background_token(self, token: str | None) -> None:
         if token == self._background_token:
@@ -121,10 +101,6 @@ class SurfacePanel(QWidget):
         if fill is None and border is None:
             return
         painter = QPainter(self)
-        if self._opaque:
-            # Fill first, straight from the palette (the shell pins Window to the page surface), so the rounded plate
-            # below keeps its corners correct and nothing behind can show through.
-            painter.fillRect(event.rect(), self.palette().color(QPalette.ColorRole.Window))
         # A square fill covers whole pixels; antialiasing it would leave a translucent 1 px rim (measured: corner alpha
         # 63 instead of 255). A rounded fill needs it.
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, bool(self._radius))
