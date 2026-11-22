@@ -35,9 +35,18 @@ def layout_nodes_for(controller, widget: QWidget) -> None:
     controller._window.set_layout_nodes(tuple(nodes))
 
 
+#: Row text for a selected widget that contains no widgets. A leaf (an `ImageLabel`, a `Text`, a spin box) has no
+#: subtree, and an EMPTY Constructor page reads as "the tree is broken / the hover highlight is broken" - the row makes
+#: the answer explicit, and it carries no widget, so it is not hoverable and cannot select anything.
+LEAF_ROW = "no child widgets (leaf)"
+
+
 def constructor_nodes_for(controller, widget: QWidget) -> None:
     """Every widget inside the selected widget (its own subtree)."""
     if not controller._is_valid_widget(widget):
         return
     nodes = _walk_widget_tree(controller, widget)
+    if len(nodes) <= 1:  # only the widget itself
+        controller._window.set_constructor_nodes(((LEAF_ROW, None, 0),))
+        return
     controller._window.set_constructor_nodes(tuple(nodes))

@@ -531,3 +531,44 @@ def test_close_tab_preserves_cached_layout_tree(qapp):
     # the shared tree survived the pane deletion and moved to the next tab
     assert _is_descendant(pane1.pages["Layout"].content_widget, tree)
     assert win.tabs.count() == 1
+
+
+def test_a_leaf_selection_says_so_instead_of_rendering_an_empty_constructor(qapp):
+    """A widget with no children has no subtree, and an empty Constructor page reads as "the tree is broken".
+
+    Owner report 2026-11-22: selecting `ImageLabel#previewLabel` and hovering the Constructor tab did nothing - there
+    were no rows at all, because the tab lists the selected widget's CHILDREN and a label is a leaf. The page now states
+    the fact with one row that carries no widget (so it is not hoverable and cannot select anything).
+    """
+    from PySide6.QtWidgets import QWidget
+
+    from sli_ui_toolkit.ui.inspector import tree_walk
+
+    class _Window:
+        def __init__(self):
+            self.nodes = None
+
+        def set_constructor_nodes(self, nodes):
+            self.nodes = nodes
+
+    class _Controller:
+        def __init__(self):
+            self._window = _Window()
+
+        def _is_valid_widget(self, widget):
+            return widget is not None
+
+        def _is_inspector_widget(self, widget):
+            return False
+
+    leaf = QWidget()
+    root = QWidget()
+    root.findChildren = lambda *a, **k: [leaf]
+    controller = _Controller()
+
+    tree_walk.constructor_nodes_for(controller, leaf)
+    assert controller._window.nodes == ((tree_walk.LEAF_ROW, None, 0),)
+
+    tree_walk.constructor_nodes_for(controller, root)
+    labels = [node[0] for node in controller._window.nodes]
+    assert labels == ["QWidget", "QWidget"], f"the subtree rows are gone: {labels}"
