@@ -149,6 +149,9 @@
 
 ### Fixed
 
+- **Every item mutation re-measures a combo's width.** `setItemText` was fixed earlier; `addItem`, `addItems`,
+  `insertItem`, `removeItem` and `clear` still only repainted, so a field laid out before its items arrived kept the
+  empty 100 px floor (measured: 100 px wide against a 139 px hint, eliding the selected text).
 - **A `ComboBox` never elides an item that its own `sizeHint` says fits.**
   The hint measured `paint_font` (right) but added only `2 × 12` px of padding
   to a raw `horizontalAdvance`, so on the host's retranslate()-filled item

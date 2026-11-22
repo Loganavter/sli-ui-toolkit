@@ -305,11 +305,14 @@ class ComboBox(Button):
             self._current_index = 0
         self._invalidate_visible_cache()
         self._sync_field_tooltip()
+        self.updateGeometry()
         self.update()
 
     def addItems(self, texts: list[str] | tuple[str, ...]):
         for text in texts:
             self.addItem(text)
+        self.updateGeometry()
+
 
     def insertItem(self, index: int, text: str, userData: Any = None):
         index = max(0, min(int(index), len(self._items)))
@@ -320,6 +323,7 @@ class ComboBox(Button):
             self._current_index += 1
         self._invalidate_visible_cache()
         self._sync_field_tooltip()
+        self.updateGeometry()
         self.update()
 
     def removeItem(self, index: int):
@@ -335,6 +339,7 @@ class ComboBox(Button):
         self._invalidate_visible_cache()
         self._scroll_offset = max(0, min(self._scroll_offset, max(0, self.count() - self._max_visible_items)))
         self._sync_field_tooltip()
+        self.updateGeometry()
         self.update()
 
     def clear(self):
@@ -345,6 +350,7 @@ class ComboBox(Button):
         self._search_text = ""
         self._invalidate_visible_cache()
         self._sync_field_tooltip()
+        self.updateGeometry()
         self.update()
 
     def currentIndex(self) -> int:
