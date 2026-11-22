@@ -181,6 +181,9 @@ class RichDocumentSurface:
                                        QTextCursor.MoveMode.KeepAnchor)
                     fmt = cursor.charFormat()
                     fmt.setForeground(colour)
+                    # A monochrome host's link must still READ as a link: keep it underlined (Qt's default for an anchor
+                    # is a stock blue, which is what a host with one text colour cannot use).
+                    fmt.setFontUnderline(True)
                     cursor.mergeCharFormat(fmt)
                 iterator += 1
             block = block.next()
