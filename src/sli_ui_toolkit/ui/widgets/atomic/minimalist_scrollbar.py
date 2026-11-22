@@ -5,9 +5,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPalette, QRegion, QWheelEvent
-from PySide6.QtWidgets import QApplication, QScrollArea, QScrollBar, QWidget
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer
+from PySide6.QtGui import (QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPalette, QRegion,
+                           QWheelEvent)
+from PySide6.QtWidgets import QGraphicsEffect, QApplication, QScrollArea, QScrollBar, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
@@ -456,61 +457,54 @@ def overlay_scrollbar_max_inset(
     return bar_width + bar_gap + _OVERLAY_INSET_MARGIN
 
 
-class _EdgeFade(QWidget):
-    """Gradient fade at the clipped edges of a scroll viewport.
+class _EdgeFadeEffect(QGraphicsEffect):
+    """Fade the CONTENT out by alpha at the clipped edges - not a coloured strip over it.
 
-    A scroll area cuts its content at the edge with a hard line, which reads as "the text just ends" (owner, 2026-11-22,
-    asking for Google's look). Two short gradients - top when there is content above, bottom when there is content below -
-    say "it continues" without a border. Drawn as a child of the area over the viewport: a child of the viewport would
-    scroll with the content, and painting in `QAbstractScrollArea.paintEvent` cannot reach over its viewport at all.
+    A gradient of the surface colour painted over the content only looks right when that colour is exactly what is
+    behind the content; on a pane whose plate differs by a few levels it shows as a band (owner, 2026-11-22: "the fade
+    must be by alpha"). This renders the content into its own buffer and multiplies its alpha with a ramp, so the content
+    itself becomes transparent toward the edge and whatever the host actually paints behind it shows through - no colour
+    to guess.
     """
 
-    #: Height of each gradient. 24 px is enough for the eye to read it as a fade and short enough not to hide a text line.
+    #: Height of each ramp. 24 px is enough for the eye to read it as a fade and short enough not to hide a text line.
     HEIGHT = 24
 
-    def __init__(self, area: QWidget) -> None:
-        super().__init__(area)
-        self.setObjectName("ScrollEdgeFade")
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
-        self._colour = QColor(0, 0, 0)
-        self._top = False
-        self._bottom = False
-        self.hide()
+    def __init__(self, area: "OverlayScrollArea") -> None:
+        super().__init__(area.widget())
+        self._area = area
 
-    def set_colour(self, colour) -> None:
-        colour = QColor(colour)
-        if colour.isValid() and colour != self._colour:
-            self._colour = colour
-            self.update()
-
-    def set_edges(self, top: bool, bottom: bool) -> None:
-        if (top, bottom) == (self._top, self._bottom) and self.isVisible() == bool(top or bottom):
+    def draw(self, painter: QPainter) -> None:  # noqa: N802 - Qt API
+        offset = QPoint()
+        source = self.sourcePixmap(Qt.CoordinateSystem.LogicalCoordinates, offset,
+                                   QGraphicsEffect.PixmapPadMode.PadToEffectiveBoundingRect)
+        if source.isNull():
             return
-        self._top, self._bottom = bool(top), bool(bottom)
-        if not (self._top or self._bottom):
-            self.hide()
-            return
-        self.show()
-        self.update()
+        buffer = QImage(source.size(), QImage.Format.Format_ARGB32_Premultiplied)
+        buffer.fill(0)
+        canvas = QPainter(buffer)
+        canvas.drawPixmap(0, 0, source)
+        canvas.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
 
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
-        painter = QPainter(self)
-        solid = QColor(self._colour)
-        solid.setAlpha(255)
-        clear = QColor(self._colour)
-        clear.setAlpha(0)
-        height = min(self.HEIGHT, max(1, self.height() // 2))
-        if self._top:
-            gradient = QLinearGradient(0, 0, 0, height)
-            gradient.setColorAt(0.0, solid)
-            gradient.setColorAt(1.0, clear)
-            painter.fillRect(QRect(0, 0, self.width(), height), gradient)
-        if self._bottom:
-            gradient = QLinearGradient(0, self.height() - height, 0, self.height())
-            gradient.setColorAt(0.0, clear)
-            gradient.setColorAt(1.0, solid)
-            painter.fillRect(QRect(0, self.height() - height, self.width(), height), gradient)
+        viewport = self._area.viewport()
+        top, bottom = self._area.edge_fade_sides()
+        height = min(self.HEIGHT, max(1, viewport.height() // 2))
+        # Content coordinates: the effect is installed on the content widget, which the scroll area moves inside the
+        # viewport, so the visible window into it starts at -(bar value).
+        visible_top = -self._area.verticalScrollBar().value() - offset.y()
+        if top:
+            ramp = QLinearGradient(0, visible_top, 0, visible_top + height)
+            ramp.setColorAt(0.0, QColor(0, 0, 0, 0))
+            ramp.setColorAt(1.0, QColor(0, 0, 0, 255))
+            canvas.fillRect(QRect(0, visible_top, buffer.width(), height), ramp)
+        if bottom:
+            edge = visible_top + viewport.height()
+            ramp = QLinearGradient(0, edge - height, 0, edge)
+            ramp.setColorAt(0.0, QColor(0, 0, 0, 255))
+            ramp.setColorAt(1.0, QColor(0, 0, 0, 0))
+            canvas.fillRect(QRect(0, edge - height, buffer.width(), height), ramp)
+        canvas.end()
+        painter.drawImage(offset, buffer)
 
 
 class OverlayScrollArea(QScrollArea):
@@ -571,7 +565,7 @@ class OverlayScrollArea(QScrollArea):
         # content sits on, because the fade has to end in that colour, not in a guess.
         self._edge_fade_enabled = False
         self._edge_fade_colour: QColor | None = None
-        self._edge_fade = _EdgeFade(self)
+        self._edge_fade = None
         self.verticalScrollBar().valueChanged.connect(self._sync_edge_fade)
         self.verticalScrollBar().rangeChanged.connect(self._sync_edge_fade)
         self._scrollbar_width = max(
@@ -680,50 +674,40 @@ class OverlayScrollArea(QScrollArea):
         return self._reserve_scrollbar_space
 
     def set_edge_fade_enabled(self, enabled: bool) -> None:
-        """Show a gradient at the top/bottom edge while the content continues past it."""
-        self._edge_fade_enabled = bool(enabled)
+        """Fade the content out by alpha at the edge that continues (see ``_EdgeFadeEffect``)."""
+        enabled = bool(enabled)
+        if enabled == self._edge_fade_enabled:
+            return
+        self._edge_fade_enabled = enabled
+        content = self.widget()
+        if not enabled:
+            if content is not None:
+                content.setGraphicsEffect(None)
+            self._edge_fade = None
+            return
+        if content is not None:
+            self._edge_fade = _EdgeFadeEffect(self)
+            content.setGraphicsEffect(self._edge_fade)
         self._sync_edge_fade()
 
     def edge_fade_enabled(self) -> bool:
         return bool(self._edge_fade_enabled)
 
     def set_edge_fade_colour(self, colour) -> None:
-        """The colour the fade ends in - the surface the content sits on (``None`` = the area's own surface)."""
+        """Kept for API compatibility: an alpha fade has no colour of its own to end in."""
         self._edge_fade_colour = QColor(colour) if colour is not None else None
-        self._sync_edge_fade()
 
-    def edge_fade_colour(self) -> QColor:
-        if self._edge_fade_colour is not None:
-            return QColor(self._edge_fade_colour)
-        token = getattr(self, "_surface_token", None)
-        if token:
-            try:
-                colour = QColor(ThemeManager.get_instance().get_color(token))
-                if colour.isValid():
-                    return colour
-            except Exception:
-                pass
-        return QColor(self.palette().color(QPalette.ColorRole.Window))
+    def edge_fade_sides(self) -> tuple[bool, bool]:
+        """(top, bottom) - the edges where content continues past the viewport."""
+        bar = self.verticalScrollBar()
+        return (bar.value() > bar.minimum(), bar.value() < bar.maximum())
 
     def _sync_edge_fade(self, *args) -> None:
-        fade = getattr(self, "_edge_fade", None)
-        if fade is None:
+        effect = getattr(self, "_edge_fade", None)
+        if effect is None:
             return
-        if not self._edge_fade_enabled:
-            fade.hide()
-            return
-        bar = self.verticalScrollBar()
-        top = bar.value() > bar.minimum()
-        bottom = bar.value() < bar.maximum()
-        viewport = self.viewport()
-        fade.setGeometry(viewport.geometry())
-        fade.set_colour(self.edge_fade_colour())
-        fade.set_edges(top, bottom)
-        if top or bottom:
-            fade.raise_()
-            # The bars own the right/bottom edge; keep them above the fade.
-            self.custom_v_scrollbar.raise_()
-            self.custom_h_scrollbar.raise_()
+        # The effect caches the rendered source; a scroll or a resize changes the visible window into it.
+        effect.update()
 
     def set_scrollbar_width(self, width: int) -> None:
         """Reserved gutter width (px) for the overlay bar.

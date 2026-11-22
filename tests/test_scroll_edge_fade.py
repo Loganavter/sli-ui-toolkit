@@ -1,8 +1,12 @@
-"""The clipped edge of a scroll area fades instead of cutting the content.
+"""A clipped scroll edge fades the CONTENT out by alpha, not with a coloured strip.
 
-Google-pane behaviour the owner asked for (2026-11-22): the last pixels of a clipped line fade into the surface so the eye
-reads "it continues" instead of "the text ends here". Four statements: the fade appears only on the side that continues,
-it disappears when there is nothing more, it stays off unless the host enables it, and the colour is the host's.
+The owner's correction (2026-11-22): "the fade must be by alpha". A gradient of the surface colour painted over the
+content only looks right when that colour is exactly what sits behind it; on a pane whose plate differs by a few levels it
+shows as a band. The fade is therefore a `QGraphicsEffect` on the content: the content's own alpha is multiplied by a ramp,
+so the text fades into whatever the host paints behind it and there is no colour to guess.
+
+Assertions: the sides follow the scroll position, the effect exists only while enabled, and the pixels agree - a glyph in
+the bottom band is measurably lighter with the fade on than with it off.
 """
 
 from __future__ import annotations
@@ -12,61 +16,86 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import OverlayScrollArea
 
 
-def _area(app, content_height: int):
-    area = OverlayScrollArea()
+def _area(app, rows: int = 40, row_height: int = 20):
+    host = QWidget()
+    host.resize(320, 220)
+    host.setAutoFillBackground(True)
+    palette = host.palette()
+    palette.setColor(palette.ColorRole.Window, QColor("#ff00ff"))
+    host.setPalette(palette)
+
+    area = OverlayScrollArea(host)
+    area.setGeometry(10, 10, 300, 200)
     content = QWidget()
-    content.setMinimumHeight(content_height)
+    layout = QVBoxLayout(content)
+    layout.setSpacing(0)
+    layout.setContentsMargins(0, 0, 0, 0)
+    for _ in range(rows):
+        label = QLabel("HHHH HHHH HHHH")
+        label.setStyleSheet("color: #000000; background: transparent;")
+        layout.addWidget(label)
+    content.setMinimumHeight(rows * row_height)
     area.setWidget(content)
-    area.resize(300, 200)
-    area.show()
-    for _ in range(6):
+    host.show()
+    for _ in range(8):
         app.processEvents()
-    return area
+    return host, area
 
 
-def test_the_continuing_side_fades(qapp):
-    area = _area(qapp, 900)
-    area.set_edge_fade_enabled(True)
-    for _ in range(4):
-        qapp.processEvents()
-
-    fade = area._edge_fade
-    assert fade.isVisible()
-    assert fade._top is False, "nothing is clipped above the first screen"
-    assert fade._bottom is True, "the content continues below, so the bottom edge must fade"
+def _darkest_glyph(host, band: int = 22) -> int:
+    image = host.grab().toImage()
+    bottom = image.height() - 12
+    darkest = 255
+    for y in range(bottom - band, bottom):
+        for x in range(20, 280):
+            darkest = min(darkest, QColor(image.pixelColor(x, y)).lightness())
+    return darkest
 
 
-def test_scrolling_to_the_end_moves_the_fade_to_the_top(qapp):
-    area = _area(qapp, 900)
-    area.set_edge_fade_enabled(True)
+def test_the_continuing_side_is_faded(qapp):
+    _host, area = _area(qapp)
+    assert area.edge_fade_sides() == (False, True), "the content continues below, nothing above"
+
     bar = area.verticalScrollBar()
     bar.setValue(bar.maximum())
     for _ in range(4):
         qapp.processEvents()
-
-    fade = area._edge_fade
-    assert fade._top is True
-    assert fade._bottom is False
+    assert area.edge_fade_sides() == (True, False)
 
 
 def test_content_that_fits_has_no_fade(qapp):
-    area = _area(qapp, 40)
-    area.set_edge_fade_enabled(True)
-    for _ in range(4):
-        qapp.processEvents()
-    assert not area._edge_fade.isVisible()
+    _host, area = _area(qapp, rows=2)
+    assert area.edge_fade_sides() == (False, False)
 
 
-def test_the_fade_is_opt_in_and_takes_the_host_colour(qapp):
-    area = _area(qapp, 900)
+def test_the_fade_is_an_effect_on_the_content_and_is_opt_in(qapp):
+    _host, area = _area(qapp)
     assert area.edge_fade_enabled() is False
-    assert not area._edge_fade.isVisible()
+    assert area._edge_fade is None
 
     area.set_edge_fade_enabled(True)
-    area.set_edge_fade_colour(QColor("#123456"))
-    assert area.edge_fade_colour() == QColor("#123456")
+    assert area._edge_fade is not None
+    assert area.widget().graphicsEffect() is area._edge_fade
+
+    area.set_edge_fade_enabled(False)
+    assert area._edge_fade is None
+    assert area.widget().graphicsEffect() is None
+
+
+def test_the_fade_works_by_alpha(qapp):
+    """The decisive one: with the fade on, a glyph in the bottom band is visibly lighter (blended into the host colour)."""
+    host, area = _area(qapp)
+    without = _darkest_glyph(host)
+
+    area.set_edge_fade_enabled(True)
+    for _ in range(8):
+        qapp.processEvents()
+    with_fade = _darkest_glyph(host)
+
+    assert with_fade > without + 10, (
+        f"the fade did not modulate the content's alpha: darkest glyph {without} -> {with_fade}")
