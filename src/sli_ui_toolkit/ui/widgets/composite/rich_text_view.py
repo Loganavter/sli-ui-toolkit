@@ -208,15 +208,17 @@ class RichTextView(SurfacePanel):
         """
         text = self.label.text()
         left, top, right, bottom = self._padding
-        if text.lstrip().startswith("<"):
-            from PySide6.QtGui import QTextDocument
+        # ALWAYS through a document: `setText` turns newlines into `<br>`, so even a "plain" body is HTML by the time it
+        # is painted, and `heightForWidth` would measure the tags themselves. The document is laid out inside the
+        # label's own margins, which is the width the painter uses.
+        from PySide6.QtGui import QTextDocument
 
-            document = QTextDocument()
-            document.setDefaultFont(self.label.font())
-            document.setHtml(text)
-            document.setTextWidth(max(1, width - 2 * 0))
-            return int(document.size().height()) + top + bottom
-        return self.label.heightForWidth(width)
+        document = QTextDocument()
+        document.setDocumentMargin(0)
+        document.setDefaultFont(self.label.font())
+        document.setHtml(text)
+        document.setTextWidth(max(1, width - left - right))
+        return int(document.size().height()) + top + bottom
 
     def _sync_height(self) -> None:
         """Give the scroll area a wrapped height to scroll.
