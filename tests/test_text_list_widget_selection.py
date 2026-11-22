@@ -99,10 +99,11 @@ def test_band_drag_selects_the_rows_it_touches(qapp):
     _press(widget, 3)
     _drag(widget, 3, 6)
     assert widget.selectedRows() == [3, 4, 5, 6]
-    assert widget._band is not None, "the rectangle is painted while the drag is live"
+    assert widget._marquee.active, "the band tracks a live drag (MarqueeState, the toolkit's one marquee)"
+    assert not widget._marquee.band_rect.isEmpty(), "and it has a rect to paint"
 
     widget._on_rows_release(None)
-    assert widget._band is None
+    assert not widget._marquee.active
 
 
 def test_a_plain_drag_replaces_and_a_ctrl_drag_adds(qapp):
@@ -162,3 +163,30 @@ def test_ctrl_a_selects_all_only_in_a_multi_selection_list(qapp):
     widget.clearSelection()
     widget.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier))
     assert widget.selectedRows() == [], "single mode keeps one row; Ctrl+A is not a selection there"
+
+
+def test_the_rows_cover_the_whole_viewport_so_empty_space_still_reaches_the_list(qapp):
+    """The live bug (owner, 2026-11-22): with one queued item the rows were 28 px tall inside a 248 px viewport, so a
+    press - or a rubber band dragged from the empty area, the ordinary file-manager gesture - never reached the list at
+    all: Qt delivered it to the scroll viewport, which does nothing."""
+    widget = _list(qapp, rows=1)
+    widget.resize(260, 240)
+    qapp.processEvents()
+
+    assert widget._rows.height() >= widget._scroll.viewport().height(), (
+        "the painted rows must fill the viewport, otherwise the area below the last item belongs to nothing"
+    )
+
+    _press(widget, 0)
+    assert widget.selectedRows() == [0]
+
+    # a press in the empty space below the last row: no row under it, and the selection is cleared like a file manager
+    empty_y = widget._rows.height() - 4
+    assert widget.row_at(empty_y) is None
+    target = widget._rows
+    point = QPointF(10, empty_y)
+    target.mousePressEvent(
+        QMouseEvent(QEvent.Type.MouseButtonPress, point, target.mapToGlobal(point),
+                    Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+    )
+    assert widget.selectedRows() == []

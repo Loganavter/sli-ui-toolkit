@@ -14,13 +14,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import OverlayScrollArea
+from sli_ui_toolkit.ui.widgets.overlays.marquee_state import MarqueeState, paint_marquee_band
 from sli_ui_toolkit.ui.widgets.atomic.surface_panel import SurfacePanel
 
 if TYPE_CHECKING:
@@ -43,7 +44,7 @@ class _Rows(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
-        return QSize(0, self._owner.content_height())
+        return QSize(0, self._owner.rows_height())
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
         return self.sizeHint()
@@ -105,8 +106,10 @@ class TextListWidget(SurfacePanel):
         self._selected: set[int] = set()
         self._anchor: int | None = None
         self._selection_mode = "single"
-        self._band: QRectF | None = None
-        self._band_origin: tuple[float, float] | None = None
+        # The drag itself belongs to the toolkit's ONE marquee mechanism (`MarqueeState`): it installs a short-lived
+        # application filter while active, so a band keeps tracking when the pointer leaves the widget, and it maps
+        # through globalPosition. The list owns hit-testing (which rows the rect touches) and the selection.
+        self._marquee_additive = False
         self._band_base: set[int] = set()
         self._row_height = max(8, scaled_px(row_height))
         self._padding = tuple(scaled_px(v) for v in (padding or (6, 4, 6, 4)))
@@ -130,6 +133,13 @@ class TextListWidget(SurfacePanel):
         if scrollbar_width is not None:
             self._scroll.set_scrollbar_width(scrollbar_width)
         self._rows = _Rows(self)
+        # Created after the rows exist: the marquee tracks ITS drags and the rows own the coordinates.
+        self._marquee = MarqueeState(
+            self._rows,
+            min_drag_px=3,
+            on_update=self._on_marquee_update,
+            on_finish=self._on_marquee_finish,
+        )
         self._scroll.setWidget(self._rows)
         # The rows paint their own band; the scroll area must not put a plate behind them.
         self._scroll.viewport().setAutoFillBackground(False)
@@ -139,6 +149,14 @@ class TextListWidget(SurfacePanel):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._scroll)
+        # The rows' height depends on the viewport (see `rows_height`), so a resize of the list has to re-run it.
+        self._scroll.viewport().installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        if event.type() == QEvent.Type.Resize and getattr(self, "_scroll", None) is not None:
+            if watched is self._scroll.viewport():
+                self._resize_rows()
+        return super().eventFilter(watched, event)
 
     # -- model ----------------------------------------------------------
 
@@ -307,42 +325,64 @@ class TextListWidget(SurfacePanel):
 
     def _start_band(self, position, additive: bool) -> None:
         if self._selection_mode == "single":
-            self._band_origin = None
             return
-        self._band_origin = (position.x(), position.y())
-        self._band = QRectF(position.x(), position.y(), 0.0, 0.0)
+        self._marquee_additive = bool(additive)
         self._band_base = set(self._selected) if additive else set()
+        self._marquee.start(QPoint(int(position.x()), int(position.y())))
 
-    def _on_rows_move(self, event) -> bool:
-        """Extend the rubber band; returns True when the list consumed the move."""
-        if self._band_origin is None or not (event.buttons() & Qt.MouseButton.LeftButton):
-            return False
-        origin_x, origin_y = self._band_origin
-        x, y = event.position().x(), event.position().y()
-        self._band = QRectF(
-            min(origin_x, x), min(origin_y, y), abs(x - origin_x), abs(y - origin_y)
-        )
-        top, bottom = self._band.top(), self._band.bottom()
+    def _rows_touched_by(self, rect) -> set[int]:
+        """The rows a content-space band rect touches (a zero-height band still takes the row under it)."""
+        if rect.isEmpty() or not rect.isValid():
+            return set()
+        top, bottom = rect.top(), rect.bottom()
         first = self.row_at(top)
-        last = self.row_at(bottom) if bottom > top else first
         if first is None:
-            first = 0 if top <= self.content_height() else None
+            first = 0 if top < self.content_height() else None
+        last = self.row_at(bottom)
         if last is None:
             last = len(self._items) - 1 if bottom >= 0 else None
-        touched = set(self._band_base)
-        if first is not None and last is not None:
-            touched.update(range(min(first, last), max(first, last) + 1))
+        if first is None or last is None:
+            return set()
+        return set(range(min(first, last), max(first, last) + 1))
+
+    def _on_marquee_update(self, rect) -> None:
+        # A press alone must not touch the selection: the click logic already decided it (a Ctrl+click toggles a row
+        # OFF, and re-applying the one-pixel band would put it back - measured). The band takes over once it is a real
+        # drag.
+        if rect.width() < 3 and rect.height() < 3:
+            return
+        touched = set(self._band_base) if self._marquee_additive else set()
+        touched.update(self._rows_touched_by(rect))
         self.setSelectedRows(touched)
         self._rows.update()
+
+    def _on_marquee_finish(self, rect) -> None:
+        """Commit the band; a tiny drag is a CLICK and leaves the press-time selection alone."""
+        if not rect.isEmpty() and rect.isValid():
+            touched = set(self._band_base) if self._marquee_additive else set()
+            touched.update(self._rows_touched_by(rect))
+            self.setSelectedRows(touched)
+        self._band_base = set()
+        self._marquee_additive = False
+        self._rows.update()
+
+    def _on_rows_move(self, event) -> bool:
+        """Forward a drag the widget itself receives; the marquee's own filter covers moves that leave it."""
+        if not self._marquee.active:
+            return False
+        pos = event.position()
+        self._marquee.update_at(QPoint(int(pos.x()), int(pos.y())))
         return True
 
     def _on_rows_release(self, event) -> None:
-        if self._band is None and self._band_origin is None:
+        if not self._marquee.active:
             return
-        self._band = None
-        self._band_origin = None
-        self._band_base = set()
-        self._rows.update()
+        if event is None:                      # a caller that has no event still needs the gesture finished
+            band = self._marquee.band_rect
+            pos = band.bottomRight() if not band.isEmpty() else QPoint(0, 0)
+        else:
+            pos = self._rows.mapFromGlobal(event.globalPosition().toPoint())
+        self._marquee.finish_at(QPoint(int(pos.x()), int(pos.y())))
 
     # -- geometry -------------------------------------------------------
 
@@ -375,8 +415,25 @@ class TextListWidget(SurfacePanel):
         index = int((y - top) // self._row_height)
         return index if 0 <= index < len(self._items) else None
 
-    def _resize_rows(self) -> None:
+    def rows_height(self) -> int:
+        """The painted rows' height: the content, or the viewport when the content is shorter.
+
+        A `_Rows` exactly as tall as its content leaves the rest of the viewport to the scroll area - and a press there
+        (or a rubber band dragged from empty space, which is the ordinary file-manager gesture) never reaches the list at
+        all. Measured live: the queue with one item is 28 px of rows inside a 248 px viewport, so three quarters of the
+        list ignored the mouse.
+        """
+        viewport = getattr(getattr(self, "_scroll", None), "viewport", None)
         height = self.content_height()
+        if viewport is not None:
+            try:
+                height = max(height, int(viewport().height()))
+            except Exception:
+                pass
+        return height
+
+    def _resize_rows(self) -> None:
+        height = self.rows_height()
         self._rows.setMinimumHeight(height)
         self._rows.setFixedHeight(height)
         self._rows.updateGeometry()
@@ -415,18 +472,13 @@ class TextListWidget(SurfacePanel):
         self._paint_band(painter, target)
 
     def _paint_band(self, painter: QPainter, target: QWidget) -> None:
-        """The rubber rectangle, in the theme's accent colour (file-manager look)."""
-        if self._band is None:
+        """The rubber rectangle, painted with the toolkit's single marquee look (accent fill + 1 px border)."""
+        band = self._marquee.band_rect
+        if band.isEmpty():
             return
-        accent = self._token("accent", "#3b82f6")
-        fill = QColor(accent)
-        fill.setAlpha(48)
-        painter.fillRect(self._band, fill)
-        pen = QPen(accent)
-        pen.setWidthF(1.0)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(self._band)
+        accent = self._token("accent", "#0078d4")
+        self._marquee.set_accent(accent)
+        paint_marquee_band(painter, band, accent)
 
     # -- keyboard -------------------------------------------------------
 
