@@ -213,3 +213,22 @@ def test_the_rows_paint_their_own_fill_so_a_width_change_cannot_leave_a_stale_st
         assert pixel.name() == plate.name(), (
             f"the rows widget left its own area unpainted at {(x, y)}: {pixel.name()} instead of {plate.name()}"
         )
+
+
+def test_a_right_press_ends_a_live_band_and_its_application_filter(qapp):
+    """A band must not outlive the gesture that started it.
+
+    `MarqueeState` installs an application-wide filter while active and deliberately keeps the band alive across a
+    non-left press. Opening the context menu that way means the left release goes to the popup, the band never finishes,
+    and its filter keeps consuming drags for the WHOLE app - measured: "after this list breaks, every control stops
+    updating until I click somewhere" (owner, 2026-11-22).
+    """
+    widget = _list(qapp)
+    _press(widget, 2)
+    _drag(widget, 2, 4)
+    assert widget._marquee.active and widget._marquee.app_filter_installed
+
+    _press(widget, 4, button=Qt.MouseButton.RightButton)
+
+    assert not widget._marquee.active, "the right press must finish the band"
+    assert not widget._marquee.app_filter_installed, "a leaked application filter eats drags for the whole window"

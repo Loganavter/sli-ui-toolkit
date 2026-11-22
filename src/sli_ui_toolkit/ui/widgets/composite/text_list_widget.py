@@ -166,6 +166,12 @@ class TextListWidget(SurfacePanel):
         if event.type() == QEvent.Type.Resize and getattr(self, "_scroll", None) is not None:
             if watched is self._scroll.viewport():
                 self._resize_rows()
+        elif event.type() in (QEvent.Type.Hide, QEvent.Type.WindowDeactivate) and self._marquee.active:
+            # Any way the list can stop being the gesture's owner ends the gesture: a band whose filter outlives its
+            # widget eats drags for the whole application.
+            self._marquee.cancel()
+            self._band_base = set()
+            self._marquee_additive = False
         return super().eventFilter(watched, event)
 
     # -- model ----------------------------------------------------------
@@ -303,6 +309,16 @@ class TextListWidget(SurfacePanel):
         index = self.row_at(event.position().y())
         modifiers = event.modifiers()
         if event.button() == Qt.MouseButton.RightButton:
+            # A right press means "context menu", i.e. the user is DONE with a band. `MarqueeState` deliberately keeps a
+            # band alive across a non-left press, and its application-wide filter then stays installed: the left
+            # release goes to the popup, the gesture never finishes, and every later drag anywhere in the app is
+            # consumed as an update of this list. The owner saw exactly that - "after this list breaks, every control
+            # stops updating until I click somewhere" (2026-11-22). Cancel here.
+            if self._marquee.active:
+                self._marquee.cancel()
+                self._band_base = set()
+                self._marquee_additive = False
+                self._rows.update()
             # A right press outside the selection moves it to the row under the cursor (file-manager behaviour); a
             # right press INSIDE it keeps the selection so the menu acts on everything the user picked.
             if index is not None and index not in self._selected:
