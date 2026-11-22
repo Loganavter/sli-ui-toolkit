@@ -341,7 +341,11 @@ class PathTooltip(QObject):
         label = self._ensure_label(host)
         label.set_text(text)
 
-        local_pos = host.mapFromGlobal(pos) + QPoint(0, 20)
+        # The bubble's rect carries a SHADOW_RADIUS margin on every side, so placing the RECT at the offset put the
+        # VISIBLE plate a shadow-width further out: the cursor gap read as 28 px instead of the stated 20 (the margin is
+        # transparent, only the plate is seen). Place the plate, not the rect.
+        inset = int(getattr(label, "SHADOW_RADIUS", 0) or 0)
+        local_pos = host.mapFromGlobal(pos) + QPoint(0, 20) - QPoint(inset, inset)
         rect = QRect(local_pos, label.size())
         bounds = host.rect().adjusted(8, 8, -8, -8)
         if bounds.width() > 0 and bounds.height() > 0:
