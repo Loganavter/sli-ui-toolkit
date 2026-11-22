@@ -4,6 +4,11 @@
 
 ### Added
 
+- **An auto-hiding scrollbar no longer flashes when its widget is first created.** The overlay bar had one state -
+  "the axis overflows" - and the auto-hide timer removed it seconds later, so every new scrollable widget showed its
+  bar once and faded. AVAILABLE (the axis overflows, the host reserves the space) and VISIBLE (the user scrolled,
+  hovered or dragged) are separate now; hidden bars are still positioned, so one that appears later does not show at
+  its construction size.
 - **An icon-only button sizes to its icon plus padding** (Qt's `QToolButton` rule), floored at the standalone 36 px.
   The hint used to be 36x36 whatever the icon was, so a host stating 35 px glyphs in a 55x45 slot got 36x36 and
   every icon row shifted - measured on a nav rail that shrank from 55x45 to 36x36. `setIcon`/`setIconSize` also ask
