@@ -198,21 +198,54 @@ class RichTextView(SurfacePanel):
 
     # -- geometry -------------------------------------------------------
 
+    def _content_height(self, width: int) -> int:
+        """Height of the rendered content at `width` - measured as RICH text when the text is HTML.
+
+        `Label.heightForWidth` measures the text as one plain string, so an HTML body was counted with its tags and
+        without the rich layout: sixty short paragraphs reported 3856 px in a 489 px viewport, and the pane scrolled
+        through pages of nothing (owner report 2026-11-22). A `QTextDocument` with the same font and width is what the
+        label paints.
+        """
+        text = self.label.text()
+        left, top, right, bottom = self._padding
+        if text.lstrip().startswith("<"):
+            from PySide6.QtGui import QTextDocument
+
+            document = QTextDocument()
+            document.setDefaultFont(self.label.font())
+            document.setHtml(text)
+            document.setTextWidth(max(1, width - 2 * 0))
+            return int(document.size().height()) + top + bottom
+        return self.label.heightForWidth(width)
+
     def _sync_height(self) -> None:
         """Give the scroll area a wrapped height to scroll.
 
         `widgetResizable` fixes the width to the viewport; a label does not report the height it needs at that width,
-        so it would be clipped instead of scrolled. `heightForWidth` at the current viewport width is that height.
+        so it would be clipped instead of scrolled.
         """
         width = max(1, self._scroll.viewport().width())
-        height = self.label.heightForWidth(width)
+        height = self._content_height(width)
         if height > 0:
-            self.label.setMinimumHeight(height)
+            # FIXED, not minimum: `widgetResizable` asks the widget's `sizeHint()` for the scroll range, and a label's
+            # plain-text hint for an HTML body is far taller than what it paints (measured: 2844 px claimed, 1776 px of
+            # ink) - the pane then scrolls through pages of nothing. A fixed height is the measured one.
+            self.label.setFixedHeight(height)
         self.label.updateGeometry()
         self._scroll.updateGeometry()
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
+        self._sync_height()
+        # The viewport has not been resized yet when this fires: one turn later it has, and the height is measured
+        # against the width the text will actually be laid out at (measuring a 2844 px body against a stale narrow
+        # viewport was exactly the empty-scroll defect).
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(0, self._sync_height)
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().showEvent(event)
         self._sync_height()
 
 
