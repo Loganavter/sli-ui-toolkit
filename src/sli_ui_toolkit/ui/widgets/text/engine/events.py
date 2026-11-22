@@ -265,6 +265,7 @@ class _CanvasEventsApi:
             if event.buttons() & Qt.MouseButton.LeftButton:
                 self._rich_mouse_move(event)
             else:
+                self._rich_hover_link(event)
                 QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
             return
         if dbg and event.buttons() & Qt.MouseButton.LeftButton:
@@ -349,10 +350,6 @@ class _CanvasEventsApi:
             if self.toolTip():
                 self.setToolTip("")
             self.unsetCursor()
-
-    def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        self._rich_hover_link(event)
-        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._rich is not None:
