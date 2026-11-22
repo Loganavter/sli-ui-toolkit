@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer
-from PySide6.QtGui import (QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPalette, QRegion,
-                           QWheelEvent)
-from PySide6.QtWidgets import QGraphicsEffect, QApplication, QScrollArea, QScrollBar, QWidget
+from PySide6.QtGui import (QColor, QImage, QLinearGradient, QPainter, QPainterPath, QPalette, QPixmap,
+                           QRegion, QWheelEvent)
+from PySide6.QtWidgets import QApplication, QScrollArea, QScrollBar, QWidget
 
 from sli_ui_toolkit.core.debug_flags import any_flag
 from sli_ui_toolkit.theme import ThemeManager
@@ -457,54 +457,68 @@ def overlay_scrollbar_max_inset(
     return bar_width + bar_gap + _OVERLAY_INSET_MARGIN
 
 
-class _EdgeFadeEffect(QGraphicsEffect):
-    """Fade the CONTENT out by alpha at the clipped edges - not a coloured strip over it.
+class _EdgeFade(QWidget):
+    """Gradient strip at the clipped edge of a scroll viewport.
 
-    A gradient of the surface colour painted over the content only looks right when that colour is exactly what is
-    behind the content; on a pane whose plate differs by a few levels it shows as a band (owner, 2026-11-22: "the fade
-    must be by alpha"). This renders the content into its own buffer and multiplies its alpha with a ramp, so the content
-    itself becomes transparent toward the edge and whatever the host actually paints behind it shows through - no colour
-    to guess.
+    Painted as a child of the AREA over the viewport, 24 px per side. The colour is the surface the content sits on (see
+    `OverlayScrollArea.edge_fade_colour`), so the ramp reads as the content fading out; it is a plain fillRect, i.e. a
+    fixed cost per paint.
+
+    Why not a `QGraphicsEffect` on the viewport: that renders the widget into an offscreen pixmap on every paint, and the
+    pixmap is the WHOLE widget - for a render log with thousands of lines that is seconds per frame, which froze the GUI
+    thread at ~80 % CPU (owner, 2026-11-22, window unresponsive after a render). An effect that fades by alpha is only
+    affordable on a small, static widget.
     """
 
     #: Height of each ramp. 24 px is enough for the eye to read it as a fade and short enough not to hide a text line.
     HEIGHT = 24
 
-    def __init__(self, area: "OverlayScrollArea") -> None:
-        super().__init__(area.viewport())
-        self._area = area
+    def __init__(self, area: QWidget) -> None:
+        super().__init__(area)
+        self.setObjectName("ScrollEdgeFade")
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._colour = QColor(0, 0, 0)
+        self._top = False
+        self._bottom = False
+        self.hide()
 
-    def draw(self, painter: QPainter) -> None:  # noqa: N802 - Qt API
-        offset = QPoint()
-        source = self.sourcePixmap(Qt.CoordinateSystem.LogicalCoordinates, offset,
-                                   QGraphicsEffect.PixmapPadMode.PadToEffectiveBoundingRect)
-        if source.isNull():
+    def set_colour(self, colour) -> None:
+        colour = QColor(colour)
+        if colour.isValid() and colour != self._colour:
+            self._colour = colour
+            self.update()
+
+    def set_edges(self, top: bool, bottom: bool) -> None:
+        top, bottom = bool(top), bool(bottom)
+        if (top, bottom) == (self._top, self._bottom) and self.isVisible() == (top or bottom):
             return
-        buffer = QImage(source.size(), QImage.Format.Format_ARGB32_Premultiplied)
-        buffer.fill(0)
-        canvas = QPainter(buffer)
-        canvas.drawPixmap(0, 0, source)
-        canvas.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        self._top, self._bottom = top, bottom
+        if not (top or bottom):
+            self.hide()
+            return
+        self.show()
+        self.raise_()
+        self.update()
 
-        # The effect sits on the VIEWPORT, so the pixmap IS the visible window: no scroll arithmetic, and every scroll
-        # repaints the viewport, which is what keeps the ramps on the edge instead of pinned to the first frame (the
-        # content widget is moved by the area, not repainted, so an effect on it stuck at its first position - owner,
-        # 2026-11-22).
-        top, bottom = self._area.edge_fade_sides()
-        height = min(self.HEIGHT, max(1, buffer.height() // 2))
-        if top:
-            ramp = QLinearGradient(0, 0, 0, height)
-            ramp.setColorAt(0.0, QColor(0, 0, 0, 0))
-            ramp.setColorAt(1.0, QColor(0, 0, 0, 255))
-            canvas.fillRect(QRect(0, 0, buffer.width(), height), ramp)
-        if bottom:
-            edge = buffer.height()
-            ramp = QLinearGradient(0, edge - height, 0, edge)
-            ramp.setColorAt(0.0, QColor(0, 0, 0, 255))
-            ramp.setColorAt(1.0, QColor(0, 0, 0, 0))
-            canvas.fillRect(QRect(0, edge - height, buffer.width(), height), ramp)
-        canvas.end()
-        painter.drawImage(offset, buffer)
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        painter = QPainter(self)
+        solid = QColor(self._colour)
+        solid.setAlpha(255)
+        clear = QColor(self._colour)
+        clear.setAlpha(0)
+        height = min(self.HEIGHT, max(1, self.height() // 2))
+        if self._top:
+            gradient = QLinearGradient(0, 0, 0, height)
+            gradient.setColorAt(0.0, solid)
+            gradient.setColorAt(1.0, clear)
+            painter.fillRect(QRect(0, 0, self.width(), height), gradient)
+        if self._bottom:
+            gradient = QLinearGradient(0, self.height() - height, 0, self.height())
+            gradient.setColorAt(0.0, clear)
+            gradient.setColorAt(1.0, solid)
+            painter.fillRect(QRect(0, self.height() - height, self.width(), height), gradient)
 
 
 class OverlayScrollArea(QScrollArea):
@@ -674,38 +688,80 @@ class OverlayScrollArea(QScrollArea):
         return self._reserve_scrollbar_space
 
     def set_edge_fade_enabled(self, enabled: bool) -> None:
-        """Fade the content out by alpha at the edge that continues (see ``_EdgeFadeEffect``)."""
+        """Show a gradient at the edge that continues (a cheap overlay, see ``_EdgeFade``)."""
         enabled = bool(enabled)
         if enabled == self._edge_fade_enabled:
             return
         self._edge_fade_enabled = enabled
         if not enabled:
-            self.viewport().setGraphicsEffect(None)
+            if getattr(self, "_edge_fade", None) is not None:
+                self._edge_fade.hide()
+                self._edge_fade.deleteLater()
             self._edge_fade = None
             return
-        self._edge_fade = _EdgeFadeEffect(self)
-        self.viewport().setGraphicsEffect(self._edge_fade)
-        self._sync_edge_fade()
+        self._edge_fade = _EdgeFade(self)
+        self._sync_edge_fade(force=True)
 
     def edge_fade_enabled(self) -> bool:
         return bool(self._edge_fade_enabled)
 
     def set_edge_fade_colour(self, colour) -> None:
-        """Kept for API compatibility: an alpha fade has no colour of its own to end in."""
+        """Override the ramp colour; ``None`` restores the derived surface colour."""
         self._edge_fade_colour = QColor(colour) if colour is not None else None
+        self._sync_edge_fade(force=True)
+
+    def edge_fade_colour(self) -> QColor:
+        """The colour the content sits on.
+
+        Order: an explicit override, the area's own surface token, then the nearest ANCESTOR that paints a surface
+        (a toolkit panel carries its token) - the pane a scroll area lives in, which is the colour the ramp has to end in.
+        Only then the palette Window role. The first version used the palette alone and showed a band wherever the pane's
+        plate differed by a few levels.
+        """
+        if self._edge_fade_colour is not None:
+            return QColor(self._edge_fade_colour)
+        manager = ThemeManager.get_instance()
+        token = getattr(self, "_surface_token", None)
+        if not token:
+            parent = self.parentWidget()
+            while parent is not None:
+                candidate = getattr(parent, "background_token", None)
+                if callable(candidate):
+                    try:
+                        found = candidate()
+                    except Exception:
+                        found = None
+                    if found:
+                        token = found
+                        break
+                parent = parent.parentWidget()
+        if token:
+            try:
+                colour = QColor(manager.get_color(token))
+                if colour.isValid():
+                    return colour
+            except Exception:
+                pass
+        return QColor(self.palette().color(QPalette.ColorRole.Window))
 
     def edge_fade_sides(self) -> tuple[bool, bool]:
         """(top, bottom) - the edges where content continues past the viewport."""
         bar = self.verticalScrollBar()
         return (bar.value() > bar.minimum(), bar.value() < bar.maximum())
 
-    def _sync_edge_fade(self, *args) -> None:
-        effect = getattr(self, "_edge_fade", None)
-        if effect is None:
+    def _sync_edge_fade(self, *args, force: bool = False) -> None:
+        fade = getattr(self, "_edge_fade", None)
+        if fade is None:
             return
-        # The effect caches the rendered source; a scroll or a resize changes the visible window into it.
-        effect.update()
-        self.viewport().update()
+        viewport = self.viewport()
+        geometry = viewport.geometry()
+        if force or geometry != fade.geometry():
+            fade.setGeometry(geometry)
+        fade.set_colour(self.edge_fade_colour())
+        fade.set_edges(*self.edge_fade_sides())
+        # The bars own the right/bottom edge; keep them above the ramp.
+        self.custom_v_scrollbar.raise_()
+        self.custom_h_scrollbar.raise_()
 
     def set_scrollbar_width(self, width: int) -> None:
         """Reserved gutter width (px) for the overlay bar.

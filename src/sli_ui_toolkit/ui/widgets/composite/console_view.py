@@ -97,6 +97,9 @@ class ConsoleView(QWidget):
         self._scroll_reserve = scaled_px(MINIMAL_SCROLLBAR_WIDTH)
         self._visual: list[VisualLine] = []
         self._layout_dirty = True
+        self._wrap_cache: dict[str, list[tuple[int, int]]] = {}
+        self._plain_text_cache: str | None = None
+        self._wrap_width: int | None = None
 
         self._readonly_requested = True
         self._v_scroll_policy = None
@@ -155,13 +158,35 @@ class ConsoleView(QWidget):
             bool(bold),
             bool(italic),
         )
+        self._plain_text_cache = None
         self._lines.append(line)
         self._trim()
         self._mark_dirty()
+        self._update_scroll_range()
         if at_bottom:
             self.scroll_to_bottom()
         self.update()
         return line
+
+    def append_lines(self, lines: Iterable[str]) -> int:
+        """Append many lines with ONE layout invalidation - the path for a log that arrives in batches.
+
+        `append` per line invalidates (and therefore lays the whole console out) once per line; a render log delivers
+        several lines per tick, which is what turned the panel into a freeze.
+        """
+        texts = [str(line) for line in lines]
+        if not texts:
+            return 0
+        at_bottom = self.is_at_bottom()
+        self._plain_text_cache = None
+        for text in texts:
+            self._lines.append(ConsoleLine(text))
+        self._trim()
+        self._mark_dirty()
+        self._update_scroll_range()
+        if at_bottom:
+            self.scroll_to_bottom()
+        return len(texts)
 
     def set_lines(self, lines: Iterable[ConsoleLine]) -> None:
         """Replace the whole model (theme recolor / bulk rebuild).
@@ -171,10 +196,12 @@ class ConsoleView(QWidget):
         """
         was_bottom = self.is_at_bottom()
         prev_value = self._vbar.value()
+        self._plain_text_cache = None
         self._lines = list(lines)
         self._trim()
         self._clear_selection()
         self._mark_dirty()
+        self._update_scroll_range()
         if was_bottom:
             self.scroll_to_bottom()
         else:
@@ -182,9 +209,11 @@ class ConsoleView(QWidget):
         self.update()
 
     def clear(self) -> None:
+        self._plain_text_cache = None
         self._lines.clear()
         self._clear_selection()
         self._mark_dirty()
+        self._update_scroll_range()
         self._vbar.setValue(0)
         self.update()
 
@@ -193,6 +222,7 @@ class ConsoleView(QWidget):
         self._max_lines = None if max_lines is None else max(0, int(max_lines))
         self._trim()
         self._mark_dirty()
+        self._update_scroll_range()
         self.update()
 
     def set_font(self, font: QFont) -> None:
@@ -207,6 +237,7 @@ class ConsoleView(QWidget):
         # The BASE class on purpose: `setFont` below routes through here, so calling the override would recurse.
         QWidget.setFont(self, font)
         self._mark_dirty()
+        self._update_scroll_range()
         self.update()
 
     def setFont(self, font: QFont) -> None:  # noqa: N802 - Qt spelling
@@ -227,8 +258,16 @@ class ConsoleView(QWidget):
     # -- QTextEdit-compatible surface (a host migrating a log keeps its calls) ---------------------------
 
     def setPlainText(self, text: str) -> None:  # noqa: N802 - QTextEdit spelling
-        """Replace the whole content with `text` (one console line per source line)."""
-        self.set_lines([ConsoleLine(line) for line in str(text).split("\n")])
+        """Replace the whole content with `text` (one console line per source line).
+
+        Re-setting the SAME text is a no-op: a host that refreshes its pane on a timer used to pay a full re-wrap of the
+        whole log every tick.
+        """
+        body = str(text)
+        if body == getattr(self, "_plain_text_cache", None):
+            return
+        self._plain_text_cache = body
+        self.set_lines([ConsoleLine(line) for line in body.split("\n")])
 
     def setHtml(self, html: str) -> None:  # noqa: N802
         """Accept a QTextEdit `setHtml` call and show its PLAIN text.
@@ -337,6 +376,7 @@ class ConsoleView(QWidget):
         self._pad = scaled_px(_PADDING)
         self._scroll_reserve = scaled_px(MINIMAL_SCROLLBAR_WIDTH)
         self._mark_dirty()
+        self._update_scroll_range()
         if was_bottom:
             self.scroll_to_bottom()
 
@@ -463,8 +503,14 @@ class ConsoleView(QWidget):
     # -- layout -------------------------------------------------------------
 
     def _mark_dirty(self) -> None:
+        """Mark the layout stale - NEVER re-wrap here.
+
+        `_ensure_layout` re-wraps every line, so calling it from every append/set turned a log that grows during a render
+        into O(n^2): 10 ticks a second over a growing log froze the GUI thread (py-spy: setPlainText -> set_lines ->
+        _wrap_line). The layout is rebuilt where it is actually needed (paint, scroll range, hit-testing).
+        """
         self._layout_dirty = True
-        self._ensure_layout()
+        self.update()
 
     def _ensure_layout(self) -> None:
         if not self._layout_dirty:
@@ -472,9 +518,19 @@ class ConsoleView(QWidget):
         fm = QFontMetrics(self._font)
         self._row_height = max(1, fm.lineSpacing())
         width = self._content_width()
+        # Wrapping depends on (text, width) only, so a line already wrapped at this width is free on the next pass. A log
+        # that grows by a few lines per tick then costs only those lines, not the whole history.
+        if getattr(self, "_wrap_width", None) != width:
+            self._wrap_cache = {}
+            self._wrap_width = width
+        cache = self._wrap_cache
         self._visual = []
         for source_index, line in enumerate(self._lines):
-            for start, end in self._wrap_line(line.text, fm, width):
+            spans = cache.get(line.text)
+            if spans is None:
+                spans = self._wrap_line(line.text, fm, width)
+                cache[line.text] = spans
+            for start, end in spans:
                 self._visual.append(
                     VisualLine(line.text[start:end], source_index, start, end)
                 )
@@ -520,6 +576,7 @@ class ConsoleView(QWidget):
         return 2 * self._pad + len(self._visual) * self._row_height
 
     def _update_scroll_range(self) -> None:
+        self._ensure_layout()
         content_height = self._content_height()
         maximum = max(0, content_height - self.height())
         bar = self._vbar
@@ -636,6 +693,7 @@ class ConsoleView(QWidget):
         self._scroll_reserve = scaled_px(MINIMAL_SCROLLBAR_WIDTH)
         was_bottom = self.is_at_bottom()
         self._mark_dirty()
+        self._update_scroll_range()
         if was_bottom:
             self.scroll_to_bottom()
         self.update()
