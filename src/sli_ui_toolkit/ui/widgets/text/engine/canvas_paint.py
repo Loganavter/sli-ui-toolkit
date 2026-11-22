@@ -80,6 +80,7 @@ class _CanvasPaintApi:
     _fold_lines: set[int] | None
     _line_number_start: int | None
     _document_layout: Any
+    _rich: Any
     _doc_selection: Any
     height: Any
     rect: Any
@@ -93,6 +94,9 @@ class _CanvasPaintApi:
         dbg = _debug_enabled()
         t0 = time.perf_counter() if dbg else 0
         global _paint_counter
+        if self._rich is not None:
+            self._paint_rich()
+            return
         if self._document_layout is not None:
             self._paint_document()
             if dbg:
@@ -180,6 +184,30 @@ class _CanvasPaintApi:
                 f"visible=[{first}..{last}] ({max(0, last-first+1)}) h={self.height()} clip={clip} dt={dt:.2f}ms interval={interval:.1f}ms burst={_burst_count} cache={info}"
             )
             _logger.warning(msg)
+
+    def _paint_rich(self) -> None:
+        """Rich (HTML) document mode: one ``QTextDocument`` paint pass."""
+        rich = getattr(self, "_rich", None)
+        if rich is None:
+            return
+        painter = QPainter(self)  # type: ignore[call-overload]
+        theme = ThemeManager.get_instance()
+        text_color = getattr(self, "_text_color", None)
+        if text_color is None:
+            text_color = theme.try_get_color("dialog.text")
+        if text_color is None or not text_color.isValid():
+            text_color = theme.try_get_color("WindowText")
+        accent = theme.try_get_color("accent")
+        selection_color = QColor(accent) if accent is not None and accent.isValid() else QColor("#007acc")
+        selection_color.setAlpha(70)
+        rich.paint(
+            painter,
+            focused=self.hasFocus(),
+            caret_on=bool(getattr(self, "_caret_on", True)),
+            text_color=text_color,
+            selection_color=selection_color,
+        )
+        painter.end()
 
     def _paint_document(self) -> None:
         painter = QPainter(self)  # type: ignore[call-overload]

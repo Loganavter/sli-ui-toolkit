@@ -291,7 +291,7 @@ One painted text widget (`Text`), typography options, and built-in presets:
 
 | Widget | Description |
 |--------|-------------|
-| `Text` / `TextConfig` | The display widget: `mode="plain"` (static text), `mode="document"` (markdown engine), `mode="code"` (editable buffer). See [LABELS_API.md](LABELS_API.md#text-plain-mode). `canvas()` returns the hosted painted surface in engine modes (`None` in plain mode) for host-owned chrome: line-number map, fold rows, `line_at`, event filters. |
+| `Text` / `TextConfig` | The display widget: `mode="plain"` (static text), `mode="document"` (markdown engine, or an HTML body via `set_html` — the QLabel-equivalent rich path with caret + selection), `mode="code"` (editable buffer). See [LABELS_API.md](LABELS_API.md#text-plain-mode). `canvas()` returns the hosted painted surface in engine modes (`None` in plain mode) for host-owned chrome: line-number map, fold rows, `line_at`, event filters. |
 | `TextScrollArea` | Scroll host for one painted `Text` (the composition `TextView` used to be): toolkit scrollbar, transparent viewport, rounded border overlay, `set_panel_fill(color|None)`, and `canvas()`/`editor()` for the hosted surface. Import: `sli_ui_toolkit.ui.widgets.composite`. |
 | `LabelVariantSpec` | Preset entry for the variant registry (`register_text_variant` / `get_text_variant`, also re-exported under the old `register_label_variant` / `get_label_variant` names). |
 | `DropZoneLabel` | Drag-and-drop zone visuals with file accept logic (internally a `Label`, kept for that subclass). |

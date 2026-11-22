@@ -503,6 +503,20 @@ class Text(QWidget):
             return
         self.setSelection(0, len(self._display_text))
 
+    def set_html(self, html: str) -> None:
+        """Document mode: show an HTML body (rich text with caret + selection).
+
+        The body is a real ``QTextDocument`` — the rich layout ``QLabel``
+        renders rich text with — so a pane that fed HTML keeps its colours,
+        tables and line breaks, and gains what the label never had: a
+        blinking caret, drag selection and Ctrl+C. Plain bodies are HTML
+        too (escape the text, newlines as ``<br>``).
+        """
+        self._engine_for("document").set_rich_html(str(html))
+        self._source_markdown = ""
+        self.updateGeometry()
+        self.update()
+
     def set_markdown(self, markdown: str, *, resolve_asset: Any = None) -> None:
         """Document mode: replace the content with markdown blocks."""
         engine = self._engine_for("document")
