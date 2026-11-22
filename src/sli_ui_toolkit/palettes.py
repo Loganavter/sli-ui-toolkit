@@ -29,6 +29,9 @@ FLUENT_LIGHT = {
     "Highlight": QColor("#0078D4"),
     "HighlightedText": QColor("#ffffff"),
     "accent": QColor("#0078D4"),
+    #: Anchor colour for rich text (a `QLabel` used `QPalette.Link`): a host that keeps one text colour still needs links
+    #: to read as links, so this is a token like any other.
+    "link": QColor("#0a66c2"),
     # Checked-state colours, so a host can restyle the box without forking the painter (see CheckBox).
     "checkbox.check": QColor("#ffffff"),
     "checkbox.background.checked": QColor("#0078D4"),

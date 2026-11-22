@@ -336,6 +336,24 @@ class _CanvasEventsApi:
             self.update()
         QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
 
+    def _rich_hover_link(self, event) -> None:
+        """A link must announce itself: pointing-hand cursor and the href as the tooltip."""
+        if self._rich is None:
+            return
+        href = self._rich.link_at(event.position().toPoint())
+        if href:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            if self.toolTip() != href:
+                self.setToolTip(href)
+        else:
+            if self.toolTip():
+                self.setToolTip("")
+            self.unsetCursor()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        self._rich_hover_link(event)
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if self._rich is not None:
             if event.button() == Qt.MouseButton.LeftButton and not self._rich.has_selection():
