@@ -81,6 +81,11 @@ class SpinBox(WheelScrollPolicyMixin, StepButtonsMixin, CustomLineEdit):
         self._min_width_explicit = False
         self.setFixedHeight(scaled_px(self._field_height))
         self._init_step_gutter(show_step_buttons)
+        # ONE cursor for the whole field. It is a stepped VALUE, not a text editor: with the base line edit's I-beam over
+        # the text and an arrow over the step buttons, the cursor flipped as the pointer crossed the gutter (owner,
+        # 2026-11-22: "the cursor is text, then just a cursor"). The field is still editable - the cursor is the only
+        # thing that changes. `Stepper`/`DoubleSpinBox` both inherit this.
+        self.setCursor(Qt.CursorShape.ArrowCursor)
         self._pin_content_width()
 
         self.editingFinished.connect(self._on_editing_finished)
@@ -95,6 +100,11 @@ class SpinBox(WheelScrollPolicyMixin, StepButtonsMixin, CustomLineEdit):
         self._sync_step_buttons()
         self.updateGeometry()
         self.update()
+
+    def setReadOnly(self, read_only: bool) -> None:  # noqa: N802 - Qt spelling
+        """Keep the arrow cursor: the base class swaps to I-beam for an editable line, and a spin box must not."""
+        super().setReadOnly(read_only)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
 
     # -- stepping -----------------------------------------------------------
 

@@ -239,3 +239,19 @@ def test_stepper_keeps_its_wide_side_by_side_gauge(qapp):
     assert up.bottom() == down.bottom()
 
     stepper.close()
+
+
+def test_a_step_field_keeps_one_arrow_cursor(qapp):
+    """A stepped value is not a text editor: the base line edit's I-beam over the text and the buttons' arrow made the
+    cursor flip as the pointer crossed the gutter (owner, 2026-11-22)."""
+    from PySide6.QtCore import Qt
+
+    for factory in (lambda: Stepper(show_step_buttons=True), lambda: DoubleSpinBox(show_step_buttons=True)):
+        field = factory()
+        field.show()
+        qapp.processEvents()
+        assert field.cursor().shape() == Qt.CursorShape.ArrowCursor
+        field.setReadOnly(False)          # the base class swaps to I-beam here; a spin box must not follow
+        assert field.cursor().shape() == Qt.CursorShape.ArrowCursor
+        assert field._up_button.cursor().shape() == Qt.CursorShape.ArrowCursor
+        assert field._down_button.cursor().shape() == Qt.CursorShape.ArrowCursor
