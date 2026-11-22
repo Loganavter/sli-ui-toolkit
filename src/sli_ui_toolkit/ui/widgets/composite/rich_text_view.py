@@ -2,29 +2,37 @@
 
 Three kinds of host pane are the same control seen from different call sites: a release-notes pane (`setMarkdown`), a
 system-information panel (`setText` with lines) and a video-information panel (`setFontPointSize` + `setText` with
-HTML). All three are a word-wrapped rich-text label inside a scroll area — which the toolkit can compose but had no
-widget for, so hosts kept stock `QTextEdit`s and their stylesheets alive.
+HTML). All three are a word-wrapped rich-text body inside a scroll area.
 
-`RichTextView` composes an `OverlayScrollArea` (no surface of its own) with a variant `Label`, and exposes the calls
-those hosts make. The label's height follows its wrapped content width, which is what makes a `QScrollArea` actually
-scroll it: with ``widgetResizable`` the scroll area fixes the width and takes the widget's minimum height, and a
-QLabel-derived widget does not report a wrapped height on its own.
+The body is `Text(mode="document")`: the painted engine renders it (bold/italic/colour/tables exactly as the
+`QLabel` that came before — the rich path IS Qt's own `QTextDocument`), and the engine's canvas owns the caret, the
+drag selection and Ctrl+C. A `QLabel`-derived pane had none of those: selected text sat in a static wash with no
+blinking caret, and the caret was still there after the pane lost focus.
 
     view = RichTextView(parent)
     view.setMarkdown(open("CHANGELOG.md").read())
+
+The content height comes from the ENGINE (`canvas().minimumHeight()` after the body is laid out at the viewport
+width), applied to the inner widget as a FIXED height: with ``widgetResizable`` the scroll area fixes the width and
+asks the widget for the height it needs, and a plain hint for an HTML body is far taller than what it paints. A pane
+whose body is shorter than the viewport must report a zero scroll range — "you can scroll it into emptiness" is the
+regression this contract guards (owner report 2026-11-22).
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QFont, QTextDocument
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
+from sli_ui_toolkit.ui.managers.ui_font import ui_font
+from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import OverlayScrollArea
 from sli_ui_toolkit.ui.widgets.atomic.surface_panel import SurfacePanel
-from sli_ui_toolkit.ui.widgets.atomic.text_labels import Label
+from sli_ui_toolkit.ui.widgets.text.text import Text
+from sli_ui_toolkit.ui.widgets.text.variants import get_text_variant
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
@@ -35,6 +43,8 @@ class RichTextView(SurfacePanel):
 
     The plate is the pane's own look (a `surface.list` fill with a 10 px radius is what a read-only editor carried in a
     stylesheet); it is a `SurfacePanel` so the colour comes from a token and the corners are painted, never styled.
+    The body inside is a painted `Text(mode="document")` surface — the engine paints the text, so no block paints a
+    surface of its own over the plate.
     """
 
     widget_descriptor: "WidgetDescriptor | None" = None
@@ -49,13 +59,22 @@ class RichTextView(SurfacePanel):
         scrollbar_width: int | None = None,
     ) -> None:
         super().__init__(parent, background_token=background_token, radius=radius)
-        self._padding = tuple(max(0, int(value)) for value in padding)
+        self._padding: tuple[int, int, int, int] = (
+            max(0, int(padding[0])),
+            max(0, int(padding[1])),
+            max(0, int(padding[2])),
+            max(0, int(padding[3])),
+        )
         self._font_point_size: float | None = None
+        self._pixel_size: int | None = None
         self._readonly_requested = True
         self._size_adjust_policy = None
         self._line_wrap_mode = None
         self._v_scroll_policy = None
         self._h_scroll_policy = None
+        #: the markup the engine renders; `text()`/`toPlainText()` read the
+        #: painted plain text, never this source
+        self._markup = ""
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self._scroll = OverlayScrollArea(self, reserve_scrollbar_space=True)
@@ -63,18 +82,15 @@ class RichTextView(SurfacePanel):
             self._scroll.set_scrollbar_width(scrollbar_width)
         self._scroll.setWidgetResizable(True)
 
-        self.label = Label(variant="body", word_wrap=True, selectable=True)
-        self.label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.label.setContentsMargins(*self._padding)
+        # The painted rich body. Its canvas owns the caret, the selection and
+        # the height; the pane owns the scroll host and the plate. The
+        # attribute keeps the name hosts read when this pane was a `QLabel`.
+        self.label = Text(mode="document")
         self.label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        # The pane's plate is the widget's own (`SurfacePanel`), and the label must not paint a surface of its own over
-        # it: a themed label carries the dialog colour, which showed as #1f232a inside a #2c313c pane - measured as 57 %
-        # of the pane's pixels differing on a migrated settings page.
-        import os as _os
-        if _os.environ.get("RVE_RICH_TRACE"):
-            print(f"RichTextView: label translucent={self.label.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)}", flush=True)
-        self.label.setAutoFillBackground(False)
-        self.label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        engine = self.label.canvas()
+        assert engine is not None  # mode="document" always hosts the engine
+        engine.set_rich_inset(self._padding)
+        self._apply_body_font()
         self._scroll.setWidget(self.label)
 
         layout = QVBoxLayout(self)
@@ -84,30 +100,40 @@ class RichTextView(SurfacePanel):
         layout.setContentsMargins(inset, inset, inset, inset)
         layout.setSpacing(0)
         layout.addWidget(self._scroll)
+        connect_ui_metrics(
+            self,
+            self._on_ui_metrics_changed,
+            axes=frozenset({AXIS_FONT, AXIS_SCALE}),
+        )
 
     # -- content --------------------------------------------------------
 
     def setText(self, text: str) -> None:  # noqa: N802 - QTextEdit spelling
         """Plain text, or HTML when it looks like HTML (the same rule `QLabel` applies)."""
         body = str(text)
-        if not body.lstrip().startswith("<"):
-            body = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
-        self.label.setText(body)
-        self._sync_height()
+        if body.lstrip().startswith("<"):
+            self._set_markup(body)
+            return
+        self.setPlainText(body)
 
     def setPlainText(self, text: str) -> None:  # noqa: N802
-        self.setText(str(text).replace("<", "&lt;").replace(">", "&gt;"))
+        body = (
+            str(text)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+        self._set_markup(body)
 
     def setHtml(self, html: str) -> None:  # noqa: N802
-        self.label.setText(str(html))
-        self._sync_height()
+        self._set_markup(str(html))
 
     def setMarkdown(self, markdown: str) -> None:  # noqa: N802
         """Render markdown through `QTextDocument` and show the resulting HTML."""
         document = QTextDocument()
         document.setMarkdown(str(markdown))
-        self.label.setText(document.toHtml())
-        self._sync_height()
+        self.setHtml(document.toHtml())
 
     def setReadOnly(self, read_only: bool) -> None:  # noqa: N802
         """No-op: the pane is a read-only view. Present so a migrated `QTextEdit` keeps the Designer's call."""
@@ -140,28 +166,24 @@ class RichTextView(SurfacePanel):
 
     def append(self, text: str) -> None:
         """Append one line, the way a log/notes pane is fed."""
-        self.label.setText(self.label.text() + "<br>" + str(text))
+        self._set_markup(self._markup + "<br>" + str(text))
+
+    def _set_markup(self, markup: str) -> None:
+        self._markup = markup
+        self.label.set_html(markup)
         self._sync_height()
 
-    def _plain(self) -> str:
+    def toPlainText(self) -> str:  # noqa: N802
         """The visible TEXT, not the stored markup.
 
         A host (and the host's structural dumper) asks a text pane for its plain text; returning the HTML source made a
         migrated pane report its whole markup as content - measured as a 22 % text difference on a page that paints the
         same words.
         """
-        source = self.label.text()
-        if "<" not in source:
-            return source
-        document = QTextDocument()
-        document.setHtml(source)
-        return document.toPlainText()
-
-    def toPlainText(self) -> str:  # noqa: N802
-        return self._plain()
+        return self.label.text()
 
     def text(self) -> str:
-        return self._plain()
+        return self.toPlainText()
 
     def clear(self) -> None:
         self.setText("")
@@ -169,12 +191,9 @@ class RichTextView(SurfacePanel):
     # -- styling --------------------------------------------------------
 
     def setFontPointSize(self, point_size: float) -> None:  # noqa: N802 - QTextEdit spelling
-        """A host that sizes its pane through the editor API gets the label's face sized instead."""
+        """A host that sizes its pane through the editor API gets the body's face sized instead."""
         self._font_point_size = float(point_size)
-        font = QFont(self.label.font())
-        font.setPointSizeF(float(point_size))
-        self.label.setFont(font)
-        self._sync_height()
+        self._apply_body_font()
 
     def setTextPixelSize(self, pixel_size: int) -> None:  # noqa: N802
         """Size the text in PIXELS.
@@ -183,55 +202,66 @@ class RichTextView(SurfacePanel):
         through the screen DPI (12 pt became 16 px and every line of a migrated pane grew) - the same trap the toolkit's
         spin boxes had with the locale.
         """
-        font = QFont(self.label.font())
-        font.setPixelSize(max(1, int(pixel_size)))
-        self.label.setFont(font)
-        self._sync_height()
+        self._pixel_size = max(1, int(pixel_size))
+        self._apply_body_font()
 
     def padding(self) -> tuple[int, int, int, int]:
         return self._padding
 
     def set_padding(self, padding: tuple[int, int, int, int]) -> None:
-        self._padding = tuple(max(0, int(value)) for value in padding)
-        self.label.setContentsMargins(*self._padding)
+        self._padding = (
+            max(0, int(padding[0])),
+            max(0, int(padding[1])),
+            max(0, int(padding[2])),
+            max(0, int(padding[3])),
+        )
+        engine = self.label.canvas()
+        if engine is not None:
+            engine.set_rich_inset(self._padding)
         self._sync_height()
+
+    def _body_font(self) -> QFont:
+        """The pane's body face: the ``body`` variant size, or a host-pinned one."""
+        spec = get_text_variant("body")
+        font = ui_font(pixel_size=self._pixel_size or spec.pixel_size)
+        if self._font_point_size is not None:
+            font.setPointSizeF(self._font_point_size)
+        return font
+
+    def _apply_body_font(self) -> None:
+        engine = self.label.canvas()
+        if engine is not None:
+            engine.set_rich_font(self._body_font())
+        self._sync_height()
+
+    def _on_ui_metrics_changed(self, *_args: object) -> None:
+        """A host font/scale change re-resolves the body face and the height.
+
+        Resolved even when a host pinned a point/pixel size: the family and
+        the scale factor still come from the bus, only the size is pinned.
+        """
+        self._apply_body_font()
 
     # -- geometry -------------------------------------------------------
 
-    def _content_height(self, width: int) -> int:
-        """Height of the rendered content at `width` - measured as RICH text when the text is HTML.
-
-        `Label.heightForWidth` measures the text as one plain string, so an HTML body was counted with its tags and
-        without the rich layout: sixty short paragraphs reported 3856 px in a 489 px viewport, and the pane scrolled
-        through pages of nothing (owner report 2026-11-22). A `QTextDocument` with the same font and width is what the
-        label paints.
-        """
-        text = self.label.text()
-        left, top, right, bottom = self._padding
-        # ALWAYS through a document: `setText` turns newlines into `<br>`, so even a "plain" body is HTML by the time it
-        # is painted, and `heightForWidth` would measure the tags themselves. The document is laid out inside the
-        # label's own margins, which is the width the painter uses.
-        from PySide6.QtGui import QTextDocument
-
-        document = QTextDocument()
-        document.setDocumentMargin(0)
-        document.setDefaultFont(self.label.font())
-        document.setHtml(text)
-        document.setTextWidth(max(1, width - left - right))
-        return int(document.size().height()) + top + bottom
-
     def _sync_height(self) -> None:
-        """Give the scroll area a wrapped height to scroll.
+        """Give the scroll area the engine's content height, as a fixed height.
 
-        `widgetResizable` fixes the width to the viewport; a label does not report the height it needs at that width,
-        so it would be clipped instead of scrolled.
+        `widgetResizable` fixes the width to the viewport, and the height has to come from the engine: the rich body
+        is laid out in a `QTextDocument`, whose own `sizeHint` for an HTML body is far taller than what it paints
+        (measured: 2844 px claimed, 1776 px of ink) - the pane then scrolls through pages of nothing.
         """
+        engine = self.label.canvas()
+        if engine is None:
+            return
         width = max(1, self._scroll.viewport().width())
-        height = self._content_height(width)
+        # Lay the body out at the width it will actually be painted at. The
+        # viewport has not been resized yet when this runs from a resize
+        # event, so the deferred pass measures against the real width.
+        engine.resize(width, engine.height())
+        engine.relayout_rich(width)
+        height = engine.minimumHeight()
         if height > 0:
-            # FIXED, not minimum: `widgetResizable` asks the widget's `sizeHint()` for the scroll range, and a label's
-            # plain-text hint for an HTML body is far taller than what it paints (measured: 2844 px claimed, 1776 px of
-            # ink) - the pane then scrolls through pages of nothing. A fixed height is the measured one.
             self.label.setFixedHeight(height)
         self.label.updateGeometry()
         self._scroll.updateGeometry()
@@ -239,11 +269,10 @@ class RichTextView(SurfacePanel):
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
         self._sync_height()
-        # The viewport has not been resized yet when this fires: one turn later it has, and the height is measured
-        # against the width the text will actually be laid out at (measuring a 2844 px body against a stale narrow
-        # viewport was exactly the empty-scroll defect).
-        from PySide6.QtCore import QTimer
-
+        # The viewport has not been resized yet when this fires: one turn
+        # later it has, and the body is measured against the width the text
+        # will actually be laid out at (measuring a body against a stale
+        # narrow viewport was exactly the empty-scroll defect).
         QTimer.singleShot(0, self._sync_height)
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt API

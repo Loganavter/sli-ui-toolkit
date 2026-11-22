@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import QEvent, QPointF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QFontMetrics, QKeySequence, QGuiApplication
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetrics, QKeySequence, QGuiApplication
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 import logging
@@ -41,6 +41,7 @@ from sli_ui_toolkit.ui.widgets.text.engine.layout.hit_test import (
 from .canvas_paint import _CanvasPaintApi
 from .editing import Position, _CanvasEditingApi
 from .events import _CanvasEventsApi
+from .rich_surface import RichDocumentSurface
 
 _canvas_logger = logging.getLogger(__name__)
 
@@ -143,6 +144,11 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         self._document_index: Any = None
         self._document_layout: Any = None
         self._document_asset_resolver: Any = None
+        #: rich (HTML) content for document mode — see ``set_rich_html``
+        self._rich: RichDocumentSurface | None = None
+        #: buffered until the first ``set_rich_html`` (see ``set_rich_inset``)
+        self._rich_inset: tuple[int, int, int, int] = (0, 0, 0, 0)
+        self._rich_font: QFont | None = None
         self._doc_selection = DocumentSelection()
         self._body_pixel_size: int | None = None
         self._body_family: str | None = None
@@ -221,12 +227,16 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
 
     def plain_text(self) -> str:
         """Full plain text of the current content (document or code)."""
+        if self._rich is not None:
+            return self._rich.plain_text()
         if self._document_index is not None:
             return self._document_index.text
         return self.text()
 
     def selected_plain_text(self) -> str:
         """Selected plain text in either mode ("" when nothing is selected)."""
+        if self._rich is not None:
+            return self._rich.selected_text()
         if self._document_index is not None:
             rng = self._doc_selection.copy_range()
             if rng is None:
@@ -265,7 +275,9 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
 
     def select_all_text(self) -> None:
         """Select the whole content in either mode."""
-        if self._document_index is not None:
+        if self._rich is not None:
+            self._rich.select_all()
+        elif self._document_index is not None:
             self._doc_selection.select_all(len(self._document_index.text))
         else:
             self.select_all()
@@ -275,13 +287,18 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
     def reset_selection(self) -> None:
         """Drop the selection in either mode (document or code)."""
         self._doc_selection.reset()
+        if self._rich is not None:
+            self._rich.clear_selection()
         self._selection.clear()
         self._chain_selecting = None
         self._notify_selection()
         self.update()
 
-    def _selection_key(self) -> tuple[Any, Any]:
-        return (self._doc_selection.range(), self._selection.range())
+    def _selection_key(self) -> tuple[Any, ...]:
+        rich = (
+            self._rich.selected_text() if self._rich is not None else None
+        )
+        return (self._doc_selection.range(), self._selection.range(), rich)
 
     def _notify_selection(self) -> None:
         """Emit ``selectionChanged`` when the effective selection value moved."""
@@ -307,6 +324,7 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         self._document_index = None
         self._document_layout = None
         self._document_asset_resolver = None
+        self._rich = None
         self._doc_selection.reset()
         self._gutter_cache = None
         self._sync_height()
@@ -355,6 +373,7 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         self._doc_selection.index = self._document_index
         self._document_asset_resolver = resolve_asset
         self._document_layout = None
+        self._rich = None
         self._doc_selection.reset()
         self.unsetCursor()
         self._relayout_document()
@@ -365,6 +384,108 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         self._document_asset_resolver = resolver
         if self._document_blocks is not None:
             self._relayout_document()
+
+    # -- rich (HTML) content --------------------------------------------
+
+    def set_rich_html(self, html: str) -> None:
+        """Document mode: show a rich HTML body (the QLabel-equivalent path).
+
+        The body is a real ``QTextDocument`` (what ``QLabel`` renders rich
+        text with), so an HTML pane keeps its colours, tables and line
+        breaks — and gains what the label never had: a blinking caret, drag
+        selection and Ctrl+C. Rich content and the markdown block path are
+        mutually exclusive; this clears the parse/layout state the document
+        branches test first.
+        """
+        if self._rich is None:
+            self._rich = RichDocumentSurface()
+            self._rich.set_inset(self._rich_inset)
+            if self._rich_font is not None:
+                self._rich.set_font(self._rich_font)
+        self._document_blocks = None
+        self._document_index = None
+        self._document_layout = None
+        self._document_asset_resolver = None
+        self._doc_selection.reset()
+        self._lines = []
+        self._editing = False
+        self._gutter_cache = None
+        self._rich.set_html(html)
+        self.relayout_rich()
+        self._notify_selection()
+
+    def set_rich_font(self, font) -> None:
+        """Rich body font for text the HTML does not style itself."""
+        self._rich_font = QFont(font)
+        if self._rich is None:
+            return
+        self._rich.set_font(font)
+        self.relayout_rich()
+
+    def set_rich_inset(self, inset: tuple[int, int, int, int]) -> None:
+        """Content inset (left, top, right, bottom) around the rich body.
+
+        The pane owns its padding; the markdown path's page pad
+        (``constants.PAD``) is not applied to rich content. Buffered until
+        the first ``set_rich_html`` so setting it never switches a canvas
+        out of its markdown mode by accident.
+        """
+        self._rich_inset = inset
+        if self._rich is None:
+            return
+        self._rich.set_inset(inset)
+        if self._document_blocks is None:
+            self.relayout_rich()
+
+    def is_rich(self) -> bool:
+        return self._rich is not None
+
+    def relayout_rich(self, width: int | None = None) -> None:
+        """Lay the rich body out at ``width`` (default: this widget's) and
+        re-derive the content height.
+
+        A host scroll area fixes the width AFTER the resize event, so the
+        pane re-runs this one event-loop turn later with the real width.
+        """
+        if self._rich is None:
+            return
+        self._rich.set_outer_width(
+            max(1, int(width if width is not None else self.width()))
+        )
+        self._sync_height()
+        self.update()
+
+    def _rich_mouse_press(self, event, *, word: bool = False) -> None:
+        if self._rich is None:
+            return
+        self.setFocus()
+        self._rich.press(event.position().toPoint())
+        if word:
+            self._rich.select_word_at(event.position().toPoint())
+        self._caret_on = True
+        self._notify_selection()
+        self.update()
+
+    def _rich_mouse_move(self, event) -> None:
+        if self._rich is None:
+            return
+        self._rich.drag_to(event.position().toPoint())
+        self._notify_selection()
+        self.update()
+
+    def _rich_key(self, event) -> bool:
+        """Selection keys of the rich body; True when consumed."""
+        if self._rich is None:
+            return False
+        if event.matches(QKeySequence.StandardKey.SelectAll):
+            self._rich.select_all()
+            self._notify_selection()
+            self.update()
+            return True
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self.copy_selection()
+            return True
+        return False
 
     def set_body_style(self, *, pixel_size: int | None, family: str | None) -> None:
         """Document mode: body text pixel size / family (``None`` keeps the
@@ -639,7 +760,9 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
 
     def focusInEvent(self, event) -> None:  # noqa: N802 - Qt API
         self._caret_on = True
-        if getattr(self, "_editing", False):
+        # A rich body is read-only but still carries a caret: it blinks
+        # while the surface owns focus, exactly like an editing canvas.
+        if getattr(self, "_editing", False) or getattr(self, "_rich", None) is not None:
             try:
                 self._caret_blink.start()
             except Exception:
@@ -691,7 +814,12 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
         # height forced the renderer to expand to the whole document.
         _dbg = _textview_debug_enabled()
         t0 = time.perf_counter() if _dbg else 0
-        if self._document_layout is not None:
+        if self._rich is not None:
+            # The rich body's height is its own laid-out extent; the pane
+            # applies it as a FIXED height, so a short body reports a short
+            # widget (zero scroll range) instead of the viewport's.
+            self.setMinimumHeight(self._rich.content_height())
+        elif self._document_layout is not None:
             h = int(self._document_layout.height) + 2 * constants.PAD
             self.setMinimumHeight(h)
         else:
@@ -714,5 +842,7 @@ class TextCanvasCore(_CanvasPaintApi, _CanvasEventsApi, _CanvasEditingApi, QWidg
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        if self._document_blocks is not None:
+        if self._rich is not None:
+            self.relayout_rich()
+        elif self._document_blocks is not None:
             self._relayout_document()

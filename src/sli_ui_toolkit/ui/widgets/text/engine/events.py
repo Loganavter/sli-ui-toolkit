@@ -62,12 +62,16 @@ class _CanvasEventsApi:
     _hover_ibeam: bool | None
     setCursor: Any
     _document_layout: Any
+    _rich: Any
     update: Any
     setFocus: Any
     _document_mouse_press: Callable[..., None]
     _document_mouse_move: Callable[..., None]
     _document_mouse_release: Callable[..., None]
     _document_key: Callable[..., bool]
+    _rich_mouse_press: Callable[..., None]
+    _rich_mouse_move: Callable[..., None]
+    _rich_key: Callable[..., bool]
     _copy_selection: Callable[[], None]
     select_all: Callable[[], None]
     _paste: Callable[[], None]
@@ -170,6 +174,13 @@ class _CanvasEventsApi:
         self._selection.set_range(rng[0], rng[1])
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
+        if self._rich is not None:
+            # Rich (HTML) body: the same read-only rule as document mode —
+            # only the LEFT button starts a selection / places the caret.
+            if event.button() != Qt.MouseButton.LeftButton:
+                return QWidget.mousePressEvent(self, event)  # type: ignore[arg-type]
+            self._rich_mouse_press(event)
+            return
         if self._document_layout is not None:
             # Document mode is read-only: only the LEFT button starts a
             # selection gesture. A right-button press opens the host's
@@ -213,6 +224,11 @@ class _CanvasEventsApi:
         self.update()
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if self._rich is not None:
+            if event.button() != Qt.MouseButton.LeftButton:
+                return QWidget.mouseDoubleClickEvent(self, event)  # type: ignore[arg-type]
+            self._rich_mouse_press(event, word=True)
+            return
         if self._document_layout is not None:
             if event.button() != Qt.MouseButton.LeftButton:
                 return QWidget.mouseDoubleClickEvent(self, event)  # type: ignore[arg-type]
@@ -245,6 +261,12 @@ class _CanvasEventsApi:
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
         # Single debug check per move — logger only, no file IO (hot path)
         dbg = _textview_debug_enabled()
+        if self._rich is not None:
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                self._rich_mouse_move(event)
+            else:
+                QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
+            return
         if dbg and event.buttons() & Qt.MouseButton.LeftButton:
             _logger.warning(
                 "drag raw editing=%s anchor=%s buttons=%s pos=%s",
@@ -315,6 +337,9 @@ class _CanvasEventsApi:
         QWidget.mouseMoveEvent(self, event)  # type: ignore[arg-type]
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._rich is not None:
+            QWidget.mouseReleaseEvent(self, event)  # type: ignore[arg-type]
+            return
         if self._document_layout is not None:
             # Only a left-button release ends a selection gesture or
             # activates a link/image. A right-button release follows a
@@ -337,7 +362,7 @@ class _CanvasEventsApi:
         them."""
         if not getattr(self, "_editing", False):
             # read-only code / document mode: only the selection shortcuts
-            return self._document_layout is not None and any(
+            return (self._document_layout is not None or self._rich is not None) and any(
                 event.matches(seq)
                 for seq in (
                     QKeySequence.StandardKey.Copy,
@@ -456,6 +481,11 @@ class _CanvasEventsApi:
         return QWidget.inputMethodQuery(self, query)  # type: ignore[arg-type]
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
+        if self._rich is not None:
+            if self._rich_key(event):
+                return
+            QWidget.keyPressEvent(self, event)  # type: ignore[arg-type]
+            return
         if self._document_layout is not None:
             if self._document_key(event):
                 return
