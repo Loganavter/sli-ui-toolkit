@@ -232,3 +232,37 @@ def test_a_right_press_ends_a_live_band_and_its_application_filter(qapp):
 
     assert not widget._marquee.active, "the right press must finish the band"
     assert not widget._marquee.app_filter_installed, "a leaked application filter eats drags for the whole window"
+
+
+def test_the_band_cannot_paint_outside_the_plate_shape(qapp):
+    """A drag that leaves the list keeps tracking (MarqueeState's app filter), so the band rect can be far bigger than
+    the widget. It must still paint only inside the rounded plate: the owner saw the selector draw outside the visible
+    list (2026-11-22)."""
+    from PySide6.QtWidgets import QWidget
+
+    host = QWidget()
+    host.resize(360, 300)
+    widget = TextListWidget(row_height=20, radius=10, surface_token="dialog.background")
+    widget.setParent(host)
+    widget.setGeometry(10, 10, 260, 160)
+    for index in range(6):
+        widget.addItem(f"file-{index}.mkv")
+    host.show()
+    widget.show()
+    qapp.processEvents()
+    widget.setSelectionMode("extended")
+
+    _press(widget, 1)
+    _drag(widget, 1, 30)          # far past the last row and past the widget's bottom
+    qapp.processEvents()
+
+    image = host.grab().toImage()
+    # The host's own surface, read far from the list: whatever the theme, "outside the plate" must match this.
+    host_colour = image.pixelColor(host.width() - 5, host.height() - 5).name()
+    for x, y in ((widget.x() - 4, widget.y() + 40),
+                 (widget.x() + 40, widget.y() + widget.height() + 6),
+                 (widget.x() + widget.width() + 4, widget.y() + 40)):
+        assert image.pixelColor(x, y).name() == host_colour, (
+            f"the list painted outside its plate at {(x, y)}: {image.pixelColor(x, y).name()} against the host's "
+            f"{host_colour}"
+        )

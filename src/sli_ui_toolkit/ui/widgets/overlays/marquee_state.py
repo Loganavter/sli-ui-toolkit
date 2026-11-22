@@ -90,12 +90,18 @@ def paint_marquee_band(
     painter: QPainter,
     rect: QRect,
     accent: QColor | None = None,
+    edges: tuple[bool, bool, bool, bool] | None = None,
 ) -> None:
     """Paint the marquee band look into the host's paint device.
 
     Gallery look: ``accent`` fill at alpha 48 plus a 1px border at
     alpha 200. No-op on empty/invalid ``rect``. The host calls this
     from its own ``paintEvent`` with its content-local band rect.
+
+    ``edges`` = (top, right, bottom, left) says which sides get the border. A band CLAMPED to a viewport must not draw a
+    border along the edge where the viewport cut it - that line reads as the selection ending there, and it sits exactly
+    on the plate's outline (owner, 2026-11-22: the band's кайма must not go outside the visible area). ``None`` keeps the
+    historical all-four behaviour for every existing caller.
     """
     if rect.isEmpty() or not rect.isValid():
         return
@@ -105,8 +111,20 @@ def paint_marquee_band(
     border = QColor(base)
     border.setAlpha(_MARQUEE_BORDER_ALPHA)
     painter.fillRect(rect, fill)
+    visible = edges or (True, True, True, True)
+    if not any(visible):
+        return
     painter.setPen(QPen(border, 1))
-    painter.drawRect(rect.adjusted(0, 0, -1, -1))
+    inner = rect.adjusted(0, 0, -1, -1)
+    top, right, bottom, left = visible
+    if top:
+        painter.drawLine(inner.topLeft(), inner.topRight())
+    if right:
+        painter.drawLine(inner.topRight(), inner.bottomRight())
+    if bottom:
+        painter.drawLine(inner.bottomLeft(), inner.bottomRight())
+    if left:
+        painter.drawLine(inner.topLeft(), inner.bottomLeft())
 
 
 def marquee_dirty_rect(old: QRect, new: QRect, pad: int = 1) -> QRect:

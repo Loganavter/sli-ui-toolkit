@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from sli_ui_toolkit.theme import ThemeManager
@@ -56,6 +56,11 @@ class _Rows(QWidget):
         # rule for a content well: paint your fill explicitly, do not rely on whatever is behind you
         # (`OpaqueFillHost.paintEvent` -> `fillRect(event.rect(), self._fill)` in BlinkTable).
         painter = QPainter(self)
+        # Clip to the plate's SHAPE, not just its rect: the list is a rounded panel, and a band that the pointer drags
+        # outside it (the marquee keeps tracking past the widget by design) must not paint over the corners or past the
+        # rounded edge - the owner saw the selector draw outside the visible list (2026-11-22).
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setClipPath(self._owner.panel_path(QRectF(self.rect())))
         fill = self._owner.fill_colour()
         if fill is not None:
             painter.fillRect(event.rect(), fill)
@@ -489,6 +494,10 @@ class TextListWidget(SurfacePanel):
 
     def paint_rows(self, target: QWidget) -> None:
         painter = QPainter(target)
+        # Rows and the marquee band live under the same rounded plate: clip before anything is drawn, so neither the
+        # selection fill nor the band can reach the rounded corners (owner, 2026-11-22).
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setClipPath(self.panel_path(QRectF(target.rect())))
         font = QFont(target.font())
         font.setPixelSize(self._text_pixel_size)
         painter.setFont(font)
@@ -513,14 +522,44 @@ class TextListWidget(SurfacePanel):
             )
         self._paint_band(painter, target)
 
+    def panel_radius(self) -> int:
+        """The plate's corner radius in px (0 = square)."""
+        return int(getattr(self, "_radius", 0) or 0)
+
+    def panel_path(self, rect) -> QPainterPath:
+        """The plate's outline as a path, so content can be clipped to it."""
+        path = QPainterPath()
+        radius = self.panel_radius()
+        if radius > 0:
+            path.addRoundedRect(rect, radius, radius)
+        else:
+            path.addRect(rect)
+        return path
+
     def _paint_band(self, painter: QPainter, target: QWidget) -> None:
-        """The rubber rectangle, painted with the toolkit's single marquee look (accent fill + 1 px border)."""
+        """The rubber rectangle, clamped to the visible rows and bordered only on its own edges.
+
+        A drag keeps tracking outside the list (MarqueeState's application filter), so `band_rect` can be far bigger than
+        the widget. Drawing it clipped leaves the band's border cut off exactly ON the plate's outline - the owner saw
+        the selection's edge reach past the visible list (2026-11-22). Clamping first and then dropping the border sides
+        the viewport cut keeps the кайма inside.
+        """
         band = self._marquee.band_rect
         if band.isEmpty():
             return
+        visible = target.rect()
+        clamped = band.intersected(visible)
+        if clamped.isEmpty():
+            return
         accent = self._token("accent", "#0078d4")
         self._marquee.set_accent(accent)
-        paint_marquee_band(painter, band, accent)
+        edges = (
+            band.top() >= visible.top(),
+            band.right() <= visible.right(),
+            band.bottom() <= visible.bottom(),
+            band.left() >= visible.left(),
+        )
+        paint_marquee_band(painter, clamped, accent, edges)
 
     # -- keyboard -------------------------------------------------------
 
