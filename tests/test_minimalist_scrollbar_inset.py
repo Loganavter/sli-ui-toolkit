@@ -35,6 +35,7 @@ def test_inset_is_fixed_max_width_plus_margin(qtbot):
     area, _host = _make_scrolling_area(qtbot)
 
     bar = area.custom_v_scrollbar
+    bar._poke()
     assert bar.isVisible()
 
     expected = overlay_scrollbar_max_inset()
@@ -98,6 +99,7 @@ def test_reserve_mode_reports_nothing(qtbot):
     qtbot.wait(30)
 
     bar = area.custom_v_scrollbar
+    bar._poke()
     assert bar.isVisible()
     # Reserve mode gives the bar its own viewport margin — the overlay inset
     # reports nothing and the bar keeps its fixed width.

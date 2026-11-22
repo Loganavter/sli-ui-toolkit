@@ -111,7 +111,9 @@ def test_overlay_area_bar_autohides_and_reshows(qtbot):
     area.show()
     qtbot.waitExposed(area)
     bar = area.custom_v_scrollbar
+    # An auto-hiding bar does not appear on creation: it is available, and the first real scroll brings it up.
+    assert bar._available
+    assert not bar.isVisible(), "the bar must not flash on the first layout"
+    area.verticalScrollBar().setValue(100)  # scroll activity shows it
     assert bar.isVisible()
     qtbot.waitUntil(lambda: not bar.isVisible(), timeout=3000)
-    area.verticalScrollBar().setValue(100)  # scroll activity re-shows
-    assert bar.isVisible()

@@ -53,6 +53,10 @@ def test_h_bar_hidden_when_fits(qtbot):
 def test_h_bar_shows_on_overflow_bottom_anchored(qtbot):
     area, _ = _make_area(qtbot, 600, 100)
     bar = area.custom_h_scrollbar
+    # Auto-hiding bar: available on overflow, visible only after activity.
+    assert bar._available
+    bar._poke()
+    bar._poke()
     assert bar.isVisible()
     assert not area.custom_v_scrollbar.isVisible()
     assert bar.height() == area.scrollbar_width()
@@ -104,6 +108,9 @@ def test_v_thumb_drag_drives_native(qtbot):
 def test_widget_resizable_false_keeps_fixed_content(qtbot):
     area, content = _make_area(qtbot, 600, 100, widget_resizable=False)
     assert content.width() == 600
+    assert area.custom_h_scrollbar._available
+    area.custom_h_scrollbar._poke()
+    area.custom_h_scrollbar._poke()
     assert area.custom_h_scrollbar.isVisible()
 
 
@@ -133,8 +140,10 @@ def test_thumb_position_tracks_scroll_value(qtbot):
 def test_h_bar_autohides_and_reshows_on_scroll(qtbot):
     area, _ = _make_area(qtbot, 600, 100)
     bar = area.custom_h_scrollbar
+    bar._poke()
     assert bar.isVisible()
     bar.set_auto_hide(0.15)
     qtbot.waitUntil(lambda: not bar.isVisible(), timeout=2000)
     area.horizontalScrollBar().setValue(50)  # scroll activity re-shows
+    bar._poke()
     assert bar.isVisible()

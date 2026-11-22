@@ -303,6 +303,9 @@ def test_controller_scrollbar_range_and_page(qtbot):
     assert native.singleStep() == 30
     # The custom bar mirrors the native range (OverlayScrollArea plumbing).
     assert scroll.custom_v_scrollbar.maximum() == native.maximum()
+    # An auto-hiding bar is AVAILABLE but hidden until the user scrolls or hovers it (it used to appear once and fade).
+    assert scroll.custom_v_scrollbar._available
+    scroll.custom_v_scrollbar._poke()
     assert scroll.custom_v_scrollbar.isVisible()
 
     # Small list: no range, bar hidden.

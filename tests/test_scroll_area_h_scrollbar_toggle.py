@@ -43,6 +43,9 @@ def test_default_still_shows_the_overlay_h_thumb(qtbot):
     area, _content = _make_area(qtbot, 600, 100)
     assert area.horizontal_scrollbar_enabled() is True
     assert area.horizontalScrollBar().maximum() > area.horizontalScrollBar().minimum()
+    # An auto-hiding bar is available but hidden until activity (it used to appear once and fade on first layout).
+    assert area.custom_h_scrollbar._available
+    area.custom_h_scrollbar._poke()
     assert area.custom_h_scrollbar.isVisible()
     qtbot.waitUntil(
         lambda: area.viewportMargins().bottom() == area.scrollbar_width(),
@@ -92,6 +95,8 @@ def test_vertical_overlay_thumb_is_unaffected_by_the_horizontal_flag(qtbot):
     area.set_horizontal_scrollbar_enabled(False)
     _settle()
     assert area.verticalScrollBar().maximum() > area.verticalScrollBar().minimum()
+    assert area.custom_v_scrollbar._available
+    area.custom_v_scrollbar._poke()
     assert area.custom_v_scrollbar.isVisible()
     assert not area.custom_h_scrollbar.isVisible()
     qtbot.waitUntil(

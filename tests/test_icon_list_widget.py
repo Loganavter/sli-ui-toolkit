@@ -273,6 +273,9 @@ def test_scrollbar_appearance_does_not_shift_content(qapp):
     for i in range(10):
         widget.add_item(f"Item {i}")
     _spin_event_loop(qapp)
+    # Available on overflow, visible only after activity: the overlay bar must not flash on creation.
+    assert widget._scroll.custom_v_scrollbar._available
+    widget._scroll.custom_v_scrollbar._poke()
     assert widget._scroll.custom_v_scrollbar.isVisible()
     width_with_scrollbar = widget._host.width()
     assert width_with_scrollbar > 0

@@ -112,6 +112,11 @@ class MinimalistScrollBar(QScrollBar):
         # persistent auto-hide policy must not bring it back while the host
         # owns this axis (e.g. a timeline that draws its own footer bar).
         self._suppressed = False
+        #: The axis overflows (the host reserves space for a bar) - AVAILABLE is not VISIBLE: an auto-hiding bar appears
+        #: only after real activity, so a newly created scrollable widget does not flash its bar once and fade (owner
+        #: report 2026-11-22).
+        self._available = False
+        self._activity_seen = False
         self._idle_timer = QTimer(self)
         self._idle_timer.setSingleShot(True)
         self._idle_timer.timeout.connect(self._on_idle_timeout)
@@ -303,6 +308,7 @@ class MinimalistScrollBar(QScrollBar):
         self._idle_timer.start(int(self._auto_hide_seconds * 1000))
 
     def _on_idle_timeout(self) -> None:
+        self._activity_seen = False
         if not self.isVisible():
             return
         if self._is_dragging or self._hovered:
@@ -326,7 +332,27 @@ class MinimalistScrollBar(QScrollBar):
         self.update()
         self._restart_idle_timer()
 
+    def set_available(self, available: bool) -> None:
+        """Tell the bar its axis overflows. An auto-hiding bar stays hidden until activity (see `_poke`)."""
+        available = bool(available)
+        if self._available == available:
+            return
+        self._available = available
+        if not available:
+            self._anim_alpha = 0.0
+            super().setVisible(False)
+            self._idle_timer.stop()
+            self.update()
+            return
+        if self._auto_hide_seconds is None or self._activity_seen:
+            self._anim_alpha = 1.0
+            if not self.isVisible():
+                super().setVisible(True)
+            self._restart_idle_timer()
+            self.update()
+
     def _poke(self) -> None:
+        self._activity_seen = True
         if self._suppressed:
             return
         if self._auto_hide_seconds is None:
@@ -368,6 +394,9 @@ class MinimalistScrollBar(QScrollBar):
         if self._suppressed == suppressed:
             return
         self._suppressed = suppressed
+        if not suppressed:
+            # The host explicitly re-enabled the axis: that is activity, so an auto-hiding bar comes back.
+            self._activity_seen = True
         if suppressed:
             self._idle_timer.stop()
             if self.isVisible():
@@ -865,8 +894,10 @@ class OverlayScrollArea(QScrollArea):
             f"v_show={v_show} h_show={h_show} h_enabled={self._h_scrollbar_enabled} "
             f"reserve={self._reserve_scrollbar_space}"
         )
-        self.custom_v_scrollbar.set_animated_visible(v_show)
-        self.custom_h_scrollbar.set_animated_visible(h_show)
+        # `set_available`, not `set_animated_visible`: the bar's presence is reserved by the host either way, and the
+        # widget itself only appears once the user actually scrolls/hovers it.
+        self.custom_v_scrollbar.set_available(v_show)
+        self.custom_h_scrollbar.set_available(h_show)
         # Reserve the bar's gap only while that axis actually overflows.
         # When everything fits there is no bar to make room for, so the
         # viewport takes the full size instead of holding a dead gutter.
@@ -892,9 +923,8 @@ class OverlayScrollArea(QScrollArea):
         self._position_v_scrollbar()
 
     def _position_v_scrollbar(self):
-        if not self.custom_v_scrollbar.isVisible():
-            sdbg("OverlayScrollArea position: bar hidden, not positioned")
-            return
+        # Positioned even while hidden: an auto-hiding bar appears later, and a bar whose geometry was never set shows
+        # at its construction size (measured: 14 px high against a 10 px reserved width).
         # Anchor to the scroll area's right edge so reserve_scrollbar_space=True
         # places the bar in the reserved gap rather than inside the viewport.
         sdbg(
@@ -910,7 +940,7 @@ class OverlayScrollArea(QScrollArea):
         sdbg(f"OverlayScrollArea position -> scrollbar={self.custom_v_scrollbar.geometry()}")
 
     def _position_h_scrollbar(self):
-        if not self.custom_h_scrollbar.isVisible():
+        if False:  # positioned even while hidden, see _position_v_scrollbar
             sdbg("OverlayScrollArea position: h-bar hidden, not positioned")
             return
         # Anchor to the scroll area's bottom edge (mirror of the right-edge
