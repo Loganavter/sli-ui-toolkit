@@ -1550,6 +1550,34 @@ def auto_navigation(owner: QWidget, *, tag: str = "auto") -> None:
         pass
 
 
+#: Focus grants that are NOT a gesture on the widget itself: the pointer
+#: pressed it (or a menu/popup did), or the window handed focus back on
+#: activation. Deliberately separate from the ring question
+#: (:meth:`NavigationManager.resolve` — input DEVICE at the moment of the
+#: grant): a Tab/programmatic grant is a focus the user asked for even when
+#: the last input device was a mouse, while a press on the widget is not.
+_NON_GESTURE_FOCUS_REASONS = frozenset(
+    {
+        Qt.FocusReason.MouseFocusReason,
+        Qt.FocusReason.MenuBarFocusReason,
+        Qt.FocusReason.PopupFocusReason,
+        Qt.FocusReason.ActiveWindowFocusReason,
+    }
+)
+
+
+def resolve_gesture_focus(reason: Qt.FocusReason | None) -> bool:
+    """Whether *reason* is a focus the user asked for ON this widget.
+
+    Used where the difference is functional, not cosmetic: a ComboBox popup
+    open/close cycle must leave focus exactly where the opening gesture found
+    it, so a grant made by the press that opened the list does not count as
+    deliberate focus (see ``_DropdownOverlay._restore_focus_policies``).
+    Unknown reason → ``False``: do not grant focus back on a guess.
+    """
+    return reason is not None and reason not in _NON_GESTURE_FOCUS_REASONS
+
+
 def resolve_keyboard_focus(
     reason: Qt.FocusReason, *, _last_input: bool | None = None
 ) -> bool:

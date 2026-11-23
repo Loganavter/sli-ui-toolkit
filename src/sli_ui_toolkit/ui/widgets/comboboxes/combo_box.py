@@ -118,6 +118,23 @@ class ComboBox(Button):
         self._visible_indices_cache: list[int] = []
         self._visible_positions_cache: dict[int, int] = {}
         self._visible_cache_dirty = True
+        # Focus context of the dropdown's open/close cycle (see
+        # _DropdownOverlay.show_for_owner / _restore_focus_policies):
+        # - ``_focus_before_grant``: the widget that held focus immediately
+        #   before this field received it. Needed because Qt's own click-focus
+        #   policy focuses the field from a real window-level press BEFORE
+        #   mousePressEvent runs, so by the time the list opens "the field has
+        #   focus" can be the opening click rather than a deliberate focus.
+        # - ``_list_driven_by_keyboard``: a key reached this widget while the
+        #   list was open, so a close driven by Enter/Space/Escape must keep
+        #   the field focused even if the list was opened by the pointer.
+        self._focus_before_grant: QWidget | None = None
+        self._list_driven_by_keyboard = False
+        app = QApplication.instance()
+        if isinstance(app, QApplication):
+            # Only records grants TO this field; focus moves elsewhere are
+            # ignored, so the record survives the row click that commits.
+            app.focusChanged.connect(self._on_app_focus_changed)
 
         # Gear-shifter drag-select (see GEAR_HOLD_MS above) — behavior lives
         # in GearDragCapability, mirroring Button's own capability system
@@ -775,6 +792,10 @@ class ComboBox(Button):
             self._dropdown_focus_index = None
         self._expanded = True
         self._pressed = False
+        # A fresh list starts with no keyboard driving it (see
+        # keyPressEvent); a mouse open with typing must not inherit the
+        # previous cycle's keyboard modality.
+        self._list_driven_by_keyboard = False
         self._center_current_visible()
         self._sync_field_tooltip()
         self._overlay.show_for_owner()
@@ -825,6 +846,49 @@ class ComboBox(Button):
         else:
             self.showDropdown()
 
+    def _on_app_focus_changed(self, old: QWidget | None, now: QWidget | None) -> None:
+        """Remember what held focus right before this field took it.
+
+        The signal carries the widget that just LOST focus — the only place
+        the pre-grant owner is observable: Qt's click-focus policy in
+        ``QWidgetWindow`` runs before the press reaches this widget, so
+        ``mousePressEvent`` already sees the field focused. A grant from
+        another window is not a widget to return to, so it records ``None``.
+        """
+        if now is not self:
+            return
+        self._focus_before_grant = None
+        if old is None or old is self or not isinstance(old, QWidget):
+            return
+        try:
+            if old.window() is self.window():
+                self._focus_before_grant = old
+        except RuntimeError:
+            # The previous focus widget was destroyed with its window.
+            return
+
+    def _deliberately_focused(self) -> bool:
+        """Whether the field holds focus from a user gesture, not a press.
+
+        The wheel policy's promise is about focus the user asked for; the
+        pointer press that opens the list is not that grant (see
+        ``WheelScrollPolicyMixin``). The question is answered by the unified
+        reason resolver, not ``_keyboard_focus``: that flag folds in the
+        app-wide input modality (``NavigationManager.resolve``) and reads
+        ``False`` for a Tab grant that follows mouse input, which would make a
+        Tab-focused list lose the field on close.
+        """
+        if not self.hasFocus():
+            return False
+        reason = getattr(self, "_last_focus_reason", None)
+        try:
+            from sli_ui_toolkit.ui.managers.navigation_manager import (
+                resolve_gesture_focus,
+            )
+        except Exception:  # degraded, manager module unavailable
+            return False
+        return resolve_gesture_focus(reason)
+
     # -------- gear-shifter drag-select (see GearDragCapability) --------
 
     def mousePressEvent(self, event: QMouseEvent):
@@ -848,6 +912,16 @@ class ComboBox(Button):
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
+        if self._expanded and event.key() not in (
+            Qt.Key.Key_Control,
+            Qt.Key.Key_Shift,
+            Qt.Key.Key_Alt,
+            Qt.Key.Key_Meta,
+        ):
+            # A key reached the OPEN list: the user is driving it from the
+            # keyboard now, so the close must keep the field focused even when
+            # the pointer opened it (see _DropdownOverlay._restore_focus_policies).
+            self._list_driven_by_keyboard = True
         if self._search_enabled and event.key() == Qt.Key.Key_Backspace:
             if self._typing_mode == "jump":
                 if self._handle_typeahead_backspace():
