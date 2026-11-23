@@ -118,6 +118,11 @@ consistently. Set it to `True` when a control should only react after focus. The
 same policy is available on `Button`, `ComboBox`, `ScrollableComboBox`,
 `InstancesCounterButton`, `Slider`, `SpinBox`, and `TimeLineEdit`.
 
+A `ComboBox` open/close cycle is not a focus grant: a list opened while the
+field had no focus hands focus back to whatever had it (or to nothing), so the
+wheel policy keeps holding after the list closes. A list opened from a focused
+field (Tab, Enter) keeps the field focused when it closes.
+
 ```python
 spin = SpinBox(wheel_requires_focus=True)
 slider = Slider(wheel_requires_focus=True)

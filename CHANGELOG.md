@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **A ComboBox popup open/close cycle no longer defeats `wheel_requires_focus`.** The dropdown never grabs focus while
+  it is open, but the flyout close restored focus to its anchor (the field) even when no gesture had focused it — this
+  toolkit's `Button` takes no Qt focus from a mouse press. `hasFocus()` then read as "the user deliberately focused the
+  control", so the next wheel over a policy-protected combo stepped its value (owner report 2026-11-24). The overlay
+  now returns focus to the widget that had it before the list opened (or leaves nothing focused) when the field had
+  none, and keeps the field focused for a keyboard-opened list, exactly as before.
+
 - **`TopTabHost` gives every page the stack's geometry.** `QStackedLayout` in its default `StackOne` mode lays out only
   the page it shows, so the others keep their size from the last time they were current (Qt's 640x480 at creation, or
   the window's old width). Switching to one of those showed it clipped at that stale width, and the strip it did not
