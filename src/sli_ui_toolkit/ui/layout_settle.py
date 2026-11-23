@@ -20,7 +20,16 @@ from __future__ import annotations
 from PySide6.QtWidgets import QWidget
 
 
-def settle_layout(widget: QWidget, *children: QWidget | None) -> None:
+def _depth(widget: QWidget) -> int:
+    depth = 0
+    node = widget.parentWidget()
+    while node is not None:
+        depth += 1
+        node = node.parentWidget()
+    return depth
+
+
+def settle_layout(widget: QWidget, *children: QWidget | None, deep: bool = False) -> None:
     """Refresh children hints and re-run ``widget.layout()`` synchronously.
 
     For each child (``None`` entries are skipped) calls
@@ -29,12 +38,29 @@ def settle_layout(widget: QWidget, *children: QWidget | None) -> None:
     its contents agree in the same call — no ``processEvents()``, no
     posted re-run. A widget without a layout is a no-op (children are
     still refreshed).
+
+    ``deep=True`` also activates the layout of every descendant, parents
+    before children. Why it is sometimes required: activating a layout
+    resizes its children, and a child that was *already* the right size
+    gets no ``Resize`` — so Qt never re-runs that child's layout and its
+    own children keep the geometry of the box it had before (measured on
+    RVE's settings page: the scroll area's content widget was already
+    1026x852 while the tab host inside it stayed at 1000x766 until the
+    next event-loop turn, showing one frame of the previous geometry).
     """
+    targets = [widget]
+    if deep:
+        # Parents first: activating a parent resizes its children, and the
+        # child's own layout must then run against the new size.
+        targets.extend(sorted(widget.findChildren(QWidget), key=_depth))
+    for target in targets:
+        target.updateGeometry()
     for child in children:
         if child is None:
             continue
         child.updateGeometry()
-    root = widget.layout()
-    if root is not None:
-        root.invalidate()
-        root.activate()
+    for target in targets:
+        layout = target.layout()
+        if layout is not None:
+            layout.invalidate()
+            layout.activate()
