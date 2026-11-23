@@ -25,8 +25,23 @@ Implementation lives under `sli_ui_toolkit.ui.widgets.composite.top_tab_bar/`
 from `sli_ui_toolkit.widgets`.
 
 `TopTabBar` / `TopTabItem` / `TopTabHost` — `TopTabBar` is the painted strip;
-`TopTabHost` adds a bordered page stack with folder-tab chrome and a
-`QTabWidget`-like API (`addTab`, `setCurrentIndex`, `setTabText`, …).
+`TopTabHost` adds a page stack with folder-tab chrome and a `QTabWidget`-like API
+(`addTab`, `setCurrentIndex`, `setTabText`, …).
+
+The frame between the host and its stack (`TopTabPane`) exists only when there is
+something to paint: the pane fill (`pane_fill_token`), a rounded radius
+(`pane_radius`), a chrome ring (`chrome_inset`) or a tab-style border. A host that
+paints none of them is not wrapped in an empty frame — the stack becomes the
+host's own child and takes the page gutter (`pane_inset`) as its
+`contentsMargins`, which is exactly what the `QStackedWidget{padding:…}` it
+replaces did. The page rect is identical in both shapes; the tree is one level
+shallower without a surface:
+
+```python
+# RVE's settings tabs: no pane surface, pages inset 10/5 - `host -> TopTabStack -> page`
+tabs = TopTabHost(pane_fill_token=None, pane_radius=0, chrome_inset=0,
+                  pane_inset=(10, 5, 10, 5), tab_style=TabStyle(border=False))
+```
 
 ## AdaptiveTabStrip
 

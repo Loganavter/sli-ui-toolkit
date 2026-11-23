@@ -112,21 +112,42 @@ class TopTabHost(QWidget):
             root.addSpacing(self._bar_gap)
         self.tab_bar.tabCloseRequested.connect(self.tabCloseRequested.emit)
 
-        self._pane = TopTabPane(self)
-        pane_layout = QVBoxLayout(self._pane)
-        pane_layout.setContentsMargins(*self._content_margins)
-        pane_layout.setSpacing(0)
-
-        self.pages_stack = QStackedWidget(self._pane)
+        # A pane frame exists to PAINT something: the fill, the rounded stroke, the selected-tab cover, the 1 px chrome
+        # ring. A host that paints none of it (RVE: `pane_fill_token=None`, `pane_radius=0`, `chrome_inset=0`,
+        # `TabStyle(border=False)`) was left with an empty QFrame whose only job was the page gutter - one widget level
+        # between the host and the pages, doing nothing but margins (owner, 2026-11-23: "why does this nesting exist
+        # here, when BlinkTable does not have it"). Such a host puts the stack where the pane was and gives the gutter
+        # to the stack itself: `QStackedLayout` ignores the LAYOUT's margins (measured: `layout().setContentsMargins
+        # (20,10,20,10)` still laid the page out at (0,0,400,300)), but it honours the WIDGET's `contentsRect`, which is
+        # what a QSS `padding` has always done (measured: `stack.setContentsMargins(20,10,20,10)` -> page (20,10,360,280),
+        # kept across a page switch and a resize). The page lands on the identical rect, one level shallower.
+        pane_paints = (
+            self._pane_fill_token is not None
+            or any(self._pane_radii)
+            or self._chrome_inset > 0
+            or bool(self._tab_style.border)
+        )
+        self._pane = TopTabPane(self) if pane_paints else None
+        self.pages_stack = QStackedWidget(self._pane if pane_paints else self)
         self.pages_stack.setObjectName("TopTabStack")
         self.pages_stack.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
-        pane_chrome.clear_stack_content_clip(self.pages_stack)
-        pane_chrome.apply_stack_fill(self.pages_stack)
-        pane_layout.addWidget(self.pages_stack)
-        root.addWidget(self._pane, 1)
+        if pane_paints:
+            pane_layout = QVBoxLayout(self._pane)
+            pane_layout.setContentsMargins(*self._content_margins)
+            pane_layout.setSpacing(0)
+            pane_layout.addWidget(self.pages_stack)
+            pane_chrome.clear_stack_content_clip(self.pages_stack)
+            pane_chrome.apply_stack_fill(self.pages_stack)
+            root.addWidget(self._pane, 1)
+        else:
+            # Nothing to fill, so the stack must not autofill either: the page behind shows through the gutter, exactly
+            # as it did through the unpainted pane. Widget margins, not layout margins - see above.
+            self.pages_stack.setContentsMargins(*self._content_margins)
+            pane_chrome.clear_stack_content_clip(self.pages_stack)
+            root.addWidget(self.pages_stack, 1)
 
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
@@ -150,7 +171,12 @@ class TopTabHost(QWidget):
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._fit_pages()
-        self._pane.update()
+        self._repaint_pane()
+
+    def _repaint_pane(self) -> None:
+        """Repaint the pane surface, if this host has one (a host that paints nothing has nothing to repaint)."""
+        if self._pane is not None:
+            self._pane.update()
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
         if watched is self.pages_stack and event.type() == QEvent.Type.Resize:
@@ -170,7 +196,7 @@ class TopTabHost(QWidget):
         does exactly this (`ui/inspector/view.py:108-128`) because a page whose scroll area caches a `sizeHint` would
         otherwise open one frame stale. The settled widget is the PAGE, never the stack we are filtering.
         """
-        size = self.pages_stack.size()
+        size = self.pages_stack.contentsRect().size()
         if size.isEmpty():
             return
         for page in self._pages:
@@ -219,7 +245,7 @@ class TopTabHost(QWidget):
         if self.tab_bar.currentIndex() < 0:
             self.setCurrentIndex(0)
         else:
-            self._pane.update()
+            self._repaint_pane()
         return self.count() - 1
 
     def insertTab(self, index: int, widget: QWidget, label: str) -> int:
@@ -237,7 +263,7 @@ class TopTabHost(QWidget):
         self._pages.insert(index, widget)
         self.pages_stack.insertWidget(index, widget)
         self._rebuild_bar(current if self.count() > 1 else 0)
-        self._pane.update()
+        self._repaint_pane()
         return index
 
     def removeTab(self, index: int) -> None:
@@ -249,7 +275,7 @@ class TopTabHost(QWidget):
         self.pages_stack.removeWidget(widget)
         if not self._pages:
             self.tab_bar.clear()
-            self._pane.update()
+            self._repaint_pane()
             return
         if current < 0:
             target = 0
@@ -260,7 +286,7 @@ class TopTabHost(QWidget):
         else:
             target = current
         self._rebuild_bar(target)
-        self._pane.update()
+        self._repaint_pane()
 
     def count(self) -> int:
         return len(self._pages)
@@ -315,7 +341,7 @@ class TopTabHost(QWidget):
             # synchronously (a tab-change slot is not a resizeEvent), so the first frame after the switch agrees.
             self._fit_pages()
         self.pages_stack.update()
-        self._pane.update()
+        self._repaint_pane()
         self.currentChanged.emit(index)
 
     def _rebuild_bar(self, current: int) -> None:
@@ -328,5 +354,6 @@ class TopTabHost(QWidget):
         self.tab_bar.setCurrentIndex(target)
 
     def _refresh_pane(self, *_args) -> None:
-        pane_chrome.apply_stack_fill(self.pages_stack)
-        self._pane.update()
+        if self._pane is not None:
+            pane_chrome.apply_stack_fill(self.pages_stack)
+        self._repaint_pane()

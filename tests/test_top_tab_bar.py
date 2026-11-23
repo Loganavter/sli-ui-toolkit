@@ -283,3 +283,63 @@ def test_close_slot_background_follows_bar_state(qapp):
     bar.setCurrentIndex(0)
     assert bar.close_slot_background_color_for(tab).name() == "#123456"
     bar.deleteLater()
+
+
+def _host_with_pages(**kwargs) -> TopTabHost:
+    host = TopTabHost(**kwargs)
+    for name in ("one", "two"):
+        page = QWidget()
+        page.setObjectName(name)
+        host.addTab(page, name)
+    return host
+
+
+def test_a_host_that_paints_no_pane_keeps_the_page_gutter_without_a_frame(qapp):
+    """A pane that paints nothing must not stay in the tree as an empty QFrame.
+
+    RVE's hosts pass `pane_fill_token=None`, `pane_radius=0`, `chrome_inset=0` and `TabStyle(border=False)`: the frame
+    painted nothing and its only job was the page gutter (the QSS `padding:5px 10px` the Designer's `QStackedWidget`
+    carried). `QStackedLayout` ignores the LAYOUT's margins, but honours the WIDGET's `contentsRect`, so the stack can
+    own the gutter itself and the frame goes (owner, 2026-11-23: BlinkTable's tabs have no such level).
+    """
+    from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.pane import TopTabPane
+    from sli_ui_toolkit.widgets import TabStyle
+
+    host = _host_with_pages(pane_fill_token=None, pane_radius=0, chrome_inset=0, pane_inset=(10, 5, 10, 5),
+                            tab_style=TabStyle(border=False))
+    host.resize(400, 300)
+    host.show()
+    qapp.processEvents()
+
+    assert host._pane is None, "nothing is painted, so there is no frame to keep"
+    assert host.findChild(TopTabPane) is None, "the empty frame must not be in the widget tree"
+    assert host.pages_stack.parentWidget() is host, "the page stack is the host's own child"
+    margins = host.pages_stack.contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (10, 5, 10, 5), (
+        "the stack carries the page gutter as its own contents margins")
+
+    page = host.pages_stack.currentWidget()
+    assert page.geometry() == host.pages_stack.contentsRect(), (
+        f"the page must sit at the stack's contents rect: page {page.geometry().getRect()} vs "
+        f"contents {host.pages_stack.contentsRect().getRect()}")
+    host.close()
+
+
+def test_a_host_with_a_pane_surface_keeps_its_frame(qapp):
+    """The default host paints the pane (fill token, rounded radius, a border), so its frame stays and insets the pages."""
+    from sli_ui_toolkit.ui.widgets.composite.top_tab_bar.pane import TopTabPane
+
+    host = _host_with_pages(pane_inset=(10, 5, 10, 5))
+    host.resize(400, 300)
+    host.show()
+    qapp.processEvents()
+
+    pane = host.findChild(TopTabPane)
+    assert pane is not None, "a host with a pane surface must still have its frame"
+    assert host.pages_stack.parentWidget() is pane, "with a frame, the stack lives inside it"
+    margins = host.pages_stack.contentsMargins()
+    assert (margins.left(), margins.top()) == (0, 0), "with a frame the gutter is the frame's layout margins"
+    page = host.pages_stack.currentWidget()
+    assert page.geometry().getRect() == (0, 0, host.pages_stack.width(), host.pages_stack.height()), (
+        f"with a frame the page fills the stack: {page.geometry().getRect()}")
+    host.close()
