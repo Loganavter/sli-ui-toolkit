@@ -326,6 +326,10 @@ class _DropdownOverlay(BaseFlyout):
         # regardless of geometry so the drag tracks the cursor outside the
         # 10px column and the release always resets its internal dragging state.
         self._sb_dragging = False
+        # Whether the field already held Qt focus when the list opened. The
+        # popup never grabs focus (see ``show_for_owner``), so a close must
+        # not hand it out either — see ``_restore_focus_policies``.
+        self._field_had_focus_on_show = True
 
     def _item_height(self) -> int:
         return self._owner._item_height()
@@ -506,6 +510,15 @@ class _DropdownOverlay(BaseFlyout):
     # -------- show/position --------
 
     def show_for_owner(self):
+        # The popup is field-centric: it never grabs Qt focus (see below), so
+        # it must not grant focus on close either. Record whether the field
+        # already had it — a keyboard-opened list must stay focused after
+        # closing, a click/programmatic open must not leave the field focused.
+        # Carries the `wheel_requires_focus` promise (owner report 2026-11-24):
+        # one open/close cycle used to make an unfocused policy combo step on
+        # the wheel, because the close restored focus onto the field.
+        # See tests/test_combo_popup_wheel_policy.py.
+        self._field_had_focus_on_show = self._owner.hasFocus()
         # An OPEN centres the target row under the field (the popup is
         # centred on the field, so the middle window row is the one the user
         # reads as "current"); later scrolling only keeps rows in view.
@@ -524,6 +537,35 @@ class _DropdownOverlay(BaseFlyout):
         self.show()
         self.raise_()
         self.update()
+
+    def _restore_focus_policies(self) -> None:
+        """Keep the pre-open focus situation; never grant the field focus.
+
+        ``BaseFlyout`` restores focus to the anchor (the explicit trigger) so
+        keyboard navigation continues where it was. For the dropdown that is
+        wrong when the field had no focus at open: this toolkit's ``Button``
+        takes no focus from a mouse press (``_ButtonEvents.mousePressEvent``
+        accepts without ``QWidget.mousePressEvent``), so a click that toggles
+        the list never focused the field — and the anchor restore then handed
+        it Qt focus, which ``WheelScrollPolicyMixin`` reads as "the user
+        deliberately focused this control" and the wheel starts stepping the
+        unfocused combo. Restore the real previous widget instead.
+
+        A field that DID have focus at open (keyboard-opened list, Tab focus)
+        keeps the default path: closing must leave it focused.
+        """
+        if getattr(self, "_field_had_focus_on_show", True):
+            super()._restore_focus_policies()
+            return
+        anchor = getattr(self, "_anchor_widget", None)
+        # BaseFlyout prefers the anchor over ``_previous_focus_widget``; with
+        # the anchor withdrawn it restores the widget that had focus before
+        # the list opened (or nothing, when nothing had it).
+        self._anchor_widget = None
+        try:
+            super()._restore_focus_policies()
+        finally:
+            self._anchor_widget = anchor
 
     def _reposition(self):
         owner = self._owner
