@@ -120,8 +120,11 @@ same policy is available on `Button`, `ComboBox`, `ScrollableComboBox`,
 
 A `ComboBox` open/close cycle is not a focus grant: a list opened while the
 field had no focus hands focus back to whatever had it (or to nothing), so the
-wheel policy keeps holding after the list closes. A list opened from a focused
-field (Tab, Enter) keeps the field focused when it closes.
+wheel policy keeps holding after the list closes. That includes the pointer
+press that opens the list — Qt focuses the field from the press itself, and the
+close still returns focus to the pre-press widget. A list opened from a focused
+field (Tab, Enter), or committed with the keyboard after a mouse-opened list,
+keeps the field focused when it closes.
 
 ```python
 spin = SpinBox(wheel_requires_focus=True)

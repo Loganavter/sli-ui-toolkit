@@ -326,10 +326,11 @@ class _DropdownOverlay(BaseFlyout):
         # regardless of geometry so the drag tracks the cursor outside the
         # 10px column and the release always resets its internal dragging state.
         self._sb_dragging = False
-        # Whether the field already held Qt focus when the list opened. The
-        # popup never grabs focus (see ``show_for_owner``), so a close must
-        # not hand it out either — see ``_restore_focus_policies``.
-        self._field_had_focus_on_show = True
+        # Whether the field held focus from a user gesture (Tab/Enter), not
+        # from the pointer press that opens the list. The popup never grabs
+        # focus (see ``show_for_owner``), so a close must not hand the field a
+        # focus the gesture did not ask for — see ``_restore_focus_policies``.
+        self._field_focus_was_deliberate = True
 
     def _item_height(self) -> int:
         return self._owner._item_height()
@@ -512,13 +513,14 @@ class _DropdownOverlay(BaseFlyout):
     def show_for_owner(self):
         # The popup is field-centric: it never grabs Qt focus (see below), so
         # it must not grant focus on close either. Record whether the field
-        # already had it — a keyboard-opened list must stay focused after
-        # closing, a click/programmatic open must not leave the field focused.
-        # Carries the `wheel_requires_focus` promise (owner report 2026-11-24):
-        # one open/close cycle used to make an unfocused policy combo step on
-        # the wheel, because the close restored focus onto the field.
+        # held focus from a real gesture — a keyboard-opened list (Tab, Enter)
+        # keeps it after closing; a pointer-opened one must give back whatever
+        # had focus before the opening press. ``hasFocus()`` alone is not that
+        # signal: Qt's click-focus policy focuses the field from a real press
+        # before the widget sees it (owner report 2026-11-24, second round:
+        # open, pick a row, the wheel stepped the committed value).
         # See tests/test_combo_popup_wheel_policy.py.
-        self._field_had_focus_on_show = self._owner.hasFocus()
+        self._field_focus_was_deliberate = self._owner._deliberately_focused()
         # An OPEN centres the target row under the field (the popup is
         # centred on the field, so the middle window row is the one the user
         # reads as "current"); later scrolling only keeps rows in view.
@@ -543,29 +545,52 @@ class _DropdownOverlay(BaseFlyout):
 
         ``BaseFlyout`` restores focus to the anchor (the explicit trigger) so
         keyboard navigation continues where it was. For the dropdown that is
-        wrong when the field had no focus at open: this toolkit's ``Button``
-        takes no focus from a mouse press (``_ButtonEvents.mousePressEvent``
-        accepts without ``QWidget.mousePressEvent``), so a click that toggles
-        the list never focused the field — and the anchor restore then handed
-        it Qt focus, which ``WheelScrollPolicyMixin`` reads as "the user
+        wrong when the user did not focus the field: the anchor restore then
+        hands it Qt focus, which ``WheelScrollPolicyMixin`` reads as "the user
         deliberately focused this control" and the wheel starts stepping the
-        unfocused combo. Restore the real previous widget instead.
+        combo (owner report 2026-11-24).
 
-        A field that DID have focus at open (keyboard-opened list, Tab focus)
-        keeps the default path: closing must leave it focused.
+        Two cases keep the field focused:
+        - it held focus from a real gesture when the list opened (Tab/Enter);
+        - the list was driven by the keyboard since (a row committed with
+          Enter after a pointer-opened list — the user is on the keyboard now).
+
+        Everything else is a pointer-driven cycle and must leave focus exactly
+        where the opening gesture found it: the field's own ``focus_before_grant``
+        widget, or nothing. The field itself is never a valid target — the
+        opening press may have focused it, which is the grant this fixes.
         """
-        if getattr(self, "_field_had_focus_on_show", True):
+        owner = self._owner
+        if self._field_focus_was_deliberate or (
+            owner.hasFocus() and getattr(owner, "_list_driven_by_keyboard", False)
+        ):
             super()._restore_focus_policies()
             return
         anchor = getattr(self, "_anchor_widget", None)
+        prev = getattr(self, "_previous_focus_widget", None)
+        if prev is owner:
+            # show() captured the field because the opening press had already
+            # focused it (Qt's click-focus policy, see ComboBox.
+            # _on_app_focus_changed); the real pre-gesture widget is the one
+            # the field took that focus from.
+            prev = getattr(owner, "_focus_before_grant", None)
         # BaseFlyout prefers the anchor over ``_previous_focus_widget``; with
-        # the anchor withdrawn it restores the widget that had focus before
-        # the list opened (or nothing, when nothing had it).
+        # the anchor withdrawn it restores ``prev`` (or nothing, when nothing
+        # had focus before the gesture).
         self._anchor_widget = None
+        self._previous_focus_widget = prev
         try:
             super()._restore_focus_policies()
         finally:
             self._anchor_widget = anchor
+        # A row's own press focuses it (StrongFocus + Qt's click policy). When
+        # no pre-gesture widget could be restored, that row is still focused
+        # until the tree is hidden — and hiding the focused widget makes Qt
+        # walk the focus chain, which can land on the field and grant the wheel
+        # after all. Drop the in-popup focus explicitly instead.
+        current = QApplication.focusWidget()
+        if current is not None and (current is self or self.isAncestorOf(current)):
+            current.clearFocus()
 
     def _reposition(self):
         owner = self._owner

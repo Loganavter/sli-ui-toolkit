@@ -5,11 +5,20 @@
 ### Fixed
 
 - **A ComboBox popup open/close cycle no longer defeats `wheel_requires_focus`.** The dropdown never grabs focus while
-  it is open, but the flyout close restored focus to its anchor (the field) even when no gesture had focused it — this
-  toolkit's `Button` takes no Qt focus from a mouse press. `hasFocus()` then read as "the user deliberately focused the
-  control", so the next wheel over a policy-protected combo stepped its value (owner report 2026-11-24). The overlay
+  it is open, but the flyout close restored focus to its anchor (the field) even when no gesture had focused it —
+  this toolkit's `Button` takes no Qt focus from a mouse press. `hasFocus()` then read as "the user deliberately focused
+  the control", so the next wheel over a policy-protected combo stepped its value (owner report 2026-11-24). The overlay
   now returns focus to the widget that had it before the list opened (or leaves nothing focused) when the field had
   none, and keeps the field focused for a keyboard-opened list, exactly as before.
+
+- **Selecting a row with the pointer is not a focus grant either.** Round one's "did the field have focus at open" was
+  true for a pointer-opened list too: Qt's own click-focus policy focuses the field from a real window-level press
+  before the widget's handler runs (the toolkit `Button` adds no focus of its own, but Qt does), so the commit-then-close
+  restored the anchor and the next wheel stepped the value the user had just picked (owner report 2026-11-24, second
+  round). An open/close cycle now keeps the field focused only for a focus the user's gesture granted (Tab, Enter,
+  programmatic) or for a keyboard commit into a mouse-opened list; otherwise it restores the widget that held focus
+  before the opening press, or nothing. The reason question goes through `resolve_gesture_focus`, so no widget carries
+  its own focus-reason formula.
 
 - **`TopTabHost` gives every page the stack's geometry.** `QStackedLayout` in its default `StackOne` mode lays out only
   the page it shows, so the others keep their size from the last time they were current (Qt's 640x480 at creation, or
