@@ -25,9 +25,11 @@ from typing import Callable, Iterable, Literal, Sequence
 
 import shiboken6
 from PySide6.QtCore import QCoreApplication, QEvent, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QHBoxLayout, QWidget
 
 from sli_ui_toolkit.i18n import get_current_language, translator_for
+from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.navigation_sections import ToolbarRowsSection
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.buttons.button import Button
@@ -160,6 +162,15 @@ class MenuStrip(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(scaled_px(2))
         self._layout = layout
+
+        # ``_MenuTrigger`` is a ``Button``: its content layer falls back to
+        # ``dialog.text`` unless the strip hands it the menu family's own ink.
+        # The token is resolved per theme (never cached at construction), so a
+        # live theme switch re-inks the triggers with the rest of the menu.
+        try:
+            ThemeManager.get_instance().theme_changed.connect(self._on_theme_changed)
+        except Exception:
+            pass  # the manager is a process singleton; a stripped test host may lack it, and ink then stays default
 
     # -------- content --------
 
@@ -375,9 +386,28 @@ class MenuStrip(QWidget):
         if spec.tooltip:
             trigger.setToolTip(spec.tooltip)
         trigger.setEnabled(spec.enabled)
+        self._apply_trigger_ink(trigger)
         trigger.clicked.connect(lambda _checked=False, i=index: self._on_trigger_clicked(i))
         self._layout.addWidget(trigger)
         self._triggers.append(trigger)
+
+    def _apply_trigger_ink(self, trigger: _MenuTrigger) -> None:
+        """Give a trigger the menu family's label colour (``menu.text``).
+
+        ``None`` leaves the button's own default in place, which is what a
+        palette without the menu family gets.
+        """
+        ink = ThemeManager.get_instance().try_get_color("menu.text")
+        try:
+            trigger.setForegroundColor(QColor(ink) if ink is not None else None)
+            trigger.update()
+        except (RuntimeError, AttributeError):
+            # A trigger deleted between the theme change and this pass.
+            return
+
+    def _on_theme_changed(self, *_args) -> None:
+        for trigger in self._triggers:
+            self._apply_trigger_ink(trigger)
 
     def _on_trigger_clicked(self, index: int) -> None:
         trigger = self._triggers[index]

@@ -635,7 +635,7 @@ ListPanel.inspect_spec = InspectSpec(
         SpecField("selected_indices", "selected_indices"),
         SpecField("drop_indicator_y", "drop_indicator_y"),
     ),
-    token_family=("surface.background", "flyout.border", "accent"),
+    token_family=("surface.background", "separator.color", "accent"),
     docs='docs/user/LIST_ITEMS_API.md',
 )
 

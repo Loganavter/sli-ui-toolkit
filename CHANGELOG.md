@@ -4,6 +4,34 @@
 
 ### Fixed
 
+- **List rows, menu rows and menu-strip triggers paint with their own families' keys.** The queue list
+  (`TextListWidget`) still painted `dialog.text`, `dialog.button.hover` and
+  `button.dialog.default.background.pressed`; context-menu rows and section titles painted `dialog.text`; the menu
+  strip's triggers inherited `dialog.text` from the button content layer. Those families now have their own keys
+  (`list_item.*`, `menu.*`), so the migration leaves a host able to restyle one control without repainting its
+  neighbour. Row states, per widget:
+  - `TextListWidget` — rows read `list_item.text.normal`, the selected row's ink `list_item.text.selected`, the hover
+    plate `list_item.background.hover` and the selection band `list_item.background.selected` (the old band was a
+    pressed BUTTON plate).
+  - `ContextMenuRow` / `SectionTitleRow` — label and title read `menu.text`; a disabled row reads
+    `menu.text.disabled` instead of fading the borrowed colour through layer opacity (its icon and chevron keep the
+    fade, so the row still dims as one plate). Hover/current keeps `list_item.background.hover`: the `menu.*` family
+    defines no hover key, the rows are list-shaped, and `docs/user/API_CATALOG.md` documents that one borrow — it is
+    the only `token-ownership` finding left in the file.
+  - `MenuStrip` — a trigger is a `Button`, so its label would fall back to `dialog.text`; the strip hands it
+    `menu.text` through `setForegroundColor` and re-resolves it on `theme_changed` (the ghost variant's own plate is
+    untouched).
+  - `ListPanel` — the plate's 1 px frame borrowed `flyout.border`; a list panel is not a flyout and the list family
+    owns no border key, so the frame reads the shared neutral `separator.color` hairline (values within 5/255 of the
+    old edge) and `inspect_spec.token_family` names that token instead.
+  `token-ownership` findings for the family: `text_list_widget.py` 3 → 0, `list_panel/{style,widget}.py` 1 + 1 → 0,
+  `context_menu/rows.py` 3 → 1 (the documented hover borrow), `menustrip/` 0 → 0. Tests:
+  `tests/test_text_list_widget.py` (+3 — the two plates in both themes, the row ink both themes), new
+  `tests/test_menu_row_tokens.py` (4 — enabled/disabled ink both themes and the kept hover plate),
+  `tests/test_menustrip.py` (+1 — the trigger ink, and a theme switch re-resolving it), new
+  `tests/test_list_panel_surface.py` (2 — the frame is the separator hairline, not `flyout.border`, both themes).
+  Each of these fails on the pre-migration tree (verified against `HEAD`).
+
 - **A field's underline is its own colour, not a button's.** A disabled output-path field kept a bright underline:
   `draw_bottom_underline` resolved the widget's `class` property to `button.primary`/`button.default` and read
   `.bottom.edge`, so any non-button widget painted a BUTTON colour (a `CustomLineEdit` carries `class="primary"`,
