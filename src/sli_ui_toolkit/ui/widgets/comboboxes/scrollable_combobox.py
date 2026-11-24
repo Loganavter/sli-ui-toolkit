@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# token-family: input — the combobox field paints an input's text, not a dialog's
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import time

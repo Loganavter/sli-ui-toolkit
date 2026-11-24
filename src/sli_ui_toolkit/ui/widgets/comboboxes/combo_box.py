@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# token-family: input — the field is an input control (its plate/text layers live in _layers.py)
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import time
@@ -1219,7 +1218,7 @@ ComboBox.inspect_spec = InspectSpec(
     token_family=(
         "input.background",
         "input.border.thin",
-        "list_item.background.hover",
+        "input.background.hover",
     ),
     docs='docs/user/INPUTS_API.md',
 )

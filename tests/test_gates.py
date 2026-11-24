@@ -683,7 +683,8 @@ def test_token_ownership_palette_module_is_exempt(tmp_path: Path) -> None:
 
 def test_token_ownership_family_map_and_neutrals() -> None:
     assert token_ownership_family("src/app/widgets/buttons/x.py") == "button"
-    assert token_ownership_family("src/app/widgets/comboboxes/x.py") == "button"
+    assert token_ownership_family("src/app/widgets/comboboxes/x.py") == "input"
+    assert token_ownership_family("src/app/widgets/comboboxes/_overlay.py") == "list_item"
     assert token_ownership_family("src/app/atomic/spinbox.py") == "input"
     assert token_ownership_family("src/app/atomic/text_labels.py") == "label"
     assert token_ownership_family("src/app/dialogs/x.py") == "dialog"

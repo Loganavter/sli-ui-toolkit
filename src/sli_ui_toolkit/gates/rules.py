@@ -37,7 +37,8 @@ RULE_TOKEN_OWNERSHIP_UNRESOLVED = "token-ownership-unresolved"
 #: ``# token-family: <name>``.
 TOKEN_FAMILIES: tuple[tuple[str, str], ...] = (
     ("buttons/", "button"),
-    ("comboboxes/", "button"),
+    ("comboboxes/_overlay", "list_item"),
+    ("comboboxes/", "input"),
     ("atomic/custom_line_edit", "input"),
     ("atomic/spinbox", "input"),
     ("atomic/time_line_edit", "input"),

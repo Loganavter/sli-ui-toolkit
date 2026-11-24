@@ -7,7 +7,6 @@ input family's own tokens. The dropdown CARD next door (``_overlay.py``) is a
 list surface and keeps its ``list_item`` reads.
 """
 
-# token-family: input
 
 from __future__ import annotations
 
@@ -37,7 +36,7 @@ class _ComboFieldBgLayer(Layer):
         elif ButtonState.HOVERED in states:
             # No input hover token exists yet, so the field still takes the row plate here (accepted debt in
             # tests/token_ownership_baseline.json); a host that restyles `list_item` moves this hover with it.
-            bg_color = QColor(tm.get_color("list_item.background.hover"))
+            bg_color = QColor(tm.get_color("input.background.hover"))
         else:
             bg_color = QColor(tm.get_color("input.background"))
         radius = scaled_px(widget.RADIUS)

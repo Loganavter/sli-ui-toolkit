@@ -68,6 +68,7 @@ FLUENT_LIGHT = {
     #: The input line's own plate and states: idle underline vs the accent one vs a dimmer disabled line, plus the
     #: text-selection wash (an alpha overlay, like `button.default.background` — it composites over the field).
     "input.background": QColor("#ffffff"),
+    "input.background.hover": QColor("#f5f5f5"),
     "input.border": QColor("#8c8c8c"),
     "input.text": QColor("#1f1f1f"),
     "input.text.disabled": QColor("#9e9e9e"),
@@ -205,6 +206,7 @@ FLUENT_DARK = {
     "input.border.thin": QColor("#3CFFFFFF"),
     #: See FLUENT_LIGHT - the field plate matches `surface.background`; the disabled line is dimmer than the idle one.
     "input.background": QColor("#2b2b2b"),
+    "input.background.hover": QColor("#333333"),
     "input.border": QColor("#8a8a8a"),
     "input.text": QColor("#dfdfdf"),
     "input.text.disabled": QColor("#7a7a7a"),

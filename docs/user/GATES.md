@@ -82,7 +82,9 @@ Family comes from the file path (`TOKEN_FAMILIES` in
 
 | Path fragment | Family |
 |---|---|
-| `buttons/`, `comboboxes/` | `button` |
+| `buttons/` | `button` |
+| `comboboxes/` (the field) | `input` |
+| `comboboxes/_overlay` | `list_item` |
 | `atomic/custom_line_edit`, `atomic/spinbox`, `atomic/time_line_edit` | `input` |
 | `atomic/slider` | `slider` |
 | `atomic/switch` | `switch` |
@@ -115,13 +117,10 @@ the file itself:
 ```
 
 The comment wins over the path map in both directions: it can claim a family for
-an unmapped helper, and it can re-own a mapped file. The combobox field uses
-the second direction: the path map files `comboboxes/` under `button` because
-`ComboBox` is a painted button, but the field's plate and text are an input's,
-so `comboboxes/_layers.py`, `comboboxes/combo_box.py` and
-`comboboxes/scrollable_combobox.py` declare `# token-family: input`. The
-dropdown card (`comboboxes/_overlay.py`) keeps the map's family — it is a list
-surface, not the field.
+an unmapped helper, and it can re-own a mapped file. The combobox package is
+split in the map itself because it holds two different widgets: the field
+(`_layers.py`, `combo_box.py`, `scrollable_combobox.py`) is an input, the
+dropdown card (`_overlay.py`) is a list surface.
 
 **Dynamic keys.** `f"{prefix}.background.hover"` is checked through the literal
 the prefix is bound to:

@@ -297,19 +297,22 @@ def test_a_disabled_combo_field_paints_the_disabled_text_token(qapp, theme):
 
 
 @pytest.mark.parametrize("theme", THEMES)
-def test_the_hovered_combo_field_still_takes_the_row_plate(qapp, theme):
-    """The one state the palette has no input token for yet, pinned on purpose.
+def test_the_hovered_combo_field_takes_its_own_hover_plate(qapp, theme):
+    """The field's hover plate is its own token, not the row's.
 
-    Pressed/expanded moved to ``input.background``; hover still reads
-    ``list_item.background.hover`` because no ``input`` hover plate exists —
-    the accepted baseline debt. When that token lands this test flips to it.
+    This test used to pin the debt (hover read
+    ``list_item.background.hover`` because no input hover plate existed) and
+    said it would flip when the token landed. It has: ``input.background.hover``
+    wins even while the row plate is set to a different colour.
     """
     hover_plate = "#654321"
+    row_plate = "#112233"
     _theme(
         theme,
         {
             "input.background": INPUT_PLATE,
-            "list_item.background.hover": hover_plate,
+            "input.background.hover": hover_plate,
+            "list_item.background.hover": row_plate,
         },
     )
     combo = _combo()
