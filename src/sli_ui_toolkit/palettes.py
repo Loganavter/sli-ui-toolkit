@@ -88,6 +88,11 @@ FLUENT_LIGHT = {
     "toast.progress.fill": QColor("#0078D4"),
     "slider.track.background": QColor("#929292"),
     "progress.track.background": QColor("#e6e6e6"),
+    #: Determinate fill and the two terminal states (see ProgressBar). `progress.success` existed only as a READ in a
+    #: host: a try_get_color miss painted the fallback accent instead of the designed green.
+    "progress.fill": QColor("#0078D4"),
+    "progress.success": QColor("#0F7B0F"),
+    "progress.error": QColor("#C42B1C"),
     "slider.track.unfilled": QColor("#706f6f"),
     "slider.thumb.outer": QColor("#ffffff"),
     "switch.track.off.border": QColor("#6E000000"),
@@ -184,6 +189,10 @@ FLUENT_DARK = {
     "toast.progress.fill": QColor("#0096FF"),
     "slider.track.background": QColor("#5a5a5a"),
     "progress.track.background": QColor("#3c3c3c"),
+    #: See FLUENT_LIGHT - lighter variants so each state reads on the #3c3c3c trough.
+    "progress.fill": QColor("#0096FF"),
+    "progress.success": QColor("#6CCB5F"),
+    "progress.error": QColor("#FF99A4"),
     "slider.track.unfilled": QColor("#9a9a9a"),
     "slider.thumb.outer": QColor("#454545"),
     "switch.track.off.border": QColor("#78FFFFFF"),
