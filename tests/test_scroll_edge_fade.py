@@ -128,3 +128,29 @@ def test_the_fade_follows_the_scroll_position(qapp):
         qapp.processEvents()
     top_band, bottom_band = bands()
     assert top_band > bottom_band, "at the end only the top edge may be faded"
+
+
+def test_a_two_pixel_overflow_is_not_content_beyond_the_edge(qapp):
+    """A scroll range smaller than the ramp is layout rounding, not text the reader cannot reach.
+
+    The owner's report (2026-11-24): a 190 px info panel whose content needed 192 px drew the "there is more below" fade
+    over text that already fit. The ramp is 24 px; promising 24 px of hidden text over two pixels of rounding is a lie the
+    reader cannot check. The threshold lives in `edge_fade_sides`, so every host gets it.
+    """
+    host, area = _area(qapp, rows=3)
+    content = area.widget()
+    content.setMinimumHeight(area.viewport().height() + 2)
+    for _ in range(6):
+        qapp.processEvents()
+    bar = area.verticalScrollBar()
+    assert bar.maximum() == 2, f"the fixture must produce a 2 px range, got {bar.maximum()}"
+    assert area.edge_fade_sides() == (False, False), "two pixels of overflow must not advertise more content"
+
+
+def test_a_real_remainder_still_fades_the_continuing_side(qapp):
+    """The guard must not silence the fade where it is honest: 24 px or more past the edge still fades."""
+    host, area = _area(qapp, rows=40)
+    for _ in range(6):
+        qapp.processEvents()
+    assert area.verticalScrollBar().maximum() >= 24
+    assert area.edge_fade_sides()[1] is True, "a viewport with real content below must fade its bottom"

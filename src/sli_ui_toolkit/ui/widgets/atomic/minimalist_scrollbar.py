@@ -745,9 +745,19 @@ class OverlayScrollArea(QScrollArea):
         return QColor(self.palette().color(QPalette.ColorRole.Window))
 
     def edge_fade_sides(self) -> tuple[bool, bool]:
-        """(top, bottom) - the edges where content continues past the viewport."""
+        """(top, bottom) - the edges where content continues past the viewport.
+
+        "Continues" means at least as much as the ramp is tall: a scroll range of one or two pixels is the layout rounding
+        a row, not text the reader cannot reach, and the 24 px ramp painted over it says "there is more" about two pixels
+        nobody can see. A host hit exactly that (owner, 2026-11-24: "the text fits but there is a fade at the bottom" - a
+        190 px info panel whose content needed 192), and the honest fix belongs here rather than in a panel that would have
+        to guess its own overflow. The floor is clamped to at least 2 px so a genuinely tiny scroller still shows its
+        edges instead of nothing.
+        """
         bar = self.verticalScrollBar()
-        return (bar.value() > bar.minimum(), bar.value() < bar.maximum())
+        threshold = max(2, _EdgeFade.HEIGHT - 1)
+        return (bar.value() - bar.minimum() >= threshold,
+                bar.maximum() - bar.value() >= threshold)
 
     def _sync_edge_fade(self, *args, force: bool = False) -> None:
         fade = getattr(self, "_edge_fade", None)

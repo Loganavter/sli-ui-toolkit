@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **The scroll edge fade only promises content that is really past the edge.** A scroll range smaller than the 24 px
+  ramp (a panel whose content overflowed its box by two pixels) painted "there is more below" over text that
+  already fit; `OverlayScrollArea.edge_fade_sides()` now requires at least a ramp's worth of remaining scroll on
+  each side (floor 2 px, so a tiny scroller still shows its edges). RVE hit it on the video-info panel: a 190 px
+  box whose content needed 192 px (owner report 2026-11-24).
+
 - **A ComboBox popup open/close cycle no longer defeats `wheel_requires_focus`.** The dropdown never grabs focus while
   it is open, but the flyout close restored focus to its anchor (the field) even when no gesture had focused it —
   this toolkit's `Button` takes no Qt focus from a mouse press. `hasFocus()` then read as "the user deliberately focused
