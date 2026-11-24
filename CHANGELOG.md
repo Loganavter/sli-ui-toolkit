@@ -23,9 +23,9 @@
   slider's edit-mode ring and the focus rings). Each widget's `inspect_spec.token_family` now lists what its painter
   reads. `token-ownership` findings in the four files: checkbox 6→0, radio 6→0, slider 2→0, switch 1→0 (15 total;
   `tests/token_ownership_baseline.json` shrinks at merge). Docs: `docs/user/INPUTS_API.md`. Tests:
-  `tests/test_control_state_tokens.py` (14 cases across both themes — hover/pressed/disabled pixels per control, each
-  asserting the pixel follows the family token and ignores the borrowed one, plus a whole-image check that no dialog
-  token moves a single pixel of these painters).
+  `tests/test_control_state_tokens.py` (14 test functions parametrized over both themes — hover/pressed/disabled pixels
+  per control, each asserting the pixel follows the family token and ignores the borrowed one, plus a whole-image
+  check that no dialog token moves a single pixel of these painters).
 
 ### Fixed
 
