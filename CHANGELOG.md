@@ -4,6 +4,24 @@
 
 ### Added
 
+- **`ControlRow` — the labelled control row both hosts were building by hand.** BlinkTable's `DialogActionBar`,
+  its labeled directory/filename field row and its 665-LOC `ValueSliderRow`, plus REAL-Video-Enhancer's
+  `_row_checkbox`, all re-implemented the same three pieces: a title, a control and an optional caption below.
+  `sli_ui_toolkit.widgets.ControlRow(control, *, label=None, hint=None, units=None, label_variant="group-title",
+  orientation="vertical", parent=None)` composes any toolkit widget (or a plain `QWidget` composite) under a title,
+  with an optional `caption`-variant hint underneath and an optional units suffix after the control. The default
+  `vertical` stacks label / control / hint; `horizontal` puts the label in a left column whose width is
+  `LABEL_COLUMN_WIDTH` design px re-read through `scaled_px()` on every scale/font change (`connect_ui_metrics`,
+  no import-time scaled value and no double scaling). `set_control(control)` swaps the hosted widget and releases the
+  previous one (removed from the row and reparented to `None`, never deleted, so a widget pool survives);
+  `control()`, `set_label()`, `set_hint()` and `set_units()` are the rest of the surface — an empty part is hidden
+  rather than left as dead space. The title/hint/suffix are `Text` widgets (`Text` variants drive typography), so the
+  module contains no `setStyleSheet`, no palette literal and no host string. Tests: `tests/test_control_row.py`
+  (13 — both orientations, label/hint/units present and hidden-then-shown, `set_control` swap + release, real
+  `CheckBox(row=True)`/`ComboBox`/`Slider` and a plain composite inside, label column at factors 1.0/2.0/1.5/1.0
+  proving one scale per change, the public exports, and an AST check for stylesheets), red-before: import of
+  `ControlRow` absent on the base.
+
 - **`sli_ui_toolkit.gates` — the toolkit's host-facing UI conventions as a runnable, PySide6-free AST checker.** Both
   hosts independently re-derived the same rules (BlinkTable's `tests/contracts/`, REAL-Video-Enhancer's
   `harness/scripts/ui_gates.py`) because the library's contract tests are hard-wired to `src/sli_ui_toolkit` and cannot

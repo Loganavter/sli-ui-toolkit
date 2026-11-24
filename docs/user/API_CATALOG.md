@@ -354,6 +354,12 @@ tabs. Full constructor options and behavior: **[TABS_API.md](TABS_API.md)**.
 | `TopTabBar` / `TopTabHost` | Horizontal content-section tabs for dialogs (export settings, wizards). Not for closable workspace documents. |
 | `AdaptiveTabStrip` | Compact workspace-style tabs with a trailing add button, adaptive close buttons and opt-in drag reordering. |
 
+### Rows
+
+| Widget | Description |
+|--------|-------------|
+| `ControlRow` | One labelled control: `ControlRow(control, label=..., hint=..., units=..., label_variant="group-title", orientation="vertical")` puts a title above (default `vertical`) or left of (`horizontal`, fixed label column re-read through `UiScale`) any toolkit widget, with an optional `caption` hint below and a units suffix after the control. `set_control` swaps the hosted widget and releases the previous one (reparented to `None`, never deleted); `set_label`/`set_hint`/`set_units` toggle each part. No QSS: title, hint and suffix are `Text`. Import: `sli_ui_toolkit.widgets`. |
+
 ### Flyouts & Panels
 
 | Widget | Description |
