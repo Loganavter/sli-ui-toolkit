@@ -293,7 +293,6 @@ class _GearFrame(QWidget):
 
 
 class _DropdownOverlay(BaseFlyout):
-    GAP = 6
 
     def __init__(self, owner: "ComboBox", parent: QWidget):
         super().__init__(parent)
@@ -348,7 +347,9 @@ class _DropdownOverlay(BaseFlyout):
         return self.container.geometry()
 
     def _has_scrollbar(self) -> bool:
-        return len(self._visible_item_indices()) > self._owner.maxVisibleItems()
+        # Overflow is exactly "a scroll offset exists", from the one formula
+        # the bar/wheel/mutators share (combo_box._max_scroll_offset).
+        return self._owner._max_scroll_offset() > 0
 
     def _list_rect(self) -> QRect:
         width = self._content_rect().width()
@@ -390,6 +391,27 @@ class _DropdownOverlay(BaseFlyout):
         # _list_viewport is a child of self.container now (not of self), so
         # its geometry is already container-local — no translate needed.
         self._list_viewport.setGeometry(self._list_rect())
+
+    def refresh_geometry(self) -> None:
+        """Re-derive the open popup from the live row count and row height.
+
+        ``_list_height()`` is the popup's content height (visible rows × row
+        height), and the card, viewport, row pitch and scrollbar must all move
+        with it. Opening is the only path that used to derive them, so a
+        filter that narrows the rows (``typing_mode="filter"``), an item
+        mutation or a font/scale change while the list is open left the card
+        at its open-time size while those consumers read the new numbers.
+        ``ComboBox._refresh_open_overlay`` is the single caller-side gate.
+
+        The scroll offset is clamped first: a list that just got shorter (or
+        a window that shows more rows) must not keep a row position past its
+        last row.
+        """
+        owner = self._owner
+        owner._scroll_offset = min(owner._scroll_offset, owner._max_scroll_offset())
+        self._reposition()
+        self._sync_scrollbar()
+        self._rebind_slots()
 
     def _rebind_slots(self) -> None:
         self._position_viewport()
@@ -621,7 +643,7 @@ class _DropdownOverlay(BaseFlyout):
                 owner._visible_position_for_index(anchor_index) - owner._scroll_offset,
             ),
             row_height=self._item_height(),
-            scrollable=len(self._visible_item_indices()) > owner.maxVisibleItems(),
+            scrollable=self._has_scrollbar(),
         )
         self.setGeometry(outer)
         self._position_scrollbar()
@@ -641,7 +663,7 @@ class _DropdownOverlay(BaseFlyout):
         self.custom_v_scrollbar.raise_()
 
     def _sync_scrollbar(self):
-        max_offset = max(0, len(self._visible_item_indices()) - self._visible_items())
+        max_offset = self._owner._max_scroll_offset()
         if max_offset <= 0:
             self.custom_v_scrollbar.setVisible(False)
             return
@@ -655,7 +677,7 @@ class _DropdownOverlay(BaseFlyout):
         self._position_scrollbar()
 
     def _on_scrollbar_value_changed(self, value: int):
-        new_offset = max(0, min(int(value), max(0, len(self._visible_item_indices()) - self._visible_items())))
+        new_offset = max(0, min(int(value), self._owner._max_scroll_offset()))
         if new_offset == self._owner._scroll_offset:
             return
         self._owner._scroll_offset = new_offset
@@ -739,8 +761,8 @@ class _DropdownOverlay(BaseFlyout):
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
-        visible_count = len(self._visible_item_indices())
-        if visible_count <= self._owner._max_visible_items:
+        max_offset = self._owner._max_scroll_offset()
+        if max_offset <= 0:
             event.ignore()
             return
         delta = event.angleDelta().y()
@@ -748,7 +770,7 @@ class _DropdownOverlay(BaseFlyout):
             self._owner._scroll_offset = max(0, self._owner._scroll_offset - 1)
         elif delta < 0:
             self._owner._scroll_offset = min(
-                visible_count - self._owner._max_visible_items,
+                max_offset,
                 self._owner._scroll_offset + 1,
             )
         self._sync_scrollbar()
