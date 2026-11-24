@@ -72,10 +72,13 @@ from sli_ui_toolkit.ui.widgets.buttons import (
     set_ripple_duration_ms,
 )
 from sli_ui_toolkit.ui.dialogs import (
+    BaseDialog,
     DialogActionBar,
     MessageDialog,
     MessageResult,
     TextInputDialog,
+    auto_size_dialog,
+    setup_dialog_scaffold,
 )
 from sli_ui_toolkit.ui.widgets.text import Text, TextConfig
 from sli_ui_toolkit.ui.widgets.composite import (
@@ -101,6 +104,7 @@ from sli_ui_toolkit.ui.widgets.composite import (
     ConsoleView,
     RichTextView,
     TextListWidget,
+    TextScrollArea,
     IconListWidget,
     TopTabBar,
     TabStyle,
@@ -145,6 +149,7 @@ from sli_ui_toolkit.ui.widgets.atomic.tooltips import (
 )
 from sli_ui_toolkit.ui.widgets.helpers import (
     UnderlineConfig,
+    WheelScrollPolicyMixin,
     apply_editable_text_behavior,
     calculate_centered_overlay_geometry,
     draw_bottom_underline,
@@ -182,6 +187,13 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     register_widget_policy,
     WidgetPolicyProxyStyle,
 )
+from sli_ui_toolkit.ui.in_window_surface import attach_in_window_widget
+from sli_ui_toolkit.ui.popup_surface import (
+    bind_popup_transient_parent,
+    configure_popup_widget,
+)
+from sli_ui_toolkit.ui.services.dragdrop_service import ToolkitDragDropService
+from sli_ui_toolkit.ui.widgets.atomic.focus_ring import paint_focus_ring
 from sli_ui_toolkit.managers import (
     AnchoredFlyoutAutoHide,
     FlyoutManager,
@@ -277,6 +289,7 @@ __all__ = [
     "Switch",
     "Text",
     "TextConfig",
+    "TextScrollArea",
     "MeasuredHeights",
     "RowPool",
     "VirtualListController",
@@ -285,6 +298,7 @@ __all__ = [
     "LabelVariantSpec",
     "MarqueeDriver",
     "WidgetPolicyProxyStyle",
+    "WheelScrollPolicyMixin",
     "apply_marquee",
     "draw_marquee_text",
     "install_scrollbar_policy",
@@ -307,6 +321,9 @@ __all__ = [
     "MarkdownHelpDialog",
     "MarkdownHelpSection",
     "DialogActionBar",
+    "BaseDialog",
+    "setup_dialog_scaffold",
+    "auto_size_dialog",
     "MessageDialog",
     "MessageResult",
     "TextInputDialog",
@@ -387,6 +404,11 @@ __all__ = [
     "GroupShowPolicy",
     "AnchoredFlyoutAutoHide",
     "bind_flyout",
+    "ToolkitDragDropService",
+    "attach_in_window_widget",
+    "configure_popup_widget",
+    "bind_popup_transient_parent",
+    "paint_focus_ring",
 ]
 
 

@@ -4,6 +4,26 @@
 
 ### Added
 
+- **The public modules now carry the names hosts already reach through `sli_ui_toolkit.ui.*`.** One host had 274
+  import lines through internal paths (16.6% of its toolkit usage), and several toolkit capabilities had no public
+  path at all: `sli_ui_toolkit.managers` carried neither `connect_ui_metrics` nor `resolve_keyboard_focus`, and nothing
+  public exported `settle_layout`, `PendingSettle`, `settle_on_paint`, `paint_focus_ring`, `TextScrollArea`,
+  `BaseDialog` / `setup_dialog_scaffold` / `auto_size_dialog`, `WheelScrollPolicyMixin`, `attach_in_window_widget`,
+  `configure_popup_widget`, `bind_popup_transient_parent` or `ToolkitDragDropService`. `sli_ui_toolkit.managers` gains
+  `connect_ui_metrics`, `resolve_keyboard_focus`, and the reflow pair `settle_layout` / `PendingSettle` /
+  `settle_on_paint` — managers is their coherent home rather than `widgets`: `SettleGate` already lives there, and
+  `pending_settle`'s own module docstring frames it as the companion of `settle_layout` (mechanism B/C of the same
+  one-frame-transient class), not as a widget. `sli_ui_toolkit.widgets` gains `paint_focus_ring`, `TextScrollArea`,
+  `WheelScrollPolicyMixin`, `BaseDialog`, `setup_dialog_scaffold`, `auto_size_dialog`, `ToolkitDragDropService`,
+  `attach_in_window_widget`, `configure_popup_widget` and `bind_popup_transient_parent`. Every public name is the very
+  same object as its internal source (no wrapper class, no copy), so `isinstance` checks, singleton lookups and
+  `_keyboard_focus` plumbing stay unified between the two paths. Nothing was removed or renamed: the internal imports
+  keep working, and no deprecation warning is emitted because the public path *is* the internal object rather than a
+  shim. `docs/user/API_CATALOG.md` gets one row per name (a new "Popup, In-Window & Drag-Drop Surfaces" section holds
+  the popup/attach/dragdrop group; `TextScrollArea`'s existing row now names the public import). Tests:
+  `tests/test_public_api.py` — 15 identity assertions (`is` against the source module) plus a fresh-interpreter
+  star-import per name; red-before on the base tree: `from sli_ui_toolkit.widgets import paint_focus_ring` and
+  `from sli_ui_toolkit.managers import PendingSettle` both raise `ImportError`.
 - **`MessageDialog`, `TextInputDialog` and `DialogActionBar` — the toolkit's own message/confirm and text-input dialogs.**
   Each host had written its own on top of `BaseDialog` (BlinkTable's `AppMessageDialog` in 15 files plus its
   `AppTextInputDialog`, REAL-Video-Enhancer's `ConfirmPopup`/`RegularQTPopup` family), so the same 400-800 LOC were

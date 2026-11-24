@@ -38,12 +38,16 @@ from sli_ui_toolkit.ui.managers import (
     UiScale,
     apply_text_color,
     apply_ui_font,
+    connect_ui_metrics,
     flyout_group_of,
     paint_font,
     rebase_font,
     scaled_px,
     ui_font,
 )
+from sli_ui_toolkit.ui.layout_settle import settle_layout
+from sli_ui_toolkit.ui.managers.navigation_manager import resolve_keyboard_focus
+from sli_ui_toolkit.ui.pending_settle import PendingSettle, settle_on_paint
 
 __all__ = [
     "AnchoredFlyoutAutoHide",
@@ -70,6 +74,11 @@ __all__ = [
     "declare_navigation_rows",
     "declare_toolbar_navigation",
     "SettleGate",
+    "PendingSettle",
+    "settle_layout",
+    "settle_on_paint",
+    "connect_ui_metrics",
+    "resolve_keyboard_focus",
     "ThemeManager",
     "refresh_theme_subtree",
     "ToolbarRowsSection",

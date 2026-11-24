@@ -292,7 +292,7 @@ One painted text widget (`Text`), typography options, and built-in presets:
 | Widget | Description |
 |--------|-------------|
 | `Text` / `TextConfig` | The display widget: `mode="plain"` (static text), `mode="document"` (markdown engine, or an HTML body via `set_html` — the QLabel-equivalent rich path with caret + selection), `mode="code"` (editable buffer). See [LABELS_API.md](LABELS_API.md#text-plain-mode). `canvas()` returns the hosted painted surface in engine modes (`None` in plain mode) for host-owned chrome: line-number map, fold rows, `line_at`, event filters. |
-| `TextScrollArea` | Scroll host for one painted `Text` (the composition `TextView` used to be): toolkit scrollbar, transparent viewport, rounded border overlay, `set_panel_fill(color|None)`, and `canvas()`/`editor()` for the hosted surface. Import: `sli_ui_toolkit.ui.widgets.composite`. |
+| `TextScrollArea` | Scroll host for one painted `Text` (the composition `TextView` used to be): toolkit scrollbar, transparent viewport, rounded border overlay, `set_panel_fill(color|None)`, and `canvas()`/`editor()` for the hosted surface. Import: `sli_ui_toolkit.widgets` (also reachable at `sli_ui_toolkit.ui.widgets.composite`). |
 | `LabelVariantSpec` | Preset entry for the variant registry (`register_text_variant` / `get_text_variant`, also re-exported under the old `register_label_variant` / `get_label_variant` names). |
 | `DropZoneLabel` | Drag-and-drop zone visuals with file accept logic (internally a `Label`, kept for that subclass). |
 | `ImageLabel` | Painted static-image label: `setPixmap`/`pixmap`, `setScaledContents` (stretches over the contents rect like `QLabel`), `setAlignment` (defaults to QLabel's left+vcenter, placed with `QStyle::alignedRect` arithmetic), transparent or `background_token` surface, DPR-aware `sizeHint`. No text — `setText` warns and is ignored. Byte-identical to `QLabel` for unscaled pixmaps. |
@@ -324,6 +324,7 @@ setters for every widget below: **[INPUTS_API.md](INPUTS_API.md)**.
 | `LoadingSpinner` | Animated conical-gradient loading spinner. |
 | `ProgressBar` | Painted progress bar: determinate fill or an indeterminate moving chunk, `normal`/`success`/`error` states from tokens, optional centred text; no stylesheet and no `QProgressBar` subclass. |
 | `CustomGroupWidget` / `CustomGroupBuilder` | Grouped widget container with builder pattern. |
+| `WheelScrollPolicyMixin` | Mixin for widgets that must ignore wheel scrolling until they own focus (opt-in `WheelScrollPolicy` handling; see INPUTS_API.md). |
 
 `ProgressBar` replaces a hand-painted bar in one import swap:
 
@@ -385,6 +386,7 @@ viewers — constructor options and a full wiring example:
 | `MessageDialog` / `MessageResult` | Painted message/confirm dialog (`QMessageBox` replacement): selectable body, optional "don't show again" box, `information`/`warning`/`critical` conveniences, `question(...) -> bool`. |
 | `TextInputDialog` | Single-line prompt on `CustomLineEdit` (`QInputDialog.getText` replacement): `get_text(...) -> (text, ok)`, validator gate, Enter/Escape. |
 | `DialogActionBar` | Primary (+optional secondary) button row with `accepted`/`rejected`; used by both dialogs, embeddable on its own. |
+| `BaseDialog` / `setup_dialog_scaffold(dialog, main_layout, ok_text, cancel_text="Cancel", show_cancel_button=True)` / `auto_size_dialog(dialog, min_width=0, min_height=0)` | The `QDialog` both toolkit dialogs sit on: the base class (host keeps applying its frameless decorator), the scaffold that appends the ok/cancel row and exposes `dialog.ok_button`/`cancel_button`, and the content-derived resize (posted while hidden, settled synchronously once visible). Import: `sli_ui_toolkit.widgets`. |
 
 > **`HelpDocumentView` and `TextView` are gone** (text-unification wave C). Both bodies
 > were already the shared engine under `ui/widgets/text/engine/`; the widgets around them
@@ -447,6 +449,21 @@ In-window modal surfaces, drag/drop zone painters, and rubber-band selection
 
 ---
 
+## Popup, In-Window & Drag-Drop Surfaces (from `sli_ui_toolkit.widgets`)
+
+Host-facing plumbing for popup windows, in-window overlay attachment and the
+toolkit's default drag coordinator. Import them from `sli_ui_toolkit.widgets`;
+the implementation modules stay reachable for internals.
+
+| Name | Description |
+|------|-------------|
+| `configure_popup_widget(widget)` | Apply the standard popup window flags/attributes (frameless `Qt.Popup`, translucent background, no activation, no focus). |
+| `bind_popup_transient_parent(widget, anchor)` | Set the native `QWindow.transientParent` for a parentless-flag popup so Wayland compositors place it over the anchor's window (no-op where the platform forbids it). |
+| `attach_in_window_widget(widget, anchor)` | Attach a surface to `anchor`'s in-window overlay layer; returns the layer, or `None` when no same-window layer applies. |
+| `ToolkitDragDropService` | Default in-window drag coordinator (`get_instance()`, `register_drop_target`/`unregister_drop_target`, `drag_state_changed`); visual ghost rendering stays host-owned via `configure_toolkit(dragdrop_service_getter=...)`. |
+
+---
+
 ## List Items
 
 Row widgets meant to be dropped into a host-owned list/flyout, imported from
@@ -467,6 +484,7 @@ Row widgets meant to be dropped into a host-owned list/flyout, imported from
 | `calculate_centered_overlay_geometry(...)` | Compute centered overlay position relative to parent. |
 | `draw_bottom_underline(painter, ...)` | Draw a themed bottom underline on a widget. Prefer widget-level underline APIs for `Button`, `CustomLineEdit`, and `ComboBox`. |
 | `draw_rounded_shadow(painter, ...)` | Draw a rounded drop shadow behind a rect. |
+| `paint_focus_ring(widget, painter, theme_manager=None, *, corner_radius=None)` | Draw the one keyboard-focus ring for hand-painted atomic widgets (same accent/alpha/thickness as the button `FocusLayer`); returns whether it drew. Gate it on `widget._keyboard_focus and widget.hasFocus()`. |
 | `UnderlineConfig` | Configuration dataclass for underline painting. |
 
 ## Style Tokens (from `sli_ui_toolkit.style`)
@@ -521,6 +539,10 @@ key so a gap is visible): `Button(text_key=..., badge_key=...)` (+ `setTextKey` 
 | `FlyoutManager` | Ensures only one registered flyout is active at a time. |
 | `DelayedActionTimer` | Single-shot delayed callback wrapper. |
 | `SettleGate` | Restartable quiet-period gate with optional per-pulse work (resize: cheap refit + deferred heavy pass). |
+| `settle_layout(widget, *children, deep=False)` | Synchronous layout settle after a self-derived size change: refreshes children hints and re-runs the layout in the same call (no `processEvents`, no posted re-run). `deep=True` also activates every descendant's layout, parents before children. |
+| `PendingSettle` / `settle_on_paint(widget, pending)` | Coalesced-reflow slot run at the widget's paint boundary: `schedule(widget, fn)` keeps the last of several requests, `settle_on_paint` installs the filter that runs it before the frame paints (0-timer fallback for hidden widgets). |
+| `connect_ui_metrics(widget, slot, *, axes=None)` | Subscribe `slot(axes)` to the `UiMetrics` appearance bus once per coalesced change (idempotent per `(widget, slot, axes)`); returns `[(signal, connection), ...]` for teardown and auto-drops on widget destruction. |
+| `resolve_keyboard_focus(reason, *, _last_input=None)` | Widget-facing focus-ring decision: delegates to `NavigationManager.is_keyboard_focus` and falls back to the static reason rule with no manager; every `focusInEvent` should call it instead of inlining its own tuple. |
 | `AnchoredFlyoutAutoHide` | Auto-hide helper for anchored flyouts. |
 
 ---

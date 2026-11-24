@@ -109,3 +109,73 @@ def test_surface_panel_is_an_advertised_widgets_export():
     assert "SurfacePanel" in widgets.__all__
     assert widgets.SurfacePanel.__name__ == "SurfacePanel"
 
+
+# Hosts used to reach these through internal `sli_ui_toolkit.ui.*` paths (one host had 274
+# such import lines); the public entry points re-export the SAME object — a wrapper class or
+# a copy would silently split isinstance checks and singleton lookups between the two paths.
+PUBLIC_REEXPORT_IDENTITIES = (
+    ("sli_ui_toolkit.managers", "connect_ui_metrics", "sli_ui_toolkit.ui.managers.ui_metrics"),
+    (
+        "sli_ui_toolkit.managers",
+        "resolve_keyboard_focus",
+        "sli_ui_toolkit.ui.managers.navigation_manager",
+    ),
+    ("sli_ui_toolkit.managers", "settle_layout", "sli_ui_toolkit.ui.layout_settle"),
+    ("sli_ui_toolkit.managers", "PendingSettle", "sli_ui_toolkit.ui.pending_settle"),
+    ("sli_ui_toolkit.managers", "settle_on_paint", "sli_ui_toolkit.ui.pending_settle"),
+    ("sli_ui_toolkit.widgets", "paint_focus_ring", "sli_ui_toolkit.ui.widgets.atomic.focus_ring"),
+    ("sli_ui_toolkit.widgets", "TextScrollArea", "sli_ui_toolkit.ui.widgets.composite"),
+    ("sli_ui_toolkit.widgets", "WheelScrollPolicyMixin", "sli_ui_toolkit.ui.widgets.helpers"),
+    ("sli_ui_toolkit.widgets", "BaseDialog", "sli_ui_toolkit.ui.dialogs"),
+    ("sli_ui_toolkit.widgets", "setup_dialog_scaffold", "sli_ui_toolkit.ui.dialogs"),
+    ("sli_ui_toolkit.widgets", "auto_size_dialog", "sli_ui_toolkit.ui.dialogs"),
+    (
+        "sli_ui_toolkit.widgets",
+        "ToolkitDragDropService",
+        "sli_ui_toolkit.ui.services.dragdrop_service",
+    ),
+    ("sli_ui_toolkit.widgets", "attach_in_window_widget", "sli_ui_toolkit.ui.in_window_surface"),
+    ("sli_ui_toolkit.widgets", "configure_popup_widget", "sli_ui_toolkit.ui.popup_surface"),
+    (
+        "sli_ui_toolkit.widgets",
+        "bind_popup_transient_parent",
+        "sli_ui_toolkit.ui.popup_surface",
+    ),
+    (
+        "sli_ui_toolkit.ui.widgets.composite",
+        "TextScrollArea",
+        "sli_ui_toolkit.ui.widgets.composite",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("public_module", "name", "source_module"),
+    PUBLIC_REEXPORT_IDENTITIES,
+    ids=[f"{name}@{module}" for module, name, _source in PUBLIC_REEXPORT_IDENTITIES],
+)
+def test_public_reexports_the_internal_object(public_module, name, source_module):
+    public = importlib.import_module(public_module)
+    source = importlib.import_module(source_module)
+    assert name in public.__all__, f"{public_module}.__all__ does not advertise {name!r}"
+    assert getattr(public, name) is getattr(source, name), (
+        f"{public_module}.{name} is not the same object as {source_module}.{name}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("public_module", "name", "_source"),
+    PUBLIC_REEXPORT_IDENTITIES,
+    ids=[f"{name}@{module}" for module, name, _source in PUBLIC_REEXPORT_IDENTITIES],
+)
+def test_public_reexport_star_import_resolves(public_module, name, _source):
+    # A star import in a fresh interpreter is the shape the host migration uses.
+    result = subprocess.run(
+        [sys.executable, "-c", f"from {public_module} import *\nassert {name!r} in dir()"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"from {public_module} import * did not provide {name!r}:\n{result.stderr}"
+    )
+
