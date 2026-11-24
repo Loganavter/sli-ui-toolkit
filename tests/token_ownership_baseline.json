@@ -4,11 +4,9 @@
     "token-ownership": {
       "src/sli_ui_toolkit/ui/dialogs/action_bar.py": 1,
       "src/sli_ui_toolkit/ui/widgets/atomic/_step_buttons.py": 1,
-      "src/sli_ui_toolkit/ui/widgets/atomic/custom_group_widget.py": 5,
       "src/sli_ui_toolkit/ui/widgets/atomic/drop_zone_label.py": 2,
       "src/sli_ui_toolkit/ui/widgets/atomic/instances_counter_button.py": 1,
       "src/sli_ui_toolkit/ui/widgets/atomic/label_context_menu.py": 2,
-      "src/sli_ui_toolkit/ui/widgets/atomic/progress_bar.py": 3,
       "src/sli_ui_toolkit/ui/widgets/atomic/text_labels.py": 1,
       "src/sli_ui_toolkit/ui/widgets/buttons/content.py": 2,
       "src/sli_ui_toolkit/ui/widgets/buttons/layers/badge.py": 1,
@@ -16,10 +14,7 @@
       "src/sli_ui_toolkit/ui/widgets/comboboxes/_overlay.py": 1,
       "src/sli_ui_toolkit/ui/widgets/composite/adaptive_tab_strip/tab_bar.py": 1,
       "src/sli_ui_toolkit/ui/widgets/composite/adaptive_tab_strip/widget.py": 1,
-      "src/sli_ui_toolkit/ui/widgets/composite/base_flyout/builder.py": 3,
-      "src/sli_ui_toolkit/ui/widgets/composite/calendar_widget/widget.py": 3,
       "src/sli_ui_toolkit/ui/widgets/composite/console_view.py": 2,
-      "src/sli_ui_toolkit/ui/widgets/composite/context_menu/rows.py": 1,
       "src/sli_ui_toolkit/ui/widgets/composite/dialog_shell.py": 1,
       "src/sli_ui_toolkit/ui/widgets/composite/icon_action_flyout.py": 1,
       "src/sli_ui_toolkit/ui/widgets/composite/indexed_toggle_flyout.py": 1,
@@ -33,15 +28,10 @@
       "src/sli_ui_toolkit/ui/widgets/composite/top_tab_bar/bar.py": 3,
       "src/sli_ui_toolkit/ui/widgets/composite/top_tab_bar/style.py": 1,
       "src/sli_ui_toolkit/ui/widgets/composite/top_tab_bar/variant.py": 3,
-      "src/sli_ui_toolkit/ui/widgets/helpers/underline_painter.py": 3,
       "src/sli_ui_toolkit/ui/widgets/text/engine/canvas_paint.py": 2,
-      "src/sli_ui_toolkit/ui/widgets/text/engine/layout/builder.py": 4,
       "src/sli_ui_toolkit/ui/widgets/text/engine/layout/paint.py": 3,
       "src/sli_ui_toolkit/ui/widgets/text/engine/layout/text_layout.py": 1,
       "src/sli_ui_toolkit/ui/widgets/text/text.py": 1
-    },
-    "token-ownership-dynamic": {
-      "src/sli_ui_toolkit/ui/widgets/helpers/underline_painter.py": 1
     },
     "token-ownership-unresolved": {
       "src/sli_ui_toolkit/ui/widgets/helpers/underline_painter.py": 1
