@@ -4,6 +4,22 @@
 
 ### Added
 
+- **The splitter's one-device-pixel divider is published, not private to the sidebar dialog.** `QSplitter` inside
+  `src/sli_ui_toolkit` existed only as `dialog_shell._SidebarDialogSplitter` and was reachable only through
+  `SidebarDialogShell(resizable_sidebar=True).splitter`, so hosts that need a resizable two-pane layout painted their
+  own separator (BlinkTable's help and video-editor dialogs, a hand-painted band in the gallery) and could not
+  reproduce the part that matters: a divider exactly one **device** pixel wide at any `devicePixelRatio`
+  (`dialog.border` over `surface.background`), centred in the handle. `sli_ui_toolkit.widgets` now exports
+  `Splitter` / `SplitterHandle` (`ui/widgets/composite/splitter.py`): the handle paints that strip through the public
+  `hairline_rect()` geometry helper and re-reads both tokens on `theme_changed`; the handle width is design px
+  re-resolved through `UiScale` on every factor change (`set_handle_width`, default 6); both orientations, inherited
+  `setSizes`/`sizes`, `setChildrenCollapsible` and `splitterMoved` work unchanged, and a left double-click on the
+  handle resets the panes to equal shares (`reset_sizes()`). `SidebarDialogShell` now uses this class — the private
+  copy is deleted, its geometry (6 design px handle, non-collapsible, 200-px sidebar) is unchanged. Tests:
+  `tests/test_splitter.py` (18 — one device cell at DPR 1.0/1.5/2.0 in both orientations, scale-following handle
+  width, theme re-read, `setSizes` round-trip, collapse to 0 and the non-collapsible minimum, double-click reset,
+  right-button double-click ignored, and the shell exposing the public class).
+
 - **`ProgressBar` — the standalone painted progress bar both hosts were hand-painting.** BlinkTable subclassed
   `QProgressBar` and repainted it in an export dialog; REAL-Video-Enhancer draws a thin bar inside a list-row painter.
   The toolkit only had `ToastProgressBar` (toast-only, token names as constructor arguments). The new

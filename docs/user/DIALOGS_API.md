@@ -29,12 +29,16 @@ wraps an `IconListWidget` sidebar (exposed as `.sidebar`) plus a
 (e.g. a search field) above the nav list: the whole sidebar column tracks
 the configured width and stays visible when the nav list is collapsed.
 `resizable_sidebar=True` puts the sidebar and the content area into a
-draggable `QSplitter` (`.splitter`), so the user can widen/narrow the nav
-column (the configured `sidebar_width` becomes the minimum). The divider is
-painter-drawn: one **device** pixel wide at every `devicePixelRatio`
-(`dialog.border` over `surface.background`), centred in the handle, so it
+draggable `Splitter` (`.splitter`), so the user can widen/narrow the nav
+column (the configured `sidebar_width` becomes the minimum). `Splitter` is
+the public class, exported from `sli_ui_toolkit.widgets` for any host that
+needs this divider: the same handle paints one **device** pixel wide at every
+`devicePixelRatio` (`dialog.border` over `surface.background`), centred, so it
 stays crisp and never merges with the content column's own border at a
-fractional ratio (125 % / 150 %).
+fractional ratio (125 % / 150 %). It works in both orientations, scales its
+handle width through `UiScale`, and a double-click on the handle resets the
+panes to equal sizes — everything else (`setSizes`, `setChildrenCollapsible`,
+`splitterMoved`) is inherited `QSplitter`.
 `ScrollableDialogPage(*, content_margins=(0, 0, 12, 0), content_spacing=15, parent=None)`
 is a single scrollable content column, meant to be pushed into that stack.
 `content_margins`/`content_spacing` are **design px**: the shell and the page
