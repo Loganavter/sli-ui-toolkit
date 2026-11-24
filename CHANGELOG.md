@@ -4,6 +4,24 @@
 
 ### Added
 
+- **`sli_ui_toolkit.gates` — the toolkit's host-facing UI conventions as a runnable, PySide6-free AST checker.** Both
+  hosts independently re-derived the same rules (BlinkTable's `tests/contracts/`, REAL-Video-Enhancer's
+  `harness/scripts/ui_gates.py`) because the library's contract tests are hard-wired to `src/sli_ui_toolkit` and cannot
+  judge a host tree. `python -m sli_ui_toolkit.gates <paths...>` (default: the current tree) parses source text without
+  importing it and reports `Finding(rule, path, line, message)` for six rules: `toolkit-qss` (`setStyleSheet` on a
+  resolved toolkit widget, with an *unresolved* receiver reported rather than passed), `raw-chrome-px` (bare design
+  numbers in `setFixed*` / `setMinimum*` / `setMaximum*` / `resize` / `QSize` / `setContentsMargins` / `setSpacing`;
+  `0`, `1` and `QWIDGETSIZE_MAX` are structural), `double-scaled-px` (`scaled_px(scaled_px(x))` and
+  `Button(size=scaled_px(...))`), `qcolor-at-import`, `empty-stylesheet` and `silent-swallow`. The CLI takes `--json`,
+  `--rule NAME` and `--baseline PATH` (a per-rule, per-file count ratchet: shrinking passes, a grown count or a file not
+  in the baseline fails), with `--write-baseline` to install one; exit codes are 0 clean, 1 findings, 2 scan error. The
+  rules are importable (`check_source` / `check_paths` / `findings_to_counts` / `baseline_violations`) for a host's own
+  pytest run. Docs: `docs/user/GATES.md` + one `API_CATALOG.md` row. Tests: `tests/test_gates.py` (35 — per-rule
+  fire/clean fixtures, receiver resolution, baseline shrink/grow/new-file cases, a fixture-tree CLI run, and a
+  subprocess that imports the package with `PySide6` blocked). Smoke run on this tree reports the library's current
+  debt for the baseline to absorb (palette `QColor`s and defensive `except: pass` dominate); none of it was fixed
+  here.
+
 - **The public modules now carry the names hosts already reach through `sli_ui_toolkit.ui.*`.** One host had 274
   import lines through internal paths (16.6% of its toolkit usage), and several toolkit capabilities had no public
   path at all: `sli_ui_toolkit.managers` carried neither `connect_ui_metrics` nor `resolve_keyboard_focus`, and nothing
