@@ -58,6 +58,21 @@
 
 ### Fixed
 
+- **`Stepper` and `TimeLineEdit` no longer take Up/Down while idle — the SpinBox arrow bug, resurfaced in two
+  subclasses.** Both accepted Up/Down unconditionally and `event.accept()`ed them (stepping by `step` / one minute),
+  so a focused field in a `ToolbarRowsSection` row was unreachable by row-to-row navigation — the regression
+  `docs/dev/NAVIGATION.md` §1.1 records as fixed for `SpinBox`. They take the **SpinBox shape** of the value-edit
+  contract (not `Slider`'s Enter edit mode): both are typed fields (`HH:mm`, typed digits) where Left/Right must stay
+  caret movement and neither has an editing affordance to show, so Up/Down now `event.ignore()` and the value steps
+  with PageUp/PageDown. Coverage is derived, not hand-listed: `tests/value_controls_allowlist.py` gains
+  `KEYBOARD_STEP_CONTROLS` (the typed-field shape) next to `VALUE_CONTROLS` (edit mode), the scan in
+  `tests/test_value_control_edit_contract.py` now also flags any class whose `keyPressEvent` steps its own value
+  (`setValue`, or a `_step*` helper that writes one), and `tests/test_nav_arrow_key_contract.py` parametrizes over
+  both registries — a new value control fails the gate until it declares one of the two shapes. Red-before, on the
+  pre-change tree: 4 of the new/parametrized cases fail (`Stepper`/`TimeLineEdit` accept Up while idle and step on
+  it). Tests: `tests/test_value_control_edit_contract.py` (19), `tests/test_nav_arrow_key_contract.py` (7),
+  `tests/test_stepper.py` (7), `tests/test_time_line_edit.py` (24).
+
 - **The ComboBox card's height is read when it changes, not once at open.** A filter, an item mutation or a
   font/scale change left the card at the height it had when the list opened while the rows, the viewport and the
   scrollbar already used the new one (a filtered 3-row list kept a 190 px card around an 87 px viewport).

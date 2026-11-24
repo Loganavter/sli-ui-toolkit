@@ -208,12 +208,22 @@ def test_focus_out_stops_the_repeat(field):
 # -- keyboard / wheel --------------------------------------------------------
 
 
-def test_keyboard_up_and_down_step_one_minute(field):
+def test_page_up_and_page_down_step_one_minute(field):
+    # SpinBox shape (NAVIGATION.md §1.1): PageUp/PageDown step, Up/Down route.
     field.setText("10:20")
-    field.keyPressEvent(_key_event(Qt.Key.Key_Up))
+    field.keyPressEvent(_key_event(Qt.Key.Key_PageUp))
     assert field.text() == "10:21"
-    field.keyPressEvent(_key_event(Qt.Key.Key_Down))
+    field.keyPressEvent(_key_event(Qt.Key.Key_PageDown))
     assert field.text() == "10:20"
+
+
+def test_idle_up_and_down_leave_the_time_alone(field):
+    field.setText("10:20")
+    for key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+        event = _key_event(key)
+        field.keyPressEvent(event)
+        assert field.text() == "10:20"
+        assert not event.isAccepted()
 
 
 def test_wheel_steps_and_takes_focus_by_default(field, qapp):

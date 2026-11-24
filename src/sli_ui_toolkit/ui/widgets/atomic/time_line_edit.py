@@ -8,7 +8,13 @@ from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin
 
 
 class TimeLineEdit(StepButtonsMixin, WheelScrollPolicyMixin, CustomLineEdit):
-    """Toolkit-painted HH:mm input with the shared ▲/▼ step gauge."""
+    """Toolkit-painted HH:mm input with the shared ▲/▼ step gauge.
+
+    Typed field, so it takes the SpinBox shape of the value-edit contract
+    (``docs/dev/NAVIGATION.md`` §1.1): digits/colon are typed, Left/Right stay
+    caret movement, PageUp/PageDown step one minute, and Up/Down stay
+    navigation keys while idle.
+    """
 
     def __init__(
         self,
@@ -71,11 +77,17 @@ class TimeLineEdit(StepButtonsMixin, WheelScrollPolicyMixin, CustomLineEdit):
             painter.end()
 
     def keyPressEvent(self, event: QKeyEvent):
-        if event.key() == Qt.Key.Key_Up:
+        if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            # Value-edit contract, SpinBox shape: this is a typed field, so
+            # Up/Down belong to row navigation (NavigationManager /
+            # ToolbarRowsSection) and never step the time while idle.
+            event.ignore()
+            return
+        if event.key() == Qt.Key.Key_PageUp:
             self._step_minutes(1)
             event.accept()
             return
-        if event.key() == Qt.Key.Key_Down:
+        if event.key() == Qt.Key.Key_PageDown:
             self._step_minutes(-1)
             event.accept()
             return
