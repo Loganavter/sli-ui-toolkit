@@ -214,11 +214,37 @@ class UiFont(QObject):
         return self.resolve(**kwargs)
 
     def paint_font(self, widget: QWidget | None = None, **overrides) -> QFont:
-        """Font for custom painters: UI family + size/weight hints from a widget."""
+        """Font for custom painters: UI family + size/weight hints from a widget.
+
+        A widget whose font came from `apply()` already carries a SCALED size, so its size is preserved instead of
+        being multiplied by the factor a second time (`_applied_size_matches`). A caller's explicit
+        `pixel_size=`/`point_size=` is design space and still wins - it goes through `rebase()` as before.
+        """
         source = widget.font() if widget is not None else None
         merged = dict(overrides)
         if widget is not None and bool(widget.property("sliBold")):
             merged["bold"] = True
+        if (
+            source is not None
+            and "pixel_size" not in merged
+            and "point_size" not in merged
+            and _applied_size_matches(widget, source)
+        ):
+            font = rebase_family(source)
+            for key in ("bold", "italic", "underline", "strike_out", "weight"):
+                if key in merged:
+                    value = merged[key]
+                    if key == "bold":
+                        font.setBold(bool(value))
+                    elif key == "italic":
+                        font.setItalic(bool(value))
+                    elif key == "underline":
+                        font.setUnderline(bool(value))
+                    elif key == "strike_out":
+                        font.setStrikeOut(bool(value))
+                    else:
+                        font.setWeight(QFont.Weight(int(value)))
+            return pin_font_size(font)
         return self.rebase(source, **merged)
 
     def apply(self, widget: QWidget, **overrides) -> QFont:
@@ -252,6 +278,7 @@ class UiFont(QObject):
         instead of being kept alive by the singleton's own signal."""
         font = self.resolve(**overrides)
         widget.setFont(font)
+        _record_applied_size(widget, overrides)
 
         self._disconnect_apply(widget)
         ref = weakref.ref(widget)
@@ -270,6 +297,7 @@ class UiFont(QObject):
                 connections.clear()
                 return
             target.setFont(self.resolve(**overrides))
+            _record_applied_size(target, overrides)
 
         connections.append(
             (self.font_changed, self.font_changed.connect(_resync))
@@ -363,6 +391,49 @@ def pin_font_size(font: QFont) -> QFont:
     elif font.pointSizeF() > 0:
         font.setPointSizeF(font.pointSizeF())
     return font
+
+
+#: Dynamic widget property recording what `apply()` last resolved, as ``("px"|"pt", design_value)``.
+#:
+#: `apply()` writes a *resolved* (already scaled) font onto the widget, while `rebase()`/`paint_font()` treat a
+#: source size as DESIGN space and multiply it by the factor again - so a painter measuring an applied widget used
+#: to see the size twice (measured 2026-11-24: a toolkit `Button` applied with `pixel_size=12` painted at 27 px at
+#: factor 1.5 and 48 px at 2.0, i.e. squared; the process tab strip then needed 1475 px at 2.0 instead of ~886).
+#: The marker lets `paint_font()` tell the two apart WITHOUT changing `apply()`'s contract, and it self-validates:
+#: if someone later sets a different font on the widget, the recorded value no longer matches the live size and
+#: the design-space path is used again.
+APPLIED_SIZE_PROPERTY = "sliAppliedSize"
+
+
+def _record_applied_size(widget, overrides) -> None:
+    """Remember the design size `apply()` resolved onto ``widget`` (no size override -> no marker)."""
+    pixel_size = overrides.get("pixel_size")
+    point_size = overrides.get("point_size")
+    if pixel_size is not None:
+        widget.setProperty(APPLIED_SIZE_PROPERTY, ("px", int(pixel_size)))
+    elif point_size is not None:
+        widget.setProperty(APPLIED_SIZE_PROPERTY, ("pt", float(point_size)))
+    else:
+        try:
+            widget.setProperty(APPLIED_SIZE_PROPERTY, None)
+        except Exception:
+            pass
+
+
+def _applied_size_matches(widget, font: QFont) -> bool:
+    """True when ``font`` is exactly what `apply()` resolved for this widget (so its size is already scaled)."""
+    if widget is None or font is None:
+        return False
+    marker = widget.property(APPLIED_SIZE_PROPERTY)
+    if not isinstance(marker, (tuple, list)) or len(marker) != 2:
+        return False
+    kind, value = marker
+    scale = UiScale.get_instance()
+    if kind == "px":
+        return font.pixelSize() > 0 and font.pixelSize() == scale.scaled_px(int(value))
+    if kind == "pt":
+        return font.pointSizeF() > 0 and abs(font.pointSizeF() - float(value) * scale.factor()) < 0.01
+    return False
 
 
 def ui_font(**overrides) -> QFont:
