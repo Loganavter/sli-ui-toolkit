@@ -20,6 +20,7 @@ from sli_ui_toolkit.ui.popup_surface import (
     bind_popup_transient_parent,
     configure_popup_widget,
     popup_contains_global,
+    warn_popup_mode_with_qrhi_widgets,
 )
 from sli_ui_toolkit.ui.managers.ui_metrics import (
     AXIS_FONT,
@@ -155,6 +156,17 @@ class ContextMenu(BaseFlyout):
 
     def is_popup_surface(self) -> bool:
         return self._surface == "popup"
+
+    def _warn_popup_qrhi_coexistence(self) -> None:
+        """Report a host window that owns QRhiWidgets when opening as a popup.
+
+        Popup mode next to a QRhiWidget breaks the host window's compositing
+        on Wayland/XWayland with NVIDIA (see ``ui/popup_surface.py``). Warning
+        at open time, not at construction: the host's QRhi surfaces may be
+        created after the menu was built. Behaviour is unchanged either way.
+        """
+        if self.is_popup_surface():
+            warn_popup_mode_with_qrhi_widgets(self, self._logical_parent)
 
     def row_for_action(self, action_id: str) -> QWidget | None:
         """Return the live row widget for ``action_id``, if present."""
@@ -599,6 +611,7 @@ class ContextMenu(BaseFlyout):
         **kwargs,
     ):
         self._relayout_widths()
+        self._warn_popup_qrhi_coexistence()
         if self.is_popup_surface():
             popup_ops.popup_show_aligned(
                 self,
@@ -618,7 +631,9 @@ class ContextMenu(BaseFlyout):
             self._visible_menus.add(self)
 
     def popup_at(self, global_pos: QPoint, *, animation: str | None = None) -> None:
+        self._warn_popup_qrhi_coexistence()
         popup_ops.popup_at(self, global_pos, animation=animation)
 
     def exec_at(self, global_pos: QPoint) -> str | None:
+        self._warn_popup_qrhi_coexistence()
         return popup_ops.exec_at(self, global_pos)

@@ -1,18 +1,35 @@
-"""Helpers for top-level Qt popup surfaces (ContextMenu popup mode)."""
+"""Helpers for top-level Qt popup surfaces (ContextMenu popup mode).
+
+Popup mode is a real ``Qt.Popup`` top-level whose QWidget parent is the host
+window. Next to a QRhiWidget that combination is a compositing killer on
+Wayland/XWayland with NVIDIA: in-window translucent surfaces (toasts, flyouts)
+paint opaque and existing QRhiWidgets slow down
+(BlinkTable ``inv-2026-10-06-ql-rhi-menu-first``; REAL-Video-Enhancer removed
+its only ``Qt.Popup`` in ``f471d71f``). ``warn_popup_mode_with_qrhi_widgets``
+is the one-line signal a host gets instead of a silent slowdown.
+"""
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QWidget
 
+logger = logging.getLogger(__name__)
+
 POPUP_WINDOW_FLAGS = (
     Qt.WindowType.Popup
     | Qt.WindowType.FramelessWindowHint
     | Qt.WindowType.NoDropShadowWindowHint
 )
+
+# One warning per process. The condition is a property of the host window, not
+# of a single right-click, so repeating it would only bury the line that tells
+# the host to switch surfaces.
+_qrhi_popup_warning_emitted = False
 
 
 def configure_popup_widget(widget: QWidget) -> None:
@@ -21,6 +38,65 @@ def configure_popup_widget(widget: QWidget) -> None:
     widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     widget.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
     widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+
+def _qrhi_widget_class_names(root: QWidget) -> list[str]:
+    """Class names of QRhiWidget descendants of *root* (empty on PySide6 < 6.7)."""
+    try:
+        from PySide6.QtWidgets import QRhiWidget
+    except ImportError:
+        # Older PySide6 has no QRhiWidget at all: nothing can coexist with it.
+        return []
+    return [
+        type(child).__name__
+        for child in root.findChildren(QWidget)
+        if isinstance(child, QRhiWidget)
+    ]
+
+
+def warn_popup_mode_with_qrhi_widgets(
+    widget: QWidget, anchor: QWidget | None = None
+) -> bool:
+    """Log once when a popup-menu window's host owns a QRhiWidget.
+
+    *anchor* is the popup's logical QWidget parent (the host's top-level
+    window is inspected); without it *widget*'s own window is inspected. The
+    caller decides the surface mode — this helper only reports the coexistence.
+
+    Risk named in the line: on Wayland/XWayland with NVIDIA a ``Qt.Popup``
+    whose QWidget parent is the top-level window breaks that window's
+    compositing — in-window translucent surfaces (toasts, flyouts) render
+    opaque and existing QRhiWidgets slow down. The popup still opens exactly as
+    requested; only the alternative (in-window surface) is suggested.
+
+    Returns True when a warning was logged, False when there was nothing to
+    report or the process was already warned.
+    """
+    global _qrhi_popup_warning_emitted
+    if _qrhi_popup_warning_emitted:
+        return False
+    try:
+        host = anchor.window() if anchor is not None else widget.window()
+    except RuntimeError:
+        # Either widget was already deleted by its host.
+        return False
+    if host is None:
+        return False
+    names = sorted(set(_qrhi_widget_class_names(host)))
+    if not names:
+        return False
+    _qrhi_popup_warning_emitted = True
+    logger.warning(
+        "ContextMenu popup surface (Qt.Popup top-level) opened in a window that "
+        "owns QRhiWidget subclass(es) %s. A popup whose QWidget parent is the "
+        "top-level window breaks that window's compositing on Wayland/XWayland "
+        "with NVIDIA: in-window translucent surfaces (toasts, flyouts) render "
+        "opaque, and existing QRhiWidgets slow down. The menu opens as "
+        'requested; use the in-window surface (surface="in_window" / '
+        'context_menu_surface="in_window") for menus in this window.',
+        ", ".join(names),
+    )
+    return True
 
 
 def _ensure_window_handle(widget: QWidget):

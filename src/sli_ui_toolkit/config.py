@@ -8,6 +8,8 @@ from typing import Literal
 logger = logging.getLogger(__name__)
 
 ContextMenuSurface = Literal["in_window", "popup"]
+# "popup" is a real Qt.Popup top-level; next to a QRhiWidget in the host window
+# it breaks compositing on Wayland/XWayland+NVIDIA (ui/popup_surface.py warns).
 
 @dataclass(slots=True)
 class FlyoutTimingConfig:

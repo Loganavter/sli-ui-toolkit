@@ -21,6 +21,15 @@
   default), red-before on the pre-change tree (5 failed / 4 passed: the signal cases saw no `stateChanged`, `row=` was
   a `TypeError`).
 
+- **Popup-surface `ContextMenu` now warns when the host window owns a QRhiWidget.** The library ships `context_menu_surface="popup"` (a real `Qt.Popup`
+  top-level whose QWidget parent is the host window) and says nothing about the documented compositing killer next to it: on Wayland/XWayland with NVIDIA
+  that combination breaks the window's compositing (in-window translucent surfaces such as toasts and flyouts render opaque, existing QRhiWidgets slow
+  down) — the reason BlinkTable recorded `inv-2026-10-06-ql-rhi-menu-first` and REAL-Video-Enhancer removed its only `Qt.Popup` (`f471d71f`). The first popup
+  menu opened in such a window now logs ONE `logging` warning (`ui/popup_surface.warn_popup_mode_with_qrhi_widgets`) naming the QRhiWidget subclasses
+  present and the `in_window` alternative; in-window menus and windows without QRhiWidgets never warn, and the menu still opens in the requested mode.
+  `docs/user/CONTEXT_MENU_API.md` carries the same constraint in prose. Tests: `tests/test_popup_surface_qrhi.py` (4 — popup warns once across two opens,
+  the global `context_menu_surface="popup"` path warns too, in-window never warns, no-QRhiWidget window never warns), red-before: 2 failed / 2 passed.
+
 ### Changed
 
 - **The flyout no longer knows a host application's class name, and a host control can declare itself a sibling.** Focus
