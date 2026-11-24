@@ -382,6 +382,9 @@ viewers — constructor options and a full wiring example:
 | `Splitter` / `SplitterHandle` | `QSplitter` whose handle paints the toolkit divider: one **device** pixel of `dialog.border` over `surface.background`, crisp at any `devicePixelRatio`, scaled handle width, double-click resets to equal panes. Import: `sli_ui_toolkit.widgets`. |
 | `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells — in-place search filtering (`set_search_text`, ComboBox-style visible-index pool, no per-keystroke rebuilds; `search_texts` for cross-language haystacks). |
 | `MarkdownHelpDialog` / `MarkdownHelpSection` | Painted markdown help dialog (`Text` in document mode; no `QTextBrowser`/HTML) with anchors, TOC, and `help://slug#anchor` navigation. |
+| `MessageDialog` / `MessageResult` | Painted message/confirm dialog (`QMessageBox` replacement): selectable body, optional "don't show again" box, `information`/`warning`/`critical` conveniences, `question(...) -> bool`. |
+| `TextInputDialog` | Single-line prompt on `CustomLineEdit` (`QInputDialog.getText` replacement): `get_text(...) -> (text, ok)`, validator gate, Enter/Escape. |
+| `DialogActionBar` | Primary (+optional secondary) button row with `accepted`/`rejected`; used by both dialogs, embeddable on its own. |
 
 > **`HelpDocumentView` and `TextView` are gone** (text-unification wave C). Both bodies
 > were already the shared engine under `ui/widgets/text/engine/`; the widgets around them

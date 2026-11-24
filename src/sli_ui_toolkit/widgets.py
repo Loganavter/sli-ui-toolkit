@@ -71,6 +71,12 @@ from sli_ui_toolkit.ui.widgets.buttons import (
     set_default_underline_fade,
     set_ripple_duration_ms,
 )
+from sli_ui_toolkit.ui.dialogs import (
+    DialogActionBar,
+    MessageDialog,
+    MessageResult,
+    TextInputDialog,
+)
 from sli_ui_toolkit.ui.widgets.text import Text, TextConfig
 from sli_ui_toolkit.ui.widgets.composite import (
     python_line_spans,
@@ -300,6 +306,10 @@ __all__ = [
     "python_span_colors",
     "MarkdownHelpDialog",
     "MarkdownHelpSection",
+    "DialogActionBar",
+    "MessageDialog",
+    "MessageResult",
+    "TextInputDialog",
     "LoadingSpinner",
     "LogConsoleEntry",
     "LogConsoleWidget",

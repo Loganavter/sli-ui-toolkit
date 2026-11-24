@@ -4,6 +4,23 @@
 
 ### Added
 
+- **`MessageDialog`, `TextInputDialog` and `DialogActionBar` — the toolkit's own message/confirm and text-input dialogs.**
+  Each host had written its own on top of `BaseDialog` (BlinkTable's `AppMessageDialog` in 15 files plus its
+  `AppTextInputDialog`, REAL-Video-Enhancer's `ConfirmPopup`/`RegularQTPopup` family), so the same 400-800 LOC were
+  duplicated outside the toolkit. `MessageDialog.show_message(parent, title, text, *, kind, checkbox_text, ok_text,
+  cancel_text, default, destructive) -> MessageResult(ok, checked)` returns the "don't show again" state, with
+  `information`/`warning`/`critical` (one-button acknowledgements) and `question(...) -> bool` conveniences.
+  `TextInputDialog.get_text(parent, title, prompt, text="", *, ok_text, cancel_text, placeholder, validator)` keeps
+  `QInputDialog.getText`'s `(text, ok)` shape; an invalid `QValidator` value keeps the dialog open. Both sit on
+  `BaseDialog` (host keeps applying its frameless decorator), paint the `dialog.background` token, use `Text` for the
+  body/prompt and `CustomLineEdit` for the field, and share `DialogActionBar` (`.primary`/`.secondary`, `accepted`/
+  `rejected`, optional `destructive` tint from `progress.error`). Escape cancels, Enter activates the dialog's
+  `default` button; no QSS, no `QMessageBox`/`QInputDialog`/`QLineEdit`. Tests: `tests/test_message_dialog.py` +
+  `tests/test_text_input_dialog.py` (25 — accept/cancel/Escape/Enter, checkbox and `question` returns,
+  `get_text` `(text, ok)`/`("", False)`, validator gate, action-bar signals, a sampled pixel proving the
+  `dialog.background` token with `surface.background` set to a different colour, AST check that the stock widgets are
+  not imported).
+
 - **The splitter's one-device-pixel divider is published, not private to the sidebar dialog.** `QSplitter` inside
   `src/sli_ui_toolkit` existed only as `dialog_shell._SidebarDialogSplitter` and was reachable only through
   `SidebarDialogShell(resizable_sidebar=True).splitter`, so hosts that need a resizable two-pane layout painted their
