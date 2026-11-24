@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Changed
+
+- **The box, switch and slider paint their own state tokens, not a neighbour's.** The palette phase added
+  `checkbox.*`, `switch.*` and `slider.*` state keys, but their painters still read the dialog family:
+  `CheckBox`/`RadioButton` drew the outline with `dialog.border`, the label with `dialog.text` and the hover plate
+  with `dialog.button.hover`; `Switch`'s hover wash was `dialog.button.hover`; `Slider`'s groove was `dialog.border`
+  and its filled value the shared `accent`. A host restyling dialogs therefore repainted every box, switch and
+  slider. Now:
+  - checkbox and radio (one family) read `checkbox.border`, `checkbox.text` / `checkbox.text.disabled` and
+    `checkbox.background.hover` / `checkbox.background.pressed` — the indicator gains a real pressed plate (pressed
+    wins while the pointer holds it), and the disabled label takes `checkbox.text.disabled` instead of a 110-alpha
+    fade over the enabled colour;
+  - the switch reads `switch.track.hover` for the hover wash, `switch.track.disabled` for a disabled track and
+    `switch.text.disabled` for a disabled label (previously an un-dimmed accent track and the enabled text);
+  - the slider reads `slider.track.unfilled` for the groove and its outline, `slider.track.filled` for the value fill
+    (`slider.track.hover` while the thumb is hovered, `slider.track.disabled` when disabled), and `slider.thumb.outer`
+    / `slider.thumb.disabled` for the thumb.
+  `accent` stays where it is a state accent (the checked box fill, the checked radio dot, the switch's on-track, the
+  slider's edit-mode ring and the focus rings). Each widget's `inspect_spec.token_family` now lists what its painter
+  reads. `token-ownership` findings in the four files: checkbox 6→0, radio 6→0, slider 2→0, switch 1→0 (15 total;
+  `tests/token_ownership_baseline.json` shrinks at merge). Docs: `docs/user/INPUTS_API.md`. Tests:
+  `tests/test_control_state_tokens.py` (14 cases across both themes — hover/pressed/disabled pixels per control, each
+  asserting the pixel follows the family token and ignores the borrowed one, plus a whole-image check that no dialog
+  token moves a single pixel of these painters).
+
 ### Fixed
 
 - **A field's underline is its own colour, not a button's.** A disabled output-path field kept a bright underline:

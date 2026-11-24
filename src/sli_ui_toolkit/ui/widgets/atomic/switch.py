@@ -277,10 +277,13 @@ class Switch(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         accent = self._theme.get_color("accent")
+        disabled = not self.isEnabled()
 
         track_on = accent
         track_off = QColor(0, 0, 0, 0)
-        track_hover_overlay = self._theme.get_color("dialog.button.hover")
+        # The hover wash and the disabled track are the switch's own states (they used to be the dialog button's
+        # plate and an un-dimmed accent), so a host can restyle a switch without touching dialogs.
+        track_hover_overlay = QColor(self._theme.get_color("switch.track.hover"))
         track_hover_overlay.setAlpha(int(100 * self._hover))
 
         knob_on = self._theme.get_color("switch.knob.on")
@@ -302,12 +305,14 @@ class Switch(QWidget):
         radius = track_rect.height() / 2.0
 
         track_color = self._lerp_color(track_off, track_on, self._progress)
+        if disabled:
+            track_color = QColor(self._theme.get_color("switch.track.disabled"))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(track_color))
         fill_rect = track_rect.adjusted(0.5, 0.5, -0.5, -0.5)
         painter.drawRoundedRect(fill_rect, radius - 0.5, radius - 0.5)
 
-        if self._hover > 0.01 and not self._checked:
+        if self._hover > 0.01 and not self._checked and not disabled:
             painter.setBrush(QBrush(track_hover_overlay))
             painter.drawRoundedRect(fill_rect, radius - 0.5, radius - 0.5)
 
@@ -332,7 +337,9 @@ class Switch(QWidget):
         painter.drawEllipse(knob_rect)
 
         if self._show_text and text_w > 0:
-            text_color = self._theme.get_color("switch.text")
+            text_color = self._theme.get_color(
+                "switch.text.disabled" if disabled else "switch.text"
+            )
             painter.setPen(QPen(text_color))
             text_x = int(track_rect.right()) + scaled_px(self.TEXT_SPACING)
             text_y = int((h + fm.ascent() - fm.descent()) / 2)
@@ -395,6 +402,10 @@ Switch.inspect_spec = InspectSpec(
         "switch.knob.on",
         "switch.knob.off",
         "switch.track.off.border",
+        "switch.track.hover",
+        "switch.track.disabled",
+        "switch.text",
+        "switch.text.disabled",
         "accent",
     ),
     docs='docs/user/INPUTS_API.md',

@@ -469,8 +469,17 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         corner = (rectf.height() if self._is_horizontal() else rectf.width()) / 2.0
 
         tm = self.theme_manager
-        gray = QColor(tm.get_color("dialog.border"))
+        # The groove, its filled value and the thumb are the slider's own states: the outline used to be the dialog
+        # border and the fill the shared accent, so a host could not restyle a slider without repainting dialogs.
+        outline = QColor(tm.get_color("slider.track.unfilled"))
         accent = QColor(tm.get_color("accent"))
+        disabled = not self.isEnabled()
+        if disabled:
+            value_color = QColor(tm.get_color("slider.track.disabled"))
+        elif self._hovered:
+            value_color = QColor(tm.get_color("slider.track.hover"))
+        else:
+            value_color = QColor(tm.get_color("slider.track.filled"))
 
         painter.setPen(Qt.PenStyle.NoPen)
         if self._track_painter is not None:
@@ -497,11 +506,11 @@ class Slider(WheelScrollPolicyMixin, QSlider):
                     clip_rect = QRectF(rectf.left(), rectf.bottom() - fill_h, rectf.width(), fill_h)
                 painter.setClipRect(clip_rect)
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(accent))
+                painter.setBrush(QBrush(value_color))
                 painter.drawRoundedRect(rectf, corner, corner)
                 painter.restore()
 
-        painter.setPen(QPen(accent if self._editing else gray, 2 if self._editing else 1))
+        painter.setPen(QPen(accent if self._editing else outline, 2 if self._editing else 1))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rectf, corner, corner)
 
@@ -513,14 +522,16 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         # groove + an accent thumb ring, so "the ring is on this slider"
         # (focus ring) reads differently from "this slider is being edited".
         # Reuses the focus-ring tokens rather than inventing a new look.
-        outer_color = QColor(tm.get_color("slider.thumb.outer"))
-        painter.setPen(QPen(accent if self._editing else gray, 2 if self._editing else 1))
+        outer_color = QColor(
+            tm.get_color("slider.thumb.disabled" if disabled else "slider.thumb.outer")
+        )
+        painter.setPen(QPen(accent if self._editing else outline, 2 if self._editing else 1))
         painter.setBrush(QBrush(outer_color))
         painter.drawEllipse(center, outer_r, outer_r)
 
         inner_r = max(1.0, float(outer_r) * float(inner_scale))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(accent))
+        painter.setBrush(QBrush(value_color))
         painter.drawEllipse(QPointF(float(center.x()), float(center.y())), inner_r, inner_r)
 
         if self._keyboard_focus and self.hasFocus():
@@ -549,7 +560,9 @@ Slider.inspect_spec = InspectSpec(
         SpecField("hovered", "_hovered", private=True),
         SpecField("pressed", "_pressed", private=True),
     ),
-    token_family=("slider.track.unfilled", "slider.thumb.outer", "accent", "dialog.border"),
+    token_family=("slider.track.unfilled", "slider.track.filled", "slider.track.hover",
+                  "slider.track.disabled", "slider.thumb.outer", "slider.thumb.disabled",
+                  "accent"),
     docs='docs/user/INPUTS_API.md',
 )
 

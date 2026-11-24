@@ -174,6 +174,14 @@ row_check = CheckBox("Enable feature", row=True)
 radio = RadioButton("Option A")
 ```
 
+**State colours are the box's own.** `CheckBox` and `RadioButton` share the
+`checkbox.*` family: `checkbox.border` is the outline, `checkbox.text` /
+`checkbox.text.disabled` the label, `checkbox.background.hover` /
+`checkbox.background.pressed` the indicator's hover and pressed plate, and the
+existing `checkbox.check` / `checkbox.background.checked` the checked mark and
+fill. `accent` remains the checked radio dot and the focus ring. Overriding
+those keys restyles the box without touching dialogs.
+
 `Slider` adds track/thumb geometry and an optional custom track painter on
 top of `QSlider`:
 
@@ -192,6 +200,12 @@ slider.setShowValueFill(False)
 slider.setTrackThickness(8)
 slider.setThumbRadius(9)
 ```
+
+**State colours are the slider's own.** The groove is `slider.track.unfilled`,
+the filled value `slider.track.filled` (`slider.track.hover` while the thumb is
+hovered, `slider.track.disabled` when the widget is disabled), the thumb plate
+`slider.thumb.outer` / `slider.thumb.disabled`. `accent` stays the edit-mode
+affordance and the keyboard focus ring.
 
 **Keyboard edit mode.** A `Slider` changes its value only after an explicit
 `Enter`: arrows move the navigation ring until then. `Enter` enters edit mode
@@ -245,6 +259,11 @@ switch = Switch()
 switch.set_state_texts("Enabled", "Disabled")  # default: "On" / "Off" (translated)
 switch.set_show_state_text(False)
 ```
+
+The switch paints `switch.track.off.border` (the off outline),
+`switch.track.hover` (the hover wash), `switch.track.disabled` (a disabled
+track), `switch.knob.off` / `switch.knob.on` / `switch.knob.border` and
+`switch.text` / `switch.text.disabled`; `accent` remains the checked track.
 
 ## Scrolling
 

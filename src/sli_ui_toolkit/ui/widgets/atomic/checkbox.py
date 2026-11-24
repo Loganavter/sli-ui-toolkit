@@ -55,9 +55,15 @@ class _CheckIndicatorLayer(Layer):
         is_filled = is_checked or is_partial
 
         accent = tm.get_color("accent")
-        border = tm.get_color("dialog.border")
-        text_color = tm.get_color("dialog.text")
-        neutral_hover = tm.get_color("dialog.button.hover")
+        border = tm.get_color("checkbox.border")
+        text_color = tm.get_color("checkbox.text")
+        disabled_text_color = tm.get_color("checkbox.text.disabled")
+        # The indicator's hover/pressed plate is the box's own state, not the dialog button's: a host restyling
+        # buttons must not repaint a checkbox. Pressed takes precedence while the pointer holds the box.
+        is_pressed = ButtonState.PRESSED in states
+        plate = tm.get_color(
+            "checkbox.background.pressed" if is_pressed else "checkbox.background.hover"
+        )
         disabled_alpha = 110
         indicator_radius = scaled_px(widget.INDICATOR_RADIUS)
         # The stroke's own rect: a pen of `OUTLINE_WIDTH` centred on an integer edge is drawn half outside the box and
@@ -90,8 +96,8 @@ class _CheckIndicatorLayer(Layer):
                 else QColor(border.red(), border.green(), border.blue(), disabled_alpha)
             )
             painter.setPen(QPen(border_color, widget.OUTLINE_WIDTH))
-            if is_hovered and not is_disabled:
-                hover_fill = QColor(neutral_hover)
+            if (is_hovered or is_pressed) and not is_disabled:
+                hover_fill = QColor(plate)
                 alpha = int(40 + 100 * widget._hover_progress)
                 hover_fill.setAlpha(max(0, min(255, alpha)))
                 painter.setBrush(QBrush(hover_fill))
@@ -163,18 +169,9 @@ class _CheckIndicatorLayer(Layer):
                 painter.restore()
 
         if widget._text:
-            painter.setPen(
-                QPen(
-                    QColor(text_color)
-                    if not is_disabled
-                    else QColor(
-                        text_color.red(),
-                        text_color.green(),
-                        text_color.blue(),
-                        disabled_alpha,
-                    )
-                )
-            )
+            # The disabled label reads its own token: the colour (including its dimness) belongs to the host palette,
+            # so faking the fade with alpha would override a host's own disabled colour.
+            painter.setPen(QPen(QColor(disabled_text_color if is_disabled else text_color)))
             full_text = widget._text
             if fm.horizontalAdvance(full_text) > text_rect_avail.width():
                 full_text = fm.elidedText(
@@ -552,7 +549,8 @@ CheckBox.inspect_spec = InspectSpec(
         SpecField("hover_progress", "hoverProgress"),
         SpecField("checked_progress", "checkedProgress"),
     ),
-    token_family=("accent", "dialog.border", "dialog.text", "dialog.button.hover",
+    token_family=("accent", "checkbox.border", "checkbox.text", "checkbox.text.disabled",
+                  "checkbox.background.hover", "checkbox.background.pressed",
                   "checkbox.check", "checkbox.background.checked"),
     docs='docs/user/INPUTS_API.md',
 )

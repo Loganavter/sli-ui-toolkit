@@ -39,9 +39,15 @@ class _RadioIndicatorLayer(Layer):
         is_checked = ButtonState.CHECKED in states
 
         accent = tm.get_color("accent")
-        border = tm.get_color("dialog.border")
-        text_color = tm.get_color("dialog.text")
-        neutral_hover = tm.get_color("dialog.button.hover")
+        border = tm.get_color("checkbox.border")
+        text_color = tm.get_color("checkbox.text")
+        disabled_text_color = tm.get_color("checkbox.text.disabled")
+        # Radio and check box share the box family: the indicator's hover/pressed plate is the box's own state, not
+        # the dialog button's (a host restyling buttons must not repaint a radio).
+        is_pressed = ButtonState.PRESSED in states
+        plate = tm.get_color(
+            "checkbox.background.pressed" if is_pressed else "checkbox.background.hover"
+        )
         disabled_alpha = 110
 
         center = indicator_rect.center()
@@ -82,8 +88,8 @@ class _RadioIndicatorLayer(Layer):
                 else QColor(border.red(), border.green(), border.blue(), disabled_alpha)
             )
             painter.setPen(QPen(border_color, widget.OUTLINE_WIDTH))
-            if is_hovered and not is_disabled:
-                hover_fill = QColor(neutral_hover)
+            if (is_hovered or is_pressed) and not is_disabled:
+                hover_fill = QColor(plate)
                 alpha = int(40 + 100 * widget._hover_progress)
                 hover_fill.setAlpha(max(0, min(255, alpha)))
                 painter.setBrush(QBrush(hover_fill))
@@ -92,18 +98,8 @@ class _RadioIndicatorLayer(Layer):
             painter.drawEllipse(center, radius, radius)
 
         if widget._text:
-            painter.setPen(
-                QPen(
-                    QColor(text_color)
-                    if not is_disabled
-                    else QColor(
-                        text_color.red(),
-                        text_color.green(),
-                        text_color.blue(),
-                        disabled_alpha,
-                    )
-                )
-            )
+            # See CheckBox: the disabled label reads its own token instead of a fade over the enabled one.
+            painter.setPen(QPen(QColor(disabled_text_color if is_disabled else text_color)))
             full_text = widget._text
             if fm.horizontalAdvance(full_text) > text_rect_avail.width():
                 full_text = fm.elidedText(
@@ -318,7 +314,8 @@ RadioButton.inspect_spec = InspectSpec(
         SpecField("checked", "isChecked"),
         SpecField("hover_progress", "hoverProgress"),
     ),
-    token_family=("accent", "dialog.border", "dialog.text", "dialog.button.hover"),
+    token_family=("accent", "checkbox.border", "checkbox.text", "checkbox.text.disabled",
+                  "checkbox.background.hover", "checkbox.background.pressed"),
     docs='docs/user/INPUTS_API.md',
 )
 
