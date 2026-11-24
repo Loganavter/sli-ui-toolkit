@@ -38,6 +38,9 @@ Every rule returns `Finding(rule, path, line, message)` records.
 | `qcolor-at-import` | `QColor(...)` evaluated in module or class scope | Read the token at paint time, or register it through a palette so a theme switch reaches it |
 | `empty-stylesheet` | `setStyleSheet("")` | Remove the call; it is dead theming text |
 | `silent-swallow` | `except ...: pass` with no comment in the handler and no logging call | Log the failure, or comment why it is expected |
+| `token-ownership` | A literal palette key from another widget family (`"dialog.text"` in an input widget) | Read the file family's own token (or a neutral one), or declare the file's family with `# token-family: <name>` |
+| `token-ownership-dynamic` | An f-string token key (`f"{prefix}.border"`) whose prefix variable is assigned a literal from another family | Point the prefix at the file's own family, or declare the file's family |
+| `token-ownership-unresolved` | An f-string token key whose prefix variable has no literal assignment in the file | Bind `prefix = "<family>.<variant>"` (or `token_prefix=`) so the family is checkable |
 
 ### `qcolor-at-import` and the palette module
 
@@ -64,6 +67,92 @@ are not reported by this rule. Neither is `QApplication.setStyleSheet(...)`
 `QApplication`): app-level QSS is the toolkit's documented path for native/stock
 Qt widgets and never targets a toolkit widget. Use the host's own "no stock
 widgets / no manual theming" contract for everything else.
+
+## Token ownership
+
+A palette key belongs to one widget family. `button.default.background` is the
+button family's; `dialog.text` is the dialog family's. When another family
+paints its states with it — the input family reading `dialog.text`, the
+checkbox reading `dialog.button.hover` — the two drift apart and neither family
+can restyle its own widget, because the colour it paints with is owned
+somewhere else. `token-ownership` makes that borrow visible.
+
+Family comes from the file path (`TOKEN_FAMILIES` in
+`sli_ui_toolkit.gates.rules`, one fragment → one family, first match wins):
+
+| Path fragment | Family |
+|---|---|
+| `buttons/`, `comboboxes/` | `button` |
+| `atomic/custom_line_edit`, `atomic/spinbox`, `atomic/time_line_edit` | `input` |
+| `atomic/slider` | `slider` |
+| `atomic/switch` | `switch` |
+| `atomic/checkbox`, `atomic/radio` | `checkbox` |
+| `list_panel`, `sidebar_nav_list`, `text_list_widget` | `list_item` |
+| `context_menu`, `menustrip` | `menu` |
+| `base_flyout`, `simple_options_flyout` | `flyout` |
+| `toast` | `toast` |
+| `timeline_widget` | `timeline` |
+| `calendar_widget` | `calendar` |
+| `custom_title_bar`, `window_controls` | `titlebar` |
+| `dialogs/` | `dialog` |
+| `progress_bar` | `progress` |
+| `text/`, `atomic/text_labels` | `label` |
+
+**Neutral tokens** — shared chrome, not a family's private palette — every file
+may read: `accent`, `link`, `separator.*`, `shadow.*`, `surface.*`, and Qt's own
+palette roles (`Window`, `WindowText`, `Base`, `AlternateBase`, `Text`, `Button`,
+`ButtonText`, `Highlight`, `HighlightedText`, `ToolTipBase`, `ToolTipText`,
+`BrightText`). A palette key whose root no family claims (`help.*`,
+`tooltip.*`) is not judged.
+
+**Declaring a family.** A file the map does not know owns nothing, so a family
+token in it is a finding: a new widget tree cannot escape the gate by living in
+an unmapped directory, and a helper that genuinely serves one family says so in
+the file itself:
+
+```python
+# token-family: button
+```
+
+The comment wins over the path map in both directions: it can claim a family for
+an unmapped helper, and it can re-own a mapped file.
+
+**Dynamic keys.** `f"{prefix}.background.hover"` is checked through the literal
+the prefix is bound to:
+
+```python
+prefix = "button.primary"          # literal assignment: judged as a literal
+tm.get_color(f"{prefix}.border")   # button family — allowed in a button file
+
+def resolve(tm, variant):          # no literal prefix here: reported
+    return tm.get_color(f"{variant.token_prefix}.border")
+```
+
+`prefix` / `token_prefix` (any name ending in `_prefix`) assigned a string
+literal is the resolved case; a prefix received as a parameter or read off an
+object is `token-ownership-unresolved`, naming the variable, rather than passing
+silently. Only strings shaped like a key are considered — an f-string with
+whitespace in its literal parts (`f"{name}.emit(...) is blocked"`) is prose.
+
+**The palette module is exempt.** `palette.py`, `palettes.py`, `colors.py` and
+`colours.py` (basename match) are *made* of every family's keys, exactly as they
+are for `qcolor-at-import`; the exemption is for the module that owns colours,
+not for a widget that reads one.
+
+**Baseline policy.** The toolkit's own borrows are accepted debt, recorded in
+`tests/token_ownership_baseline.json` and enforced by
+`tests/test_gates.py::test_token_ownership_baseline_is_not_exceeded` with the
+same per-file ratchet a host installs. The baseline may only shrink: fix a site
+and the file's count may be lowered (or the file dropped) when the baseline is
+regenerated; a new borrow in an old file, or a new file with findings, fails.
+Regenerate with all three rules selected, so the file stays a complete picture:
+
+```bash
+python -m sli_ui_toolkit.gates src/sli_ui_toolkit \
+  --rule token-ownership --rule token-ownership-dynamic \
+  --rule token-ownership-unresolved \
+  --write-baseline tests/token_ownership_baseline.json
+```
 
 ## Installing a baseline
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import ast
 import fnmatch
 import io
+import re
 import tokenize
 from collections.abc import Callable, Iterable, Iterator
 
@@ -24,6 +25,104 @@ RULE_DOUBLE_SCALED_PX = "double-scaled-px"
 RULE_QCOLOR_AT_IMPORT = "qcolor-at-import"
 RULE_EMPTY_STYLESHEET = "empty-stylesheet"
 RULE_SILENT_SWALLOW = "silent-swallow"
+RULE_TOKEN_OWNERSHIP = "token-ownership"
+RULE_TOKEN_OWNERSHIP_DYNAMIC = "token-ownership-dynamic"
+RULE_TOKEN_OWNERSHIP_UNRESOLVED = "token-ownership-unresolved"
+
+#: Path fragment -> widget family that owns the palette keys the file paints
+#: with. First match wins, so the order is the precedence: a rule that reads a
+#: path must be unambiguous. A file that matches nothing owns no family, and a
+#: family token in it is a finding — new widget trees cannot escape the gate by
+#: living in a directory nobody mapped; they declare ownership instead with
+#: ``# token-family: <name>``.
+TOKEN_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("buttons/", "button"),
+    ("comboboxes/", "button"),
+    ("atomic/custom_line_edit", "input"),
+    ("atomic/spinbox", "input"),
+    ("atomic/time_line_edit", "input"),
+    ("atomic/text_labels", "label"),
+    ("atomic/slider", "slider"),
+    ("atomic/switch", "switch"),
+    ("atomic/checkbox", "checkbox"),
+    ("atomic/radio", "checkbox"),
+    ("list_panel", "list_item"),
+    ("sidebar_nav_list", "list_item"),
+    ("text_list_widget", "list_item"),
+    ("context_menu", "menu"),
+    ("menustrip", "menu"),
+    ("base_flyout", "flyout"),
+    ("simple_options_flyout", "flyout"),
+    ("toast", "toast"),
+    ("timeline_widget", "timeline"),
+    ("calendar_widget", "calendar"),
+    ("custom_title_bar", "titlebar"),
+    ("window_controls", "titlebar"),
+    ("dialogs/", "dialog"),
+    ("progress_bar", "progress"),
+    ("text/", "label"),
+)
+
+#: Token roots every family may read: shared chrome rather than one family's
+#: private palette. Matched on the key's first dotted segment, so ``separator``
+#: covers ``separator.color``.
+NEUTRAL_TOKENS: frozenset[str] = frozenset(
+    {"accent", "link", "separator", "shadow", "surface"}
+)
+
+#: Qt's own palette roles, resolved through ``ThemeManager`` like a token: no
+#: family owns them.
+QT_PALETTE_ROLES: frozenset[str] = frozenset(
+    {
+        "AlternateBase",
+        "Base",
+        "BrightText",
+        "Button",
+        "ButtonText",
+        "Highlight",
+        "HighlightedText",
+        "Text",
+        "ToolTipBase",
+        "ToolTipText",
+        "Window",
+        "WindowText",
+    }
+)
+
+#: Pseudo-family for the tokens every family may read (see ``NEUTRAL_TOKENS``).
+NEUTRAL_FAMILY = "neutral"
+
+#: Palette key root -> family that owns it. Roots absent here (``help``,
+#: ``tooltip``, ``chat_panel`` …) belong to a panel or router no widget family
+#: claims, so they are not judged. ``color_dialog`` is the dialog family's
+#: variant prefix, not a family of its own.
+TOKEN_OWNERS: dict[str, str] = {
+    "button": "button",
+    "calendar": "calendar",
+    "checkbox": "checkbox",
+    "color_dialog": "dialog",
+    "dialog": "dialog",
+    "flyout": "flyout",
+    "input": "input",
+    "label": "label",
+    "list_item": "list_item",
+    "menu": "menu",
+    "progress": "progress",
+    "slider": "slider",
+    "switch": "switch",
+    "timeline": "timeline",
+    "titlebar": "titlebar",
+    "toast": "toast",
+}
+
+#: ``# token-family: <name>`` — a file's declaration of the family it paints
+#: for, when the path map cannot see it (a helper shared by one family, a host
+#: layout of its own).
+_TOKEN_FAMILY_COMMENT = re.compile(r"#\s*token-family:\s*([A-Za-z][\w-]*)")
+
+#: A name ending in ``prefix`` bound to a literal (``prefix = "button.primary"``,
+#: ``token_prefix="button.warning"``) is what an f-string token is built from.
+_PREFIX_SUFFIX = "prefix"
 
 #: File basenames that own colours by definition: a palette module is *made* of
 #: module-scope ``QColor`` constants, so ``qcolor-at-import`` cannot tell it
@@ -605,6 +704,263 @@ def check_silent_swallow(
     return sorted(findings)
 
 
+def token_ownership_family(path: str, source: str = "") -> str | None:
+    """The widget family *path*'s file paints for, or ``None``.
+
+    ``source`` is read only for the ``# token-family: <name>`` declaration,
+    which wins over the path map: a helper that serves one family (or a host
+    layout the map does not know) states its ownership instead of borrowing.
+    """
+    declared = _declared_family(source)
+    if declared:
+        return declared
+    normalised = path.replace("\\", "/")
+    for fragment, family in TOKEN_FAMILIES:
+        if fragment in normalised:
+            return family
+    return None
+
+
+def _declared_family(source: str) -> str | None:
+    """``# token-family: <name>`` from a real comment (never a string literal)."""
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        for token in tokens:
+            if token.type == tokenize.COMMENT:
+                found = _TOKEN_FAMILY_COMMENT.search(token.string)
+                if found:
+                    return found.group(1)
+    except (tokenize.TokenError, IndentationError):
+        found = _TOKEN_FAMILY_COMMENT.search(source)
+        if found:
+            return found.group(1)
+    return None
+
+
+def _token_root(token: str) -> str | None:
+    """First dotted segment of a palette key, or ``None`` for a non-token string.
+
+    Prose, paths, QSS text and sentences all contain dots; a palette key does
+    not contain whitespace and its root is a bare identifier.
+    """
+    if "." not in token or any(character.isspace() for character in token):
+        return None
+    root = token.split(".", 1)[0]
+    if not root or not (root[0].isalpha() or root[0] == "_"):
+        return None
+    return root
+
+
+def _token_family(token: str) -> str | None:
+    """Owning family of a palette key; ``NEUTRAL_FAMILY`` for shared tokens."""
+    root = _token_root(token)
+    if root is None:
+        return None
+    if root in NEUTRAL_TOKENS or root in QT_PALETTE_ROLES:
+        return NEUTRAL_FAMILY
+    return TOKEN_OWNERS.get(root)
+
+
+def _ownership_hint(family: str | None) -> str:
+    if family is None:
+        return "this file declares no family"
+    return f"this file paints the {family} family"
+
+
+def _fstring_prefix(node: ast.JoinedStr) -> ast.expr | None:
+    """The leading ``{...}`` expression when *node* has the shape of a token key.
+
+    ``f"{prefix}.background.hover"`` is a palette key built at runtime;
+    ``f"{name}.emit(...) is blocked`` is prose. Only the first case is judged:
+    a formatted value followed immediately by ``"."" and a whitespace-free
+    literal tail.
+    """
+    values = node.values
+    if len(values) < 2:
+        return None
+    head, tail = values[0], values[1]
+    if not isinstance(head, ast.FormattedValue):
+        return None
+    if not isinstance(tail, ast.Constant) or not isinstance(tail.value, str):
+        return None
+    if not tail.value.startswith(".") or len(tail.value) < 2:
+        return None
+    literal = "".join(
+        value.value
+        for value in values
+        if isinstance(value, ast.Constant) and isinstance(value.value, str)
+    )
+    if any(character.isspace() for character in literal):
+        return None
+    return head.value
+
+
+def _prefix_key(target: ast.expr) -> str | None:
+    name: str | None = None
+    if isinstance(target, ast.Name):
+        name = target.id
+    elif isinstance(target, ast.Attribute):
+        name = target.attr
+    if name is None or name.rsplit("_", 1)[-1] != _PREFIX_SUFFIX:
+        return None
+    return name
+
+
+class _TokenOwnershipVisitor(ast.NodeVisitor):
+    """Report palette keys a file reads outside its own family.
+
+    Ownership is per file: the path map (or a ``# token-family:`` comment)
+    names the family the file paints for, and a literal from any other family
+    is a borrow. Three shapes: a literal key, an f-string key whose prefix
+    variable has a literal assignment (judged like a literal), and an f-string
+    whose prefix cannot be resolved (reported, not guessed).
+    """
+
+    def __init__(self, path: str, source: str) -> None:
+        self.path = path
+        self.family = token_ownership_family(path, source)
+        self.prefixes: dict[str, str] = {}
+        self.findings: list[Finding] = []
+        # Palette modules are *made* of every family's keys; the same basename
+        # exemption ``qcolor-at-import`` uses.
+        self.exempt = is_qcolor_exempt(path)
+
+    def collect_prefixes(self, tree: ast.Module) -> None:
+        for node in ast.walk(tree):
+            pairs: list[tuple[ast.expr, ast.expr]] = []
+            if isinstance(node, ast.Assign):
+                pairs = [(target, node.value) for target in node.targets]
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                pairs = [(node.target, node.value)]
+            for target, value in pairs:
+                if not isinstance(value, ast.Constant) or not isinstance(
+                    value.value, str
+                ):
+                    continue
+                key = _prefix_key(target)
+                if key is not None:
+                    self.prefixes.setdefault(key, value.value)
+
+    def _resolve(self, node: ast.expr) -> str | None:
+        candidates = [ast.unparse(node)]
+        if isinstance(node, ast.Name):
+            candidates.append(node.id)
+        elif isinstance(node, ast.Attribute):
+            candidates.append(node.attr)
+        for candidate in candidates:
+            if candidate in self.prefixes:
+                return self.prefixes[candidate]
+        return None
+
+    def _borrow_message(self, owner: str, key: str) -> str:
+        remedy = (
+            "read a neutral token"
+            if self.family is None
+            else f"read a {self.family} or neutral token"
+        )
+        return (
+            f"{key} is a {owner} token, but {_ownership_hint(self.family)} — "
+            f"{remedy}, or declare \"# token-family: {owner}\" when this file "
+            "serves that family"
+        )
+
+    def visit_Constant(self, node: ast.Constant) -> None:
+        if self.exempt or not isinstance(node.value, str):
+            return
+        owner = _token_family(node.value)
+        if owner is None or owner == NEUTRAL_FAMILY or owner == self.family:
+            return
+        self.findings.append(
+            Finding(
+                RULE_TOKEN_OWNERSHIP,
+                self.path,
+                node.lineno,
+                self._borrow_message(owner, f'"{node.value}"'),
+            )
+        )
+
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> None:
+        if self.exempt:
+            return
+        prefix = _fstring_prefix(node)
+        if prefix is not None:
+            text = ast.unparse(node)
+            variable = ast.unparse(prefix)
+            resolved = self._resolve(prefix)
+            if resolved is None:
+                self.findings.append(
+                    Finding(
+                        RULE_TOKEN_OWNERSHIP_UNRESOLVED,
+                        self.path,
+                        node.lineno,
+                        f"{text} builds a palette key from {variable!r}, which "
+                        "has no literal prefix assignment here — bind "
+                        f'{variable} = "<family>.<variant>" so the family is '
+                        "checkable",
+                    )
+                )
+            else:
+                owner = _token_family(resolved)
+                if (
+                    owner is not None
+                    and owner != NEUTRAL_FAMILY
+                    and owner != self.family
+                ):
+                    self.findings.append(
+                        Finding(
+                            RULE_TOKEN_OWNERSHIP_DYNAMIC,
+                            self.path,
+                            node.lineno,
+                            f"{text} reads the {owner} family through {variable!r} "
+                            f"({resolved!r}), but {_ownership_hint(self.family)} "
+                            "— give the file its own family prefix",
+                        )
+                    )
+        self.generic_visit(node)
+
+
+def _token_ownership_findings(
+    tree: ast.Module, source: str, path: str
+) -> list[Finding]:
+    visitor = _TokenOwnershipVisitor(path, source)
+    visitor.collect_prefixes(tree)
+    visitor.visit(tree)
+    return visitor.findings
+
+
+def check_token_ownership(
+    tree: ast.Module, source: str, path: str = "<memory>"
+) -> list[Finding]:
+    """``token-ownership``: a literal palette key from another family."""
+    return sorted(
+        finding
+        for finding in _token_ownership_findings(tree, source, path)
+        if finding.rule == RULE_TOKEN_OWNERSHIP
+    )
+
+
+def check_token_ownership_dynamic(
+    tree: ast.Module, source: str, path: str = "<memory>"
+) -> list[Finding]:
+    """``token-ownership-dynamic``: an f-string key built on another family."""
+    return sorted(
+        finding
+        for finding in _token_ownership_findings(tree, source, path)
+        if finding.rule == RULE_TOKEN_OWNERSHIP_DYNAMIC
+    )
+
+
+def check_token_ownership_unresolved(
+    tree: ast.Module, source: str, path: str = "<memory>"
+) -> list[Finding]:
+    """``token-ownership-unresolved``: an f-string token key with no known prefix."""
+    return sorted(
+        finding
+        for finding in _token_ownership_findings(tree, source, path)
+        if finding.rule == RULE_TOKEN_OWNERSHIP_UNRESOLVED
+    )
+
+
 #: Rule registry, in the CLI/`--rule` order.
 RULES: dict[str, Rule] = {
     RULE_TOOLKIT_QSS: check_toolkit_qss,
@@ -613,21 +969,36 @@ RULES: dict[str, Rule] = {
     RULE_QCOLOR_AT_IMPORT: check_qcolor_at_import,
     RULE_EMPTY_STYLESHEET: check_empty_stylesheet,
     RULE_SILENT_SWALLOW: check_silent_swallow,
+    RULE_TOKEN_OWNERSHIP: check_token_ownership,
+    RULE_TOKEN_OWNERSHIP_DYNAMIC: check_token_ownership_dynamic,
+    RULE_TOKEN_OWNERSHIP_UNRESOLVED: check_token_ownership_unresolved,
 }
 
 __all__ = [
+    "NEUTRAL_FAMILY",
+    "NEUTRAL_TOKENS",
+    "QT_PALETTE_ROLES",
     "RULE_DOUBLE_SCALED_PX",
     "RULE_EMPTY_STYLESHEET",
     "RULE_QCOLOR_AT_IMPORT",
     "RULE_RAW_CHROME_PX",
     "RULE_SILENT_SWALLOW",
+    "RULE_TOKEN_OWNERSHIP",
+    "RULE_TOKEN_OWNERSHIP_DYNAMIC",
+    "RULE_TOKEN_OWNERSHIP_UNRESOLVED",
     "RULE_TOOLKIT_QSS",
     "RULES",
     "Rule",
+    "TOKEN_FAMILIES",
+    "TOKEN_OWNERS",
     "check_double_scaled_px",
     "check_empty_stylesheet",
     "check_qcolor_at_import",
     "check_raw_chrome_px",
     "check_silent_swallow",
+    "check_token_ownership",
+    "check_token_ownership_dynamic",
+    "check_token_ownership_unresolved",
     "check_toolkit_qss",
+    "token_ownership_family",
 ]
