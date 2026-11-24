@@ -986,12 +986,12 @@ respect padding). Do **not** marquee composite status lines such as
 ``"just now · Image Compare"`` — put the overflowing label on its own row
 instead. Short text is unchanged (no animation).
 
-For ``QLabel`` / toolkit ``Label`` use the same helper:
+For ``QLabel`` / toolkit ``Text`` (plain mode) use the same helper:
 
 ```python
-from sli_ui_toolkit.widgets import Label, apply_marquee
+from sli_ui_toolkit.widgets import Text, apply_marquee
 
-Label("Long title…", marquee=True, elide=False)
+Text("Long title…", marquee=True, elide=False)
 # or later:
 apply_marquee(any_qlabel)
 ```
@@ -1113,7 +1113,7 @@ row = QWidget()
 lay = QHBoxLayout(row)
 lay.setContentsMargins(0, 0, 0, 0)
 lay.setSpacing(6)
-lay.addWidget(Label('path', pixel_size=13, bold=True))
+lay.addWidget(Text('path', pixel_size=13, bold=True))
 button = Button(
     rows=[ButtonRow(text='/long/path/to/file.py:42', size=None, ratio=1.0, marquee=True)],
     variant='surface',

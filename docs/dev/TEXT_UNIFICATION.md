@@ -1,6 +1,9 @@
 # Text Unification — one display widget (plan)
 
-Status: in progress — P1-P2 landed, P3 caller waves running (see Progress log).
+Status: **shipped in 4.0.0** — P1-P4 landed (wave C deleted `TextView`,
+`HelpDocumentView` and the exported `Label`/`LabelConfig`; see `CHANGELOG.md`
+`## 4.0.0`). `Text` is the only display widget; this page is kept as the design
+record. Where it disagrees with `ui/widgets/text/text.py`, the code wins.
 Target: a single painted text display widget, designed
 like `Button` (one class + configuration, no subclasses). Inputs
 (`CustomLineEdit` and everything built on it) are a different category
@@ -22,6 +25,11 @@ canvas can shrink to static; a native `QLabel` cannot grow editing,
 IME, or custom selection — the reverse migration is impossible).
 `Label` and `HelpDocument*` become migration sources, then get
 deleted. Where behaviors diverge, exactly one variant is kept (§6).
+
+**Superseded in wave C:** `TextView` was deleted too — `Text`'s painted engine
+(`mode="document"` / `mode="code"`) absorbed it, and `Label` survives only as
+the internal base of `DropZoneLabel` plus the three named gaps in
+`docs/user/LABELS_API.md`.
 
 ## 1. Single class + configuration (Button §1 mirror)
 
@@ -45,17 +53,17 @@ Configurable per instance — three channels like `Button`
 
 | Channel | Shape |
 |---|---|
-| Flat kwargs | `text/mode/formatting/editable/selectable/variant/...` (below) |
+| Flat kwargs | `text/mode/editable/selectable/variant/...` (`Text.__init__`, `ui/widgets/text/text.py:136-167`) |
 | `config=` | frozen `TextConfig` with `to_kwargs()` (mirrors `ButtonConfig`, `specs.py:141-197`; `Label` already has this shape as `LabelConfig`) |
-| Modes, not subclasses | `mode="plain"` (static, `Label` parity) / `"document"` (markdown) / `"code"` (editable buffer). Micro-settings, not classes: `formatting=True/False`, `editable`, `selectable`, `word_wrap`, `elide`, `marquee`, `line_numbers`, `resolve_asset`, `show_toc=False` (TOC stays a separate list widget composed by hosts — as `ButtonFamily` composes buttons instead of absorbing them, `family.py`) |
+| Modes, not subclasses | `mode="plain"` (static, `Label` parity) / `"document"` (markdown) / `"code"` (editable buffer). Micro-settings, not classes: `editable`, `selectable`, `word_wrap`, `elide`, `marquee`, `resolve_asset`, `open_external_links`, `text_key` (`Text.__init__`, `ui/widgets/text/text.py:136-167`). **Not implemented** as constructor options, though this plan proposed them: `formatting` (document mode always renders inline markdown formatting), `line_numbers` (code mode paints the line-number gutter; the host sets the first number with `Text.set_line_number_start(n)` / `Text.canvas().set_line_number_map(...)`, `ui/widgets/text/text.py:570-583`) and `show_toc` (TOC is a separate list widget composed by hosts — `Text` has no `show_toc` option) |
 
 Constructor sketch:
 
 ```python
 Text("Caption", mode="plain", variant="body", pixel_size=16, elide=True)
-Text(md, mode="document", formatting=True, selectable=True,
-     resolve_asset=..., alignment="left")
-Text(code, mode="code", editable=True, line_numbers=True)
+Text(md, mode="document", selectable=True, resolve_asset=...,
+     alignment=Qt.AlignLeft)                      # document formatting is always on
+Text(code, mode="code", editable=True)            # gutter on; see set_line_number_start
 Text("x", config=TextConfig(mode="plain", variant="body", ...))
 ```
 
@@ -184,6 +192,10 @@ rate-limited.
 - Document-surface slice (P3 tail) still open: `Text(mode="document")` hosts the
   engine but does not yet offer the HelpDocumentView-only surface (TOC, lightbox,
   scroll_to_text/scroll_to_anchor), so those callers stay on the old class.
+  **Resolved by wave C:** `Text.scroll_to_text` (`ui/widgets/text/text.py:647`)
+  and `Text.anchor_y` (`:550`) exist, `TextScrollArea.scroll_to_anchor`
+  (`composite/text_scroll.py:143`) hosts the scroll jump, TOC/lightbox compose in
+  the host, and `HelpDocumentView` is gone.
 
 ## Open points (decided at P0 review, not later)
 

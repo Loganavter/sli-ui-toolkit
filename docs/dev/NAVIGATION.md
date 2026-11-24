@@ -165,7 +165,7 @@ bind_flyout(btn, flyout, side="above")               # just side routing
 bind_auto_preview(btn, flyout, side="above")         # + hover/focus/Enter/Esc auto
 ```
 
-`BaseFlyout` reads `_nav_side`, `_nearest_focus`, `_nav_exit` (`lifecycle.py:270`, `widget.py:324`). `bind_flyout` sets `NavigationManager._flyout_side` + `FlyoutManager.link`; `bind_auto_preview` installs a single `eventFilter` on the anchor for preview (hover→`grab=False`, Enter/click→`grab=True`).
+`NavigationManager` reads the class attribute `_nav_side` (`ui/managers/navigation_manager.py:638`); `BaseFlyout` reads `_nearest_focus` (`ui/widgets/composite/base_flyout/lifecycle.py:465`) and `_nav_exit` (`ui/widgets/composite/base_flyout/widget.py:415`). `bind_flyout` sets `NavigationManager._flyout_side` + `FlyoutManager.link`; `bind_auto_preview` installs a single `eventFilter` on the anchor for preview (hover→`grab=False`, Enter/click→`grab=True`).
 
 ### (E) Any container — zero-config rows
 
@@ -179,7 +179,7 @@ auto_navigation(calendar_widget)  # finds StrongFocus, clusters by y into rows, 
 declare_navigation_rows(owner, [row1, row2, row3], tag="my-panel")
 ```
 
-Replaces `calendar_manager`/`checkbox_manager` — one generic `AutoNavigationSection` (`navigation_sections.py:413`) instead of 100 managers. For `IconList` use `IconListNavSection` directly.
+Replaces `calendar_manager`/`checkbox_manager` — one generic `AutoNavigationSection` (`ui/managers/navigation_sections.py:548`) instead of 100 managers. For `IconList` use `IconListNavSection` directly.
 
 ## 3. Contract test: `assert_yields_arrows_when_idle`
 

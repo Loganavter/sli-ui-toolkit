@@ -243,7 +243,7 @@ install_translator(tab, tab_tr, events=tab_events)
 Every descendant implementing `set_translator(...)` / `retranslate(lang)`
 (current and future) then re-renders on `language_changed`. Widgets carry keys
 directly — `Button(text_key=..., badge_key=...)`, `ButtonRow(text_key=...)`,
-`Label(text_key=...)`, `ContextMenuAction(text_key=..., tooltip_key=...)` — and
+`Text(text_key=...)`, `ContextMenuAction(text_key=..., tooltip_key=...)` — and
 a lookup miss paints the **key** so a translation gap is visible, never silent
 English. `bind_translator(widget, tr)` binds a single widget, and
 `translator_for(widget)` reads the governing translator (nearest bound
