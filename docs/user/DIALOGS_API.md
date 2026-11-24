@@ -10,6 +10,9 @@ viewers.
 | `IconListWidget` / `IconListItem` | Icon-based navigation list for sidebar shells. Selected icons support `selected_icon_mode="invert"` (default color inversion) or `"replace"` with `selected_icon=` / `(normal_icon, selected_icon)` pairs. |
 | `MarkdownHelpDialog` / `MarkdownHelpSection` | Painted markdown help dialog: markdown is parsed by the toolkit text view (document mode) and rendered through the painter pipeline — no `QTextBrowser`/HTML. Anchors, TOC, `help://slug#anchor` navigation, and an optional `resolve_asset` for inline images. |
 | `Text` (`mode="document"`) + host chrome | A help page: the painted document body. The TOC list, the image lightbox and the search box compose in the HOST (`Text` emits `linkActivated`/`imageActivated`); see [LABELS_API.md](LABELS_API.md) and [API_CATALOG.md](API_CATALOG.md). `HelpDocumentView` was deleted in text-unification wave C. |
+| `MessageDialog` / `MessageResult` | Painted message/confirm dialog — the `QMessageBox` replacement. Selectable body, optional "don't show again" box, `information`/`warning`/`critical`/`question` conveniences. |
+| `TextInputDialog` | Single-line prompt on `CustomLineEdit` — the `QInputDialog.getText` replacement: `(text, ok)`, validator gate, Enter/Escape. |
+| `DialogActionBar` | One primary (+optional secondary) button row with `accepted`/`rejected`; shared by both dialogs, usable standalone. |
 
 `TopTabBar` / `TopTabHost` are also frequently used inside dialog content —
 see [TABS_API.md](TABS_API.md).
@@ -114,5 +117,66 @@ contract is deliberate (the widget never scrolls itself).
 icon on selection; `"replace"` swaps in `selected_icon=` /
 `(normal_icon, selected_icon)` pairs instead — the same knob referenced in
 the table row above.
+
+### Message, confirm and text-input dialogs
+
+`MessageDialog` and `TextInputDialog` are `BaseDialog` subclasses, so they
+inherit the painted `dialog.background` surface, size grip and normal window
+flags. Apply the host's frameless/CSD decorator outside the dialog, like for
+any other `BaseDialog` — the toolkit does not decide chrome. Both are
+standalone painted widgets: no QSS, no `QMessageBox`/`QInputDialog`/
+`QLineEdit`.
+
+```python
+from sli_ui_toolkit.widgets import MessageDialog, TextInputDialog
+
+# Confirm / acknowledge; returns (ok, checked)
+result = MessageDialog.show_message(
+    window,
+    "Delete preset",
+    "The preset and its thumbnails will be removed.",
+    kind="warning",
+    checkbox_text="Don't ask again",
+    ok_text="Delete",
+    cancel_text="Cancel",
+    default="cancel",
+    destructive=True,
+)
+if result.ok:
+    ...
+if result.checked:
+    settings.ask_before_delete = False
+
+# One-button acknowledgement (no cancel_text)
+MessageDialog.information(window, "Saved", "The export finished.")
+
+# Question -> bool
+if MessageDialog.question(window, "Overwrite?", "The file already exists."):
+    ...
+
+# Text prompt -> (text, ok), QInputDialog.getText's shape
+text, ok = TextInputDialog.get_text(
+    window,
+    "Rename",
+    "New name:",
+    current_name,
+    placeholder="Untitled",
+    validator=None,          # any QValidator: invalid input keeps the dialog open
+)
+```
+
+- Body text is `Text(mode="plain", selectable=True, word_wrap=True)`.
+- Escape rejects; Enter activates the `default` button (`"ok"`/`"cancel"`).
+  The text field accepts Enter itself and forwards it through the same
+  validator gate.
+- `cancel_text=None` in `show_message` builds a one-button acknowledgement;
+  `question(...)` supplies `"Cancel"` unless the host passes a label.
+- `destructive=True` seeds the primary button with the palette's error colour
+  (`progress.error`); the palette has no dedicated button-danger token.
+- `DialogActionBar(parent=None, *, primary_text, secondary_text=None,
+  primary_min_size=(100, 36), secondary_min_size=(100, 36),
+  destructive=False)` exposes `.primary`/`.secondary` and the
+  `accepted`/`rejected` signals — use it directly for a host-built dialog
+  that wants the same row.
 
 See also [API_CATALOG.md](API_CATALOG.md) for the full widget index.
