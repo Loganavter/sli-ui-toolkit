@@ -4,6 +4,36 @@
 
 ### Added
 
+- **`MenuStrip` — the title-bar menu row every host was writing by hand.** The toolkit documented that it "does not
+  know about menus", so BlinkTable grew `csd_menu_strip.py` (~640 LOC) plus its presenter (~1179 LOC) to get File/Help
+  triggers whose dropdowns carry a label, a right-aligned shortcut and disabled/danger rows. All of that already exists
+  in the toolkit: `ContextMenu` with sections, separators, checkable/danger rows, shortcuts and submenus. The new
+  `sli_ui_toolkit.widgets.MenuStrip` is the missing row: `MenuStrip(parent, *, surface="in_window")` builds one ghost
+  `Button` per host-supplied menu and opens that menu's `ContextMenu` anchored bottom-left-to-top-left under its own
+  trigger through the in-window overlay. Entries are the EXISTING `ContextMenuEntry` models — no second menu model —
+  so `ContextMenuAction(text_key/shortcut/checked/enabled/danger/children)`, `ContextMenuSeparator` and
+  `ContextMenuSection` work unchanged. API: `add_menu(title, entries, *, text_key, icon, tooltip, enabled,
+  on_triggered)`, `set_menus(MenuStripMenu | (title, entries))`, `menu_titles()`, `menu_count()`,
+  `reveal(action_id, *, pulse=True)`, `close_menu()`, `current_menu()`, `clear()`, `navigation_section(tag=...)`, plus
+  the `actionTriggered(str, object)` signal. Only one dropdown is open at a time; clicking the same trigger again, Esc
+  or an outside click closes it (the last two via `ContextMenu`/`FlyoutManager`; the trigger honours the manager's
+  `_suppress_next_context_menu` handshake so a second click toggles instead of close-then-reopen).
+  `navigation_section()` returns a `ToolbarRowsSection` over the triggers for the host to register — the strip never
+  registers globally. Left/Right walk triggers, Down/Enter open, Esc closes; Down is handled on the trigger itself, so
+  it works with and without a host-registered section (the section's synthetic-key trial dispatch reaches the same
+  handler). `reveal` opens the owning menu for a command-palette/shortcut pointer and returns the row; the row now has
+  `ContextMenuRow.pulse()` (a transient hover-background flash with a row-parented timer) for that cue. Titles accept a
+  `text_key`, and `retranslate` re-resolves titles plus the open menu's keyed rows (the dropdown is reparented into the
+  window overlay, so the strip hands its translator over explicitly instead of relying on the parent walk). No QSS, no
+  host strings: the trigger look is the ghost title-bar convention, painted by the button pipeline.
+  `docs/user/CONTEXT_MENU_API.md` (new MenuStrip section), `docs/user/WINDOW_CHROME_API.md` (the "toolkit does not know
+  about menus" claim and the hand-written leading-widget example) and `docs/user/API_CATALOG.md` updated. Tests:
+  `tests/test_menustrip.py` (24 — titles, `set_menus` forms, rows with shortcut/disabled/danger, separators and section
+  titles, submenu branch, one-open-at-a-time, trigger toggle, outside click, action signal + per-menu callback, reveal
+  incl. unknown/submenu child/switching menus, pulse decay, Left/Right via `NavigationManager`, Down/Esc with and
+  without a section, Enter, empty strip, clear, translation keys for titles and rows, invalid surface), red-before: the
+  module and the `widgets` exports do not exist on the base tree, so the file fails at import.
+
 - **`ProgressBar` — the standalone painted progress bar both hosts were hand-painting.** BlinkTable subclassed
   `QProgressBar` and repainted it in an export dialog; REAL-Video-Enhancer draws a thin bar inside a list-row painter.
   The toolkit only had `ToastProgressBar` (toast-only, token names as constructor arguments). The new

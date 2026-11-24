@@ -4,9 +4,12 @@ Composable client-side window decorations: title bar zones, Button and flyout
 anchors, and a one-call `WindowChrome.install` helper for dialogs.
 
 The title bar is a **generic shell**: it hosts whatever leading-zone widget the
-host app injects. The toolkit does not know about menus — the app owns its
-title-bar content (File/Help triggers and how their dropdowns open) and decides
-popup vs in-window per menu.
+host app injects. The toolkit ships `MenuStrip` for File/Help-style menus — the
+host supplies the titles and the `ContextMenuEntry` models, the strip owns the
+triggers and opens each dropdown in the in-window surface under its trigger
+(see
+[CONTEXT_MENU_API.md](CONTEXT_MENU_API.md#menustrip--title-bar-menu-triggers)).
+Which menus exist and what their actions do stays the host's.
 
 For bootstrap imports:
 
@@ -19,6 +22,7 @@ from sli_ui_toolkit import (
     WindowControlsConfig,
     decorate_dialog,
 )
+from sli_ui_toolkit.widgets import MenuStrip
 ```
 
 ---
@@ -36,25 +40,30 @@ bar.set_title("Updated title")
 
 ### Main window (IDE-style shell)
 
-The app builds its own leading content (e.g. File/Help trigger buttons that
-open its own menus) and injects it into the generic title bar:
+The app builds its own leading content and injects it into the generic title
+bar. A menu strip is the common case:
 
 ```python
-from PySide6.QtWidgets import QHBoxLayout, QWidget
 from sli_ui_toolkit import TitleBarPresets
-from sli_ui_toolkit.ui.widgets.buttons import Button
+from sli_ui_toolkit.widgets import ContextMenuAction, MenuStrip
 
 def build_menus(parent):
-    strip = QWidget(parent)
-    layout = QHBoxLayout(strip)
-    layout.addWidget(Button("File", variant="ghost", size=(64, 24), parent=strip))
-    layout.addWidget(Button("Help", variant="ghost", size=(64, 24), parent=strip))
-    # …wire each trigger to open the app's own menu (popup or in-window)…
+    strip = MenuStrip(parent)
+    strip.add_menu("File", (
+        ContextMenuAction("file.new", "New", shortcut="Ctrl+N"),
+        ContextMenuAction("file.quit", "Quit", danger=True),
+    ))
+    strip.add_menu("Help", (ContextMenuAction("help.about", "About"),))
+    strip.actionTriggered.connect(parent.dispatch_menu_action)
+    navigation_manager.register(parent, strip.navigation_section())
     return strip
 
 bar = TitleBarPresets.app_shell("Improve ImgSLI", leading=build_menus(main_window))
 bar.attach_window(main_window)
 ```
+
+`build_menus` may equally return any other `QWidget` — the title bar only needs
+something to host.
 
 ---
 
@@ -104,10 +113,15 @@ btn.clicked.connect(lambda: flyout.show_aligned(btn, anchor_point="bottom-center
 Flyouts use the host window overlay (`attach_in_window_widget`). Active flyouts
 close when the attached window moves or resizes (via `FlyoutManager`).
 
-For dropdown menus the app constructs a toolkit `ContextMenu` with an explicit
-surface (`surface="in_window"` for an in-window overlay below the title bar, or
-`surface="popup"` for a frameless Qt popup) and anchors it to the trigger with
-`show_aligned`. The toolkit `ContextMenu` defaults to the in-window surface.
+For a row of dropdown menus use `MenuStrip` (see
+[CONTEXT_MENU_API.md](CONTEXT_MENU_API.md#menustrip--title-bar-menu-triggers)):
+it builds the ghost trigger buttons and anchors each `ContextMenu` under its
+own trigger. A host
+that needs a single bespoke dropdown still constructs a toolkit `ContextMenu`
+with an explicit surface (`surface="in_window"` for an in-window overlay below
+the title bar, or `surface="popup"` for a frameless Qt popup) and anchors it to
+the trigger with `show_aligned`. The toolkit `ContextMenu` defaults to the
+in-window surface.
 
 ---
 

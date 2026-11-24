@@ -58,4 +58,50 @@ and the alternative; the menu still opens in the requested mode. Use
 BlinkTable `inv-2026-10-06-ql-rhi-menu-first`, REAL-Video-Enhancer commit
 `f471d71f` (its only `Qt.Popup` removed).
 
+## MenuStrip — title-bar menu triggers
+
+`MenuStrip` is the row of File/Help-style triggers a title bar hosts. Each
+trigger is a toolkit `Button` (`variant="ghost"`); each dropdown is a
+`ContextMenu` filled with the SAME `ContextMenuEntry` models documented above —
+actions, shortcuts, disabled/danger rows, separators, sections and submenus all
+work without a second menu model.
+
+```python
+from sli_ui_toolkit.widgets import ContextMenuAction, MenuStrip
+
+strip = MenuStrip(parent, surface="in_window")   # the default surface
+strip.add_menu("File", (
+    ContextMenuAction("file.new", "New", shortcut="Ctrl+N"),
+    ContextMenuAction("file.open", "Open…", shortcut="Ctrl+O"),
+    ContextMenuSeparator(),
+    ContextMenuAction("file.quit", "Quit", danger=True),
+))
+strip.add_menu("Help", (ContextMenuAction("help.about", "About"),))
+strip.actionTriggered.connect(dispatch)          # (action_id, data)
+title_bar.set_leading(strip)
+navigation_manager.register(window, strip.navigation_section())
+```
+
+| Method | Behaviour |
+|--------|-----------|
+| `MenuStrip(parent=None, *, surface="in_window", trigger_height=None)` | `surface` is passed to every dropdown (`"in_window"` or `"popup"`). |
+| `add_menu(title, entries, *, text_key=None, icon=None, tooltip="", enabled=True, on_triggered=None)` | One trigger + its entries. `text_key` wins over `title` and re-resolves on language change. |
+| `set_menus(menus)` | Replace all: `MenuStripMenu` items or `(title, entries)` pairs. |
+| `menu_titles()` / `menu_count()` | Trigger labels in strip order / trigger count. |
+| `reveal(action_id, *, pulse=True)` | Open the menu owning `action_id`, focus its row (pulsing it); returns that row, or `None` when the id is unknown or only inside a submenu. |
+| `close_menu()` / `current_menu()` | Close the dropdown / the visible `ContextMenu`, if any. |
+| `navigation_section(tag="menu-strip")` | A `ToolbarRowsSection` over the triggers for the host to register. Left/Right walk triggers, Down/Enter open, Esc closes. |
+| `clear()` | Drop every trigger. |
+
+The strip never registers itself globally and never opens on hover. Only one
+dropdown is open at a time; clicking the same trigger again, Esc, or an outside
+click closes it (the last two via `ContextMenu`/`FlyoutManager`). Translatable
+hosts bind a translator as usual (`bind_translator` / `install_translator`) and
+menu titles plus keyed rows follow `language_changed`.
+
+See also [WINDOW_CHROME_API.md](WINDOW_CHROME_API.md) for the title-bar zones a
+strip is normally placed in.
+
+---
+
 See also [API_CATALOG.md](API_CATALOG.md) for the full widget index.

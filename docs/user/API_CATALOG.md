@@ -283,6 +283,7 @@ constructor/builder API, and `defer_trigger` details:
 |------|-------------|
 | `ContextMenu` / `ContextMenuBuilder` / `ContextMenuAction` | Declarative right-click menus with a chainable builder. |
 | `popup_context_menu_for_anchor` / `show_context_menu` | Convenience popup helpers. |
+| `MenuStrip` / `MenuStripMenu` | Title-bar menu triggers over the same entries: each ghost `Button` opens its own `ContextMenu` below itself, one at a time, with a `ToolbarRowsSection` for host navigation. See [CONTEXT_MENU_API.md](CONTEXT_MENU_API.md#menustrip--title-bar-menu-triggers). |
 
 ### Labels
 

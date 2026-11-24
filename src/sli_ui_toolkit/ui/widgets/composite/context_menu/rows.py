@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
+from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
@@ -115,6 +115,7 @@ class _RowBgLayer(Layer):
         states = ctx.effective_states
         return (
             widget._submenu_open
+            or getattr(widget, "_pulse", False)
             or widget.isChecked()
             or ButtonState.HOVERED in states
             or ButtonState.PRESSED in states
@@ -292,6 +293,10 @@ class ContextMenuRow(Button):
         elif self._has_children:
             self._trailing_width = scaled_px(20)
         self._submenu_open = False
+        # Transient attention flash requested through ``pulse()`` (MenuStrip
+        # reveal). Painted by ``_RowBgLayer`` exactly like a hover background.
+        self._pulse = False
+        self._pulse_timer: QTimer | None = None
         self._has_text = bool(self._text)
         self.position = "only"
         self.action_id = action.action_id
@@ -348,6 +353,28 @@ class ContextMenuRow(Button):
                 self.action_id,
                 bool(is_open),
             )
+        self.update()
+
+    def pulse(self, duration_ms: int = 480) -> None:
+        """Flash the row's hover background once, then fade back.
+
+        The cue ``MenuStrip.reveal`` leaves on the row it points at; it never
+        changes the row's state, so a later click/Enter behaves normally. The
+        timer is parented to the row, so a menu closing mid-flash cannot leave
+        a callback on a dead widget.
+        """
+        self._pulse = True
+        self.update()
+        timer = self._pulse_timer
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._end_pulse)
+            self._pulse_timer = timer
+        timer.start(max(1, int(duration_ms)))
+
+    def _end_pulse(self) -> None:
+        self._pulse = False
         self.update()
 
     def enterEvent(self, event):  # noqa: N802 - Qt API
