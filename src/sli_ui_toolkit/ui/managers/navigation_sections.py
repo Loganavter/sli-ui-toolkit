@@ -312,7 +312,7 @@ class ToolbarRowsSection:
             return False
         if key == Qt.Key.Key_Up:
             # Симметрично Down — вход на сторону "above" (верхние панели
-            # PanelVisibility/ColorOptions, а также value-пилюля ScrollValueButton).
+            # PanelVisibility/ColorOptions, а также value-пилюля хостового контрола).
             from sli_ui_toolkit.managers import NavigationManager as _NMUp
 
             _ext_up = _NMUp.get_instance().extension_for(widget, "above")
@@ -337,8 +337,8 @@ class ToolbarRowsSection:
             if _ext_lr is not None and hasattr(_ext_lr, "focus_first_child"):
                 if _ext_lr.focus_first_child():
                     return True
-            # Scrollable controls (ScrollValueButton, Slider, SpinBox) handle
-            # Left/Right themselves to adjust value — don't steal focus.
+            # Scrollable value controls (a host value capsule, Slider, SpinBox)
+            # handle Left/Right themselves to adjust value — don't steal focus.
             # Same trial-dispatch as Up/Down above.
             if self._widget_handles(key, widget):
                 # Text-entry widgets accept Left/Right for caret movement — but

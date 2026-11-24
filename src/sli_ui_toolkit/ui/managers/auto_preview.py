@@ -1,7 +1,7 @@
 """Auto-preview wiring for anchor→flyout.
 
 One-line replacement for the 5× show_aligned boilerplate in every
-ColorSettingsButton / PanelVisibility / _ScrollValueFlyout anchor:
+ColorSettingsButton / PanelVisibility / a host value flyout anchor:
 
     bind_auto_preview(btn, flyout, side="above")
 

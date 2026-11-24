@@ -4,6 +4,19 @@
 
 ### Changed
 
+- **The flyout no longer knows a host application's class name, and a host control can declare itself a sibling.** Focus
+  restore special-cased the literal string `"ScrollValueButton"` next to the toolkit's own `Button` /
+  `InstancesCounterButton` — a host class named inside the shared library (AGENTS.md forbids host-specific logic,
+  ARCHITECTURE.md forbids app dependencies on the toolkit). The heuristic is now `isinstance` against the toolkit
+  `Button` (any subclass, host names irrelevant) plus an opt-in, duck-typed protocol for everything else: a control sets
+  `flyout_focus_sibling = True` (or a zero-arg method returning true) and `_restore_focus_policies` leaves focus where
+  navigation put it (module docstring of `ui/widgets/composite/base_flyout/lifecycle.py`,
+  `docs/user/FLYOUT_SYSTEM.md` § "Focus return: the flyout-sibling protocol"). The undocumented `ImageCompareWidget` /
+  `_ScrollValueFlyout` mentions in comments are generic wording now, and `tests/test_flyout_host_neutrality.py` gates the
+  whole `src/sli_ui_toolkit` tree against a deny-list of host class names (`ScrollValueButton`, `_ScrollValueFlyout`,
+  `AppMessageDialog`, `ImageCompare`) with a reason-required allowlist; red-before: the guard and both protocol tests
+  failed on the pre-change tree. Behaviour for every existing path is unchanged (the existing focus-restore and
+  switch-navigation suites stay green).
 - **The ComboBox list selects on mouse RELEASE, with the pointer's own motion — the "gear-shifter" drag is gone.** The
   old gesture was built around controlling the pointer: holding the field translated the POPUP under a stationary real
   cursor (blanked icon, `QCursor.setPos` on release), a fixed `_GearFrame` outline pinned to the field marked the row a

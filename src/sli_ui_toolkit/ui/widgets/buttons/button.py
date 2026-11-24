@@ -847,8 +847,9 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
         started idle. A host that swaps its layout under the pointer (e.g. a
         toolbar control that grows a value half on enter and rebuilds on every
         value change) then painted that half with the idle background/text
-        family — measured on ``ScrollValueButton``: the digit capsule resolved
-        only the base colour (``#f0f0f0``) on a hovered body (``#e6e6e6``).
+        family — measured on a host control's value capsule: the digit capsule
+        resolved only the base colour (``#f0f0f0``) on a hovered body
+        (``#e6e6e6``).
         State belongs to the control, not to the region id, so it is restored
         here instead of asking every host to re-assert it.
         """

@@ -4,6 +4,26 @@ Every flyout close funnels through :meth:`hide` (explicit
 ``start_closing_animation``, FlyoutManager passive dismiss / close_all, host
 calls), and every open through :meth:`show` / :meth:`raise_` — the manager
 registration stays in sync because these overrides notify it.
+
+The flyout-sibling protocol
+---------------------------
+A hide must not drag the keyboard back to its anchor when navigation has
+just moved focus somewhere *on purpose* — a control that opens its own
+flyout, a segmented counter the arrow keys step through. The toolkit knows
+its own ``Button`` subclasses by type, and cannot know host classes at all
+(AGENTS.md: no host-specific logic here), so a host control declares itself:
+
+    class HostValueCapsule(QWidget):
+        flyout_focus_sibling = True          # plain attribute, or
+
+        def flyout_focus_sibling(self) -> bool:   # zero-arg method
+            return True
+
+``_restore_focus_policies`` then treats that widget as a deliberate sibling
+and leaves focus where it is. The declaration is duck-typed and opt-in: a
+widget without it (or whose declaration raises / returns a false value) is
+restored to the anchor exactly as before. Toolkit ``Button`` subclasses —
+whatever a host calls them — are recognised automatically via ``isinstance``.
 """
 
 from __future__ import annotations
@@ -44,6 +64,44 @@ def _is_flyout_widget(widget: QWidget | None) -> bool:
     except Exception:
         pass
     return hasattr(widget, "flyout_manager") and hasattr(widget, "_focus_guard_installed")
+
+
+def _is_toolkit_button(widget: QWidget | None) -> bool:
+    """True when *widget* is a toolkit ``Button`` (or a subclass of one).
+
+    Lazy import: ``buttons/button.py`` pulls in theme/style modules that
+    import this package, so the mixin module must not import it eagerly.
+    A host control that derives from ``Button`` counts — the type is what
+    makes it a toolbar sibling, not the class name a host gave it.
+    """
+    if widget is None:
+        return False
+    try:
+        from sli_ui_toolkit.ui.widgets.buttons.button import Button
+    except Exception:
+        return False
+    return isinstance(widget, Button)
+
+
+def _is_declared_flyout_sibling(widget: QWidget | None) -> bool:
+    """True when *widget* opts into the flyout-sibling protocol.
+
+    The declaration is ``flyout_focus_sibling`` — a truthy attribute or a
+    zero-arg method returning a truthy value (see the module docstring for
+    the host-facing contract). Duck-typed on purpose: the toolkit must not
+    know host classes, and a host must not have to import a marker class to
+    keep the keyboard. A declaration that raises is read as "no": the guard
+    fails towards restoring focus, never towards silently dropping it.
+    """
+    if widget is None:
+        return False
+    try:
+        declared = getattr(widget, "flyout_focus_sibling", False)
+        if callable(declared):
+            return bool(declared())
+        return bool(declared)
+    except Exception:
+        return False
 
 
 def should_restore_host_focus(window, *, window_active_on_show: bool) -> bool:
@@ -557,7 +615,7 @@ class _FlyoutLifecycleApi:
             and _is_alive_and_enabled(actual_before)
         ):
             # Never steal focus back from ANOTHER flyout that navigation just
-            # entered: e.g. a ScrollValueButton's value pill opened with Up,
+            # entered: e.g. a host value capsule's pill opened with Up,
             # after the anchor's FocusOut hid a focus-shown sibling panel
             # (magnifier settings). That hide is a *consequence* of the focus
             # move, not a reason to undo it — without this the panel's
@@ -568,6 +626,17 @@ class _FlyoutLifecycleApi:
             if _is_flyout_widget(actual_before):
                 _flyout_debug(
                     "[flyout-nav] _restore_focus_policies: skip — focus already on flyout %s",
+                    type(actual_before).__name__,
+                )
+                return
+            # A host control that declared itself a flyout sibling keeps the
+            # keyboard: navigation put focus there on purpose, exactly like
+            # the flyout case above. The toolkit cannot know host class
+            # names, so the control opts in itself (the module docstring
+            # carries the contract).
+            if _is_declared_flyout_sibling(actual_before):
+                _flyout_debug(
+                    "[flyout-nav] _restore_focus_policies: skip — focus already on declared sibling %s",
                     type(actual_before).__name__,
                 )
                 return
@@ -592,8 +661,8 @@ class _FlyoutLifecycleApi:
                 if _before_owns_same:
                     _flyout_debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s (same section)", type(actual_before).__name__)
                     return
-                # Если оба не в одной секции, но actual_before — живой тулбар-кнопка,
-                # всё равно считаем намеренным только если обе в ImageCompareWidget
+                # Если оба не в одной секции, но actual_before — живой тулбар-виджет,
+                # всё равно считаем намеренным только если обе в одном окне
                 # (иначе CSD — не сиблинг, надо восстанавливать)
                 if isinstance(actual_before, QWidget) and isinstance(anchor, QWidget):
                     # CSD/TitleBar — разные окна, не скипаем
@@ -602,9 +671,10 @@ class _FlyoutLifecycleApi:
                     elif _before_owns_same:
                         return
             except Exception:
-                # Фолбэк: только если actual_before — Button/InstancesCounterButton/ScrollValueButton
-                # в том же magnifier_group — считаем сиблингом
-                if type(actual_before).__name__ in ("Button", "InstancesCounterButton", "ScrollValueButton"):
+                # Фолбэк (секции навигации недоступны): сиблингом считаем
+                # только кнопку тулбара — Button и его подклассы, включая
+                # хостовые (имя класса ничего не значит, тип — значит)
+                if _is_toolkit_button(actual_before):
                     _flyout_debug("[flyout-nav] _restore_focus_policies: skip — focus already on sibling %s", type(actual_before).__name__)
                     return
         if target is not None and _is_alive_and_enabled(target):
@@ -709,7 +779,7 @@ class _FlyoutNavigationSection:
         0x01000005,  # Key_Return
         0x01000004,  # Key_Enter
         0x01000000,  # Key_Escape
-        0x01000012,  # Key_Left — для _ScrollValueFlyout edit-mode (кольцо наверх)
+        0x01000012,  # Key_Left — для value-флайоута хоста в edit-mode (кольцо наверх)
         0x01000014,  # Key_Right
     })
 
@@ -767,7 +837,7 @@ class _FlyoutNavigationSection:
         # special-cases clicking a focused Button -- any other focused
         # control's own Enter handling was silently unreachable.
         #
-        # For Left/Right, value-adjusting controls (Slider, ScrollValueButton)
+        # For Left/Right, value-adjusting controls (Slider, host value capsules)
         # get first refusal so keyboard navigation on them stays put *while
         # editing*; while idle the gate refuses and the flyout keeps the key
         # for row navigation. Up/Down stay for row-to-row navigation unless
