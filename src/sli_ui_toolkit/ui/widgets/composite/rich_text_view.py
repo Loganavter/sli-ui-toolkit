@@ -24,7 +24,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtGui import QColor
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QSize, QTimer
 from PySide6.QtGui import QFont, QTextDocument
 from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
@@ -59,8 +59,15 @@ class RichTextView(SurfacePanel):
         radius: int = 10,
         scrollbar_width: int | None = None,
         link_token: str = "dialog.text",
+        fit_content: bool = False,
     ) -> None:
         super().__init__(parent, background_token=background_token, radius=radius)
+        #: A pane whose CONTENT is the thing to show (a record of fields, not a long document) can state its own height
+        #: instead of sitting on a host's fixed floor: `sizeHint()` then follows the engine's content height. Measured
+        #: 2026-11-24 (RVE, the video-info panel): a 190 px floor against 208 px of content at 2.0 hid the last field
+        #: line and painted the edge fade over it - the owner read that as "the fade is aggressive, the text fits".
+        #: Off by default: the home page's changelog is the opposite case (long content, a pane that fills its host).
+        self._fit_content = bool(fit_content)
         self._padding: tuple[int, int, int, int] = (
             max(0, int(padding[0])),
             max(0, int(padding[1])),
@@ -258,6 +265,18 @@ class RichTextView(SurfacePanel):
 
     # -- geometry -------------------------------------------------------
 
+    def _content_height(self) -> int:
+        """The pane height that shows the whole body: the label's content height plus the plate's own inset."""
+        inset = self.layout().contentsMargins() if self.layout() is not None else None
+        chrome = (inset.top() + inset.bottom()) if inset is not None else 0
+        return int(self.label.height() + chrome)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        hint = super().sizeHint()
+        if not self._fit_content:
+            return hint
+        return QSize(hint.width(), max(hint.height(), self._content_height()))
+
     def _sync_height(self) -> None:
         """Give the scroll area the engine's content height, as a fixed height.
 
@@ -279,6 +298,10 @@ class RichTextView(SurfacePanel):
             self.label.setFixedHeight(height)
         self.label.updateGeometry()
         self._scroll.updateGeometry()
+        if self._fit_content:
+            # The pane's own hint moved with the body, so the host layout has to re-read it (the video-info panel sits
+            # in a column whose filler takes the slack: without this the pane keeps the height it measured empty).
+            self.updateGeometry()
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(event)
@@ -287,7 +310,12 @@ class RichTextView(SurfacePanel):
         # later it has, and the body is measured against the width the text
         # will actually be laid out at (measuring a body against a stale
         # narrow viewport was exactly the empty-scroll defect).
-        QTimer.singleShot(0, self._sync_height)
+        #
+        # The RECEIVER overload, not the bare callable: a 0 ms functor keeps the bound method alive past a host that
+        # destroys the pane first, and the deferred pass then walks a deleted `OverlayScrollArea`
+        # (`RuntimeError: Internal C++ object (OverlayScrollArea) already deleted`, measured 2026-11-24 while a test
+        # closed its page the same turn the pane was resized). A receiver's connection is dropped with the object.
+        QTimer.singleShot(0, self, self._sync_height)
 
     def showEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().showEvent(event)
