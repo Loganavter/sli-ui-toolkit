@@ -13,6 +13,45 @@
 
 ### Added
 
+- **Every control family now owns its own state tokens** (`FLUENT_LIGHT` / `FLUENT_DARK`, 29 new keys each; the two
+  palettes stay key-for-key identical). Until now `input` owned exactly one palette key (`input.border.thin`) while
+  `button` owned 23, so each control borrowed another family's state token to paint its own states — a checkbox
+  hovered with `dialog.button.hover`, a slider drew its filled portion with `accent`, a switch's track hover was the
+  dialog button plate, and the menu strip had no `menu.*` family at all. A host therefore could not restyle one
+  control without repainting its neighbour. The new keys, per family:
+  `input.background`, `input.border`, `input.text`, `input.text.disabled`, `input.placeholder`, `input.underline`,
+  `input.underline.focused`, `input.underline.disabled`, `input.selection.background`;
+  `checkbox.text`, `checkbox.text.disabled`, `checkbox.border`, `checkbox.background.hover`,
+  `checkbox.background.pressed`;
+  `switch.track.hover`, `switch.track.disabled`, `switch.text.disabled`;
+  `slider.track.filled`, `slider.track.hover`, `slider.track.disabled`, `slider.thumb.disabled`;
+  `list_item.text.selected`, `list_item.text.disabled`, `list_item.background.focused`;
+  `menu.background`, `menu.text`, `menu.text.disabled`, `menu.separator`;
+  `titlebar.menu.text`. No widget was migrated in this change — the keys are additive, and the existing painters keep
+  reading what they read today until their own migration lands. Value rules (also in `docs/dev/DESIGN_LANGUAGE.md`,
+  §"Control state ownership"):
+  - text pairs read on the plate their own family owns — `input.text`/`input.text.disabled`/`input.placeholder` on
+    `input.background`, `menu.text`/`menu.text.disabled` on `menu.background`, `checkbox.text`/`switch.text` on
+    `surface.background`, `list_item.text.selected` on `list_item.background.selected`, `titlebar.menu.text` on
+    `titlebar.background`. Enabled pairs clear AA 4.5:1; disabled pairs may sit below it but stay visibly dimmer than
+    the enabled token (disabled checks are 2.0:1-floor + ordering assertions in `tests/test_contrast.py`);
+  - `input.underline` is the idle line, `input.underline.focused` the accent, `input.underline.disabled` dimmer than
+    idle; `input.selection.background` is an alpha selection wash (`#330078D4` / `#4D0096FF`) that composites over the
+    field, like `button.default.background`;
+  - hover/pressed step one plate away from the base in the direction the shipped `button.*`/`list_item.*` pairs take
+    (light darkens, dark lightens); `menu.separator` follows `separator.color`;
+  - no new colour families: the focus/disabled fills are the existing `accent` washed over the family's own plate.
+
+  Measured ratios (light | dark): `input.text` 16.48|10.62, `input.placeholder` 4.61|5.03, `input.text.disabled`
+  2.68|3.30, `checkbox.text` 16.48|10.62 (disabled 2.68|3.30), `switch.text` 16.48|10.62 (disabled 2.68|3.30),
+  `list_item.text.selected` 4.53|4.53, `list_item.text.disabled` 2.68|2.73, `menu.text` 16.48|10.62 (disabled
+  2.68|3.30), `titlebar.menu.text` 9.07|8.46, `input.underline` 3.32|3.59 → `input.underline.focused` 4.53|4.59 →
+  `input.underline.disabled` 1.54|1.60. Tests: `tests/test_theme_token_parity.py` (+2 families — every declared key
+  present and valid in both palettes, both palettes exposing the same key set, plus per-key resolution through
+  `ThemeManager` in both themes) and `tests/test_contrast.py` (+14 parametrized cases — 7 new AA text pairs, the
+  disabled ordering/floor, the underline state ordering with `input.underline.focused == accent`, and the
+  hover-steps-away + `menu.separator == separator.color` rules).
+
 - **`MenuStrip` — the title-bar menu row every host was writing by hand.** The toolkit documented that it "does not
   know about menus", so BlinkTable grew `csd_menu_strip.py` (~640 LOC) plus its presenter (~1179 LOC) to get File/Help
   triggers whose dropdowns carry a label, a right-aligned shortcut and disabled/danger rows. All of that already exists

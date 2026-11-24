@@ -46,3 +46,64 @@ def test_try_get_color_returns_none_for_missing_token_in_both_themes(theme):
     assert tm.try_get_color("__missing_token__") is None
     fallback = tm.get_color("__missing_token__")
     assert isinstance(fallback, QColor) and fallback.isValid()
+
+
+#: State keys each control family owns. Before these existed a control borrowed another family's token, so a host
+#: could not restyle one control without repainting its neighbour (P2 of the colour-token investigation).
+CONTROL_STATE_TOKENS = (
+    "input.background",
+    "input.border",
+    "input.text",
+    "input.text.disabled",
+    "input.placeholder",
+    "input.underline",
+    "input.underline.focused",
+    "input.underline.disabled",
+    "input.selection.background",
+    "checkbox.text",
+    "checkbox.text.disabled",
+    "checkbox.border",
+    "checkbox.background.hover",
+    "checkbox.background.pressed",
+    "switch.track.hover",
+    "switch.track.disabled",
+    "switch.text.disabled",
+    "slider.track.filled",
+    "slider.track.hover",
+    "slider.track.disabled",
+    "slider.thumb.disabled",
+    "list_item.text.selected",
+    "list_item.text.disabled",
+    "list_item.background.focused",
+    "menu.background",
+    "menu.text",
+    "menu.text.disabled",
+    "menu.separator",
+    "titlebar.menu.text",
+)
+
+
+@pytest.mark.parametrize("token", CONTROL_STATE_TOKENS)
+def test_control_state_token_present_in_both_palettes(token):
+    for theme_name, palette in (("light", FLUENT_LIGHT), ("dark", FLUENT_DARK)):
+        assert token in palette, f"[{theme_name}] control state token {token!r} is missing from the palette"
+        color = palette[token]
+        assert isinstance(color, QColor), f"[{theme_name}] token {token!r} is not a QColor"
+        assert color.isValid(), f"[{theme_name}] token {token!r} resolved to an invalid color"
+
+
+def test_default_palettes_expose_the_same_key_set():
+    light, dark = set(FLUENT_LIGHT), set(FLUENT_DARK)
+    assert light == dark, (
+        f"palette key sets diverged - light only: {sorted(light - dark)}; dark only: {sorted(dark - light)}"
+    )
+
+
+@pytest.mark.parametrize("token", CONTROL_STATE_TOKENS)
+def test_control_state_token_resolves_through_the_manager(theme, token):
+    tm = ThemeManager.get_instance()
+    palette = FLUENT_DARK if theme == "dark" else FLUENT_LIGHT
+    resolved = tm.try_get_color(token)
+    assert isinstance(resolved, QColor) and resolved.rgba() == palette[token].rgba(), (
+        f"[{theme}] token {token!r} does not resolve to its palette value"
+    )
