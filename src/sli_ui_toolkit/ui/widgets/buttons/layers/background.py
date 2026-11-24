@@ -21,6 +21,9 @@ from ..variants import (
 
 from ._base import Layer
 
+# The variant registry binds the prefix; this painter reads the keys under it.
+# token-prefix: variant.token_prefix -> button
+
 # Ambient group hover strength when hover_compose="stack".
 _AMBIENT_HOVER_FACTOR = 0.45
 
