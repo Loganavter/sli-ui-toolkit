@@ -169,7 +169,9 @@ class BaseFlyout(
         # path above stays the only path unless a caller asks for gpu_fill.
         # Currently solid-color only (see gpu_fill/widget.py); a brush that
         # isn't a flat QColor falls back to the QPainter fill even with
-        # gpu_fill=True.
+        # gpu_fill=True. The GPU pass is an opaque plate: a QRhiWidget is
+        # blitted over the siblings under it, so a translucent solid colour
+        # still paints opaque there.
         self._gpu_fill: FlyoutGpuFillWidget | None = None
         if gpu_fill:
             self._gpu_fill = FlyoutGpuFillWidget(self.container, api=gpu_fill_api)

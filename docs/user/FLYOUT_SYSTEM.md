@@ -380,6 +380,11 @@ Notes:
   the shadow's blur steps is unaffected (`draw_rounded_shadow`'s
   `alpha_max` — not currently exposed as a per-instance override, since
   nothing has needed it yet).
+- `BaseFlyout(..., gpu_fill=True)` moves a solid-colour fill onto a
+  `QRhiWidget` plate instead of the QPainter fill. The plate is **opaque**:
+  a `QRhiWidget` is blitted over the sibling widgets under it, so it cannot
+  blend against them — a colour with alpha < 255 still paints opaque.
+  Gradients, textures and translucency stay on the default QPainter path.
 - **No real backdrop blur / frosted-glass**: this only changes what's
   painted *behind* the panel's own fill (solid/gradient/texture), not a
   live blur of whatever is rendered underneath it. A true "glass" effect
