@@ -154,6 +154,42 @@ A palette that predates one of these keys keeps the previous colour at that
 site (the field falls back to the enabled ink / the accent wash), so an older
 host palette degrades instead of breaking.
 
+### Per-instance colour overrides
+
+One control can diverge from its family without recolouring every control
+painted with that token. `TokenOverrideMixin` keeps a per-instance map of
+`palette key -> QColor`; the painters resolve through `resolve_token(widget,
+key)`, which answers, in order:
+
+```text
+explicit constructor/setter colour  >  instance override  >  family token  >  neutral fallback
+```
+
+```python
+from sli_ui_toolkit.widgets import TokenOverrideMixin, resolve_token
+
+combo.set_token_overrides({"input.background": QColor("#fff4e5")})
+combo.token_overrides()                  # {"input.background": QColor(...)}
+resolve_token(combo, "input.background") # the override
+combo.clear_token_overrides("input.background")  # back to the family token
+```
+
+- Values are `QColor` or a colour literal (`"#fff4e5"`). A **palette key is not a
+  value** — remapping a token for one widget is this map; remapping it for every
+  widget is `ThemeManager.set_color`. A non-colour value is logged and dropped.
+- The map is repaint-only: `ThemeManager` palettes are untouched, so two
+  instances of the same widget can differ and a theme switch keeps the override.
+- A key neither the widget nor the active palette defines logs once and paints
+  `NEUTRAL_TOKEN_FALLBACK` (`#808080`) — never a silent black.
+- Adopted today: `Button` (`background_color` / `set_background_color` write
+  `Button.BACKGROUND_TOKEN`), `CustomLineEdit` (text, plate, placeholder,
+  selection wash, all three underline states) — and therefore `SpinBox` /
+  `TimeLineEdit`, which inherit its paint path — `CheckBox` (outline, label,
+  hover/pressed plate, checked fill, check glyph), `Switch` (track, hover wash,
+  knobs, label) and `Slider` (groove, value fill, thumb). Other families adopt the
+  mixin when they are touched; `resolve_token` also works on a widget without
+  the mixin (it simply has no overrides).
+
 Wheel-scrollable widgets use the shared `wheel_requires_focus` policy. It
 defaults to `False`, so wheel interaction works on hover without clicking first.
 When a widget handles wheel input, it takes focus so focused visuals activate

@@ -45,7 +45,11 @@ from sli_ui_toolkit.deprecations import (
 )
 from sli_ui_toolkit.i18n import get_current_language, translator_for
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
+from sli_ui_toolkit.ui.widgets.helpers import (
+    TokenOverrideMixin,
+    WheelScrollPolicyMixin,
+    register_hover_widget,
+)
 
 from .capabilities import (
     ButtonCapability,
@@ -113,7 +117,7 @@ def _state_property(state: ButtonState):
     return property(getter, setter)
 
 
-class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
+class Button(QWidget, WheelScrollPolicyMixin, TokenOverrideMixin, _ButtonStyleApi, _ButtonEvents):
     clicked = Signal()
     pressed = Signal()
     released = Signal()
@@ -125,6 +129,15 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
     # import — see below): the inspector spec and unified descriptor.
     inspect_spec: ClassVar[InspectSpec]
     widget_descriptor: ClassVar[WidgetDescriptor]
+
+    def _on_token_overrides_changed(self) -> None:
+        """Mirror the override map's background slot into the painter's field.
+
+        Defined on Button, not on ``_ButtonStyleApi``: the style mixin sits
+        after ``TokenOverrideMixin`` in the MRO, so its version of this hook
+        would never be reached.
+        """
+        self._custom_bg_color = self._token_override(self.BACKGROUND_TOKEN)
 
     def enterEvent(self, event):
         _ButtonEvents.enterEvent(self, event)
@@ -465,7 +478,13 @@ class Button(QWidget, WheelScrollPolicyMixin, _ButtonStyleApi, _ButtonEvents):
 
         self._foreground_color: QColor | None = None
         self._background_color: QColor | None = None
-        self._custom_bg_color: QColor | None = background_color
+        # The custom background is an instance override like any other, so
+        # ``set_background_color`` and ``set_token_overrides`` reach one slot
+        # (``_on_token_overrides_changed`` mirrors the map into this field the
+        # painter layers read). A constructor colour is the map's first entry.
+        self._custom_bg_color: QColor | None = None
+        if background_color is not None:
+            self.set_token_overrides({self.BACKGROUND_TOKEN: background_color})
         self._accent_color: QColor | None = None
         self._show_underline = show_underline
         self._underline_thickness = _normalize_underline_thickness(underline_thickness)

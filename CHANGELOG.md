@@ -79,6 +79,32 @@
 
 ### Added
 
+- **`TokenOverrideMixin` + `resolve_token(widget, key)` — one widget's colour, without the whole theme.** A colour
+  override was either a one-off widget attribute (`Text(color_token=)`, `Button(background_color=)`,
+  `CustomLineEdit(underline_color=)`) or global (`ThemeManager.set_color`, which repaints every widget painted with
+  that token), so "this ONE combo's hover is different" had no expression. A widget that paints from tokens can now
+  carry its own map — `set_token_overrides(mapping)`, `token_overrides()`,
+  `clear_token_overrides(name=None)` — and the painters read through `resolve_token`, whose order is explicit
+  constructor/setter colour > instance override > family token > `NEUTRAL_TOKEN_FALLBACK` (`#808080`; a key neither
+  the widget nor the palette defines logs once per key instead of painting a silent black). Values are `QColor` or a
+  colour literal; a palette key is rejected with a warning, because remapping a token for one widget is this map
+  while remapping it for every widget is a theme write. The map is repaint-only (`update()`, no palette mutation), so
+  two instances of one widget differ, a sibling keeps the family token, and a theme switch keeps the override.
+  Adopted: `Button` (its `background_color` / `set_background_color` now write `Button.BACKGROUND_TOKEN`, so
+  `getBackgroundColor` and `set_token_overrides` are one API), `CustomLineEdit` (text, plate, border, placeholder,
+  selection wash and all three underline states; an explicit underline colour still wins — and `SpinBox` /
+  `TimeLineEdit` inherit it through that paint path), `CheckBox` (outline, label, hover/pressed plate, checked fill
+  and glyph), `Switch` (track, hover wash, knobs, label) and `Slider` (groove, value fill, thumb); the remaining
+  families adopt the mixin as they are touched. The
+  state reads that were a one-line `ThemeManager.get_color` swap now go through the resolver; the ones that keep a
+  pre-token palette fallback consult the instance map first and keep their fallback. Docs: `docs/user/INPUTS_API.md`
+  (priority order + adoption list), `docs/user/API_CATALOG.md`. Tests: `tests/test_token_overrides.py` (14 test
+  functions, 26 cases — the
+  lookup order, two instances per adopted widget sampled as pixels in both themes, the override surviving a theme
+  switch, `clear_token_overrides` restoring the family token, a typo'd key logged once and ignored, a palette key
+  refused as a value, the read-only map, the mixin's merge/repaint/clear contract, and `ThemeManager` palettes
+  byte-equal after overrides in both themes; all red on the base tree, where the module does not exist).
+
 - **Seventh gate rule: `token-ownership` — a widget family may not paint with another family's palette keys.**
   The colour-token investigation found a family borrowing its states from a neighbour (`input` reading `dialog.text`,
   `checkbox` reading `dialog.button.hover`, `progress` and `slider` reading `dialog.*`), which leaves neither family

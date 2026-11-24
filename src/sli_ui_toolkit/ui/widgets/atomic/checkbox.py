@@ -22,6 +22,7 @@ from sli_ui_toolkit.ui.widgets.buttons import Button
 from sli_ui_toolkit.ui.widgets.buttons.layers import FocusLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
+from sli_ui_toolkit.ui.widgets.helpers import resolve_token
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
@@ -54,15 +55,18 @@ class _CheckIndicatorLayer(Layer):
         )
         is_filled = is_checked or is_partial
 
-        accent = tm.get_color("accent")
-        border = tm.get_color("checkbox.border")
-        text_color = tm.get_color("checkbox.text")
-        disabled_text_color = tm.get_color("checkbox.text.disabled")
+        # Every colour below resolves through the instance-override resolver:
+        # one box can restyle itself without repainting its siblings.
+        accent = resolve_token(widget, "accent")
+        border = resolve_token(widget, "checkbox.border")
+        text_color = resolve_token(widget, "checkbox.text")
+        disabled_text_color = resolve_token(widget, "checkbox.text.disabled")
         # The indicator's hover/pressed plate is the box's own state, not the dialog button's: a host restyling
         # buttons must not repaint a checkbox. Pressed takes precedence while the pointer holds the box.
         is_pressed = ButtonState.PRESSED in states
-        plate = tm.get_color(
-            "checkbox.background.pressed" if is_pressed else "checkbox.background.hover"
+        plate = resolve_token(
+            widget,
+            "checkbox.background.pressed" if is_pressed else "checkbox.background.hover",
         )
         disabled_alpha = 110
         indicator_radius = scaled_px(widget.INDICATOR_RADIUS)
@@ -79,7 +83,11 @@ class _CheckIndicatorLayer(Layer):
                 else QColor(border.red(), border.green(), border.blue(), disabled_alpha)
             )
             painter.setPen(QPen(border_color, widget.OUTLINE_WIDTH))
-            accent_fill = QColor(tm.try_get_color(widget.CHECKED_FILL_TOKEN) or accent)
+            accent_fill = QColor(
+                widget._token_override(widget.CHECKED_FILL_TOKEN)
+                or tm.try_get_color(widget.CHECKED_FILL_TOKEN)
+                or accent
+            )
             base_alpha = int(120 + 135 * widget._checked_progress)
             if is_disabled:
                 base_alpha = int(base_alpha * 0.6)
@@ -107,7 +115,9 @@ class _CheckIndicatorLayer(Layer):
 
         if is_filled:
             glyph_color = QColor(
-                tm.try_get_color(widget.CHECK_COLOR_TOKEN) or QColor(Qt.GlobalColor.white)
+                widget._token_override(widget.CHECK_COLOR_TOKEN)
+                or tm.try_get_color(widget.CHECK_COLOR_TOKEN)
+                or QColor(Qt.GlobalColor.white)
             )
             if is_disabled:
                 glyph_color.setAlpha(disabled_alpha)

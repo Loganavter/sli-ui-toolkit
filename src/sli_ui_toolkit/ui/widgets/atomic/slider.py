@@ -5,13 +5,18 @@ import time
 from typing import TYPE_CHECKING, Callable, ClassVar
 
 from PySide6.QtCore import QEasingCurve, QEvent, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt, Property
-from PySide6.QtGui import QBrush, QColor, QCursor, QKeyEvent, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QCursor, QKeyEvent, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSlider
 
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import UiScale, scaled_px
-from sli_ui_toolkit.ui.widgets.helpers import WheelScrollPolicyMixin, register_hover_widget
+from sli_ui_toolkit.ui.widgets.helpers import (
+    TokenOverrideMixin,
+    WheelScrollPolicyMixin,
+    register_hover_widget,
+    resolve_token,
+)
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
@@ -19,7 +24,7 @@ if TYPE_CHECKING:
 TrackPainter = Callable[[QPainter, QRectF], None]
 
 
-class Slider(WheelScrollPolicyMixin, QSlider):
+class Slider(WheelScrollPolicyMixin, TokenOverrideMixin, QSlider):
     """Rounded-track slider with an animated thumb.
 
     Supports both orientations (the track/thumb geometry is orientation-aware,
@@ -471,15 +476,16 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         tm = self.theme_manager
         # The groove, its filled value and the thumb are the slider's own states: the outline used to be the dialog
         # border and the fill the shared accent, so a host could not restyle a slider without repainting dialogs.
-        outline = QColor(tm.get_color("slider.track.unfilled"))
-        accent = QColor(tm.get_color("accent"))
+        # ``resolve_token`` reads this slider's instance override first, so one slider can differ from its siblings.
+        outline = resolve_token(self, "slider.track.unfilled")
+        accent = resolve_token(self, "accent")
         disabled = not self.isEnabled()
         if disabled:
-            value_color = QColor(tm.get_color("slider.track.disabled"))
+            value_color = resolve_token(self, "slider.track.disabled")
         elif self._hovered:
-            value_color = QColor(tm.get_color("slider.track.hover"))
+            value_color = resolve_token(self, "slider.track.hover")
         else:
-            value_color = QColor(tm.get_color("slider.track.filled"))
+            value_color = resolve_token(self, "slider.track.filled")
 
         painter.setPen(Qt.PenStyle.NoPen)
         if self._track_painter is not None:
@@ -490,7 +496,7 @@ class Slider(WheelScrollPolicyMixin, QSlider):
             self._track_painter(painter, rectf)
             painter.restore()
         else:
-            base_bg = QColor(tm.get_color("slider.track.unfilled"))
+            base_bg = resolve_token(self, "slider.track.unfilled")
             painter.setBrush(QBrush(base_bg))
             painter.drawRoundedRect(rectf, corner, corner)
 
@@ -522,8 +528,8 @@ class Slider(WheelScrollPolicyMixin, QSlider):
         # groove + an accent thumb ring, so "the ring is on this slider"
         # (focus ring) reads differently from "this slider is being edited".
         # Reuses the focus-ring tokens rather than inventing a new look.
-        outer_color = QColor(
-            tm.get_color("slider.thumb.disabled" if disabled else "slider.thumb.outer")
+        outer_color = resolve_token(
+            self, "slider.thumb.disabled" if disabled else "slider.thumb.outer"
         )
         painter.setPen(QPen(accent if self._editing else outline, 2 if self._editing else 1))
         painter.setBrush(QBrush(outer_color))

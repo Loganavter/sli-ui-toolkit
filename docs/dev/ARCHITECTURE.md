@@ -284,7 +284,10 @@ Typical examples:
 
 - underline drawing;
 - shadow drawing;
-- overlay geometry calculations.
+- overlay geometry calculations;
+- the opt-in mixins widget classes adopt (`WheelScrollPolicyMixin`,
+  `TokenOverrideMixin` — per-instance colour overrides plus the
+  `resolve_token(widget, key)` lookup every adopted painter reads through).
 
 ### `ui/managers/`
 

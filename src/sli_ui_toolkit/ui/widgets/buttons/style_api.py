@@ -11,8 +11,8 @@ setProperty, setFixedSize…).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any, Callable, cast
+from collections.abc import Mapping, Sequence
+from typing import Any, Callable, ClassVar, cast
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QColor, QCursor, QFontMetrics
@@ -54,6 +54,11 @@ def _normalize_underline_thickness(thickness: float | None) -> float | None:
 class _ButtonStyleApi:
     """Mixin: визуальные атрибуты + dynamic Qt-property dispatch."""
 
+    #: Map key ``background_color`` / ``set_background_color`` write: the
+    #: button's own override slot, read back by ``getBackgroundColor`` and
+    #: mirrored into ``_custom_bg_color`` (the field the painter layers read).
+    BACKGROUND_TOKEN: ClassVar[str] = "button.background"
+
     # Declared here only so mypy can resolve them across the mixin split —
     # the real assignments/definitions live in Button.__init__ (button.py),
     # the sibling _ButtonEvents mixin (events.py), or QWidget itself.
@@ -66,6 +71,12 @@ class _ButtonStyleApi:
     _content_align: Qt.AlignmentFlag
     _content_padding: tuple[float, float, float, float]
     _background_color: QColor | None
+    _custom_bg_color: QColor | None
+    # TokenOverrideMixin members this mixin calls (Button supplies them).
+    token_overrides: Callable[[], Mapping[str, QColor]]
+    set_token_overrides: Callable[[Mapping[str, QColor | str]], None]
+    clear_token_overrides: Callable[..., None]
+    _token_override: Callable[[str], QColor | None]
     _controller: Any
     _checked: bool
     _rows: list[Any]
@@ -217,11 +228,18 @@ class _ButtonStyleApi:
         return getattr(self, "_hover_compose", "replace")
 
     def set_background_color(self, color: QColor | None):
-        self._custom_bg_color = color
-        self.update()
+        """The button's own fill. ``None`` drops the override (variant fill returns).
+
+        Writes the instance override map, so this and ``set_token_overrides``
+        are one API: a later override call replaces the colour set here.
+        """
+        if color is None:
+            self.clear_token_overrides(self.BACKGROUND_TOKEN)
+        else:
+            self.set_token_overrides({self.BACKGROUND_TOKEN: color})
 
     def getBackgroundColor(self) -> QColor | None:
-        return self._custom_bg_color
+        return self._token_override(self.BACKGROUND_TOKEN)
 
     def setBorderColor(self, color: QColor | None) -> None:
         self._border_color_override = color

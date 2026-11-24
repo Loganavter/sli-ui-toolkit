@@ -12,12 +12,16 @@ from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.managers.ui_font import apply_ui_font
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_FONT, AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
-from sli_ui_toolkit.ui.widgets.helpers import register_hover_widget
+from sli_ui_toolkit.ui.widgets.helpers import (
+    TokenOverrideMixin,
+    register_hover_widget,
+    resolve_token,
+)
 
 if TYPE_CHECKING:
     from sli_ui_toolkit.ui.widget_descriptor import WidgetDescriptor
 
-class Switch(QWidget):
+class Switch(QWidget, TokenOverrideMixin):
     inspect_spec: ClassVar[InspectSpec]
     widget_descriptor: ClassVar["WidgetDescriptor"]
 
@@ -276,19 +280,21 @@ class Switch(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        accent = self._theme.get_color("accent")
+        # Override-aware: the switch's own instance may restyle any of these
+        # without touching a sibling or the theme.
+        accent = resolve_token(self, "accent")
         disabled = not self.isEnabled()
 
         track_on = accent
         track_off = QColor(0, 0, 0, 0)
         # The hover wash and the disabled track are the switch's own states (they used to be the dialog button's
         # plate and an un-dimmed accent), so a host can restyle a switch without touching dialogs.
-        track_hover_overlay = QColor(self._theme.get_color("switch.track.hover"))
+        track_hover_overlay = QColor(resolve_token(self, "switch.track.hover"))
         track_hover_overlay.setAlpha(int(100 * self._hover))
 
-        knob_on = self._theme.get_color("switch.knob.on")
-        knob_off = self._theme.get_color("switch.knob.off")
-        knob_border = self._theme.get_color("switch.knob.border")
+        knob_on = resolve_token(self, "switch.knob.on")
+        knob_off = resolve_token(self, "switch.knob.off")
+        knob_border = resolve_token(self, "switch.knob.border")
 
         w = self.width()
         h = self.height()
@@ -306,7 +312,7 @@ class Switch(QWidget):
 
         track_color = self._lerp_color(track_off, track_on, self._progress)
         if disabled:
-            track_color = QColor(self._theme.get_color("switch.track.disabled"))
+            track_color = resolve_token(self, "switch.track.disabled")
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(track_color))
         fill_rect = track_rect.adjusted(0.5, 0.5, -0.5, -0.5)
@@ -317,7 +323,7 @@ class Switch(QWidget):
             painter.drawRoundedRect(fill_rect, radius - 0.5, radius - 0.5)
 
         if not self._checked:
-            border_color = self._theme.get_color("switch.track.off.border")
+            border_color = resolve_token(self, "switch.track.off.border")
             pen = QPen(border_color)
             pen.setWidthF(1.0)
             painter.setPen(pen)
@@ -337,8 +343,8 @@ class Switch(QWidget):
         painter.drawEllipse(knob_rect)
 
         if self._show_text and text_w > 0:
-            text_color = self._theme.get_color(
-                "switch.text.disabled" if disabled else "switch.text"
+            text_color = resolve_token(
+                self, "switch.text.disabled" if disabled else "switch.text"
             )
             painter.setPen(QPen(text_color))
             text_x = int(track_rect.right()) + scaled_px(self.TEXT_SPACING)
