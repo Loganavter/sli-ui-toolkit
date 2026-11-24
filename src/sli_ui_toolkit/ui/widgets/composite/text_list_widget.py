@@ -529,24 +529,28 @@ class TextListWidget(SurfacePanel):
         font.setPixelSize(self._text_pixel_size)
         painter.setFont(font)
         metrics = QFontMetrics(font)
-        text_color = self._token("dialog.text", "#ffffff")
-        selected_fill = self._token("button.dialog.default.background.pressed", "#676e7b")
-        hover_fill = self._token("dialog.button.hover", "#343b47")
+        # Row states belong to the list family (DESIGN_LANGUAGE, "Control state ownership"): a host restyling its
+        # queue changes `list_item.*`, not every dialog and button in the window.
+        text_color = self._token("list_item.text.normal", "#ffffff")
+        selected_text_color = self._token("list_item.text.selected", "#ffffff")
+        selected_fill = self._token("list_item.background.selected", "#676e7b")
+        hover_fill = self._token("list_item.background.hover", "#343b47")
         left, top, right, _bottom = self._padding
         width = target.width() - left - right
         for index, text in enumerate(self._items):
+            selected = index in self._selected
             row = QRectF(left, top + index * self._row_height, width, self._row_height)
-            if index in self._selected:
+            if selected:
                 painter.fillRect(row, selected_fill)
             elif index == self._hover_row:
                 painter.fillRect(row, hover_fill)
             if self._row_painter is not None:
                 self._row_painter(
                     painter, index, row, metrics, text,
-                    index in self._selected, index == self._hover_row,
+                    selected, index == self._hover_row,
                 )
             else:
-                painter.setPen(text_color)
+                painter.setPen(selected_text_color if selected else text_color)
                 painter.drawText(
                     QRectF(row.x(), row.y(), row.width(), row.height()),
                     int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),

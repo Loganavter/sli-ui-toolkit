@@ -7,8 +7,8 @@ rows of the stated height, one selection band, no per-row plate, no stylesheet.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QImage
+from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtGui import QColor, QImage
 from PySide6.QtTest import QTest
 
 import pytest
@@ -127,3 +127,101 @@ def test_a_host_can_paint_its_rows_and_answer_hover_text(qapp):
     assert seen[0][1] == "first" and seen[0][2] == int(widget.width()) - 12
     assert widget.row_tooltip(1) == "row 1: not started"
     assert image.pixelColor(4, widget.height() - 4).name() != "#ffffff" or True  # the grab is not asserted pixel-wise
+
+
+# -- the row states are the list family's own ---------------------------------
+#
+# Before the migration the rows painted their label with `dialog.text`, the hover
+# plate with `dialog.button.hover` and the selected band with
+# `button.dialog.default.background.pressed`: a host that restyled its queue had
+# to retint every dialog and button in the window. `list_item.*` owns all three.
+
+#: Tokens the rows must NOT read any more, and the family's own values — the
+#: ink is overridden to unmistakable colours so a pixel proves which one painted.
+_INK_LIGHT = {
+    "dialog.text": QColor("#0000ff"),
+    "list_item.text.normal": QColor("#00ff00"),
+    "list_item.text.selected": QColor("#ff0000"),
+    "list_item.background.selected": QColor("#404040"),
+}
+_INK_DARK = {
+    "dialog.text": QColor("#0000ff"),
+    "list_item.text.normal": QColor("#ffff00"),
+    "list_item.text.selected": QColor("#ff00ff"),
+    "list_item.background.selected": QColor("#404040"),
+}
+
+
+def _row_band(rows: TextListWidget, index: int) -> QRect:
+    """The drawable rect of one row (inside the horizontal padding)."""
+    top = rows._padding[1] + index * rows._row_height
+    return QRect(8, top, max(1, rows._rows.width() - 16), rows._row_height)
+
+
+def _render_rows(rows) -> QImage:
+    image = QImage(rows.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor("#123456"))
+    rows.render(image)
+    return image
+
+
+def _pixels_matching(image: QImage, band: QRect, colour: QColor, tolerance: int = 60) -> int:
+    """Pixels in *band* within *tolerance* of *colour* (antialiased ink lands here)."""
+    count = 0
+    for y in range(band.top(), band.bottom() + 1):
+        for x in range(band.left(), band.right() + 1):
+            pixel = image.pixelColor(x, y)
+            if (
+                abs(pixel.red() - colour.red()) <= tolerance
+                and abs(pixel.green() - colour.green()) <= tolerance
+                and abs(pixel.blue() - colour.blue()) <= tolerance
+            ):
+                count += 1
+    return count
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_row_plates_paint_with_the_list_family_tokens(qapp, theme):
+    """Hover plate and selected band are `list_item.background.hover`/`.selected`."""
+    manager = ThemeManager.get_instance()
+    manager.set_theme(theme, qapp, await_ripples=False)
+    manager._flush_pending_theme()  # type: ignore[attr-defined]
+    rows = _list(qapp, rows=("one", "two"))
+    rows._hover_row = 1
+    rows.setCurrentRow(0)
+    image = _render_rows(rows._rows)
+
+    right = rows._rows.width() - 8  # past the elided text, inside the row rect
+    selected = image.pixelColor(right, rows._padding[1] + rows._row_height // 2)
+    hovered = image.pixelColor(right, rows._padding[1] + rows._row_height + rows._row_height // 2)
+    assert selected.name() == QColor(manager.get_color("list_item.background.selected")).name()
+    assert hovered.name() == QColor(manager.get_color("list_item.background.hover")).name()
+
+
+def test_row_ink_follows_the_list_family_tokens_in_both_themes(qapp):
+    """Normal rows read `list_item.text.normal`, selected rows `.text.selected`."""
+    manager = ThemeManager.get_instance()
+    light = dict(FLUENT_LIGHT)
+    light.update(_INK_LIGHT)
+    dark = dict(FLUENT_DARK)
+    dark.update(_INK_DARK)
+    manager.register_palettes(light, dark)
+
+    rows = _list(qapp, rows=("MMMM", "MMMM"))
+    rows.setCurrentRow(0)
+    for theme, normal, selected in (
+        ("light", QColor("#00ff00"), QColor("#ff0000")),
+        ("dark", QColor("#ffff00"), QColor("#ff00ff")),
+    ):
+        manager.set_theme(theme, qapp, await_ripples=False)
+        manager._flush_pending_theme()  # type: ignore[attr-defined]
+        qapp.processEvents()
+        image = _render_rows(rows._rows)
+        chosen, other = _row_band(rows, 0), _row_band(rows, 1)
+
+        assert _pixels_matching(image, chosen, selected) > 0, f"{theme}: selected ink is the family token"
+        assert _pixels_matching(image, chosen, normal) == 0
+        assert _pixels_matching(image, other, normal) > 0, f"{theme}: idle ink is the family token"
+        assert _pixels_matching(image, other, selected) == 0
+        # The borrowed dialog ink must not paint either row.
+        assert _pixels_matching(image, chosen.united(other), QColor("#0000ff")) == 0

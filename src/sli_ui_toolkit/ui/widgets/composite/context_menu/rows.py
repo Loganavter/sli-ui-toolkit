@@ -86,7 +86,8 @@ class SectionTitleRow(QWidget):
 
     def paintEvent(self, event):  # noqa: N802 - Qt API
         painter = QPainter(self)
-        painter.setPen(QPen(ThemeManager.get_instance().get_color("dialog.text")))
+        # The section title sits on the menu card, so it reads the menu family's ink.
+        painter.setPen(QPen(ThemeManager.get_instance().get_color("menu.text")))
         painter.setFont(ui_font(pixel_size=self.TITLE_PIXEL_SIZE, bold=True))
         painter.drawText(
             self.rect().adjusted(scaled_px(12), 0, -scaled_px(12), 0),
@@ -127,6 +128,9 @@ class _RowBgLayer(Layer):
         p = ctx.painter
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
+        # The menu family owns no hover plate (its keys are the card plate, ink and separator), and these rows are
+        # list-shaped, so they borrow the list family's one-step hover plate — documented in API_CATALOG. The
+        # token-ownership gate keeps the borrow on the record.
         p.setBrush(QBrush(tm.get_color("list_item.background.hover")))
         pos = getattr(widget, "position", "middle")
         if pos == "middle":
@@ -174,12 +178,12 @@ class _RowContentLayer(Layer):
 
         if widget._danger and not disabled:
             text_color = _DANGER_COLOR
+        elif disabled:
+            # The menu family owns its disabled ink; the row chrome (icon, chevron) still fades through the layer
+            # opacity, so a disabled row dims as one plate instead of a grey label on full-strength chrome.
+            text_color = tm.get_color("menu.text.disabled")
         else:
-            text_color = tm.get_color("dialog.text")
-
-        if disabled:
-            p.save()
-            p.setOpacity(self._DISABLED_OPACITY)
+            text_color = tm.get_color("menu.text")
 
         x = widget._check_gutter
         if widget._icon_source is not None:
@@ -189,12 +193,17 @@ class _RowContentLayer(Layer):
             # before it is shown on a screen, so a pixmap cached at construction
             # would carry the application ratio (2.0 on a 125 % Wayland session
             # while the window paints at 1.25) and be resampled by 0.625.
+            if disabled:
+                p.save()
+                p.setOpacity(self._DISABLED_OPACITY)
             p.drawPixmap(
                 icon_rect,
                 normalized_icon_pixmap(
                     widget._icon_source, icon_size, dpr=painter_dpr(p)
                 ),
             )
+            if disabled:
+                p.restore()
             x += icon_size + scaled_px(8)
 
         p.setPen(QPen(text_color))
@@ -248,9 +257,6 @@ class _RowContentLayer(Layer):
                     ]
                 )
             )
-
-        if disabled:
-            p.restore()
 
 
 class ContextMenuRow(Button):

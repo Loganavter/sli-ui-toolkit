@@ -420,3 +420,52 @@ def test_translation_keys_resolve_titles_and_rows(qapp, qtbot):
 
     menu = _open_via_click(qapp, strip, 0)
     assert [row._text for row in menu._rows] == ["Новый"]
+
+
+# -- the trigger label is the menu family's ink --------------------------------
+#
+# A trigger is a `Button`, whose content layer falls back to `dialog.text`; the
+# strip is a menu surface, so it hands the trigger `menu.text` and re-resolves it
+# on every theme change (the button variant plate is untouched).
+
+def _pixels_matching(image, colour, tolerance: int = 60) -> int:
+    count = 0
+    for y in range(image.height()):
+        for x in range(image.width()):
+            pixel = image.pixelColor(x, y)
+            if (
+                abs(pixel.red() - colour.red()) <= tolerance
+                and abs(pixel.green() - colour.green()) <= tolerance
+                and abs(pixel.blue() - colour.blue()) <= tolerance
+            ):
+                count += 1
+    return count
+
+
+def test_trigger_ink_follows_the_menu_token_on_theme_change(qapp, qtbot):
+    from PySide6.QtGui import QColor
+
+    from sli_ui_toolkit import FLUENT_DARK, FLUENT_LIGHT, ThemeManager
+
+    manager = ThemeManager.get_instance()
+    light = dict(FLUENT_LIGHT)
+    light.update({"menu.text": QColor("#00ff00"), "dialog.text": QColor("#0000ff")})
+    dark = dict(FLUENT_DARK)
+    dark.update({"menu.text": QColor("#ffff00"), "dialog.text": QColor("#0000ff")})
+    manager.register_palettes(light, dark)
+    manager.set_theme("light", qapp, await_ripples=False)
+    manager._flush_pending_theme()
+
+    _host, strip = _make_strip(qtbot, [("File", FILE_ENTRIES)])
+    trigger = strip._triggers[0]
+
+    light_ink = trigger.grab().toImage()
+    assert _pixels_matching(light_ink, QColor("#00ff00")) > 0, "the trigger label reads `menu.text`"
+    assert _pixels_matching(light_ink, QColor("#0000ff")) == 0, "`dialog.text` no longer paints the trigger"
+
+    manager.set_theme("dark", qapp, await_ripples=False)
+    manager._flush_pending_theme()
+    qapp.processEvents()
+    dark_ink = trigger.grab().toImage()
+    assert _pixels_matching(dark_ink, QColor("#ffff00")) > 0, "a theme switch re-resolves the trigger ink"
+    assert _pixels_matching(dark_ink, QColor("#00ff00")) == 0

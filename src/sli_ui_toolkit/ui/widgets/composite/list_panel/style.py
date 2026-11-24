@@ -6,8 +6,10 @@ argument.
 The panel surface is painted with ``QPainter`` (never QSS — the painter
 pipeline owns all toolkit-widget visuals per AGENTS.md): a small
 per-panel event filter paints the rounded ``surface.background`` fill +
-1 px ``flyout.border`` frame, resolving both tokens live at paint time so
-``theme_changed`` only needs an ``update()``. The scroll area viewport
+1 px ``separator.color`` frame, resolving both tokens live at paint time so
+``theme_changed`` only needs an ``update()``. The frame is the shared neutral
+hairline: the list family owns no border key, and the panel is not a flyout, so
+it does not borrow ``flyout.border``. The scroll area viewport
 and content widget are pinned transparent via attributes (same trick as
 ``SurfaceScrollArea._pin_content_transparent``), so the painted panel
 surface shows through the content gaps.
@@ -44,7 +46,7 @@ class _PanelSurfaceFilter(QObject):
         panel = self._panel
         try:
             bg = QColor(panel.theme_manager.get_color("surface.background"))
-            border = QColor(panel.theme_manager.get_color("flyout.border"))
+            border = QColor(panel.theme_manager.get_color("separator.color"))
         except Exception:
             return
         if not bg.isValid():
