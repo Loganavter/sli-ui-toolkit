@@ -22,6 +22,7 @@ from sli_ui_toolkit.gates import (
     NEUTRAL_TOKENS,
     QT_PALETTE_ROLES,
     RULES,
+    TABLE_PATHS,
     TOKEN_OWNERS,
     baseline_violations,
     check_paths,
@@ -706,3 +707,97 @@ def test_token_ownership_baseline_is_not_exceeded(monkeypatch) -> None:
 
 def test_token_ownership_baseline_records_only_token_rules() -> None:
     assert set(load_baseline(TOKEN_BASELINE)) <= set(TOKEN_RULES)
+
+
+# ------------------------------------------- token tables are not painters
+
+_TABLE_SOURCE = '''
+LOOKUP = {"dialog.text": "text", "button.default.background": "fill"}
+
+def lookup(tm, variant):
+    return tm.get_color(f"{variant.token_prefix}.border")
+'''
+
+_TABLE_FILES = (
+    "src/sli_ui_toolkit/ui/inspector/families/inputs.py",
+    "src/sli_ui_toolkit/ui/inspector/code/editor.py",
+    "src/sli_ui_toolkit/ui/widgets/buttons/variants.py",
+    "src/sli_ui_toolkit/ui/widgets/text/variants.py",
+)
+
+_PAINTER_LAYER = "src/sli_ui_toolkit/ui/widgets/buttons/layers/background.py"
+
+
+@pytest.mark.parametrize("rule", TOKEN_RULES)
+@pytest.mark.parametrize("path", _TABLE_FILES)
+def test_token_tables_are_exempt(rule: str, path: str) -> None:
+    """A table displays or maps other families' keys; it paints nothing."""
+    assert token_findings(_TABLE_SOURCE, path, rule) == []
+
+
+def test_token_painter_layer_is_still_flagged() -> None:
+    """Exempting ``buttons/variants.py`` must not excuse the painter beside it."""
+    source = 'def paint(tm, variant):\n    return tm.get_color(f"{variant.token_prefix}.border")\n'
+    findings = token_findings(source, _PAINTER_LAYER, "token-ownership-unresolved")
+    assert len(findings) == 1
+    assert "variant.token_prefix" in findings[0].message
+
+
+def test_token_prefix_declaration_binds_a_runtime_prefix() -> None:
+    source = (
+        "# token-prefix: variant.token_prefix -> button\n"
+        'def paint(tm, variant):\n'
+        '    return tm.get_color(f"{variant.token_prefix}.border")\n'
+    )
+    assert token_findings(source, _PAINTER_LAYER, "token-ownership-unresolved") == []
+    assert token_findings(source, _PAINTER_LAYER, "token-ownership-dynamic") == []
+
+
+def test_token_prefix_declaration_follows_a_local_alias() -> None:
+    source = (
+        "# token-prefix: variant.token_prefix -> button\n"
+        "def paint(tm, variant):\n"
+        "    prefix = variant.token_prefix\n"
+        '    return tm.get_color(f"{prefix}.background.hover")\n'
+    )
+    assert token_findings(source, _PAINTER_LAYER, "token-ownership-unresolved") == []
+
+
+def test_token_prefix_declaration_naming_another_family_is_a_borrow() -> None:
+    source = (
+        "# token-prefix: variant.token_prefix -> slider\n"
+        'def paint(tm, variant):\n'
+        '    return tm.get_color(f"{variant.token_prefix}.border")\n'
+    )
+    dynamic = token_findings(source, _PAINTER_LAYER, "token-ownership-dynamic")
+    assert len(dynamic) == 1
+    assert "slider" in dynamic[0].message
+    assert token_findings(source, _PAINTER_LAYER, "token-ownership-unresolved") == []
+
+
+def test_token_prefix_declaration_must_be_a_real_comment() -> None:
+    source = '''
+def paint(tm, variant):
+    """Declare the prefix with # token-prefix: variant.token_prefix -> button."""
+    return tm.get_color(f"{variant.token_prefix}.border")
+'''
+    findings = token_findings(source, _PAINTER_LAYER, "token-ownership-unresolved")
+    assert len(findings) == 1
+
+
+def test_token_ownership_baseline_dropped_the_tables() -> None:
+    recorded = [path for files in load_baseline(TOKEN_BASELINE).values() for path in files]
+    leaked = [
+        path
+        for path in recorded
+        if any(fragment in path.replace("\\", "/") for fragment in TABLE_PATHS)
+    ]
+    assert leaked == []
+    assert _PAINTER_LAYER not in recorded
+
+
+def test_token_ownership_baseline_shrank_with_the_table_exemption() -> None:
+    """149 entries before the exemption; the ratchet may only go down from 67."""
+    baseline = load_baseline(TOKEN_BASELINE)
+    total = sum(count for files in baseline.values() for count in files.values())
+    assert total <= 67

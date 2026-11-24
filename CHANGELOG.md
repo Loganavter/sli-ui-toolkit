@@ -4,6 +4,23 @@
 
 ### Changed
 
+- **The token-ownership gate exempts tables and lets a runtime prefix be declared.** A table names other families'
+  keys by design — the inspector panels display a family's tokens, and the variant registries map a variant to its
+  token prefix — but the gate counted every one of them as a borrow, training readers to ignore the baseline. The
+  three `token-*` rules now skip a new `TABLE_PATHS` exemption class beside the palette basenames
+  (`ui/inspector/`, `buttons/variants.py`, `text/variants.py`; a table carries no painting code, so the ownership
+  question does not apply, and the painter layers beside them stay judged). The one painter that genuinely reads a
+  table-bound prefix, `ui/widgets/buttons/layers/background.py`, declares it with a real comment —
+  `# token-prefix: variant.token_prefix -> button` — so the dynamic and unresolved rules judge the key instead of
+  reporting it forever; a local alias (`prefix = variant.token_prefix`) is followed, a declaration naming another
+  family is still `token-ownership-dynamic`, and without the comment both rules still fire. Rule ids and `Finding`
+  are unchanged. Baseline regenerated with all three rules: `token-ownership` 125 → 65, `token-ownership-dynamic`
+  1 → 1, `token-ownership-unresolved` 23 → 1 (149 → 67 recorded findings; the working tree measured 142 before,
+  the old baseline was already stale by 7). `docs/user/GATES.md` documents the exemption, the declaration syntax
+  and why a table is not a painter. Tests: `tests/test_gates.py` (new table-exemption, painter-still-flagged,
+  declaration, alias, wrong-family-declaration, docstring-not-a-comment, baseline-has-no-table-entries and
+  baseline-shrink cases; 89 in the file).
+
 - **The input family paints its own state tokens.** The palette had shipped the input family's state keys, but the
   field painters still read a neighbour's: `dialog.text` for text / caret / placeholder / disabled ink,
   `surface.background` for the plate, and the raw `accent` for the selection wash. A host that restyled its inputs

@@ -116,10 +116,30 @@ TOKEN_OWNERS: dict[str, str] = {
     "toast": "toast",
 }
 
+#: Path fragments whose files *name* other families' tokens by design: the
+#: inspector panels display a widget family's tokens, and the variant tables map
+#: a variant to its token prefix. They carry no painting code, so the ownership
+#: question ("does this file paint with a key it does not own?") does not apply
+#: to them — a table is not a painter. Matched as a substring of the normalised
+#: path, so a host's layout above ``ui/`` does not matter.
+TABLE_PATHS: tuple[str, ...] = (
+    "ui/inspector/",
+    "buttons/variants.py",
+    "text/variants.py",
+)
+
 #: ``# token-family: <name>`` — a file's declaration of the family it paints
 #: for, when the path map cannot see it (a helper shared by one family, a host
 #: layout of its own).
 _TOKEN_FAMILY_COMMENT = re.compile(r"#\s*token-family:\s*([A-Za-z][\w-]*)")
+
+#: ``# token-prefix: <expression> -> <family>`` — a file that builds its palette
+#: keys from a runtime prefix (``f"{variant.token_prefix}.background"``) states
+#: what that prefix means, so the dynamic and unresolved rules can judge the
+#: key instead of reporting it forever. Without the comment the rules stay on.
+_TOKEN_PREFIX_COMMENT = re.compile(
+    r"#\s*token-prefix:\s*(?P<expression>\S.*?)\s*->\s*(?P<family>[A-Za-z][\w-]*)"
+)
 
 #: A name ending in ``prefix`` bound to a literal (``prefix = "button.primary"``,
 #: ``token_prefix="button.warning"``) is what an f-string token is built from.
@@ -149,6 +169,17 @@ def is_qcolor_exempt(path: str, extra: Iterable[str] = ()) -> bool:
         fnmatch.fnmatchcase(name, glob)
         for glob in (*DEFAULT_QCOLOR_EXEMPT_GLOBS, *extra)
     )
+
+
+def is_table_exempt(path: str) -> bool:
+    """True when *path* is a token table rather than a painter.
+
+    The exemption is a path fragment, not a basename: a ``variants.py`` next to
+    a painter in another package may genuinely paint. See ``TABLE_PATHS``.
+    """
+    normalised = path.replace("\\", "/")
+    return any(fragment in normalised for fragment in TABLE_PATHS)
+
 
 #: ``(tree, source, path) -> findings``; the raw ``source`` is needed only for
 #: comment inspection (``silent-swallow``).
@@ -738,6 +769,31 @@ def _declared_family(source: str) -> str | None:
     return None
 
 
+def _declared_prefixes(source: str) -> dict[str, str]:
+    """``# token-prefix: <expression> -> <family>`` declarations, by expression.
+
+    Read from real comments only, like ``# token-family:``; the first
+    declaration for an expression wins.
+    """
+    declarations: dict[str, str] = {}
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+        for token in tokens:
+            if token.type != tokenize.COMMENT:
+                continue
+            found = _TOKEN_PREFIX_COMMENT.search(token.string)
+            if found:
+                declarations.setdefault(
+                    found.group("expression").strip(), found.group("family")
+                )
+    except (tokenize.TokenError, IndentationError):
+        for found in _TOKEN_PREFIX_COMMENT.finditer(source):
+            declarations.setdefault(
+                found.group("expression").strip(), found.group("family")
+            )
+    return declarations
+
+
 def _token_root(token: str) -> str | None:
     """First dotted segment of a palette key, or ``None`` for a non-token string.
 
@@ -821,10 +877,14 @@ class _TokenOwnershipVisitor(ast.NodeVisitor):
         self.path = path
         self.family = token_ownership_family(path, source)
         self.prefixes: dict[str, str] = {}
+        self.prefix_aliases: dict[str, str] = {}
+        self.declared_prefixes = _declared_prefixes(source)
         self.findings: list[Finding] = []
-        # Palette modules are *made* of every family's keys; the same basename
-        # exemption ``qcolor-at-import`` uses.
-        self.exempt = is_qcolor_exempt(path)
+        # Palette modules are *made* of every family's keys; a table names other
+        # families' keys to display or map them. Neither is a painter, so the
+        # same exemption applies — ``qcolor-at-import``'s basename rule for the
+        # palette, ``TABLE_PATHS`` for the table.
+        self.exempt = is_qcolor_exempt(path) or is_table_exempt(path)
 
     def collect_prefixes(self, tree: ast.Module) -> None:
         for node in ast.walk(tree):
@@ -834,13 +894,15 @@ class _TokenOwnershipVisitor(ast.NodeVisitor):
             elif isinstance(node, ast.AnnAssign) and node.value is not None:
                 pairs = [(node.target, node.value)]
             for target, value in pairs:
-                if not isinstance(value, ast.Constant) or not isinstance(
-                    value.value, str
-                ):
-                    continue
                 key = _prefix_key(target)
-                if key is not None:
+                if key is None:
+                    continue
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
                     self.prefixes.setdefault(key, value.value)
+                elif isinstance(value, (ast.Name, ast.Attribute)):
+                    # ``prefix = variant.token_prefix``: the local name carries
+                    # the expression a ``# token-prefix:`` declaration names.
+                    self.prefix_aliases.setdefault(key, ast.unparse(value))
 
     def _resolve(self, node: ast.expr) -> str | None:
         candidates = [ast.unparse(node)]
@@ -851,6 +913,23 @@ class _TokenOwnershipVisitor(ast.NodeVisitor):
         for candidate in candidates:
             if candidate in self.prefixes:
                 return self.prefixes[candidate]
+        return None
+
+    def _declared_family_for(self, variable: str) -> str | None:
+        """Family declared for *variable*, following local aliases."""
+        pending = [variable]
+        seen: set[str] = set()
+        while pending:
+            name = pending.pop()
+            if name in seen:
+                continue
+            seen.add(name)
+            declared = self.declared_prefixes.get(name)
+            if declared is not None:
+                return declared
+            alias = self.prefix_aliases.get(name)
+            if alias is not None:
+                pending.append(alias)
         return None
 
     def _borrow_message(self, owner: str, key: str) -> str:
@@ -889,17 +968,32 @@ class _TokenOwnershipVisitor(ast.NodeVisitor):
             variable = ast.unparse(prefix)
             resolved = self._resolve(prefix)
             if resolved is None:
-                self.findings.append(
-                    Finding(
-                        RULE_TOKEN_OWNERSHIP_UNRESOLVED,
-                        self.path,
-                        node.lineno,
-                        f"{text} builds a palette key from {variable!r}, which "
-                        "has no literal prefix assignment here — bind "
-                        f'{variable} = "<family>.<variant>" so the family is '
-                        "checkable",
+                declared = self._declared_family_for(variable)
+                if declared is None:
+                    self.findings.append(
+                        Finding(
+                            RULE_TOKEN_OWNERSHIP_UNRESOLVED,
+                            self.path,
+                            node.lineno,
+                            f"{text} builds a palette key from {variable!r}, which "
+                            "has no literal prefix assignment here — bind "
+                            f'{variable} = "<family>.<variant>" so the family is '
+                            "checkable, or declare \"# token-prefix: "
+                            f'{variable} -> <family>"',
+                        )
                     )
-                )
+                elif declared != NEUTRAL_FAMILY and declared != self.family:
+                    self.findings.append(
+                        Finding(
+                            RULE_TOKEN_OWNERSHIP_DYNAMIC,
+                            self.path,
+                            node.lineno,
+                            f"{text} reads the {declared} family through "
+                            f"{variable!r}, but {_ownership_hint(self.family)} — "
+                            f'the "# token-prefix: … -> {declared}" declaration '
+                            "names another family",
+                        )
+                    )
             else:
                 owner = _token_family(resolved)
                 if (
@@ -990,6 +1084,7 @@ __all__ = [
     "RULE_TOOLKIT_QSS",
     "RULES",
     "Rule",
+    "TABLE_PATHS",
     "TOKEN_FAMILIES",
     "TOKEN_OWNERS",
     "check_double_scaled_px",

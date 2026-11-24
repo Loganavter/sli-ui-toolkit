@@ -40,7 +40,10 @@ Every rule returns `Finding(rule, path, line, message)` records.
 | `silent-swallow` | `except ...: pass` with no comment in the handler and no logging call | Log the failure, or comment why it is expected |
 | `token-ownership` | A literal palette key from another widget family (`"dialog.text"` in an input widget) | Read the file family's own token (or a neutral one), or declare the file's family with `# token-family: <name>` |
 | `token-ownership-dynamic` | An f-string token key (`f"{prefix}.border"`) whose prefix variable is assigned a literal from another family | Point the prefix at the file's own family, or declare the file's family |
-| `token-ownership-unresolved` | An f-string token key whose prefix variable has no literal assignment in the file | Bind `prefix = "<family>.<variant>"` (or `token_prefix=`) so the family is checkable |
+| `token-ownership-unresolved` | An f-string token key whose prefix variable has no literal assignment in the file | Bind `prefix = "<family>.<variant>"` (or `token_prefix=`) so the family is checkable, or declare what the runtime prefix means with `# token-prefix: <expression> -> <family>` |
+
+The three `token-*` rules skip **tables** as well as palette modules — see
+[Token ownership](#token-ownership).
 
 ### `qcolor-at-import` and the palette module
 
@@ -139,6 +142,42 @@ object is `token-ownership-unresolved`, naming the variable, rather than passing
 silently. Only strings shaped like a key are considered — an f-string with
 whitespace in its literal parts (`f"{name}.emit(...) is blocked"`) is prose.
 
+**Declaring what a runtime prefix means.** A painter may legitimately read keys
+through a prefix the variant table binds at runtime
+(`f"{variant.token_prefix}.background.hover"`). The file states the mapping once,
+in a real comment next to the code that uses it:
+
+```python
+# token-prefix: variant.token_prefix -> button
+```
+
+The left side is the expression as it appears inside the f-string (a local alias
+such as `prefix = variant.token_prefix` is followed); the right side is the
+family the keys belong to. With the declaration the prefix is judged like a
+literal: no `token-ownership-unresolved`, and `token-ownership-dynamic` fires
+only when the declared family is not the file's own (a `-> slider` declaration
+in a button painter is still a borrow). Without the comment both rules stay on —
+the declaration is what makes the dynamic key checkable.
+
+**A table is not a painter.** Some files name other families' tokens *by
+design*: the inspector panels (`ui/inspector/`) display a widget family's tokens
+so a host can inspect them, and the variant registries
+(`widgets/buttons/variants.py`, `widgets/text/variants.py`) map a variant name to
+its token prefix. They carry no painting code — no key they name is one they
+paint with — so the ownership question does not apply. `TABLE_PATHS` in
+`sli_ui_toolkit.gates.rules` lists those path fragments, and the three
+`token-*` rules skip them:
+
+| Path fragment | Why it is exempt |
+|---|---|
+| `ui/inspector/` | Displays every family's tokens and resolves them for the inspector UI |
+| `buttons/variants.py` | Maps a button variant to its token prefix |
+| `text/variants.py` | Maps a text variant to its colour token |
+
+The exemption is a path fragment, not a basename: a painter layer beside a table
+(`ui/widgets/buttons/layers/background.py`) is still judged, and declares the
+prefix it reads with `# token-prefix:`.
+
 **The palette module is exempt.** `palette.py`, `palettes.py`, `colors.py` and
 `colours.py` (basename match) are *made* of every family's keys, exactly as they
 are for `qcolor-at-import`; the exemption is for the module that owns colours,
@@ -150,6 +189,8 @@ not for a widget that reads one.
 same per-file ratchet a host installs. The baseline may only shrink: fix a site
 and the file's count may be lowered (or the file dropped) when the baseline is
 regenerated; a new borrow in an old file, or a new file with findings, fails.
+A table path (`TABLE_PATHS`) appearing in the baseline means the exemption
+drifted — tables are exempt, never accepted debt.
 Regenerate with all three rules selected, so the file stays a complete picture:
 
 ```bash

@@ -3,15 +3,6 @@
   "counts": {
     "token-ownership": {
       "src/sli_ui_toolkit/ui/dialogs/action_bar.py": 1,
-      "src/sli_ui_toolkit/ui/inspector/code/editor.py": 1,
-      "src/sli_ui_toolkit/ui/inspector/families/buttons.py": 5,
-      "src/sli_ui_toolkit/ui/inspector/families/flyouts.py": 1,
-      "src/sli_ui_toolkit/ui/inspector/families/inputs.py": 16,
-      "src/sli_ui_toolkit/ui/inspector/families/labels.py": 1,
-      "src/sli_ui_toolkit/ui/inspector/families/misc.py": 15,
-      "src/sli_ui_toolkit/ui/inspector/families/nav.py": 6,
-      "src/sli_ui_toolkit/ui/inspector/families/timeline.py": 1,
-      "src/sli_ui_toolkit/ui/inspector/tree.py": 1,
       "src/sli_ui_toolkit/ui/widgets/atomic/_step_buttons.py": 1,
       "src/sli_ui_toolkit/ui/widgets/atomic/custom_group_widget.py": 5,
       "src/sli_ui_toolkit/ui/widgets/atomic/drop_zone_label.py": 2,
@@ -47,16 +38,12 @@
       "src/sli_ui_toolkit/ui/widgets/text/engine/layout/builder.py": 4,
       "src/sli_ui_toolkit/ui/widgets/text/engine/layout/paint.py": 3,
       "src/sli_ui_toolkit/ui/widgets/text/engine/layout/text_layout.py": 1,
-      "src/sli_ui_toolkit/ui/widgets/text/text.py": 1,
-      "src/sli_ui_toolkit/ui/widgets/text/variants.py": 6
+      "src/sli_ui_toolkit/ui/widgets/text/text.py": 1
     },
     "token-ownership-dynamic": {
       "src/sli_ui_toolkit/ui/widgets/helpers/underline_painter.py": 1
     },
     "token-ownership-unresolved": {
-      "src/sli_ui_toolkit/ui/inspector/families/buttons.py": 5,
-      "src/sli_ui_toolkit/ui/widgets/buttons/layers/background.py": 3,
-      "src/sli_ui_toolkit/ui/widgets/buttons/variants.py": 14,
       "src/sli_ui_toolkit/ui/widgets/helpers/underline_painter.py": 1
     }
   }
