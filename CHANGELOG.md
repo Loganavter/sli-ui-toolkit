@@ -133,6 +133,21 @@
 
 ### Fixed
 
+- **`BaseFlyout(gpu_fill=True)` paints an opaque plate, and now says so.** `FlyoutGpuFillWidget` promised the opposite of what
+  a `QRhiWidget` can do: its docstring claimed a straight-alpha blended pass that "composites translucently over whatever sibling
+  raster widgets are already drawn under it". A `QRhiWidget`'s content is blitted at flush time and *overwrites* the siblings
+  under it — `WA_AlwaysStackOnTop` only moves it above everything, a mask is not a blend, and REAL-Video-Enhancer already paid
+  for that rule (`00efff55`). The pipeline no longer requests a blend state (QRhi blends only when a `TargetBlend` asks for it),
+  the pass clears to alpha 1.0 and the fill uniform forces alpha 1.0, so a colour with alpha < 255 paints opaque instead of
+  handing the blit an undefined look; the widget is also explicitly mouse-transparent (a plate, not a hit target). The
+  docstring, `BaseFlyout`'s `gpu_fill` comment, `set_background_brush`'s docstring and `docs/user/FLYOUT_SYSTEM.md` now state
+  that the GPU path is opaque and that translucency stays on the default QPainter path. The flag stays opt-in, no host call
+  site passes it today, and the default `gpu_fill=False` path is untouched. Tests: `tests/test_gpu_fill_qrhi.py` (12 — a
+  recording pipeline stand-in proves `_configure_opaque_pipeline` never calls `setTargetBlends`, a fake command buffer proves
+  `render()` clears to alpha 1.0 and writes fill alpha 1.0 for a 40-alpha colour, the module source carries no blend factor,
+  the docstrings keep no sibling-blending claim, the plate is mouse-transparent and hidden until a *solid* brush, the default
+  path has no plate), red-before: all 9 new contract assertions fail on the pre-change tree.
+
 - **`Stepper` and `TimeLineEdit` no longer take Up/Down while idle — the SpinBox arrow bug, resurfaced in two
   subclasses.** Both accepted Up/Down unconditionally and `event.accept()`ed them (stepping by `step` / one minute),
   so a focused field in a `ToolbarRowsSection` row was unreachable by row-to-row navigation — the regression

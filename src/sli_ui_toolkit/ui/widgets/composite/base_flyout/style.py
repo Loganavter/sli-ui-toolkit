@@ -54,6 +54,12 @@ class _FlyoutStyleApi:
         a ``QLinearGradient``/``QRadialGradient`` for a glass-style tint,
         or ``QBrush(QPixmap(...))`` to stretch a custom texture. Pass
         ``None`` to go back to the ``flyout.background`` theme token.
+
+        For a flyout built with ``gpu_fill=True`` a solid colour hands the
+        fill to the GPU plate (see ``gpu_fill/widget.py``), which paints it
+        OPAQUE — a QRhiWidget overwrites the siblings under it, so its alpha
+        cannot blend. Use the default (``gpu_fill=False``) path when the panel
+        must be translucent.
         """
         self._background_brush = (
             QBrush(brush) if brush is not None and not isinstance(brush, QBrush) else brush
