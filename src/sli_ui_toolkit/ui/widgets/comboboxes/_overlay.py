@@ -20,10 +20,7 @@ from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
-from sli_ui_toolkit.ui.widgets.helpers import (
-    calculate_centered_overlay_geometry,
-    centered_inner_offset,
-)
+from sli_ui_toolkit.ui.widgets.helpers import calculate_centered_overlay_geometry
 from sli_ui_toolkit.ui.widgets.virtual_list import RowPool, visible_window
 
 if TYPE_CHECKING:
@@ -66,13 +63,13 @@ def apply_elided_tooltip(widget: QWidget, text: str, available_width: int) -> No
 class _SlotBgLayer(Layer):
     """Прозрачный фон, list_item.background.hover на hover/pressed.
 
-    ``widget._is_focus_row`` gives the same hover-look background to whichever
-    single row a commit would take: the row under the gear-shifter's fixed
-    frame during a drag (ComboBox._gear_active / _gear_focus_index), or the
-    row the keyboard typeahead currently walks (_typing_focus_index). That row
-    reads as "this is what gets picked" the same way a normal hover does — on
-    top of (not instead of) the stationary outline drawn separately by
-    ``_GearFrame``, pinned to the field's own position.
+    ``widget._is_focus_row`` gives the same hover-look background to the one
+    row a commit would take when the row is not natively hovered: the row
+    under the pointer during a press-and-release selection
+    (``ComboBox._pointer_select_index`` — the field holds the implicit grab,
+    so the rows never see those moves themselves), or the row the keyboard
+    typeahead currently walks (``_typing_focus_index``). That row reads as
+    "this is what gets picked" the same way a normal hover does.
     """
 
     def applies(self, ctx) -> bool:
@@ -102,11 +99,11 @@ class _CurrentIndexRingLayer(Layer):
 
     Not ``FocusLayer``: that layer gates on real Qt ``hasFocus()``, which
     this popup never grants to a row (the field keeps keyboard focus so
-    gear-drag/search keep working — see
+    typeahead/search keep working — see
     docs/legacy/plan_combobox_baseflyout_unification.md §2.4 Option A).
     This is the same visual (ring geometry/color) driven off the combo's own
-    current-index state instead, and yields to the gear-drag frame's own
-    highlight while a drag is active.
+    current-index state instead, and yields to the pointer's own highlight
+    (``_SlotBgLayer``) while a press-and-release selection is in progress.
 
     Gated on ``owner._keyboard_focus`` (set by ``Button.focusInEvent`` —
     True for Tab/arrow-granted focus, False for a mouse click), same
@@ -118,7 +115,7 @@ class _CurrentIndexRingLayer(Layer):
     def applies(self, ctx) -> bool:
         widget = ctx.widget
         owner = widget._overlay._owner
-        if not owner._expanded or owner._gear_active:
+        if not owner._expanded or owner._pointer_select_armed:
             return False
         typing_index = owner._typing_focus_index
         if typing_index >= 0:
@@ -229,67 +226,27 @@ class _DropdownItemSlot(Button):
         available = self.width() - 2 * scaled_px(self._text_padding)
         apply_elided_tooltip(self, self._text, available)
 
-    def hoverHitTest(self, pos) -> bool:
-        # While the mouse is grabbed for a gear-drag, hover here comes only
-        # from HoverCoordinator (see hover_coordinator.py), an app-wide
-        # QApplication event filter that reconciles every registered
-        # widget's hover on every MouseMove/Enter anywhere in the app via
-        # QApplication.widgetAt(real_cursor_pos), calling this method to
-        # confirm the hit — Qt itself doesn't deliver native enter/leave to
-        # other widgets while a widget holds the implicit grab. During a
-        # gear-drag it's the *popup* that physically translates under a
-        # stationary (blank-cursor) real pointer, so widgetAt() can
-        # legitimately land on a row here — HoverCoordinator would then
-        # light it up on top of the gear-focus frame's own highlight, a
-        # second highlight the frame doesn't own. Returning False makes
-        # _reconcile_widget treat this row as an explicit miss instead.
-        if self._overlay._hover_suppressed:
-            return False
-        return super().hoverHitTest(pos)
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        # A press on a row arms the same press-and-release selection the field
+        # arms on open; nothing is committed until the release lands on a row
+        # (see ComboBox._finish_pointer_selection).
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._overlay._owner._begin_pointer_selection(from_field=False)
+        super().mousePressEvent(event)
 
-    def enterEvent(self, event) -> None:
-        # The grab that keeps other widgets from seeing native enter/leave
-        # (see hoverHitTest above) ends the moment mouseReleaseEvent
-        # returns, while the committed close still clears the drag state
-        # (GearDragCapability.cancel(), reached through hideDropdown). If the
-        # real cursor happens to sit over a *different* row as the grab lets
-        # go, Qt delivers this a genuine native Enter for it, and Button's
-        # own base implementation would light it up — a second, unwanted
-        # highlight next to the gear-focus one until _hover_suppressed clears.
-        # Swallow it while suppressed; leaveEvent still runs
-        # normally so nothing can get stuck lit.
-        if self._overlay._hover_suppressed:
-            return
-        super().enterEvent(event)
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self._overlay._owner._update_pointer_selection(
+                event.globalPosition().toPoint()
+            )
+        super().mouseMoveEvent(event)
 
-
-class _GearFrame(QWidget):
-    """Outline-only marker drawn on top of the list, pinned to the
-    ComboBox field's own screen rect (not a "row within the popup" — the
-    field's literal position/size), while a gear-shifter drag is in
-    progress (see ComboBox._gear_active). It never moves; whichever row
-    happens to be behind it at release time is what gets committed. Reuses
-    the field's own border pen (``input.border.thin``, same as
-    ``_ComboFieldBgLayer``) rather than an arbitrary accent color.
-    """
-
-    def __init__(self, parent: QWidget):
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.hide()
-
-    def paintEvent(self, event):
-        overlay = self.parentWidget()
-        owner = getattr(overlay, "_owner", None)
-        tm = overlay._theme if overlay is not None else ThemeManager.get_instance()
-        radius = overlay.CONTENT_RADIUS if overlay is not None else 6
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor(tm.get_color("input.border.thin")))
-        pen.setWidthF(max(1.0, 2.0 * UiScale.get_instance().factor()))
-        p.setPen(pen)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0), radius, radius)
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._overlay._owner._commit_pointer_selection(
+                event.globalPosition().toPoint()
+            )
+        super().mouseReleaseEvent(event)
 
 
 class _DropdownOverlay(BaseFlyout):
@@ -307,18 +264,10 @@ class _DropdownOverlay(BaseFlyout):
         self._scrollbar_width = MINIMAL_SCROLLBAR_WIDTH
         # Rows are children of self.container (BaseFlyout's shadow-clipped
         # surface), not of the overlay itself, so Qt clips their painting to
-        # the list area — needed during a gear-shifter drag, where rows are
-        # positioned at sub-item pixel offsets and can briefly extend a few
-        # pixels above/below the list.
+        # the list area.
         self._list_viewport = QWidget(self.container)
         self._list_viewport.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self._pool = RowPool(self._list_viewport, self._make_slot)
-        self._gear_frame = _GearFrame(self)
-        # See _DropdownItemSlot.enterEvent — true for the duration of a
-        # gear-drag gesture (and a beat past its release), to swallow the
-        # native Enter Qt posts to whatever row sits under the cursor once
-        # the field's implicit mouse grab lets go.
-        self._hover_suppressed = False
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self.setMouseTracking(True)
         self.custom_v_scrollbar.valueChanged.connect(self._on_scrollbar_value_changed)
@@ -420,16 +369,7 @@ class _DropdownOverlay(BaseFlyout):
 
     def _rebind_slots(self) -> None:
         self._position_viewport()
-        # Row layout itself never special-cases a drag — see
-        # ComboBox._update_gear_drag: in the non-overflow case, the whole
-        # popup window (this widget: card + shadow + rows) is what
-        # physically translates via self.move(), so card/shadow and rows
-        # move together automatically, with zero per-row math. The overflow
-        # (more items than fit) case keeps the window static and scrolls
-        # via owner._scroll_offset like a normal opened list, same as
-        # always — that logic lives entirely in this one method.
         self._rebind_slots_normal()
-        self._update_gear_frame()
 
     def _rebind_slots_normal(self) -> None:
         owner = self._owner
@@ -455,67 +395,28 @@ class _DropdownOverlay(BaseFlyout):
             if slot.isVisible():
                 slot._sync_elided_tooltip()
 
-    def _update_gear_frame(self) -> None:
-        """Position the fixed outline over the field's real screen rect.
+    def row_index_at_global_pos(self, global_pos: QPoint) -> int:
+        """Item index of the visible row under a screen point, or -1.
 
-        Computed via global coordinates (not "row N of the popup"), so it
-        stays correct regardless of where the popup window currently sits —
-        including while that window is being dragged around by
-        ComboBox._update_gear_drag.
-
-        Sized to row height, not the field's own (fixed BASE_HEIGHT) height:
-        the field height and the dropdown row height are independent
-        quantities — row height tracks font metrics, the field doesn't — so
-        they rarely match exactly. Framing at the field's height left a
-        gap between the frame and whichever row was riding under it, and
-        because that gap is usually an odd pixel count it split unevenly
-        (e.g. 1px/2px) rather than centering, so the row visibly poked past
-        the outline on one edge and sat recessed on the other. Matching the
-        frame to row height instead makes it hug the row exactly, at every
-        step of the drag, not just at the anchor.
-        """
-        owner = self._owner
-        if not owner._gear_active:
-            self._gear_frame.hide()
-            return
-        item_h = self._item_height()
-        field_rect = owner.rect()
-        field_top_left_global = owner.mapToGlobal(field_rect.topLeft())
-        local_top_left = self.mapFromGlobal(field_top_left_global)
-        # centered_inner_offset (not plain // 2): the popup positions the
-        # anchored row with this same helper (overlay_geometry), so a
-        # different rounding here left the row's top poking a full pixel out
-        # of the frame.
-        local_top_left.setY(local_top_left.y() + centered_inner_offset(field_rect.height(), item_h))
-        frame_rect = QRect(local_top_left, QSize(field_rect.width(), item_h))
-        self._gear_frame.setGeometry(frame_rect)
-        self._gear_frame.show()
-        self._gear_frame.raise_()
-
-    def hover_row_at_global_pos(self, global_pos: QPoint) -> None:
-        """Mark whichever visible row sits under ``global_pos`` as hovered.
-
-        Used when the list opens via a long-press-only gesture (see
-        ``GearDragCapability._begin_drag``'s overflow branch): the popup
-        appears without the mouse having moved into it, so Qt never fires
-        the row's own ``enterEvent`` — without this the just-opened list
-        would show no hover at all until the user physically moves the
-        mouse.
+        The pointer's own position is the only input: a press-and-release
+        selection hit-tests real row geometry (see
+        ``ComboBox._update_pointer_selection``), so no synthetic
+        ``QApplication.widgetAt`` reconciliation is needed to know which row a
+        release would pick.
         """
         local = self._list_viewport.mapFromGlobal(global_pos)
         for slot in self._slots:
             if not slot.isVisible():
                 continue
-            slot._hovered = slot.geometry().contains(local)
+            if slot.geometry().contains(local):
+                return slot._item_index
+        return -1
 
     def clear_hover(self) -> None:
-        """Drop hover state on every slot (used, incl. hidden, ones).
+        """Drop native hover state on every slot (used, incl. hidden, ones).
 
-        ``hover_row_at_global_pos`` forces ``_hovered`` on directly rather
-        than through Qt's own enter/leave tracking, and slots are a reused
-        pool — without an explicit clear on close, a row hidden while still
-        force-hovered would show that stale hover the next time it's rebound
-        to a different item.
+        Slots are a reused pool: a row hidden while still hovered must not show
+        that stale hover the next time it is rebound to a different item.
         """
         for slot in self._slots:
             slot._hovered = False
@@ -555,7 +456,7 @@ class _DropdownOverlay(BaseFlyout):
         self._anchor_widget = self._owner
         # Field-centric focus model (see
         # docs/legacy/plan_combobox_baseflyout_unification.md §2.4 Option A):
-        # real Qt focus stays on the ComboBox field so gear-drag/search keep
+        # real Qt focus stays on the ComboBox field so typeahead/search keep
         # working. Nav-section registration is Phase 2 (still local
         # keyPressEvent-driven Up/Down for now).
         self._skip_focus_grab = True
@@ -744,6 +645,15 @@ class _DropdownOverlay(BaseFlyout):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        owner = self._owner
+        if owner._pointer_select_armed and event.buttons() & Qt.MouseButton.LeftButton:
+            # The press started on the field or on a row: whichever widget holds
+            # the implicit grab forwards the pointer's own travel here, and the
+            # row under it is re-derived from real geometry (no cursor warping,
+            # no widgetAt reconciliation).
+            owner._update_pointer_selection(event.globalPosition().toPoint())
+            event.accept()
+            return
         if self._sb_dragging:
             if self._forward_to_scrollbar(event):
                 return
@@ -757,6 +667,11 @@ class _DropdownOverlay(BaseFlyout):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        owner = self._owner
+        if event.button() == Qt.MouseButton.LeftButton and owner._pointer_select_armed:
+            owner._commit_pointer_selection(event.globalPosition().toPoint())
+            event.accept()
+            return
         if self._sb_dragging:
             self._forward_to_scrollbar(event)
             self._sb_dragging = False
