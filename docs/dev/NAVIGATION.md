@@ -77,6 +77,15 @@ the user enters it, arrows navigate the ring.
   Left/Right must stay cursor movement — value-stepping there uses
   PageUp/PageDown instead, which nothing else claims (so SpinBox does not
   implement `is_editing()` for the arrow gate).
+- `Stepper` (`ui/widgets/atomic/stepper.py`) and `TimeLineEdit`
+  (`ui/widgets/atomic/time_line_edit.py`): same typed-field shape as
+  `SpinBox` — Up/Down `event.ignore()`, PageUp/PageDown step. Both are typed
+  fields (digits / `HH:mm`), so Left/Right stay caret movement and no edit
+  mode is invented; they repeated the old SpinBox bug until
+  `tests/test_value_control_edit_contract.py`'s keyboard-step scan caught
+  them. Any value control must declare one of the two shapes (§1.1's edit mode
+  or this typed-field one) and register it in
+  `tests/value_controls_allowlist.py`.
 
 **Negative example (fixed, kept here as the cautionary case):** `SpinBox`
 used to unconditionally `setValue()` + `event.accept()` on Up/Down, with no
@@ -132,8 +141,11 @@ and have startup call that one function instead of several separate
 ### (C) "When may this control consume an arrow key itself?"
 
 Not a registration problem — see §1. New widgets with in-widget arrow-key
-behavior should follow the `Slider`/`ComboBox`/`SpinBox` pattern above and
-add a case to `tests/test_nav_arrow_key_contract.py`.
+behavior should follow the `Slider`/`ComboBox`/`SpinBox` pattern above; a value
+control `keyPressEvent` that steps a value is caught by
+`tests/test_value_control_edit_contract.py`'s scan and must declare a shape in
+`tests/value_controls_allowlist.py`, which is what
+`tests/test_nav_arrow_key_contract.py` derives its cases from.
 
 ### (D) Flyout side and focus — declarative, no 40+ lines
 
@@ -175,15 +187,17 @@ Replaces `calendar_manager`/`checkbox_manager` — one generic `AutoNavigationSe
 constructs a fresh widget and asserts the arrows are left unaccepted
 (`event.isAccepted()` is `False`) in its idle state, using the same
 trial-dispatch technique `ToolbarRowsSection._widget_handles` uses at
-runtime. Add your widget to `tests/test_nav_arrow_key_contract.py` (or a
-dedicated widget test module, wiring in the same helper) whenever you add
-or touch a `keyPressEvent` override that mentions Up/Down or Left/Right —
-this is what would have caught `SpinBox`'s bug before it shipped. A
-value control that implements the value-edit contract (§1.1) must leave
-**all four** arrows unaccepted while idle (`Slider` has its own
-Left/Right case in that module); `tests/test_slider_edit_mode.py` drives
-the full Enter/arrows/WASD/Enter, Esc and configurable-affordance contract
-against real widgets.
+runtime. `tests/test_nav_arrow_key_contract.py` derives its cases from the
+registries in `tests/value_controls_allowlist.py`, so a value control is
+covered there the moment it declares its shape in that registry — this is what
+would have caught `SpinBox`'s bug before it shipped, and what now catches a
+subclass that inherits the machinery (or writes its own `keyPressEvent`
+stepping). A value control that implements the value-edit contract (§1.1) must
+leave **all four** arrows unaccepted while idle (`Slider` has its own
+Left/Right case in that module); a typed-field control (§1.1, `SpinBox` shape)
+leaves Up/Down unaccepted and steps with PageUp/PageDown.
+`tests/test_slider_edit_mode.py` drives the full Enter/arrows/WASD/Enter, Esc
+and configurable-affordance contract against real widgets.
 
 ## 4. Modal sections — overlays that own the keyboard
 
@@ -243,6 +257,10 @@ section registered is unchanged.
       PageUp/PageDown or another key instead, see `SpinBox`).
 - [ ] Add a case to `tests/test_nav_arrow_key_contract.py` using
       `assert_yields_arrows_when_idle` (value controls: all four arrows).
+      Value controls are covered by derivation instead of a hand-written case:
+      declare the shape in `tests/value_controls_allowlist.py`
+      (`VALUE_CONTROLS` for edit mode, `KEYBOARD_STEP_CONTROLS` for
+      PageUp/PageDown) — the AST scan fails until you do.
 
 **Adding a new navigable page/toolbar:**
 

@@ -7,7 +7,8 @@ AI settings page shipped exactly that for "Judge run call ceiling" and
 
 The gauge is the one ``TimeLineEdit`` already had, now shared through
 ``StepButtonsMixin`` so the value can be stepped by mouse (with hold-to-repeat),
-Up/Down keys and the wheel, and stays clamped by ``setRange``.
+PageUp/PageDown keys and the wheel, and stays clamped by ``setRange``. Up/Down
+are navigation keys, not step keys (``docs/dev/NAVIGATION.md`` §1.1).
 """
 
 from __future__ import annotations
@@ -76,12 +77,23 @@ def test_the_step_size_is_honoured_and_clamped(stepper):
     assert stepper.value() == 0, "must clamp at the range minimum"
 
 
-def test_keyboard_up_and_down_step_the_value(stepper):
+def test_page_up_and_page_down_step_the_value(stepper):
+    # SpinBox shape (NAVIGATION.md §1.1): a typed field steps with
+    # PageUp/PageDown; Up/Down stay navigation keys.
     stepper.setFocus()
-    stepper.keyPressEvent(_key_event(Qt.Key.Key_Up))
+    stepper.keyPressEvent(_key_event(Qt.Key.Key_PageUp))
     assert stepper.value() == 4
-    stepper.keyPressEvent(_key_event(Qt.Key.Key_Down))
+    stepper.keyPressEvent(_key_event(Qt.Key.Key_PageDown))
     assert stepper.value() == 3
+
+
+def test_idle_up_and_down_leave_the_value_alone(stepper):
+    stepper.setFocus()
+    for key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+        event = _key_event(key)
+        stepper.keyPressEvent(event)
+        assert stepper.value() == 3
+        assert not event.isAccepted()
 
 
 def test_hiding_the_gutter_leaves_a_plain_field(stepper):

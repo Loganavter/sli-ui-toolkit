@@ -10,10 +10,13 @@ copying the other's paint code.
 Since 2026-11-22 the gutter itself lives on ``SpinBox`` (a *vertical* column,
 the shape Qt's own ``QSpinBox`` has — ``SpinBox(show_step_buttons=True)``);
 ``Stepper`` keeps the wide two-button gutter it always had and adds the
-stepper-only semantics: a ``step`` size, Up/Down keys and the wheel.
+stepper-only semantics: a ``step`` size, PageUp/PageDown keys and the wheel.
 
-Keyboard and wheel keep working (Up/Down and one notch step by ``step``), the
-value stays clamped to ``setRange``, and ``valueChanged`` is inherited.
+Keyboard and wheel keep working (PageUp/PageDown and one notch step by
+``step``; the value stays clamped to ``setRange``, and ``valueChanged`` is
+inherited), but a Stepper is a typed field like its ``SpinBox`` base — so it
+takes the SpinBox shape of the value-edit contract: Up/Down stay navigation
+keys, and stepping is PageUp/PageDown (``docs/dev/NAVIGATION.md`` §1.1).
 """
 
 from __future__ import annotations
@@ -81,11 +84,17 @@ class Stepper(SpinBox):
     # -- events -------------------------------------------------------------
 
     def keyPressEvent(self, event: QKeyEvent):
-        if event.key() == Qt.Key.Key_Up:
+        if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            # Value-edit contract, SpinBox shape: a Stepper is a typed field,
+            # so Up/Down belong to row navigation (NavigationManager /
+            # ToolbarRowsSection) and never step the value while idle.
+            event.ignore()
+            return
+        if event.key() == Qt.Key.Key_PageUp:
             self._step(1)
             event.accept()
             return
-        if event.key() == Qt.Key.Key_Down:
+        if event.key() == Qt.Key.Key_PageDown:
             self._step(-1)
             event.accept()
             return
