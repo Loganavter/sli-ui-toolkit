@@ -32,7 +32,11 @@ from sli_ui_toolkit import FLUENT_DARK, FLUENT_LIGHT, ThemeManager
 from sli_ui_toolkit.managers import UiScale
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 from sli_ui_toolkit.ui.widgets.composite import dialog_shell
-from sli_ui_toolkit.widgets import ScrollableDialogPage, SidebarDialogShell
+from sli_ui_toolkit.widgets import (
+    ScrollableDialogPage,
+    SidebarDialogShell,
+    SplitterHandle,
+)
 
 #: The owner's display: 125 % is fractional, which is what turns a 1-logical-px
 #: style line into a two-column smear. 1.0/1.5/2.0 are the neighbours a fix
@@ -155,7 +159,9 @@ def test_splitter_paints_its_own_divider_not_the_style(qapp):
     shell = _shown_shell(qapp)
     try:
         handle = shell.splitter.handle(1)
-        assert isinstance(handle, dialog_shell._DialogSplitterHandle)
+        # The shell uses the toolkit's public Splitter — there is no private
+        # second implementation (tests/test_splitter.py pins the public one).
+        assert isinstance(handle, SplitterHandle)
     finally:
         shell.close()
 

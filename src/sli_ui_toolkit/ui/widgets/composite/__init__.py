@@ -56,6 +56,11 @@ from sli_ui_toolkit.ui.widgets.composite.preview_panel import (
 from sli_ui_toolkit.ui.widgets.composite.simple_options_flyout import (
     SimpleOptionsFlyout,
 )
+from sli_ui_toolkit.ui.widgets.composite.splitter import (
+    Splitter,
+    SplitterHandle,
+    hairline_rect,
+)
 from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import (
     IconListItem,
     IconListWidget,
@@ -131,6 +136,9 @@ __all__ = [
     "ScrollableDialogPage",
     "SidebarDialogShell",
     "SimpleOptionsFlyout",
+    "Splitter",
+    "SplitterHandle",
+    "hairline_rect",
     "ToastAction",
     "ToastNotification",
     "ToastManager",

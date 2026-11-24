@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import math
-
-from PySide6.QtCore import QPoint, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QPainter, QPalette
+from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QScrollArea,
     QSizePolicy,
-    QSplitter,
-    QSplitterHandle,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -19,7 +15,8 @@ from PySide6.QtWidgets import (
 from sli_ui_toolkit.theme import ThemeManager
 from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import MinimalistScrollBar
 from sli_ui_toolkit.ui.widgets.composite.sidebar_nav_list import IconListWidget
-from sli_ui_toolkit.ui.widgets.helpers.paint_device import painter_dpr
+from sli_ui_toolkit.ui.widgets.composite.splitter import Splitter
+from sli_ui_toolkit.ui.widgets.composite.splitter import hairline_rect as _hairline_rect
 from sli_ui_toolkit.ui.managers.ui_metrics import AXIS_SCALE, connect_ui_metrics
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
 
@@ -34,177 +31,10 @@ def _scaled_metric(value: int) -> int:
     return 0 if value <= 0 else scaled_px(value)
 
 
-def _hairline_rect(
-    *, extents: float, length: float, dpr: float, vertical: bool
-) -> QRectF:
-    """One *device* px thick strip, centred across *extents*, snapped to the
-    device grid.
-
-    A 1-``logical``-px pen at a fractional ratio (125 % / 150 %) straddles
-    two device columns and rasterizes as a blurred two-column band — the
-    divider then reads as a thicker line that merges with the group border
-    next to it. A strip of ``1 / dpr`` logical px whose leading edge is a
-    whole number of device px covers exactly one device column, whatever
-    the ratio. ``vertical`` says which axis the strip runs along (a vertical
-    line in a horizontal splitter's handle).
-    """
-    ratio = dpr if dpr > 0.0 else 1.0
-    thickness = 1.0 / ratio
-    center = extents / 2.0
-    # floor to the device grid; the epsilon keeps an exact device boundary
-    # (e.g. 4.5 * 1.25/1.25) from landing a column early on float error.
-    leading_device = math.floor((center - thickness / 2.0) * ratio + 1e-9)
-    leading = leading_device / ratio
-    if vertical:
-        return QRectF(leading, 0.0, thickness, length)
-    return QRectF(0.0, leading, length, thickness)
-
-
-class _DialogSplitterHandle(QSplitterHandle):
-    """Splitter handle that paints the section divider itself.
-
-    QStyle's ``CE_Splitter`` line is drawn in device pixels at the handle's
-    centre: at DPR 1.25 (the owner's 125 % screen) it lands on a fractional
-    device column, so it smears over two columns and visually merges with
-    the leftmost border of the controls in the column to its right. This
-    handle paints one crisp device column instead (``_hairline_rect``) and
-    fills the rest of its own surface, so the line always keeps a visible
-    gap on both sides — no matter how narrow the handle gets.
-
-    The line colour comes from ``dialog.border`` (re-read on
-    ``theme_changed``, like ``_SurfaceWidget``), the surface from
-    ``surface.background``, so the handle blends with the dialog instead of
-    inheriting the host's stock splitter styling.
-    """
-
-    def __init__(self, orientation: Qt.Orientation, parent: QSplitter) -> None:
-        super().__init__(orientation, parent)
-        self._surface_color = QColor()
-        self._line_color = QColor()
-        #: Y (in this handle's own space) of a horizontal rule that must MEET
-        #: the divider line. Qt clamps negative layout margins to zero, so the
-        #: footer rule cannot simply overhang; the handle closes the few-pixel
-        #: gap itself, in the same colour and the same device column.
-        self._footer_rule_y: int | None = None
-        self._footer_rule_provider = None
-        self._refresh_colors()
-        try:
-            ThemeManager.get_instance().theme_changed.connect(
-                self._on_theme_changed
-            )
-        except Exception:
-            pass
-
-    def _refresh_colors(self) -> None:
-        surface = None
-        line = None
-        try:
-            theme = ThemeManager.get_instance()
-            surface = theme.try_get_color("surface.background")
-            line = theme.try_get_color("dialog.border")
-        except Exception:
-            surface = None
-            line = None
-        palette = self.palette()
-        self._surface_color = (
-            QColor(surface)
-            if surface is not None and surface.isValid()
-            else palette.color(QPalette.ColorRole.Window)
-        )
-        self._line_color = (
-            QColor(line)
-            if line is not None and line.isValid()
-            else palette.color(QPalette.ColorRole.Mid)
-        )
-
-    def _on_theme_changed(self, *_args: object) -> None:
-        try:
-            self._refresh_colors()
-            self.update()
-        except RuntimeError:
-            pass
-
-    def paintEvent(self, _event) -> None:  # noqa: N802
-        painter = QPainter(self)
-        try:
-            self._paint_divider(painter)
-        finally:
-            painter.end()
-
-    def set_footer_rule_provider(self, provider) -> None:
-        """Ask *provider* for the footer rule's row at PAINT time.
-
-        A cached ``y`` is stale: the row's position is only known after the
-        layout runs, and the shell's own resize event fires before that — the
-        stub then painted at the handle's top (measured live: the rule still
-        stopped 4 px short).
-        """
-        self._footer_rule_provider = provider
-        self.update()
-
-    def set_footer_rule_y(self, y: int | None) -> None:
-        """Paint a horizontal stub at *y* so a footer rule meets this line."""
-        y = None if y is None else int(y)
-        if y == self._footer_rule_y:
-            return
-        self._footer_rule_y = y
-        self.update()
-
-    def _paint_divider(self, painter: QPainter) -> None:
-        """Paint the handle surface and its 1-device-px divider line.
-
-        Split out of ``paintEvent`` so a test can paint into a device with a
-        simulated fractional ratio: ``QWidget.render()`` always paints at
-        the widget's own ratio, so it cannot exercise a 125 % screen
-        offscreen (measured 2026-10-28).
-        """
-        painter.fillRect(self.rect(), self._surface_color)
-        vertical = self.orientation() == Qt.Orientation.Horizontal
-        extents = self.width() if vertical else self.height()
-        length = self.height() if vertical else self.width()
-        # The painter's device is the widget's backing store in a real
-        # paint, so read the ratio from the device being painted on.
-        line = _hairline_rect(
-            extents=float(extents),
-            length=float(length),
-            dpr=painter_dpr(painter),
-            vertical=vertical,
-        )
-        painter.fillRect(line, self._line_color)
-        rule_y = self._footer_rule_y
-        if self._footer_rule_provider is not None:
-            try:
-                rule_y = int(self._footer_rule_provider())
-            except Exception:
-                rule_y = None
-        if vertical and rule_y is not None:
-            # A footer rule lives in the content pane, which starts at this
-            # handle's right edge — so it stops a few px short of the divider
-            # line. This stub carries the rule across that gap: same colour,
-            # same one-device-column thickness, from the line to the edge.
-            thickness = line.width()
-            painter.fillRect(
-                QRectF(
-                    line.left(),
-                    float(rule_y),
-                    float(self.width()) - line.left(),
-                    thickness,
-                ),
-                self._line_color,
-            )
-
-
-class _SidebarDialogSplitter(QSplitter):
-    """Horizontal splitter whose handles draw the toolkit's divider line."""
-
-    def createHandle(self) -> QSplitterHandle:  # noqa: N802
-        return _DialogSplitterHandle(self.orientation(), self)
-
-
 class _DialogHairline(QWidget):
     """One device-px rule in the dialog's own border colour.
 
-    Same painting rule as ``_DialogSplitterHandle``: a 1-logical-px line at
+    Same painting rule as :class:`SplitterHandle`: a 1-logical-px line at
     125 %/150 % straddles two device columns and reads as a blurred band, so
     this paints a single device column through ``_hairline_rect`` and takes its
     colour from ``dialog.border`` — the token the vertical section divider uses,
@@ -507,12 +337,13 @@ class SidebarDialogShell(QWidget):
         if resizable_sidebar:
             # Draggable divider between the sidebar column and the content
             # area (same interaction as the Help dialog's splitter).
-            self.splitter: QSplitter | None = _SidebarDialogSplitter(
-                Qt.Orientation.Horizontal, self
+            # The toolkit ``Splitter`` owns the look of this divider (one
+            # device px, scaled handle width, double-click reset); the shell
+            # only states the geometry it always had.
+            self.splitter: Splitter | None = Splitter(
+                Qt.Orientation.Horizontal, self, children_collapsible=False
             )
             self.splitter.setObjectName("SidebarDialogSplitter")
-            self.splitter.setChildrenCollapsible(False)
-            self._apply_divider_width()
             self.splitter.addWidget(sidebar_widget)
             self.splitter.addWidget(self.content_area)
             self.splitter.setStretchFactor(0, 0)
@@ -534,12 +365,6 @@ class SidebarDialogShell(QWidget):
         if self.sidebar_column is not None:
             self.sidebar_column.setMinimumWidth(scaled_px(self._sidebar_width))
         self.sidebar.setMinimumWidth(scaled_px(self._sidebar_width))
-
-    def _apply_divider_width(self) -> None:
-        # 6 design px: wide enough that the 1-device-px divider line keeps a
-        # visible gap on both sides of the handle.
-        if self.splitter is not None:
-            self.splitter.setHandleWidth(scaled_px(6))
 
     def _apply_content_metrics(self) -> None:
         margins = tuple(_scaled_metric(value) for value in self._content_margins)
@@ -605,7 +430,6 @@ class SidebarDialogShell(QWidget):
         # content margins are design px too — stamped once in __init__ they
         # stayed at their 1.0 values while everything around them grew.
         self._apply_sidebar_width()
-        self._apply_divider_width()
         self._apply_content_metrics()
         self.updateGeometry()
         self.update()
