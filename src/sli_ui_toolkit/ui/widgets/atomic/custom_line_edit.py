@@ -117,6 +117,11 @@ class CustomLineEdit(QWidget):
     # Wheel scroll step: pixels of horizontal travel per wheel-delta unit
     # (one notch = 120 units ≈ 24 px).
     WHEEL_PX_PER_DELTA = 0.2
+    #: How much of the TEXT colour a DISABLED field's underline carries, mixed over the plate it sits on. The line has
+    #: to stay a visible edge - a mere alpha drop on the white one (24/255) vanished into the plate - while reading as
+    #: grey rather than white. Owner, 2026-11-24: a disabled output-path field kept the white underline of an editable
+    #: field, so "not interactive" was invisible. `setDisabledUnderlineColor` overrides the mix outright.
+    DISABLED_UNDERLINE_MIX = 0.30
 
     def __init__(
         self,
@@ -127,6 +132,7 @@ class CustomLineEdit(QWidget):
         underline_thickness: float | None = None,
         focused_underline_color: QColor | None = None,
         focused_underline_thickness: float | None = None,
+        disabled_underline_color: QColor | None = None,
         submit_preset: bool = False,
     ):
         super().__init__(parent)
@@ -137,6 +143,9 @@ class CustomLineEdit(QWidget):
         self._focused_underline_thickness = self._normalize_thickness(
             focused_underline_thickness
         )
+        #: A host may state the disabled colour outright; `None` keeps the field's own colour at
+        #: `DISABLED_UNDERLINE_ALPHA` (a grey line on every theme, no new palette key to forget).
+        self._disabled_underline_color = disabled_underline_color
 
         self._text = ""
         self._cursor = 0
@@ -510,6 +519,17 @@ class CustomLineEdit(QWidget):
     def focusedUnderlineThickness(self) -> float | None:  # noqa: N802
         return self._focused_underline_thickness
 
+    def setDisabledUnderlineColor(self, color: QColor | None) -> None:  # noqa: N802
+        """The underline a DISABLED field paints; ``None`` restores the field's own colour, dimmed."""
+        self._disabled_underline_color = color
+        self.setProperty("disabledUnderlineColor", color)
+        self.update()
+
+    set_disabled_underline_color = setDisabledUnderlineColor
+
+    def disabledUnderlineColor(self) -> QColor | None:  # noqa: N802
+        return self._disabled_underline_color
+
     # -- size hints ---------------------------------------------------------
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
@@ -533,6 +553,21 @@ class CustomLineEdit(QWidget):
         top = self._margins[1]
         bottom = self.height() - self._margins[3]
         return QRect(left, top, max(0, right - left), max(0, bottom - top))
+
+    def _disabled_underline_colour(self) -> QColor:
+        """The grey a disabled field draws its underline in: the plate nudged toward the text colour by the mix.
+
+        Derived from two tokens rather than stated as a hex, so a host's palette moves it with everything else (the
+        theme has no mid-grey token, and a disabled-text token is the plate's own colour - invisible as a line).
+        """
+        plate = QColor(self.theme_manager.get_color("surface.background"))
+        text = QColor(self.theme_manager.get_color("dialog.text"))
+        mix = max(0.0, min(1.0, float(self.DISABLED_UNDERLINE_MIX)))
+        return QColor(
+            int(round(plate.red() + (text.red() - plate.red()) * mix)),
+            int(round(plate.green() + (text.green() - plate.green()) * mix)),
+            int(round(plate.blue() + (text.blue() - plate.blue()) * mix)),
+        )
 
     def _clear_button_reserve(self) -> int:
         if not self._show_clear_button():
@@ -591,6 +626,14 @@ class CustomLineEdit(QWidget):
                 ),
                 alpha=120,
                 thickness=self._focused_underline_thickness or 1.5,
+                arc_radius=float(self.RADIUS),
+                vertical_offset=0.0,
+            )
+        elif not self.isEnabled():
+            cfg = UnderlineConfig(
+                color=self._disabled_underline_color or self._disabled_underline_colour(),
+                alpha=None,
+                thickness=self._underline_thickness or 1.0,
                 arc_radius=float(self.RADIUS),
                 vertical_offset=0.0,
             )
@@ -1178,6 +1221,16 @@ class CustomLineEdit(QWidget):
         self.editingFinished.emit()
         self.update()
 
+    def changeEvent(self, event) -> None:  # noqa: N802
+        """Repaint on an enable/disable switch: the underline's strength is a function of it.
+
+        Qt repaints a styled widget on its palette change; this one paints itself, so the switch is stated here rather
+        than hoped for (owner, 2026-11-24: a disabled field kept the white underline of an editable one).
+        """
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange:
+            self.update()
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
         self._ensure_caret_visible()
@@ -1229,6 +1282,7 @@ CustomLineEdit.inspect_spec = InspectSpec(
         SpecField("underline_thickness", "underlineThickness"),
         SpecField("focused_underline_color", "focusedUnderlineColor"),
         SpecField("focused_underline_thickness", "focusedUnderlineThickness"),
+        SpecField("disabled_underline_color", "disabledUnderlineColor"),
     ),
     token_family=("surface.background", "input.border.thin", "dialog.text", "accent"),
     docs="docs/user/INPUTS_API.md",
