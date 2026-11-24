@@ -53,7 +53,27 @@ TEXT_PAIRS = [
     ("help.nav.selected.text", "help.nav.selected", "help nav selected"),
     ("color_dialog.text", "color_dialog.background", "color dialog body"),
     ("switch.text", "Window", "switch label on window"),
+    # Control-family state keys (P2 colour-token investigation): each pair must read on the plate its own family
+    # owns, not on a borrowed one.
+    ("input.text", "input.background", "input text on the input plate"),
+    ("input.placeholder", "input.background", "input placeholder"),
+    ("checkbox.text", "surface.background", "checkbox label on the surface"),
+    ("switch.text", "surface.background", "switch label on the surface"),
+    ("list_item.text.selected", "list_item.background.selected", "selected list row text"),
+    ("menu.text", "menu.background", "menu row text"),
+    ("titlebar.menu.text", "titlebar.background", "title-bar menu label"),
 ]
+
+# Disabled states are allowed below the AA text target - they must instead read as visibly dimmer than the enabled
+# token on the same plate, and stay perceivable. Entries: (disabled, enabled, background, role label).
+DISABLED_PAIRS = [
+    ("input.text.disabled", "input.text", "input.background", "input disabled text"),
+    ("checkbox.text.disabled", "checkbox.text", "surface.background", "checkbox disabled label"),
+    ("switch.text.disabled", "switch.text", "surface.background", "switch disabled label"),
+    ("list_item.text.disabled", "list_item.text.normal", "list_item.background.normal", "disabled list row text"),
+    ("menu.text.disabled", "menu.text", "menu.background", "disabled menu row"),
+]
+DISABLED_FLOOR = 2.0
 
 # Pairs evaluated against the relaxed UI target (3.0:1) — focus rings,
 # borders, separators, large-glyph accents.
@@ -104,3 +124,51 @@ def test_known_contrast_anchors():
     white = QColor("#ffffff")
     assert round(contrast_ratio(black, white), 2) == 21.0
     assert round(contrast_ratio(white, white), 2) == 1.0
+
+
+@pytest.mark.parametrize("palette_name,palette", [("light", FLUENT_LIGHT), ("dark", FLUENT_DARK)])
+@pytest.mark.parametrize("disabled_key,enabled_key,bg_key,role", DISABLED_PAIRS)
+def test_disabled_text_is_dimmer_than_enabled(palette_name, palette, disabled_key, enabled_key, bg_key, role):
+    bg = _opaque(palette, bg_key)
+    enabled_ratio = contrast_ratio(_opaque(palette, enabled_key), bg)
+    disabled_ratio = contrast_ratio(_opaque(palette, disabled_key), bg)
+    assert disabled_ratio < enabled_ratio, (
+        f"[{palette_name}] {role}: {disabled_key}={palette[disabled_key].name()} is not dimmer than "
+        f"{enabled_key}={palette[enabled_key].name()} ({disabled_ratio:.2f}:1 vs {enabled_ratio:.2f}:1)"
+    )
+    assert disabled_ratio >= DISABLED_FLOOR, (
+        f"[{palette_name}] {role}: {disabled_ratio:.2f}:1 is below the perceivability floor {DISABLED_FLOOR}:1"
+    )
+
+
+@pytest.mark.parametrize("palette_name,palette", [("light", FLUENT_LIGHT), ("dark", FLUENT_DARK)])
+def test_input_underline_states_are_ordered(palette_name, palette):
+    plate = _opaque(palette, "input.background")
+    idle = contrast_ratio(_opaque(palette, "input.underline"), plate)
+    disabled = contrast_ratio(_opaque(palette, "input.underline.disabled"), plate)
+    focused = contrast_ratio(_opaque(palette, "input.underline.focused"), plate)
+    assert disabled < idle, (
+        f"[{palette_name}] the disabled underline ({disabled:.2f}:1) must be dimmer than the idle one ({idle:.2f}:1)"
+    )
+    assert idle < focused, (
+        f"[{palette_name}] the focused underline ({focused:.2f}:1) must stand out from the idle one ({idle:.2f}:1)"
+    )
+    assert palette["input.underline.focused"].rgba() == palette["accent"].rgba(), (
+        f"[{palette_name}] the focused underline must be the accent"
+    )
+
+
+@pytest.mark.parametrize("palette_name,palette", [("light", FLUENT_LIGHT), ("dark", FLUENT_DARK)])
+def test_control_hover_steps_away_from_the_plate(palette_name, palette):
+    # Hover/pressed move one step from the base plate in the direction the shipped `button.*` / `list_item.*` pairs
+    # take: light plates darken, dark plates lighten. Menu separators follow the shared separator colour.
+    plate = _relative_luminance(_opaque(palette, "surface.background"))
+    light = palette_name == "light"
+    for key in ("checkbox.background.hover", "checkbox.background.pressed"):
+        step = _relative_luminance(_opaque(palette, key))
+        assert (step < plate) if light else (step > plate), (
+            f"[{palette_name}] {key} does not step away from surface.background as its family does"
+        )
+    assert palette["menu.separator"].rgba() == palette["separator.color"].rgba(), (
+        f"[{palette_name}] menu.separator must follow separator.color"
+    )

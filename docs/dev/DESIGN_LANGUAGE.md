@@ -304,13 +304,24 @@ Grouped by widget family (full keys in `src/sli_ui_toolkit/palettes.py`):
 
 - **Buttons** — `button.default.*`, `button.primary.*`, `button.dialog.default.*`,
   `button.toggle.background.*` (normal/hover/pressed/checked/checked.hover).
-- **Inputs** — `input.border.thin`.
+- **Inputs** — `input.border.thin` (the hairline divider), plus the input line's
+  own state set: `input.background`, `input.border`, `input.text`,
+  `input.text.disabled`, `input.placeholder`, `input.underline` (idle),
+  `input.underline.focused` (the accent), `input.underline.disabled` (dimmer
+  than idle), `input.selection.background` (an alpha wash over the field).
+- **Check boxes** — `checkbox.check`, `checkbox.background.checked`,
+  `checkbox.text`, `checkbox.text.disabled`, `checkbox.border`,
+  `checkbox.background.hover`, `checkbox.background.pressed`.
 - **Flyouts & overlays** — `flyout.background`, `flyout.border`, `shadow.color`,
   `separator.color`.
+- **Menus** — `menu.background` (the in-window card plate), `menu.text`,
+  `menu.text.disabled`, `menu.separator` (follows `separator.color`).
 - **List items** — `list_item.background.normal`, `list_item.background.hover`,
+  `list_item.background.focused` (accent-tinted focus plate),
   `list_item.background.selected` (`#0078D4` both themes, keeps AA 4.5:1
-  with white selected text), `list_item.text.normal`, `list_item.text.rating`,
-  `list_item.icon.selected` (`#ffffff` both themes).
+  with white selected text), `list_item.text.normal`, `list_item.text.selected`
+  (reads on the selection blue, not on the row), `list_item.text.disabled`,
+  `list_item.text.rating`, `list_item.icon.selected` (`#ffffff` both themes).
 - **Surfaces** — `surface.background` (Required tier, see above),
   `surface.list` (button idle fill, `#f0f0f0` / `#3c3c3c`).
 - **Dialogs** — `dialog.background`, `dialog.text`, `dialog.border`,
@@ -322,13 +333,43 @@ Grouped by widget family (full keys in `src/sli_ui_toolkit/palettes.py`):
 - **Toasts** — `toast.background`, `toast.text`, `toast.border`,
   `toast.progress.background`, `toast.progress.fill` (fill falls back to `accent`).
 - **Slider** — `slider.track.background`, `slider.track.unfilled`,
-  `slider.thumb.outer`.
-- **Switch** — `switch.track.off.border`, `switch.knob.off`, `switch.knob.on`,
-  `switch.knob.border`, `switch.text`.
+  `slider.track.filled` (the accent), `slider.track.hover` (one accent step
+  brighter), `slider.track.disabled` (a washed accent), `slider.thumb.outer`,
+  `slider.thumb.disabled`.
+- **Switch** — `switch.track.off.border`, `switch.track.hover`,
+  `switch.track.disabled`, `switch.knob.off`, `switch.knob.on`,
+  `switch.knob.border`, `switch.text`, `switch.text.disabled`.
+- **Title bar** — `titlebar.background`, `titlebar.text`, `titlebar.menu.hover`,
+  `titlebar.menu.text` (softer than the window title, still AA on the bar).
 - **Tooltip** — `tooltip.background`, `tooltip.text`, `tooltip.border`.
 - **Color dialog** — `color_dialog.background`, `color_dialog.text`,
   `color_dialog.input.background`, `color_dialog.input.border`.
 - **Misc Qt roles** — `AlternateBase`, `ToolTipBase`, `ToolTipText`, `BrightText`.
+
+#### Control state ownership
+
+Every control family owns the state keys its own widget paints, so a host can
+restyle one control without repainting its neighbour's family. The rules a new
+key (or a new palette) has to keep:
+
+- **A label reads on the plate its family owns.** `input.text`,
+  `input.text.disabled` and `input.placeholder` resolve against
+  `input.background`; `menu.text` against `menu.background`;
+  `list_item.text.selected` against `list_item.background.selected`;
+  `checkbox.text` and `switch.text` against `surface.background`;
+  `titlebar.menu.text` against `titlebar.background`. The enabled pairs clear
+  AA 4.5:1 (`tests/test_contrast.py`); disabled pairs may fall below it but must
+  stay visibly dimmer than the enabled token on the same plate (the suite
+  asserts the ordering and a 2.0:1 perceivability floor).
+- **Hover and pressed are one step from the base plate**, in the direction the
+  shipped `button.*` / `list_item.*` pairs take: light plates darken, dark
+  plates lighten.
+- **The underline has three ordered states** — idle `input.underline`, accent
+  `input.underline.focused`, and `input.underline.disabled`, which is dimmer
+  than idle.
+- **Owned means not borrowed.** A control that needs a state its family does not
+  have gets the key added to both palettes, rather than reaching for
+  `dialog.button.hover` or `accent` directly.
 
 ### App-specific extensions
 
