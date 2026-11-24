@@ -18,5 +18,6 @@ Documentation for application authors using `sli-ui-toolkit`.
 - [Overlays API](OVERLAYS_API.md)
 - [List items API](LIST_ITEMS_API.md)
 - [Why not QML](WHY_NOT_QML.md) — why the toolkit stays on custom-painted widgets and probably never migrates.
+- [Host gates](GATES.md) — run the toolkit's UI conventions (`python -m sli_ui_toolkit.gates`) over a host tree, with a per-file baseline ratchet.
 
 Start with the repository [README](../../README.md) for install, demo, and test commands.

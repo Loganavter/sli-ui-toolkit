@@ -4,6 +4,24 @@
 
 ### Added
 
+- **`sli_ui_toolkit.gates` — the toolkit's host-facing UI conventions as a runnable, PySide6-free AST checker.** Both
+  hosts independently re-derived the same rules (BlinkTable's `tests/contracts/`, REAL-Video-Enhancer's
+  `harness/scripts/ui_gates.py`) because the library's contract tests are hard-wired to `src/sli_ui_toolkit` and cannot
+  judge a host tree. `python -m sli_ui_toolkit.gates <paths...>` (default: the current tree) parses source text without
+  importing it and reports `Finding(rule, path, line, message)` for six rules: `toolkit-qss` (`setStyleSheet` on a
+  resolved toolkit widget, with an *unresolved* receiver reported rather than passed), `raw-chrome-px` (bare design
+  numbers in `setFixed*` / `setMinimum*` / `setMaximum*` / `resize` / `QSize` / `setContentsMargins` / `setSpacing`;
+  `0`, `1` and `QWIDGETSIZE_MAX` are structural), `double-scaled-px` (`scaled_px(scaled_px(x))` and
+  `Button(size=scaled_px(...))`), `qcolor-at-import`, `empty-stylesheet` and `silent-swallow`. The CLI takes `--json`,
+  `--rule NAME` and `--baseline PATH` (a per-rule, per-file count ratchet: shrinking passes, a grown count or a file not
+  in the baseline fails), with `--write-baseline` to install one; exit codes are 0 clean, 1 findings, 2 scan error. The
+  rules are importable (`check_source` / `check_paths` / `findings_to_counts` / `baseline_violations`) for a host's own
+  pytest run. Docs: `docs/user/GATES.md` + one `API_CATALOG.md` row. Tests: `tests/test_gates.py` (35 — per-rule
+  fire/clean fixtures, receiver resolution, baseline shrink/grow/new-file cases, a fixture-tree CLI run, and a
+  subprocess that imports the package with `PySide6` blocked). Smoke run on this tree reports the library's current
+  debt for the baseline to absorb (palette `QColor`s and defensive `except: pass` dominate); none of it was fixed
+  here.
+
 - **`ToolbarRowsSection` can hand one row slot to a nested section — a grid between rows stays inside one navigation graph.** A host that needs a 2-D grid *between* toolbar rows (BlinkTable's recent-colours picker) had no library shape for it: registering the grid as a second `NavigationSection` made its vertical edge hand off to `NavigationManager._neighbor`, i.e. to the other section's `focus_first`/`focus_last` (the whole picker's outer edge), so the host swapped the dialog's section for a subclass. `ToolbarRowsSection.add_sub_section(row_index, section)` walks that slot as `section` instead of as one row: the parent still owns the nested widgets (one graph node — `_neighbor`, the modal ceiling and the flyout-owner path are untouched, and the nested section must **not** be registered), the slot's Up/Down edges land on the rows at `index - 1` / `index + 1`, Left/Right declined inside the nested section are consumed instead of falling through to the parent's flat x-walk, and `extra_keys` unions the nested sections'. `AutoNavigationSection` gains `yield_at_edges=False`: a standalone dialog section still consumes its edges, while a nested one yields so the parent resumes its row walk. Sections without sub-sections are unchanged (`_walk()` is then just the rows). Docs: `docs/dev/NAVIGATION.md` §5 plus the `navigation_sections` module docstring design note (why nested registration over a delegation protocol, and why no third registry). Tests: `tests/test_nav_nested_section.py` — grid slot entry/edges, horizontal containment, the no-sub-section base walk, and a negative index.
 
 - **The public modules now carry the names hosts already reach through `sli_ui_toolkit.ui.*`.** One host had 274
