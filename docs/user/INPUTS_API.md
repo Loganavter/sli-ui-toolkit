@@ -137,7 +137,7 @@ button = Button(icon="line_weight", wheel_requires_focus=True)
 spin.setWheelRequiresFocus(False)
 ```
 
-`CheckBox(text=None, parent=None, *, tristate=False)` and
+`CheckBox(text=None, parent=None, *, tristate=False, row=False)` and
 `RadioButton(text=None, parent=None)` paint themselves through the shared
 `Button` pipeline (there is no stock `QCheckBox`/`QRadioButton` underneath).
 
@@ -145,13 +145,23 @@ spin.setWheelRequiresFocus(False)
 (`setChecked`/`isChecked`); with `tristate=True` — or `setTristate(True)` —
 clicks and `Space` cycle Unchecked → PartiallyChecked → Checked,
 `checkState()`/`setCheckState()` speak `Qt.CheckState`, and `stateChanged(int)`
-fires alongside `toggled(bool)`. The indeterminate state paints as a dash in a
-filled indicator; `isChecked()` is true for it, exactly as in Qt.
+fires on every real state change (click, `Space`, `setChecked`,
+`setCheckState`, the tri-state cycle) exactly once, in the order a stock
+`QCheckBox` uses on that path (`toggled` then `stateChanged` for a gesture and
+`setCheckState`; `stateChanged` then `toggled` for a `setChecked` write). The
+indeterminate state paints as a dash in a filled indicator; `isChecked()` is
+true for it, exactly as in Qt.
+
+`row=True` releases the standalone 36x36 control square: the checkbox keeps its
+one-line height but has no minimum width and no maximum size, so a layout can
+stretch it across a settings row (horizontal `Minimum`, vertical `Fixed`). The
+default geometry and look are unchanged.
 
 ```python
 check = CheckBox("Enable feature")
 tri = CheckBox("Mixed", tristate=True)
 tri.setCheckState(Qt.CheckState.PartiallyChecked)
+row_check = CheckBox("Enable feature", row=True)
 radio = RadioButton("Option A")
 ```
 

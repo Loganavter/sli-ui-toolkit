@@ -14,6 +14,7 @@ from PySide6.QtCore import (
     Signal,
 )
 from PySide6.QtGui import QBrush, QColor, QFontMetrics, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QSizePolicy
 
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.managers.ui_scale import scaled_px
@@ -195,6 +196,10 @@ class _CheckIndicatorLayer(Layer):
             )
 
 
+#: Qt's ``QWIDGETSIZE_MAX``: the "no maximum" default a constrained widget has
+#: to be released back to (the same literal ``buttons/style_api`` uses).
+_QWIDGETSIZE_MAX = 16777215
+
 _NEXT_CHECK_STATE = {
     Qt.CheckState.Unchecked: Qt.CheckState.PartiallyChecked,
     Qt.CheckState.PartiallyChecked: Qt.CheckState.Checked,
@@ -212,6 +217,17 @@ class CheckBox(Button):
     Unchecked → PartiallyChecked → Checked, ``checkState()`` answers the
     ``Qt.CheckState``, and the indeterminate mark paints as a dash. With the
     flag unset the widget behaves exactly as it always has.
+
+    ``stateChanged(int)`` fires exactly once on every real state change —
+    click, ``Space``, ``setChecked``, ``setCheckState``, the tri-state cycle —
+    in the order a stock ``QCheckBox`` uses on that path: a ``setChecked``
+    write announces the state before ``toggled``, a gesture and
+    ``setCheckState`` after it.
+
+    ``CheckBox(text, row=True)`` gives up Button's standalone 36x36 control
+    square: the widget keeps its one-line height but has no minimum width and
+    no maximum size, so a layout can stretch it across a settings row. The
+    default look and geometry are untouched.
     """
 
     inspect_spec: ClassVar[InspectSpec]
@@ -260,6 +276,7 @@ class CheckBox(Button):
         parent=None,
         *,
         tristate: bool = False,
+        row: bool = False,
     ):
         super().__init__(
             text=text or "",
@@ -279,6 +296,18 @@ class CheckBox(Button):
         #: not a gesture, and animating it made a remembered "checked" paint as
         #: unchecked for the first frames (owner report 2026-10-22).
         self._user_toggle = False
+        #: Nesting depth of a multi-step write: ``setCheckState`` drives
+        #: ``setChecked`` internally, and the intermediate bool state must not
+        #: reach listeners (Qt announces one state per call); a user gesture is
+        #: deferred the same way so its ``stateChanged`` lands after ``toggled``.
+        self._state_emit_deferred = 0
+        # Button announces regionToggled just before toggled, with ``_checked``
+        # already written — the seam where Qt fires stateChanged from
+        # ``checkStateSet``.
+        self.regionToggled.connect(self._on_region_toggled)
+
+        if row:
+            self._release_control_square()
 
         self._hover_anim = QPropertyAnimation(self, b"hoverProgress", self)
         self._hover_anim.setDuration(120)
@@ -292,6 +321,22 @@ class CheckBox(Button):
 
     def text(self) -> str:
         return self._text
+
+    def _release_control_square(self) -> None:
+        """Give up Button's standalone 36x36 square for a settings-row shape.
+
+        Button holds a text button at a fixed 36x36 (a 32 px floor and a
+        Fixed/Fixed policy). A checkbox opening a settings row needs the
+        opposite: no minimum width, no maximum size, stretched horizontally
+        and one line tall. ``_design_min_height`` is cleared as well — leaving
+        it set lets ``on_scale_changed`` put the 32 px floor back at the next
+        UI-scale change.
+        """
+        self._design_min_height = None
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(_QWIDGETSIZE_MAX, _QWIDGETSIZE_MAX)
+        self.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.updateGeometry()
 
     # -------- public API: Qt ``QCheckBox`` tri-state --------
 
@@ -312,25 +357,66 @@ class CheckBox(Button):
     def setCheckState(self, state: Qt.CheckState) -> None:
         """Set the check state, emitting exactly what Qt emits.
 
-        Qt's order is ``toggled(bool)`` (only when the bool changes), then
-        ``stateChanged(int)`` — measured on ``QCheckBox`` 6.11: unchecked →
+        Qt's order here is ``toggled(bool)`` (only when the bool changes), then
+        ``stateChanged(int)`` — measured on ``QCheckBox`` 6.12: unchecked →
         partial fires both, partial → checked fires only ``stateChanged``.
         """
         state = state if isinstance(state, Qt.CheckState) else Qt.CheckState(int(state))
         if state == self._check_state:
             return
-        self.setChecked(state != Qt.CheckState.Unchecked)
-        # ``setChecked``/``setRegionChecked`` normalise to a bool state; the
-        # tri-state value is the one this call was asked for.
+        # The internal bool write is one step of this call, not a state of its
+        # own: defer its announcement and emit the final state below.
+        self._state_emit_deferred += 1
+        try:
+            self.setChecked(state != Qt.CheckState.Unchecked)
+        finally:
+            self._state_emit_deferred -= 1
+        self._apply_check_state(state)
+
+    def _apply_check_state(self, state: Qt.CheckState) -> None:
+        """Store ``state`` and announce it — the one ``stateChanged`` seam.
+
+        Every path funnels here: a bool write arrives through
+        ``_on_region_toggled``, ``setCheckState`` and a user gesture call it
+        once after their deferred inner write. Exactly one signal per real
+        change, no signal for a no-op.
+        """
+        if self._state_emit_deferred or state == self._check_state:
+            return
         self._check_state = state
         self.update()
         self.stateChanged.emit(state.value)
 
-    def _toggle_from_user(self, region_id: str) -> None:
-        if not self._tristate:
-            super()._toggle_from_user(region_id)
+    def _store_check_state(self, state: Qt.CheckState) -> None:
+        if state != self._check_state:
+            self._check_state = state
+            self.update()
+
+    def _on_region_toggled(self, region_id: str, checked: bool) -> None:
+        if region_id != "_main":
             return
-        self.setCheckState(_NEXT_CHECK_STATE[self.checkState()])
+        self._apply_check_state(
+            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        )
+
+    def _toggle_from_user(self, region_id: str) -> None:
+        if self._tristate:
+            self.setCheckState(_NEXT_CHECK_STATE[self.checkState()])
+            return
+        # A gesture is one call to Qt's ``checkStateSet`` with the check already
+        # flipped, so the signal comes after ``toggled`` (measured on a stock
+        # ``QCheckBox`` with a real press-release); the deferred write below
+        # carries the state, keeping one stateChanged per click.
+        self._state_emit_deferred += 1
+        try:
+            super()._toggle_from_user(region_id)
+        finally:
+            self._state_emit_deferred -= 1
+        self._apply_check_state(
+            Qt.CheckState.Checked
+            if ButtonState.CHECKED in self._controller.states(region_id)
+            else Qt.CheckState.Unchecked
+        )
 
     def setRegionChecked(self, region_id: str, checked: bool, *, emit: bool = True) -> None:
         super().setRegionChecked(region_id, checked, emit=emit)
@@ -338,10 +424,15 @@ class CheckBox(Button):
             return
         # Qt's ``QCheckBox::checkStateSet``: a bool write collapses the
         # tri-state to Checked/Unchecked (even when the bool did not change).
-        self._check_state = (
-            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        )
-        self.update()
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        if emit:
+            # The bool-changing write already announced itself through
+            # ``regionToggled`` -> ``_on_region_toggled``; this catches the
+            # write that only collapses PartiallyChecked (Qt fires
+            # ``stateChanged`` there without a ``toggled``).
+            self._apply_check_state(state)
+        else:
+            self._store_check_state(state)
 
     def get_hover_progress(self) -> float:
         return self._hover_progress

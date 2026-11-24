@@ -2,13 +2,15 @@
 
 A host's Qt compatibility layer mocked ``QCheckBox`` because the toolkit had no
 tri-state. These tests pin the three calls that adapter made, against stock
-``QCheckBox`` on this Qt (6.11.2) as the oracle:
+``QCheckBox`` on this Qt (6.12) as the oracle:
 
 * ``setTristate(True)`` makes clicks and Space cycle
   Unchecked → PartiallyChecked → Checked (that order, measured);
-* a gesture/``setCheckState`` emits ``toggled(bool)`` only when the *checked
-  bool* changes, then ``stateChanged(int)`` — so partial → checked emits
-  ``stateChanged`` alone;
+* ``toggled(bool)`` fires only when the *checked bool* changes, while
+  ``stateChanged(int)`` fires on every state change — in the order stock
+  ``QCheckBox`` uses on that path (a click/``setCheckState`` announces
+  ``stateChanged`` after ``toggled``, a ``setChecked`` write before it), so
+  partial → checked emits ``stateChanged`` alone;
 * ``isChecked()`` is true for the partial state, and the indeterminate mark
   paints as a dash inside a filled box.
 
