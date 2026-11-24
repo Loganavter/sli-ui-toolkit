@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Changed
+
+- **The input family paints its own state tokens.** The palette had shipped the input family's state keys, but the
+  field painters still read a neighbour's: `dialog.text` for text / caret / placeholder / disabled ink,
+  `surface.background` for the plate, and the raw `accent` for the selection wash. A host that restyled its inputs
+  repainted dialog bodies and surfaces instead. `CustomLineEdit` now reads `input.background` (plate), `input.text`
+  (text, caret, clear-button ink), `input.text.disabled` (a disabled field, instead of fading `dialog.text` with
+  alpha 130), `input.placeholder` and `input.selection.background` (the wash, whose own alpha owns it; a palette
+  without the key keeps the accent at the pre-token alpha 90). `ComboBox`'s field layers
+  (`comboboxes/_layers.py`: plate, current-text label, chevron), `ScrollableComboBox`'s content layer and the
+  `SpinBox`/`DoubleSpinBox`/… inspect specs follow the same map. The owner's `_disabled_underline_colour()`
+  derivation is **kept** as the no-token fallback for a palette that predates `input.underline.disabled`, but it now
+  mixes `input.text.disabled` into `input.background` — its own family's two ends — instead of `dialog.text` over
+  `surface.background`; the shipped palettes paint the token directly. The dropdown card keeps its `list_item` /
+  `surface` reads (a card is a surface, not the field), and the field's hover plate still reads
+  `list_item.background.hover` because the palette ships no input hover key — accepted baseline debt, pinned by a
+  test — and `ScrollableComboBox`'s own plate still comes from the shared button variant layer
+  (`variant="surface"` → `button.dialog.default.background`), so only its label moved; that plate is the next
+  migration for that widget. Three combobox field files declare `# token-family: input` (the path map files
+  `comboboxes/` under `button` because `ComboBox` is a painted button); `docs/user/INPUTS_API.md` and
+  `docs/user/GATES.md` document the states and the declaration. Token-ownership findings (`sli_ui_toolkit.gates --rule token-ownership`, the baseline shrinks at
+  the supervisor's merge): `custom_line_edit.py` 7 → 0, `comboboxes/_layers.py` 4 → 1,
+  `comboboxes/scrollable_combobox.py` 3 → 0, `comboboxes/combo_box.py` 2 → 1, `atomic/spinbox.py` 2 → 0,
+  `comboboxes/_overlay.py` unchanged at 2 (the card's rows, not the field); library total 159 → 143. Tests:
+  `tests/test_input_field_tokens.py` (20 — plate, text, placeholder, disabled text and selection wash as pixels in
+  both themes with the new key and the borrowed key set to different colours, the combobox field's plate/text/
+  disabled/expanded states, the hover-plate debt, and the disabled-underline fallback's new sources; 18 of them fail
+  on the pre-migration tree).
+
 ### Fixed
 
 - **A field's underline is its own colour, not a button's.** A disabled output-path field kept a bright underline:

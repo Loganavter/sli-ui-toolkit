@@ -1,6 +1,13 @@
 """Paint layers for ``ComboBox``'s field surface — background/border and the
 current-text label. Split out of ``combo_box.py`` to mirror the buttons/
-family's own painter/layers convention."""
+family's own painter/layers convention.
+
+The field is an input control, not a button: its plate, text and border are the
+input family's own tokens. The dropdown CARD next door (``_overlay.py``) is a
+list surface and keeps its ``list_item`` reads.
+"""
+
+# token-family: input
 
 from __future__ import annotations
 
@@ -25,11 +32,14 @@ class _ComboFieldBgLayer(Layer):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rectf = QRectF(ctx.rect).adjusted(0.5, 0.5, -0.5, -0.5)
         if ButtonState.PRESSED in states or widget._expanded:
-            bg_color = QColor(tm.get_color("surface.background"))
+            # Still the input plate: an open dropdown is the field's own pressed state, not a second surface.
+            bg_color = QColor(tm.get_color("input.background"))
         elif ButtonState.HOVERED in states:
+            # No input hover token exists yet, so the field still takes the row plate here (accepted debt in
+            # tests/token_ownership_baseline.json); a host that restyles `list_item` moves this hover with it.
             bg_color = QColor(tm.get_color("list_item.background.hover"))
         else:
-            bg_color = QColor(tm.get_color("surface.background"))
+            bg_color = QColor(tm.get_color("input.background"))
         radius = scaled_px(widget.RADIUS)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QBrush(bg_color))
@@ -48,9 +58,16 @@ class _ComboFieldContentLayer(Layer):
         if not current_text:
             return
         is_disabled = ButtonState.DISABLED in ctx.effective_states
-        text_color = QColor(tm.get_color("dialog.text"))
         if is_disabled:
-            text_color.setAlpha(140 if tm.is_dark() else 120)
+            # "Not editable" is the family's disabled-text token, not a fade of the enabled ink.
+            disabled = tm.try_get_color("input.text.disabled")
+            if disabled is not None:
+                text_color = QColor(disabled)
+            else:
+                text_color = QColor(tm.get_color("input.text"))
+                text_color.setAlpha(140 if tm.is_dark() else 120)
+        else:
+            text_color = QColor(tm.get_color("input.text"))
         rect = ctx.rect.toRect()
         fm = QFontMetrics(paint_font(widget))
         inner_h = widget._item_height()
@@ -84,7 +101,7 @@ class _ComboFieldContentLayer(Layer):
         from PySide6.QtCore import QPoint
         from PySide6.QtGui import QPolygon
 
-        p.setPen(QPen(QColor(tm.get_color("dialog.text")), 1.5))
+        p.setPen(QPen(QColor(tm.get_color("input.text")), 1.5))
         center_x = rect.x() + rect.width() - pad_x
         center_y = rect.center().y()
         p.drawPolyline(QPolygon([

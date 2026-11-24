@@ -476,7 +476,7 @@ SpinBox.inspect_spec = InspectSpec(
         SpecField("maximum", "_maximum", private=True),
         SpecField("default_value", "_default_value", private=True),
     ),
-    token_family=("surface.background", "input.border.thin", "dialog.text", "accent"),
+    token_family=("input.background", "input.border.thin", "input.text", "accent"),
     docs='docs/user/INPUTS_API.md',
 )
 
@@ -502,7 +502,7 @@ DoubleSpinBox.inspect_spec = InspectSpec(
         SpecField("single_step", "singleStep"),
         SpecField("decimals", "_decimals", private=True),
     ),
-    token_family=("surface.background", "input.border.thin", "dialog.text", "accent"),
+    token_family=("input.background", "input.border.thin", "input.text", "accent"),
     docs='docs/user/INPUTS_API.md',
 )
 

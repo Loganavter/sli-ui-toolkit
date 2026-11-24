@@ -115,7 +115,13 @@ the file itself:
 ```
 
 The comment wins over the path map in both directions: it can claim a family for
-an unmapped helper, and it can re-own a mapped file.
+an unmapped helper, and it can re-own a mapped file. The combobox field uses
+the second direction: the path map files `comboboxes/` under `button` because
+`ComboBox` is a painted button, but the field's plate and text are an input's,
+so `comboboxes/_layers.py`, `comboboxes/combo_box.py` and
+`comboboxes/scrollable_combobox.py` declare `# token-family: input`. The
+dropdown card (`comboboxes/_overlay.py`) keeps the map's family — it is a list
+surface, not the field.
 
 **Dynamic keys.** `f"{prefix}.background.hover"` is checked through the literal
 the prefix is bound to:

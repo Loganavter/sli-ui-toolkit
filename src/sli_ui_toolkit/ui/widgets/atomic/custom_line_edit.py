@@ -231,7 +231,9 @@ class CustomLineEdit(QWidget):
         self.update()
 
     def _apply_theme_style(self):
-        text = self.theme_manager.get_color("dialog.text")
+        # The field's own family owns its text colour; before the token existed the field read
+        # ``dialog.text`` and a host could not restyle an input without repainting dialog bodies.
+        text = self.theme_manager.get_color("input.text")
         apply_text_color(self, text)
         self.update()
 
@@ -565,13 +567,15 @@ class CustomLineEdit(QWidget):
         return QRect(left, top, max(0, right - left), max(0, bottom - top))
 
     def _disabled_underline_colour(self) -> QColor:
-        """The grey a disabled field draws its underline in: the plate nudged toward the text colour by the mix.
+        """The grey a disabled field draws its underline in: its own disabled text mixed into its own plate.
 
-        Derived from two tokens rather than stated as a hex, so a host's palette moves it with everything else (the
-        theme has no mid-grey token, and a disabled-text token is the plate's own colour - invisible as a line).
+        Both ends are the input family's own tokens now (`input.text.disabled` over `input.background`), so a host's
+        palette moves the line together with the field. The mix keeps the pre-token character of the line — a grey
+        *line*, not the full text grey — and this derivation is only reached by a palette that predates
+        `input.underline.disabled`: the shipped palettes paint that token directly (the owner's BRIDGE note in 867ae73).
         """
-        plate = QColor(self.theme_manager.get_color("surface.background"))
-        text = QColor(self.theme_manager.get_color("dialog.text"))
+        plate = QColor(self.theme_manager.get_color("input.background"))
+        text = QColor(self.theme_manager.get_color("input.text.disabled"))
         mix = max(0.0, min(1.0, float(self.DISABLED_UNDERLINE_MIX)))
         return QColor(
             int(round(plate.red() + (text.red() - plate.red()) * mix)),
@@ -605,7 +609,9 @@ class CustomLineEdit(QWidget):
         radius = scaled_px(self.RADIUS)
         rounded = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
 
-        bg = self.theme_manager.get_color("surface.background")
+        # The field plate is the input family's own token (a host may plate its
+        # inputs differently from its dialog surfaces).
+        bg = self.theme_manager.get_color("input.background")
         painter.setBrush(bg)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(rounded, radius, radius)
@@ -708,28 +714,53 @@ class CustomLineEdit(QWidget):
         hi = max(lo, min(hi, len(shown)))
         x0 = start_x + fm.horizontalAdvance(shown[:lo])
         x1 = start_x + fm.horizontalAdvance(shown[:hi])
-        accent = QColor(self.theme_manager.get_color("accent"))
-        accent.setAlpha(90)
+        # The wash is the family's own token, which carries its own alpha (it composites over the plate, like
+        # `button.default.background`). A palette that predates it keeps the accent wash at the pre-token alpha.
+        wash = self.theme_manager.try_get_color("input.selection.background")
+        if wash is None:
+            wash = QColor(self.theme_manager.get_color("accent"))
+            wash.setAlpha(90)
+        else:
+            wash = QColor(wash)
         line = self._text_line_rect(rect)
-        painter.fillRect(QRect(int(x0), line.top(), int(x1 - x0), line.height()), accent)
+        painter.fillRect(QRect(int(x0), line.top(), int(x1 - x0), line.height()), wash)
+
+    def _text_colour(self, *, enabled: bool) -> QColor:
+        """The field's text ink: its own family's token, the disabled one when the field is off.
+
+        The disabled state reads `input.text.disabled` instead of fading `dialog.text` with alpha, so "not
+        editable" is a palette decision (a host can restyle it) rather than a paint trick. A palette without the
+        token keeps the pre-token alpha fade over the enabled ink.
+        """
+        if enabled:
+            return QColor(self.theme_manager.get_color("input.text"))
+        disabled = self.theme_manager.try_get_color("input.text.disabled")
+        if disabled is not None:
+            return QColor(disabled)
+        colour = QColor(self.theme_manager.get_color("input.text"))
+        colour.setAlpha(130)
+        return colour
 
     def _paint_text(self, painter: QPainter, rect: QRect) -> None:
         fm = self.fontMetrics()
         shown = self._display_text_painted()
         if shown:
-            color = QColor(self.theme_manager.get_color("dialog.text"))
-            if not self.isEnabled():
-                color.setAlpha(130)
+            color = self._text_colour(enabled=self.isEnabled())
             painter.setFont(self.font())
             painter.setPen(color)
             start_x = self._text_start_x(rect)
             y = rect.top() + (rect.height() + fm.ascent() - fm.descent()) // 2
             painter.drawText(QPointF(start_x, y), shown)
         elif self._placeholder and not self._text and not self._read_only:
-            color = QColor(self.theme_manager.get_color("dialog.text"))
-            color.setAlpha(120)
+            placeholder = self.theme_manager.try_get_color("input.placeholder")
+            if placeholder is None:
+                # A palette without the token keeps the pre-token ink (the enabled colour, faded).
+                placeholder = QColor(self.theme_manager.get_color("input.text"))
+                placeholder.setAlpha(120)
+            else:
+                placeholder = QColor(placeholder)
             painter.setFont(self.font())
-            painter.setPen(color)
+            painter.setPen(placeholder)
             start_x = self._text_start_x(rect, for_width=fm.horizontalAdvance(self._placeholder))
             y = rect.top() + (rect.height() + fm.ascent() - fm.descent()) // 2
             painter.drawText(QPointF(start_x, y), self._placeholder)
@@ -744,7 +775,7 @@ class CustomLineEdit(QWidget):
         # Same basis as the painted text (see _paint_selection).
         shown = self._display_text_painted()
         cx = start_x + fm.horizontalAdvance(shown[: max(0, min(self._cursor, len(shown)))])
-        color = QColor(self.theme_manager.get_color("dialog.text"))
+        color = QColor(self.theme_manager.get_color("input.text"))
         line = self._text_line_rect(rect)
         painter.fillRect(
             QRect(int(cx), line.top(), max(1, scaled_px(1)), line.height()), color
@@ -757,7 +788,7 @@ class CustomLineEdit(QWidget):
             return
         btn = self._clear_button_rect()
         accent = QColor(self.theme_manager.get_color("accent"))
-        ink = QColor(self.theme_manager.get_color("dialog.text"))
+        ink = QColor(self.theme_manager.get_color("input.text"))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         wash = QColor(accent)
@@ -1327,7 +1358,15 @@ CustomLineEdit.inspect_spec = InspectSpec(
         SpecField("focused_underline_thickness", "focusedUnderlineThickness"),
         SpecField("disabled_underline_color", "disabledUnderlineColor"),
     ),
-    token_family=("surface.background", "input.border.thin", "dialog.text", "accent"),
+    token_family=(
+        "input.background",
+        "input.border.thin",
+        "input.text",
+        "input.text.disabled",
+        "input.placeholder",
+        "input.selection.background",
+        "accent",
+    ),
     docs="docs/user/INPUTS_API.md",
 )
 

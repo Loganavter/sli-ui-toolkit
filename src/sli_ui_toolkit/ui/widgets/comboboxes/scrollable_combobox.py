@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+# token-family: input — the combobox field paints an input's text, not a dialog's
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 import time
@@ -27,9 +29,16 @@ class _ComboContentLayer(Layer):
         rect = ctx.effective_rect.toRect()
 
         is_disabled = ButtonState.DISABLED in ctx.effective_states
-        text_color = QColor(tm.get_color("dialog.text"))
         if is_disabled:
-            text_color.setAlpha(140 if tm.is_dark() else 120)
+            # The family's disabled-text token, not a fade of the enabled ink (see _layers.py).
+            disabled = tm.try_get_color("input.text.disabled")
+            if disabled is not None:
+                text_color = QColor(disabled)
+            else:
+                text_color = QColor(tm.get_color("input.text"))
+                text_color.setAlpha(140 if tm.is_dark() else 120)
+        else:
+            text_color = QColor(tm.get_color("input.text"))
 
         font = widget.getItemFont()
         p.setFont(font)
@@ -247,7 +256,7 @@ ScrollableComboBox.inspect_spec = InspectSpec(
         SpecField("count", "count"),
         SpecField("items", _spec_items),
     ),
-    token_family=("surface.background", "input.border.thin", "dialog.text"),
+    token_family=("input.background", "input.border.thin", "input.text"),
     docs='docs/user/INPUTS_API.md',
 )
 
