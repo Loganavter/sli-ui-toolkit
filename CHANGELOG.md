@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Added
+
+- **`CheckBox` emits `stateChanged` on every state change, and can take a row shape.** The signal existed but was
+  wired only into `setCheckState`, so a click, `Space` or `setChecked` announced `toggled` alone — a host listening for
+  `stateChanged` (Qt's own seam, and the only one that can express `PartiallyChecked`) saw nothing from the paths users
+  actually take. Every path now funnels through one `_apply_check_state` seam and fires exactly once per real change,
+  never for a no-op, in the order a stock `QCheckBox` uses on that path (measured on QCheckBox 6.12, which the test
+  doubles as the oracle for): a gesture and `setCheckState` announce `stateChanged` after `toggled`, a `setChecked`
+  write before it (Qt emits it from `checkStateSet`). The tri-state cycle is unchanged in payload
+  (`Unchecked/Partially/Checked` = 0/1/2) and still collapses on a bool write.
+  `CheckBox(..., row=True)` releases Button's standalone 36x36 square — no minimum width, `QWIDGETSIZE_MAX` maximums,
+  horizontal `Minimum` / vertical `Fixed` policy — so a settings row can stretch the control at its one-line height
+  instead of the host rewriting the minimums, maximums and size policy itself (REAL-Video-Enhancer's
+  `advanced_settings` shim, duplicated in five places, is the caller this deletes). Default geometry and look are
+  untouched. Tests: `tests/test_checkbox_statechange_row.py` (9 — click, `Space`, `setChecked`, repeat write,
+  `setCheckState`, the tri-state click cycle, partial collapse and the no-op, plus the row shape and the unchanged
+  default), red-before on the pre-change tree (5 failed / 4 passed: the signal cases saw no `stateChanged`, `row=` was
+  a `TypeError`).
+
 ### Changed
 
 - **The ComboBox list selects on mouse RELEASE, with the pointer's own motion — the "gear-shifter" drag is gone.** The
