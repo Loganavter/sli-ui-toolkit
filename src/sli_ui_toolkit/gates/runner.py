@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .model import Finding
-from .rules import RULES
+from .rules import RULE_QCOLOR_AT_IMPORT, RULES, is_qcolor_exempt
 
 #: Directories never descended into (build output, caches, vendored envs).
 _SKIP_DIRS = frozenset(
@@ -116,6 +116,7 @@ def check_source(
 def check_paths(
     paths: Iterable[str | Path],
     rules: Sequence[str] | None = None,
+    qcolor_allow: Iterable[str] = (),
 ) -> ScanResult:
     """Scan files/directories; unreadable or unparsable files become errors."""
     result = ScanResult()
@@ -139,7 +140,10 @@ def check_paths(
             )
             continue
         result.files.append(display)
+        allow = tuple(qcolor_allow)
         for name in selected:
+            if name == RULE_QCOLOR_AT_IMPORT and is_qcolor_exempt(display, allow):
+                continue
             result.findings.extend(RULES[name](tree, source, display))
     result.findings = _sorted(result.findings)
     return result

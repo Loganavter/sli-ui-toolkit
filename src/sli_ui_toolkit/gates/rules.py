@@ -10,9 +10,10 @@ side.
 from __future__ import annotations
 
 import ast
+import fnmatch
 import io
 import tokenize
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 
 from .model import Finding
 
@@ -23,6 +24,31 @@ RULE_DOUBLE_SCALED_PX = "double-scaled-px"
 RULE_QCOLOR_AT_IMPORT = "qcolor-at-import"
 RULE_EMPTY_STYLESHEET = "empty-stylesheet"
 RULE_SILENT_SWALLOW = "silent-swallow"
+
+#: File basenames that own colours by definition: a palette module is *made* of
+#: module-scope ``QColor`` constants, so ``qcolor-at-import`` cannot tell it
+#: from the defect it looks for. A host whose palette module has another name
+#: adds it with ``--allow-qcolor GLOB``.
+DEFAULT_QCOLOR_EXEMPT_GLOBS: tuple[str, ...] = (
+    "palette.py",
+    "palettes.py",
+    "colors.py",
+    "colours.py",
+)
+
+
+def is_qcolor_exempt(path: str, extra: Iterable[str] = ()) -> bool:
+    """True when *path*'s basename is a palette module (default or *extra*).
+
+    The check is on the basename alone: a palette module's location is the
+    host's business, and matching the full path would force one directory
+    layout on every host.
+    """
+    name = path.replace("\\", "/").rsplit("/", 1)[-1]
+    return any(
+        fnmatch.fnmatchcase(name, glob)
+        for glob in (*DEFAULT_QCOLOR_EXEMPT_GLOBS, *extra)
+    )
 
 #: ``(tree, source, path) -> findings``; the raw ``source`` is needed only for
 #: comment inspection (``silent-swallow``).

@@ -39,6 +39,15 @@ Every rule returns `Finding(rule, path, line, message)` records.
 | `empty-stylesheet` | `setStyleSheet("")` | Remove the call; it is dead theming text |
 | `silent-swallow` | `except ...: pass` with no comment in the handler and no logging call | Log the failure, or comment why it is expected |
 
+### `qcolor-at-import` and the palette module
+
+A palette module is *made* of module-scope `QColor` constants, so the rule
+cannot tell it from the defect it looks for. `palette.py`, `palettes.py`,
+`colors.py` and `colours.py` (basename match) are therefore exempt, and a host
+whose palette has another name adds it with `--allow-qcolor GLOB` (repeatable).
+Everything else is still reported — the exemption is for the module that owns
+colours, not for a widget that happens to read one.
+
 ### Why an unresolved receiver is a finding
 
 `toolkit-qss` resolves simple local bindings — `button = Button()`,

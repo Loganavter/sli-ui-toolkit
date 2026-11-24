@@ -457,3 +457,28 @@ print("ok")
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "ok"
+
+
+# --------------------------------------------------- qcolor palette exemption
+_PALETTE_SOURCE = 'from PySide6.QtGui import QColor\n\nWINDOW = QColor("#101010")\n'
+
+
+def test_qcolor_palette_module_is_exempt_by_default(tmp_path):
+    (tmp_path / "palettes.py").write_text(_PALETTE_SOURCE)
+    result = __import__("sli_ui_toolkit.gates", fromlist=["check_paths"]).check_paths([tmp_path])
+    assert not [f for f in result.findings if f.rule == "qcolor-at-import"]
+
+
+def test_qcolor_widget_module_still_reports(tmp_path):
+    (tmp_path / "widgets.py").write_text(_PALETTE_SOURCE)
+    result = __import__("sli_ui_toolkit.gates", fromlist=["check_paths"]).check_paths([tmp_path])
+    assert [f for f in result.findings if f.rule == "qcolor-at-import"]
+
+
+def test_qcolor_allow_glob_exempts_a_custom_palette_name(tmp_path):
+    (tmp_path / "my_colors.py").write_text(_PALETTE_SOURCE)
+    from sli_ui_toolkit.gates import check_paths
+
+    assert [f for f in check_paths([tmp_path]).findings if f.rule == "qcolor-at-import"]
+    allowed = check_paths([tmp_path], qcolor_allow=("my_colors.py",))
+    assert not [f for f in allowed.findings if f.rule == "qcolor-at-import"]

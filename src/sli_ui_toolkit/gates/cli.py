@@ -64,6 +64,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="record the current findings as the accepted ceiling, then exit 0",
     )
     parser.add_argument(
+        "--allow-qcolor",
+        action="append",
+        metavar="GLOB",
+        default=[],
+        help=(
+            "exempt a palette module from qcolor-at-import (basename glob, "
+            "repeatable); palette.py/palettes.py/colors.py/colours.py are "
+            "exempt already"
+        ),
+    )
+    parser.add_argument(
         "--rule",
         action="append",
         choices=list(RULES),
@@ -160,7 +171,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     paths: list[str] = list(args.paths) or [str(Path.cwd())]
     selected: list[str] = args.rule or list(RULES)
 
-    result = check_paths(paths, selected)
+    result = check_paths(paths, selected, qcolor_allow=args.allow_qcolor)
     counts = findings_to_counts(result.findings)
 
     if args.write_baseline:

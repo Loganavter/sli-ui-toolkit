@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **The host gate no longer reports a palette module's own colours.** `qcolor-at-import` flagged every module-scope
+  `QColor` constant, which is exactly what a palette module is made of: the smoke run over the toolkit itself
+  returned 234 of them from `palettes.py`. `palette.py`, `palettes.py`, `colors.py` and `colours.py` are exempt by
+  basename, and a host whose palette has another name passes `--allow-qcolor GLOB` (repeatable); a widget that reads
+  a colour at import is still a finding. Tests: `tests/test_gates.py` (+3 — the palette default, a widget file still
+  reported, the custom-glob exemption).
+
 ### Added
 
 - **`MenuStrip` — the title-bar menu row every host was writing by hand.** The toolkit documented that it "does not
