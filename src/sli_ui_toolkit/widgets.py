@@ -304,6 +304,7 @@ __all__ = [
     "MinimalistScrollBar",
     "OverlayScrollArea",
     "OverlayScrollbarConfig",
+    "SurfacePanel",
     "SurfaceScrollArea",
     "MINIMAL_SCROLLBAR_WIDTH",
     "overlay_scrollbar_max_inset",

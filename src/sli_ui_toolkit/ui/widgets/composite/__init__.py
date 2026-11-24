@@ -131,7 +131,6 @@ __all__ = [
     "ScrollableDialogPage",
     "SidebarDialogShell",
     "SimpleOptionsFlyout",
-    "FlyoutMode",
     "ToastAction",
     "ToastNotification",
     "ToastManager",

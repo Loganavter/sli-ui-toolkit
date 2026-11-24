@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
+
+import pytest
 
 
 def test_top_level_imports():
@@ -55,3 +59,53 @@ def test_theme_refresh_and_lazy_icon_exports():
     assert widgets.refresh_theme_subtree is theme_manager.refresh_theme_subtree
     assert theme.refresh_theme_subtree is theme_manager.refresh_theme_subtree
     assert sli_ui_toolkit.refresh_theme_subtree is theme_manager.refresh_theme_subtree
+
+
+# `__all__` is the advertised surface: `from ... import *` and the catalogue both trust it,
+# so a listed name that no module defines fails only when someone resolves it, and a public
+# widget missing from it silently disappears from the advertised surface. Both drifts are
+# invisible to a plain `hasattr` check of the module, which is why they are pinned here.
+PUBLIC_SURFACE_MODULES = (
+    "sli_ui_toolkit",
+    "sli_ui_toolkit.widgets",
+    "sli_ui_toolkit.style",
+    "sli_ui_toolkit.managers",
+    "sli_ui_toolkit.theme",
+    "sli_ui_toolkit.icons",
+    "sli_ui_toolkit.workers",
+    "sli_ui_toolkit.services",
+    # Not a public entry point, but `widgets` re-exports its members wholesale and hosts
+    # import sub-widgets from it, so its `__all__` is held to the same contract.
+    "sli_ui_toolkit.ui.widgets.composite",
+)
+
+
+@pytest.mark.parametrize("module_name", PUBLIC_SURFACE_MODULES)
+def test_all_names_resolve(module_name):
+    module = importlib.import_module(module_name)
+    names = getattr(module, "__all__", None)
+    assert names, f"{module_name} does not declare __all__"
+    missing = [name for name in names if not hasattr(module, name)]
+    assert not missing, f"{module_name}.__all__ lists names that do not resolve: {missing}"
+
+
+@pytest.mark.parametrize("module_name", PUBLIC_SURFACE_MODULES)
+def test_star_import_resolves_in_a_fresh_interpreter(module_name):
+    # A fresh interpreter proves the module's own import graph is complete, not just the
+    # classes this test process happened to touch first.
+    result = subprocess.run(
+        [sys.executable, "-c", f"from {module_name} import *"],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"from {module_name} import * failed:\n{result.stderr}"
+
+
+def test_surface_panel_is_an_advertised_widgets_export():
+    # docs/user/API_CATALOG.md sells `SurfacePanel` as a `sli_ui_toolkit.widgets` entry and
+    # hosts already import it through that path; the `__all__` entry is what makes the claim
+    # true for star-import and doc-driven consumers, so the two must not drift apart again.
+    widgets = importlib.import_module("sli_ui_toolkit.widgets")
+    assert "SurfacePanel" in widgets.__all__
+    assert widgets.SurfacePanel.__name__ == "SurfacePanel"
+
