@@ -1,7 +1,10 @@
-# TextView API — **removed** (text-unification wave C)
+# `TextView` is removed — this page is a tombstone, not an API
 
-`TextView` no longer exists. Nothing in this file is importable: the class and the whole
-`ui/widgets/composite/text_view/` package were deleted once every caller moved to `Text`.
+**There is no `TextView` class to import and no `TextView` method to call.** It was deleted in
+text-unification wave C (CHANGELOG `## 4.0.0` / `### Removed`). Use **`Text`**
+(`mode="document"` or `mode="code"`, [LABELS_API.md](LABELS_API.md)) for the text surface and
+**`TextScrollArea`** (`sli_ui_toolkit.ui.widgets.composite`) for the scroll host. The rest of this
+page is only a migration map from the deleted class.
 
 ## What replaced it
 

@@ -19,17 +19,17 @@ state is curated, token families are static hints overridden by live capture.
 | RadioButton | `RadioButton` | `ui/widgets/atomic/radio.py` | |
 | ComboBox | `ComboBox` | `ui/widgets/comboboxes/combo_box.py` | |
 | ScrollableComboBox | `ScrollableComboBox` | `ui/widgets/comboboxes/scrollable_combobox.py` | |
-| IconListWidget | `IconListWidget` (sidebar nav) | `ui/widgets/composite/sidebar_nav_list.py` | |
-| ListPanel | `ListPanel` | `ui/widgets/composite/list_panel.py` | |
+| IconListWidget | `IconListWidget` (sidebar nav) | `ui/widgets/composite/sidebar_nav_list/widget.py` | |
+| ListPanel | `ListPanel` | `ui/widgets/composite/list_panel/widget.py` | |
 | AdaptiveTabStrip | `AdaptiveTabStrip` | `ui/widgets/composite/adaptive_tab_strip/widget.py` | |
 | BaseFlyout | `BaseFlyout` | `ui/widgets/composite/base_flyout/widget.py` | |
-| SimpleOptionsFlyout | `SimpleOptionsFlyout` | `ui/widgets/composite/simple_options_flyout.py` | |
+| SimpleOptionsFlyout | `SimpleOptionsFlyout` | `ui/widgets/composite/simple_options_flyout/widget.py` | |
 | IconActionFlyout | `IconActionFlyout` | `ui/widgets/composite/icon_action_flyout.py` | |
 | IndexedToggleFlyout | `IndexedToggleFlyout` | `ui/widgets/composite/indexed_toggle_flyout.py` | |
 | TimelineWidget | `TimelineWidget` | `ui/widgets/composite/timeline_widget/widget.py` | |
 | LoadingSpinner | `LoadingSpinner` | `ui/widgets/atomic/loading_spinner.py` | |
 | CustomGroupWidget | `CustomGroupWidget` | `ui/widgets/atomic/custom_group_widget.py` | |
-| ToastNotification | `ToastNotification` | `ui/widgets/composite/toast.py` | |
+| ToastNotification | `ToastNotification` | `ui/widgets/composite/toast/notification.py` | |
 
 App-side families (registered by the host app the same way): RatingListItem,
 ScrollValueButton, UnifiedListPicker, GlassHUD, InfoHUD, ZoomIndicator,

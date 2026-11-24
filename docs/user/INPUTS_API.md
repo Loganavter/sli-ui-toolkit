@@ -2,7 +2,7 @@
 
 Text inputs, toggles, sliders, scroll areas, and small standalone atomic
 widgets. See [BUTTON_API.md](BUTTON_API.md) for `Button` and
-[LABELS_API.md](LABELS_API.md) for `Label`.
+[LABELS_API.md](LABELS_API.md) for `Text` (the display widget).
 
 ## Text & Value Inputs
 

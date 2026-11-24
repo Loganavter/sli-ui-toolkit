@@ -70,10 +70,14 @@ widgets with `setStyleSheet`.
 
 ## Typography
 
-Text uses the unified `Label` component and the process-wide **`UiFont`**
-resolver (`sli_ui_toolkit.managers.ui_font` / `UiFont`). Prefer direct
-typography options for local UI needs and register variants only when a preset
-is shared across multiple surfaces.
+Text is painted by the unified `Text` component (`ui/widgets/text/text.py`) — one
+class with three fixed modes: `mode="plain"` (static text), `"document"`
+(markdown) and `"code"` (editable buffer); see
+[TEXT_UNIFICATION.md](TEXT_UNIFICATION.md) and
+[../user/LABELS_API.md](../user/LABELS_API.md) — plus the process-wide **`UiFont`** resolver
+(`sli_ui_toolkit.managers.ui_font` / `UiFont`). Prefer direct typography
+options for local UI needs and register variants only when a preset is shared
+across multiple surfaces.
 
 ### Single source of truth (`UiFont`)
 
@@ -99,8 +103,8 @@ apply_text_color(label, theme.get_color("dialog.text"))
 | Copying `widget.font()` before host font apply | Resolve through `UiFont` (pinned family) |
 | `unpolish`/`polish` after `setPalette` on dialogs | Polish first, then set palette (`ThemeManager.apply_theme_to_dialog`) |
 
-| Use case | Recommended `Label` options |
-|----------|-----------------------------|
+| Use case | Recommended `Text(..., mode="plain")` options |
+|----------|------------------------------------------------|
 | Section headers | `pixel_size=13, bold=True` |
 | Body text | `pixel_size=12` |
 | Captions/status text | `pixel_size=11` |
@@ -108,8 +112,10 @@ apply_text_color(label, theme.get_color("dialog.text"))
 | Constrained labels | `elide=True, expanding=True` |
 
 Common options include `family`, `pixel_size`, `bold`, `italic`, `underline`,
-`strike_out`, `color`, `color_token`, `alignment`, `elide`, `minimum_width`,
-`expanding`, `word_wrap`, and `selectable`.
+`strike_out`, `color`, `color_token`, `alignment`, `elide`, `marquee`,
+`minimum_width`, `expanding`, `word_wrap`, `selectable` and `editable` (the last
+in `mode="code"`). The full list is `Text.__init__`
+(`ui/widgets/text/text.py:136-167`).
 
 ## Control Geometry
 

@@ -483,7 +483,7 @@ convenience. `sli_ui_toolkit.style` is the canonical public path.
 Declarative keys (key wins over the literal on each retranslate; a miss paints the
 key so a gap is visible): `Button(text_key=..., badge_key=...)` (+ `setTextKey` /
 `setBadgeKey`), `ButtonRow.text_key`, `ButtonRegion.text_key`/`badge_key`,
-`Label(text_key=...)`/`Text(text_key=...)`, and
+`Text(text_key=...)`, and
 `ContextMenuAction.text_key`/`tooltip_key`. The lower-level
 `translatable_text` / `translatable_tooltip` / `translatable_placeholder` /
 `translatable_callback` helpers remain the escape hatch for arbitrary setters.
@@ -547,7 +547,7 @@ reference:
 
 | Function | Module | Description |
 |----------|--------|-------------|
-| `configure_toolkit(timings=..., overlay_resolver=..., dragdrop_service=..., ripple_duration_ms=..., default_defer_click=..., ui_scale_factor=...)` | `sli_ui_toolkit.config` | Overlay layer resolution, drag-drop, timing constants, button ripple duration + default click deferral, interface scale factor. |
+| `configure_toolkit(timings=..., overlay_resolver=..., rating_gesture_factory=..., dragdrop_service_getter=..., context_menu_surface=..., ripple_duration_ms=..., default_defer_click=..., default_underline_fade=..., ui_scale_factor=...)` | `sli_ui_toolkit.config` | Overlay layer resolution, rating swipe/click factory, drag-drop service getter, context-menu surface (`"in_window"` / `"popup"`), timing constants, button ripple duration + default click deferral + underline tip fade, interface scale factor. |
 | `set_ripple_duration_ms(ms)` / `get_ripple_duration_ms()` | `sli_ui_toolkit` / `widgets` | Process-wide Material ripple length (keeps `RippleEffect.DURATION_MS` in sync). |
 | `set_default_defer_click(value)` / `get_default_defer_click()` | `sli_ui_toolkit` / `widgets` | Process-wide default for `Button(defer_click=None)`. Use `DEFER_CLICK_AWAIT_RIPPLE` to await the system ripple. |
 | `configure_icon_resolver(resolver=..., named_icons=...)` | `sli_ui_toolkit.icons` | Icon resolution strategy. |
