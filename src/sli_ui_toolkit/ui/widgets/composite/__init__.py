@@ -1,4 +1,5 @@
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
+from sli_ui_toolkit.ui.widgets.composite.control_row import ControlRow
 from sli_ui_toolkit.ui.widgets.composite.adaptive_tab_strip import (
     AdaptiveTabStrip,
     CloseButtonPolicy,
@@ -100,6 +101,7 @@ from sli_ui_toolkit.ui.widgets.composite.text_list_widget import TextListWidget
 
 __all__ = [
     "BaseFlyout",
+    "ControlRow",
     "AdaptiveTabStrip",
     "CloseButtonPolicy",
     "ContextMenu",
