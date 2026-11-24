@@ -296,6 +296,9 @@ class _DropdownOverlay(BaseFlyout):
 
     def __init__(self, owner: "ComboBox", parent: QWidget):
         super().__init__(parent)
+        #: Named so a live probe (or a layout dump) can address the card itself: the popup is a child widget with no
+        #: Designer name, and "did the card shrink with the filter" was unanswerable from outside until it had one.
+        self.setObjectName("ComboBoxOverlay")
         self._owner = owner
         self._theme = owner._theme
         self.custom_v_scrollbar = MinimalistScrollBar(Qt.Orientation.Vertical, self)

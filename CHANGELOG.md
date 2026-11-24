@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **The ComboBox card's height is read when it changes, not once at open.** A filter, an item mutation or a
+  font/scale change left the card at the height it had when the list opened while the rows, the viewport and the
+  scrollbar already used the new one (a filtered 3-row list kept a 190 px card around an 87 px viewport).
+  `_refresh_open_overlay()` -> `refresh_geometry()` (scroll offset clamped first) now runs on filter/typing-mode
+  changes, add/insert/remove and scale/font changes, and the scroll range has one formula
+  (`_max_scroll_offset()`) instead of the overlay's and `removeItem`'s two. The popup card is named
+  `ComboBoxOverlay` so a probe can measure it. Audit matrix: `rve-combo-popup-geometry-2026-11-24`.
+
 - **An open ComboBox popup keeps its height in step with its rows.** The card's size was a snapshot taken when the
   list opened (`visible rows × row height`), so a later change to either number left it behind: a `typing_mode=
   "filter"` query that narrowed the rows showed a 6-row card around a 3-row viewport, and items appended while the
