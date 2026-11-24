@@ -123,6 +123,37 @@ Explicit setters (`underline_color`, `focused_underline_color`, …) still win
 over a token. Before a palette defines the tokens the field paints exactly what
 it painted before, so the tokens can land later without a visual change now.
 
+### State tokens: the field paints with its own keys
+
+A field's text, plate, placeholder and selection wash are input-family palette
+keys, not the dialog's or the surface's:
+
+| Key | Painted as |
+|---|---|
+| `input.background` | the field plate (idle, pressed and expanded alike) |
+| `input.text` | the text, the caret, the clear-button ink, the combobox label and chevron |
+| `input.text.disabled` | a disabled field's text (and the no-token underline mix) |
+| `input.placeholder` | the placeholder |
+| `input.selection.background` | the selection wash; an alpha overlay that composites over the plate |
+| `input.border.thin`, `input.underline*` | the hairline border and the underline (see above) |
+
+`CustomLineEdit`, `SpinBox` and `TimeLineEdit` (the latter two inherit the line
+edit's paint path) and the `ComboBox` field layers read these. A host that restyles its
+inputs therefore no longer repaints dialog bodies: `dialog.text` and
+`surface.background` are not what the field paints with. `ScrollableComboBox`
+reads `input.text` for its label; its plate still comes from the shared button
+variant layer (`variant="surface"` → `button.dialog.default.background`), which
+is the next migration for that widget.
+
+The dropdown card and its rows are a list surface, not the field — they keep
+`list_item.background.hover` / `list_item.text.*`, and the card's plate stays a
+neutral `surface.*`. The `ComboBox` field's hover plate still follows
+`list_item.background.hover` because the palette ships no input hover key yet.
+
+A palette that predates one of these keys keeps the previous colour at that
+site (the field falls back to the enabled ink / the accent wash), so an older
+host palette degrades instead of breaking.
+
 Wheel-scrollable widgets use the shared `wheel_requires_focus` policy. It
 defaults to `False`, so wheel interaction works on hover without clicking first.
 When a widget handles wheel input, it takes focus so focused visuals activate
