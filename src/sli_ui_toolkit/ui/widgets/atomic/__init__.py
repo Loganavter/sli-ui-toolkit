@@ -7,6 +7,7 @@ from sli_ui_toolkit.ui.widgets.atomic.custom_line_edit import CustomLineEdit
 from sli_ui_toolkit.ui.widgets.atomic.drop_zone_label import DropZoneLabel
 from sli_ui_toolkit.ui.widgets.atomic.image_label import ImageLabel
 from sli_ui_toolkit.ui.widgets.atomic.surface_panel import SurfacePanel
+from sli_ui_toolkit.ui.widgets.atomic.progress_bar import ProgressBar
 from sli_ui_toolkit.ui.widgets.atomic.checkbox import CheckBox
 from sli_ui_toolkit.ui.widgets.atomic.radio import RadioButton, RadioButtonGroup
 from sli_ui_toolkit.ui.widgets.atomic.slider import Slider
@@ -71,6 +72,7 @@ __all__ = [
     "MinimalistScrollBar",
     "OverlayScrollArea",
     "OverlayScrollbarConfig",
+    "ProgressBar",
     "SurfaceScrollArea",
     "MINIMAL_SCROLLBAR_WIDTH",
     "overlay_scrollbar_max_inset",

@@ -322,7 +322,22 @@ setters for every widget below: **[INPUTS_API.md](INPUTS_API.md)**.
 | `SurfaceScrollArea` | Scroll area painting its surface from a theme token (`dialog.background` default) — token fill or transparent mode; `content_inset` reproduces a stock `QScrollArea` frame. |
 | `SurfacePanel` | Container that paints a token background (`background_token`, optional `radius` and `border_token`) — the toolkit answer to a page's `QWidget{background-color}` rule, with no stylesheet involved. |
 | `LoadingSpinner` | Animated conical-gradient loading spinner. |
+| `ProgressBar` | Painted progress bar: determinate fill or an indeterminate moving chunk, `normal`/`success`/`error` states from tokens, optional centred text; no stylesheet and no `QProgressBar` subclass. |
 | `CustomGroupWidget` / `CustomGroupBuilder` | Grouped widget container with builder pattern. |
+
+`ProgressBar` replaces a hand-painted bar in one import swap:
+
+```python
+from sli_ui_toolkit.widgets import ProgressBar
+
+bar = ProgressBar(maximum=100, height=8)
+bar.setValue(42)
+bar.setText("42%")           # text=None (default) paints no label
+# an export finished successfully:
+bar.setState("success")
+# bytes are unknown up front:
+bar.setIndeterminate(True)
+```
 
 ---
 

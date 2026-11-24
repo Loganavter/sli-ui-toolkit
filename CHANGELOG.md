@@ -4,6 +4,19 @@
 
 ### Added
 
+- **`ProgressBar` — the standalone painted progress bar both hosts were hand-painting.** BlinkTable subclassed
+  `QProgressBar` and repainted it in an export dialog; REAL-Video-Enhancer draws a thin bar inside a list-row painter.
+  The toolkit only had `ToastProgressBar` (toast-only, token names as constructor arguments). The new
+  `sli_ui_toolkit.widgets.ProgressBar` is a `ThemedWidget` with `setValue`/`setRange`, an indeterminate mode driven by
+  one timer that stops while hidden and on `setIndeterminate(False)`, `normal`/`success`/`error` states, opt-in
+  centred text (`text=None` paints nothing), a design-px `height` (default 6) resolved through `UiScale` in
+  `sizeHint`/paint, and no stylesheet or `QProgressBar` base. Palette: added `progress.fill` (absent entirely),
+  `progress.success` (a host already read it — the missing token made its success chunk resolve through
+  `try_get_color` to a fallback instead of the designed green) and `progress.error`, in both light and dark palettes,
+  each readable on `progress.track.background`. Tests: `tests/test_progress_bar.py` (31 — determinate ratio sampled
+  from the tokens in both themes, the three states, range clamping and inverted ranges, timer stop/start on
+  hide/show/`setIndeterminate(False)`, a tick moving the chunk and not the value, text opt-in, scale-aware size hint).
+
 - **`CheckBox` emits `stateChanged` on every state change, and can take a row shape.** The signal existed but was
   wired only into `setCheckState`, so a click, `Space` or `setChecked` announced `toggled` alone — a host listening for
   `stateChanged` (Qt's own seam, and the only one that can express `PartiallyChecked`) saw nothing from the paths users
