@@ -21,6 +21,10 @@ from sli_ui_toolkit.ui.widgets.composite.icon_action_flyout import (
     IconAction,
     IconActionFlyout,
 )
+from sli_ui_toolkit.ui.widgets.composite.menustrip import (
+    MenuStrip,
+    MenuStripMenu,
+)
 from sli_ui_toolkit.ui.widgets.composite.list_panel import (
     ListPanel,
     ListRowSpec,
@@ -116,6 +120,8 @@ __all__ = [
     "popup_context_menu_for_anchor",
     "IconAction",
     "IconActionFlyout",
+    "MenuStrip",
+    "MenuStripMenu",
     "IconListItem",
     "IconListWidget",
     "TopTabBar",

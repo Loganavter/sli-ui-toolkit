@@ -134,6 +134,8 @@ Examples:
 - `SidebarDialogShell`
 - `MarkdownHelpDialog`
 - `ProcessConsoleWidget`
+- `MenuStrip`, which owns the title-bar trigger buttons and opens each menu's
+  `ContextMenu` below its own trigger, reusing the `ContextMenuEntry` models
 - `AdaptiveTabStrip`, which owns tab painting, add/close controls, and
   adaptive close-button layout while the host owns document/session lifecycle
 
