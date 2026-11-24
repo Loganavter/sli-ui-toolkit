@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- **An open ComboBox popup keeps its height in step with its rows.** The card's size was a snapshot taken when the
+  list opened (`visible rows × row height`), so a later change to either number left it behind: a `typing_mode=
+  "filter"` query that narrowed the rows showed a 6-row card around a 3-row viewport, and items appended while the
+  list was open were counted but never materialised. One gate (`ComboBox._refresh_open_overlay` →
+  `_DropdownOverlay.refresh_geometry`) now re-derives the card, viewport, row pitch and scrollbar whenever an open
+  list's rows or row height change (filter, item mutation, font/scale), clamping the scroll offset to the new list
+  first. The list's scroll range also had two formulas — `removeItem` clamped by the total item count while the
+  overlay used the visible rows, which disagree under a filter; `ComboBox._max_scroll_offset()` is now the one
+  source for the bar, its value handler, the wheel, the overflow test and the mutators. A dead
+  `_DropdownOverlay.GAP` (no reader) is gone, and a `removeItem` that empties the list closes the popup instead of
+  leaving a shadow-only card (owner question 2026-11-24: "parameters hardcoded by height can desync").
+
 - **The scroll edge fade only promises content that is really past the edge.** A scroll range smaller than the 24 px
   ramp (a panel whose content overflowed its box by two pixels) painted "there is more below" over text that
   already fit; `OverlayScrollArea.edge_fade_sides()` now requires at least a ramp's worth of remaining scroll on

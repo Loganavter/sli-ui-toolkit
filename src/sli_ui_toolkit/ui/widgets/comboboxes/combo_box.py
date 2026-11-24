@@ -160,6 +160,9 @@ class ComboBox(Button):
         super().on_scale_changed(1.0)
         self._gear.drag_threshold_px = scaled_px(self.GEAR_DRAG_THRESHOLD_PX)
         self.updateGeometry()
+        # Row height is font-metrics + scale, so an open list must re-derive
+        # its card height/rows or the text grows under a stale popup.
+        self._refresh_open_overlay()
         self._sync_field_tooltip()
         self.update()
 
@@ -251,6 +254,30 @@ class ComboBox(Button):
     def _visible_items(self) -> int:
         return min(len(self._visible_indices()), self._max_visible_items)
 
+    def _max_scroll_offset(self) -> int:
+        """Largest legal ``_scroll_offset`` — rows past the visible window.
+
+        The one formula for the list's scroll range: the popup's bar, its
+        wheel handler and the item mutators all read this, so a filtered list
+        is never clamped by the *total* item count (``removeItem`` used to do
+        exactly that) and a list that fits reports 0, not ``count - max``
+        clipped to zero by luck.
+        """
+        return max(0, len(self._visible_indices()) - self._visible_items())
+
+    def _refresh_open_overlay(self) -> None:
+        """Re-derive an open popup from the live row count / row height.
+
+        Every consumer of "how tall is the list" reads ``_visible_items() *
+        _item_height()``, but the popup's own geometry is a snapshot taken
+        when it opened: a filter that narrows the rows (``typing_mode=
+        "filter"``), an item mutation, or a font/scale change while the list
+        is open otherwise leaves the card at the open-time height while the
+        viewport, rows and scrollbar read the new numbers.
+        """
+        if self._expanded and self._overlay is not None:
+            self._overlay.refresh_geometry()
+
     def _visible_position_for_index(self, index: int) -> int:
         self._visible_indices()
         return self._visible_positions_cache.get(index, 0)
@@ -321,6 +348,7 @@ class ComboBox(Button):
         if self._current_index == -1:
             self._current_index = 0
         self._invalidate_visible_cache()
+        self._refresh_open_overlay()
         self._sync_field_tooltip()
         self.updateGeometry()
         self.update()
@@ -339,6 +367,7 @@ class ComboBox(Button):
         elif index <= self._current_index:
             self._current_index += 1
         self._invalidate_visible_cache()
+        self._refresh_open_overlay()
         self._sync_field_tooltip()
         self.updateGeometry()
         self.update()
@@ -348,13 +377,17 @@ class ComboBox(Button):
             return
         del self._items[index]
         if not self._items:
+            # An empty list has no rows to park: close it like clear() does,
+            # instead of leaving a shadow-only card open.
             self._current_index = -1
+            self.hideDropdown()
         elif self._current_index >= len(self._items):
             self._current_index = len(self._items) - 1
         elif index < self._current_index:
             self._current_index -= 1
         self._invalidate_visible_cache()
-        self._scroll_offset = max(0, min(self._scroll_offset, max(0, self.count() - self._max_visible_items)))
+        self._scroll_offset = min(self._scroll_offset, self._max_scroll_offset())
+        self._refresh_open_overlay()
         self._sync_field_tooltip()
         self.updateGeometry()
         self.update()
@@ -456,8 +489,7 @@ class ComboBox(Button):
         self._invalidate_visible_cache()
         if self._expanded and self._overlay is not None:
             self._ensure_current_visible()
-            self._overlay._sync_scrollbar()
-            self._overlay.update()
+            self._overlay.refresh_geometry()
         self.update()
 
     def setSearchEnabled(self, enabled: bool) -> None:
@@ -498,8 +530,7 @@ class ComboBox(Button):
         self._scroll_offset = 0
         if self._expanded and self._overlay is not None:
             self._ensure_current_visible()
-            self._overlay._sync_scrollbar()
-            self._overlay.update()
+            self._overlay.refresh_geometry()
         self._sync_field_tooltip()
         self.update()
 
@@ -529,8 +560,7 @@ class ComboBox(Button):
             self.setCurrentIndex(visible[0])
         if self._expanded and self._overlay is not None:
             self._ensure_current_visible()
-            self._overlay._sync_scrollbar()
-            self._overlay.update()
+            self._overlay.refresh_geometry()
         self._sync_field_tooltip()
         self.update()
 
