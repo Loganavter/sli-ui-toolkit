@@ -19,13 +19,18 @@ import pytest
 from sli_ui_toolkit.gates import (
     BaselineError,
     Finding,
+    NEUTRAL_TOKENS,
+    QT_PALETTE_ROLES,
     RULES,
+    TOKEN_OWNERS,
     baseline_violations,
+    check_paths,
     check_source,
     findings_to_counts,
     iter_python_files,
     load_baseline,
     main,
+    token_ownership_family,
     write_baseline,
 )
 
@@ -68,6 +73,19 @@ try:
 except Exception:
     pass
 """,
+    "token-ownership": """
+def paint(self):
+    return self.theme_manager.get_color("button.default.background")
+""",
+    "token-ownership-dynamic": """
+prefix = "button.primary"
+def paint(tm):
+    return tm.get_color(f"{prefix}.bottom.edge")
+""",
+    "token-ownership-unresolved": """
+def paint(tm, variant):
+    return tm.get_color(f"{variant.token_prefix}.border")
+""",
 }
 
 CLEAN = {
@@ -103,6 +121,21 @@ try:
     widget.update()
 except Exception:
     pass  # the C++ object may already be gone; nothing to do
+""",
+    "token-ownership": """
+class Palette:
+    ACCENT = "accent"
+    SURFACE = "surface.list"
+    ROLE = "WindowText"
+""",
+    "token-ownership-dynamic": """
+prefix = "surface"
+def paint(tm):
+    return tm.get_color(f"{prefix}.background")
+""",
+    "token-ownership-unresolved": """
+def paint(tm):
+    return tm.get_color("button.default.background")
 """,
 }
 
@@ -248,6 +281,9 @@ def test_rule_registry_is_the_documented_set() -> None:
         "qcolor-at-import",
         "empty-stylesheet",
         "silent-swallow",
+        "token-ownership",
+        "token-ownership-dynamic",
+        "token-ownership-unresolved",
     ]
 
 
@@ -435,7 +471,9 @@ sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 assert sorted(module.RULES) == [
     "double-scaled-px", "empty-stylesheet", "qcolor-at-import",
-    "raw-chrome-px", "silent-swallow", "toolkit-qss",
+    "raw-chrome-px", "silent-swallow", "token-ownership",
+    "token-ownership-dynamic", "token-ownership-unresolved",
+    "toolkit-qss",
 ]
 assert not [name for name in sys.modules if name.startswith("PySide6")]
 findings = module.check_source("def build(w):\\n    w.setFixedWidth(240)\\n")
@@ -482,3 +520,188 @@ def test_qcolor_allow_glob_exempts_a_custom_palette_name(tmp_path):
     assert [f for f in check_paths([tmp_path]).findings if f.rule == "qcolor-at-import"]
     allowed = check_paths([tmp_path], qcolor_allow=("my_colors.py",))
     assert not [f for f in allowed.findings if f.rule == "qcolor-at-import"]
+
+
+# --------------------------------------------------------- token ownership
+
+TOKEN_BASELINE = REPO_ROOT / "tests" / "token_ownership_baseline.json"
+
+TOKEN_RULES = (
+    "token-ownership",
+    "token-ownership-dynamic",
+    "token-ownership-unresolved",
+)
+
+
+def token_findings(source: str, path: str, rule: str = "token-ownership"):
+    return check_source(source, path, rules=[rule])
+
+
+def test_token_ownership_reports_a_cross_family_literal() -> None:
+    """`input` reads `dialog.text`: the borrow the investigation counted."""
+    source = """
+def paint(self):
+    return self.theme_manager.get_color("dialog.text")
+"""
+    findings = token_findings(source, "src/app/atomic/custom_line_edit.py")
+    assert [finding.rule for finding in findings] == ["token-ownership"]
+    assert "dialog" in findings[0].message
+    assert "input" in findings[0].message
+
+
+def test_token_ownership_allows_the_files_own_family() -> None:
+    source = """
+def paint(self):
+    return self.theme_manager.get_color("button.default.background")
+"""
+    assert token_findings(source, "src/app/widgets/buttons/layers/background.py") == []
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "accent",
+        "link",
+        "separator.color",
+        "shadow.color",
+        "surface.background",
+        "Window",
+        "Base",
+        "Text",
+        "HighlightedText",
+        "BrightText",
+    ],
+)
+def test_token_ownership_allows_neutral_tokens(token: str) -> None:
+    source = f'def paint(tm):\n    return tm.get_color("{token}")\n'
+    assert token_findings(source, "src/app/widgets/atomic/slider.py") == []
+
+
+def test_token_ownership_ignores_strings_that_are_not_palette_keys() -> None:
+    source = """
+def paint(self):
+    self.setToolTip("dialog.text is not a key in this sentence")
+    return "app/dialog.text"
+"""
+    assert token_findings(source, "src/app/widgets/atomic/slider.py") == []
+
+
+def test_token_ownership_comment_override_claims_a_family() -> None:
+    source = """
+# token-family: button
+def paint(tm):
+    return tm.get_color("button.primary.background")
+"""
+    helper = "src/app/widgets/helpers/underline.py"
+    assert token_findings(source, helper) == []
+    without = source.replace("# token-family: button\n", "")
+    assert len(token_findings(without, helper)) == 1
+
+
+def test_token_ownership_comment_override_switches_the_owner() -> None:
+    """Overriding to another family makes the old family's token the borrow."""
+    source = """
+# token-family: dialog
+def paint(tm):
+    return tm.get_color("button.default.background")
+"""
+    assert len(token_findings(source, "src/app/widgets/buttons/layers/x.py")) == 1
+
+
+def test_token_ownership_override_must_be_a_real_comment() -> None:
+    """The declaration is read from comments, not from a docstring."""
+    source = '''
+def family():
+    """Declare a shared helper with # token-family: button."""
+    return "button.default.background"
+'''
+    findings = token_findings(source, "src/app/widgets/helpers/underline.py")
+    assert len(findings) == 1
+    assert token_ownership_family("src/app/widgets/helpers/underline.py", source) is None
+
+
+def test_token_ownership_dynamic_allows_a_literal_own_family_prefix() -> None:
+    source = """
+prefix = "slider.track"
+def paint(tm):
+    return tm.get_color(f"{prefix}.background")
+"""
+    assert token_findings(
+        source, "src/app/atomic/slider.py", "token-ownership-dynamic"
+    ) == []
+
+
+def test_token_ownership_dynamic_reports_another_family_prefix() -> None:
+    source = """
+token_prefix = "button.primary"
+def paint(tm):
+    return tm.get_color(f"{token_prefix}.bottom.edge")
+"""
+    findings = token_findings(
+        source, "src/app/atomic/slider.py", "token-ownership-dynamic"
+    )
+    assert len(findings) == 1
+    assert "token_prefix" in findings[0].message
+    assert "button" in findings[0].message
+
+
+def test_token_ownership_unresolved_names_the_variable() -> None:
+    source = """
+def paint(tm, variant):
+    return tm.get_color(f"{variant.token_prefix}.border")
+"""
+    findings = token_findings(
+        source, "src/app/widgets/buttons/layers/background.py",
+        "token-ownership-unresolved",
+    )
+    assert len(findings) == 1
+    assert "variant.token_prefix" in findings[0].message
+
+
+def test_token_ownership_ignores_prose_f_strings() -> None:
+    source = """
+def describe(self):
+    return f"{self._name}.emit(...) is blocked for this receiver"
+"""
+    for rule in TOKEN_RULES:
+        assert token_findings(source, "src/app/atomic/slider.py", rule) == []
+
+
+def test_token_ownership_palette_module_is_exempt(tmp_path: Path) -> None:
+    (tmp_path / "palettes.py").write_text(
+        'KEYS = {"button.default.background": "#fff", "dialog.text": "#000"}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "panel.py").write_text(
+        'KEY = "dialog.text"\n', encoding="utf-8"
+    )
+    result = check_paths([tmp_path], TOKEN_RULES)
+    reported = {finding.path for finding in result.findings}
+    assert not any(path.endswith("palettes.py") for path in reported)
+    assert any(path.endswith("panel.py") for path in reported)
+
+
+def test_token_ownership_family_map_and_neutrals() -> None:
+    assert token_ownership_family("src/app/widgets/buttons/x.py") == "button"
+    assert token_ownership_family("src/app/widgets/comboboxes/x.py") == "button"
+    assert token_ownership_family("src/app/atomic/spinbox.py") == "input"
+    assert token_ownership_family("src/app/atomic/text_labels.py") == "label"
+    assert token_ownership_family("src/app/dialogs/x.py") == "dialog"
+    assert token_ownership_family("src/app/widgets/text/engine/x.py") == "label"
+    assert token_ownership_family("src/app/ui/managers/theme_manager.py") is None
+    assert {"accent", "link", "separator", "shadow", "surface"} <= NEUTRAL_TOKENS
+    assert TOKEN_OWNERS["color_dialog"] == "dialog"
+    assert "WindowText" in QT_PALETTE_ROLES
+
+
+def test_token_ownership_baseline_is_not_exceeded(monkeypatch) -> None:
+    """The library's accepted borrows may shrink, never grow."""
+    monkeypatch.chdir(REPO_ROOT)
+    result = check_paths([SRC], TOKEN_RULES)
+    assert result.errors == []
+    counts = findings_to_counts(result.findings)
+    assert baseline_violations(counts, load_baseline(TOKEN_BASELINE)) == []
+
+
+def test_token_ownership_baseline_records_only_token_rules() -> None:
+    assert set(load_baseline(TOKEN_BASELINE)) <= set(TOKEN_RULES)

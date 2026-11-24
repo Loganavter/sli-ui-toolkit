@@ -628,7 +628,7 @@ surface uses `flyout.background` / `flyout.border`; rows use
 
 | Name | Description |
 |------|-------------|
-| `python -m sli_ui_toolkit.gates <paths...>` | Plain-AST checker for the toolkit's host-facing UI conventions (`toolkit-qss`, `raw-chrome-px`, `double-scaled-px`, `qcolor-at-import`, `empty-stylesheet`, `silent-swallow`); importable as `check_source` / `check_paths`, with `--json`, `--rule NAME` and a per-file `--baseline` ratchet — see [GATES.md](GATES.md). |
+| `python -m sli_ui_toolkit.gates <paths...>` | Plain-AST checker for the toolkit's host-facing UI conventions (`toolkit-qss`, `raw-chrome-px`, `double-scaled-px`, `qcolor-at-import`, `empty-stylesheet`, `silent-swallow`, `token-ownership` + `-dynamic` / `-unresolved`); importable as `check_source` / `check_paths`, with `--json`, `--rule NAME` and a per-file `--baseline` ratchet — see [GATES.md](GATES.md). |
 
 ---
 
