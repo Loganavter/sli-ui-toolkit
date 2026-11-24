@@ -307,6 +307,29 @@ flyout, or use one of the prebuilt composites below.
 | `set_border_color(color)` / `border_color()` | Override the panel's stroke color. |
 | `set_shadow_color(color)` / `shadow_color()` | Tint the drop shadow. |
 
+### Focus return: the flyout-sibling protocol
+
+Closing a flyout returns the keyboard to its anchor unless navigation has just
+moved focus somewhere deliberate. Two cases are recognised without asking the
+host: focus is on another flyout, or on a toolkit `Button` (any subclass —
+`isinstance`, so a host button that derives from `Button` counts).
+
+For anything else, the focused control declares itself. Nothing needs to be
+imported or subclassed — one truthy attribute (or a zero-arg method returning a
+truthy value) is the whole contract:
+
+```python
+class ValueCapsule(QWidget):
+    flyout_focus_sibling = True        # do not steal focus back on hide
+```
+
+With the declaration, a neighbouring flyout's `hide()` leaves focus on the
+capsule — the case where arrow keys enter a value control that opens its own
+flyout, and the trigger's `FocusOut` hides a sibling panel that would otherwise
+`setFocus()` the anchor back. Without it the control is treated like any other
+widget and focus is restored to the anchor. A declaration that raises is read
+as "no" (fail towards restoring, never towards silently dropping focus).
+
 ### Custom surface style (background / border / shadow)
 
 Same shape as `Button`'s style API (`set_background_color`, `setBorderColor`,

@@ -311,7 +311,7 @@ class BaseFlyout(
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setPen(QPen(c, w))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            # Кольцо по капсуле (container), а не по тени — для _ScrollValueFlyout 46x47 это пилюля
+            # Кольцо по капсуле (container), а не по тени — для value-флайоута хоста 46x47 это пилюля
             try:
                 geom = self.container.geometry()
                 # radius как у Button FocusLayer: design_radius = corner_radius / factor

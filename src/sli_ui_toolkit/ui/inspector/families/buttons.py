@@ -1,8 +1,8 @@
 """Button-family extractor: every Button subclass in one place.
 
 Covers Button and all its toolkit subclasses (ComboBox, ScrollableComboBox,
-InstancesCounterButton, ScrollValueButton, ...) — regions, layers, states,
-spec, and the static token family from the variant prefix.
+InstancesCounterButton, ...) — regions, layers, states, spec, and the static
+token family from the variant prefix.
 """
 
 from __future__ import annotations
