@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- **A field's underline is its own colour, not a button's.** A disabled output-path field kept a bright underline:
+  `draw_bottom_underline` resolved the widget's `class` property to `button.primary`/`button.default` and read
+  `.bottom.edge`, so any non-button widget painted a BUTTON colour (a `CustomLineEdit` carries `class="primary"`,
+  i.e. `#320078D4`), and "disabled" only faded that colour with alpha. The painter takes an optional
+  `token_prefix` (`draw_bottom_underline(..., token_prefix="input")` → `input.underline`; an explicit
+  `UnderlineConfig.color` still wins, and a missing family token falls back to the same button colour, so the button
+  layer — which always passes an explicit colour — is unchanged). `CustomLineEdit` passes `token_prefix="input"` and
+  resolves `input.underline` / `input.underline.focused` / `input.underline.disabled` with `try_get_color`, falling
+  back to the exact pre-token colour: a token, when present, owns the colour including its alpha, so the disabled
+  state stops faking dimness with transparency. Tokens are optional until the palette ships them — no visual change
+  before then, and the explicit `underline_color` setters still override. `docs/user/INPUTS_API.md` and
+  `docs/user/API_CATALOG.md` updated. Tests: `tests/test_underline_painter.py` (19 — painter family token, explicit
+  colour precedence, absent-token fallback byte-identical to the legacy band, the three line-edit states in both
+  themes, explicit override, and "no palette warning" for the family lookup).
 - **The host gate no longer reports a palette module's own colours.** `qcolor-at-import` flagged every module-scope
   `QColor` constant, which is exactly what a palette module is made of: the smoke run over the toolkit itself
   returned 234 of them from `palettes.py`. `palette.py`, `palettes.py`, `colors.py` and `colours.py` are exempt by

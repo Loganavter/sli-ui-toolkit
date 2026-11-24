@@ -117,6 +117,14 @@ class CustomLineEdit(QWidget):
     # Wheel scroll step: pixels of horizontal travel per wheel-delta unit
     # (one notch = 120 units ≈ 24 px).
     WHEEL_PX_PER_DELTA = 0.2
+    # Underline colour tokens for this field's own family. Before them the
+    # field painted the button family's token, so a disabled output-path
+    # field kept a bright button underline (reported 2026-11-24). The tokens
+    # are optional until the palette phase ships them: a missing one falls
+    # back to the exact pre-token colour, so this lands safely first.
+    UNDERLINE_TOKEN = "input.underline"
+    UNDERLINE_FOCUSED_TOKEN = "input.underline.focused"
+    UNDERLINE_DISABLED_TOKEN = "input.underline.disabled"
 
     def __init__(
         self,
@@ -583,26 +591,62 @@ class CustomLineEdit(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(rounded, radius, radius)
 
-        if self.hasFocus():
-            cfg = UnderlineConfig(
-                color=(
-                    self._focused_underline_color
-                    or self.theme_manager.get_color("accent")
-                ),
-                alpha=120,
-                thickness=self._focused_underline_thickness or 1.5,
-                arc_radius=float(self.RADIUS),
-                vertical_offset=0.0,
+        # Underline state colour. A family token, when the palette defines it,
+        # owns the whole colour — alpha included — so a disabled field stops
+        # faking "dimmer" with transparency over a still-bright hue. Without
+        # the token each branch keeps the exact pre-token pixels; only then
+        # does the family prefix below have to fall back to the button colour.
+        focused = self.hasFocus()
+        # ``line_alpha is None`` means "the token owns its alpha"; every
+        # fallback keeps the pre-token fade.
+        if not self.isEnabled():
+            line_prefix: str | None = None
+            disabled = self.theme_manager.try_get_color(self.UNDERLINE_DISABLED_TOKEN)
+            line_color = (
+                disabled if disabled is not None else self._underline_color
             )
+            line_alpha = None if disabled is not None else 60
+            line_thickness = self._underline_thickness or 1.0
+        elif focused:
+            # The colour is always explicit here: the state fallback is the
+            # accent, never the family's plain underline.
+            line_prefix = None
+            if self._focused_underline_color is not None:
+                line_color, line_alpha = self._focused_underline_color, 120
+            else:
+                focused_token = self.theme_manager.try_get_color(
+                    self.UNDERLINE_FOCUSED_TOKEN
+                )
+                line_color = (
+                    focused_token
+                    if focused_token is not None
+                    else self.theme_manager.get_color("accent")
+                )
+                line_alpha = None if focused_token is not None else 120
+            line_thickness = self._focused_underline_thickness or 1.5
         else:
-            cfg = UnderlineConfig(
-                color=self._underline_color,
-                alpha=60,
-                thickness=self._underline_thickness or 1.0,
-                arc_radius=float(self.RADIUS),
-                vertical_offset=0.0,
-            )
-        draw_bottom_underline(painter, rect, self.theme_manager, cfg)
+            line_prefix = "input"
+            token = self.theme_manager.try_get_color(self.UNDERLINE_TOKEN)
+            if token is not None and self._underline_color is None:
+                line_color, line_alpha = token, None
+            else:
+                line_color, line_alpha = self._underline_color, 60
+            line_thickness = self._underline_thickness or 1.0
+
+        cfg = UnderlineConfig(
+            color=line_color,
+            alpha=line_alpha,
+            thickness=line_thickness,
+            arc_radius=float(self.RADIUS),
+            vertical_offset=0.0,
+        )
+        draw_bottom_underline(
+            painter,
+            rect,
+            self.theme_manager,
+            cfg,
+            token_prefix=line_prefix,
+        )
         painter.end()
 
     def _paint_selection(self, painter: QPainter, rect: QRect) -> None:

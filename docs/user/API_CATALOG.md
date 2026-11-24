@@ -489,7 +489,7 @@ Row widgets meant to be dropped into a host-owned list/flyout, imported from
 |------|-------------|
 | `apply_editable_text_behavior(widget)` | Normalize QLineEdit focus/enter behavior. |
 | `calculate_centered_overlay_geometry(...)` | Compute centered overlay position relative to parent. |
-| `draw_bottom_underline(painter, ...)` | Draw a themed bottom underline on a widget. Prefer widget-level underline APIs for `Button`, `CustomLineEdit`, and `ComboBox`. |
+| `draw_bottom_underline(painter, ...)` | Draw a themed bottom underline on a widget. Prefer widget-level underline APIs for `Button`, `CustomLineEdit`, and `ComboBox`. `token_prefix="input"` names the caller's own family (`{token_prefix}.underline`) instead of the button colour. |
 | `draw_rounded_shadow(painter, ...)` | Draw a rounded drop shadow behind a rect. |
 | `paint_focus_ring(widget, painter, theme_manager=None, *, corner_radius=None)` | Draw the one keyboard-focus ring for hand-painted atomic widgets (same accent/alpha/thickness as the button `FocusLayer`); returns whether it drew. Gate it on `widget._keyboard_focus and widget.hasFocus()`. |
 | `UnderlineConfig` | Configuration dataclass for underline painting. |

@@ -142,23 +142,44 @@ def _resolve_metrics(
 
 
 def draw_bottom_underline(
-    painter, rect, theme_manager: ThemeManager, config: UnderlineConfig | None = None
+    painter,
+    rect,
+    theme_manager: ThemeManager,
+    config: UnderlineConfig | None = None,
+    *,
+    token_prefix: str | None = None,
 ):
-    cfg = config or UnderlineConfig()
-    widget = painter.device()
+    """Paint the underline band at the bottom of ``rect``.
 
-    if widget and hasattr(widget, "property"):
-        btn_class = str(widget.property("class") or "")
-        prefix = "button.primary" if btn_class == "primary" else "button.default"
-    else:
-        prefix = "button.default"
+    ``token_prefix`` names a widget family (``"input"``) whose
+    ``{token_prefix}.underline`` token owns the colour. ``None`` keeps the
+    button-family rule exactly (``class`` → ``button.primary``/``button.default``
+    → ``.bottom.edge``), so button callers are untouched. An explicit
+    ``config.color`` still wins over either. A family token that the palette
+    does not define yet falls back to that same button colour, so a caller can
+    adopt the keyword before the palette ships the token.
+    """
+    cfg = config or UnderlineConfig()
 
     if isinstance(cfg.color, list) and cfg.color:
         colors = cfg.color
     elif isinstance(cfg.color, QColor):
         colors = [cfg.color]
     else:
-        colors = [QColor(theme_manager.get_color(f"{prefix}.bottom.edge"))]
+        resolved = (
+            theme_manager.try_get_color(f"{token_prefix}.underline")
+            if token_prefix
+            else None
+        )
+        if resolved is None:
+            widget = painter.device()
+            if widget and hasattr(widget, "property"):
+                btn_class = str(widget.property("class") or "")
+                prefix = "button.primary" if btn_class == "primary" else "button.default"
+            else:
+                prefix = "button.default"
+            resolved = theme_manager.get_color(f"{prefix}.bottom.edge")
+        colors = [QColor(resolved)]
 
     final_colors = []
     for color in colors:

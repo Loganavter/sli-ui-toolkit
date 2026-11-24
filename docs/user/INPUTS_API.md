@@ -114,6 +114,15 @@ name.setFocusedUnderlineColor(QColor("#0078D4"))
 name.setFocusedUnderlineThickness(1.5)
 ```
 
+`CustomLineEdit` takes its underline colour from its own token family rather
+than from the button family: `input.underline`, with
+`input.underline.focused` / `input.underline.disabled` for the two states. A
+token, when the palette defines it, owns the colour including its alpha — a
+disabled field no longer fakes "dimmer" by fading a still-bright button colour.
+Explicit setters (`underline_color`, `focused_underline_color`, …) still win
+over a token. Before a palette defines the tokens the field paints exactly what
+it painted before, so the tokens can land later without a visual change now.
+
 Wheel-scrollable widgets use the shared `wheel_requires_focus` policy. It
 defaults to `False`, so wheel interaction works on hover without clicking first.
 When a widget handles wheel input, it takes focus so focused visuals activate
