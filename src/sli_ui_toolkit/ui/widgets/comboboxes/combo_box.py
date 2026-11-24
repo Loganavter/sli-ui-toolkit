@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import (
     QEvent,
+    QPoint,
     QRect,
     QSize,
     Qt,
@@ -36,7 +37,6 @@ from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     normalize_for_search,
     visible_indices_normalized,
 )
-from sli_ui_toolkit.ui.widgets.comboboxes.capabilities import GearDragCapability
 
 
 class ComboBox(Button):
@@ -51,14 +51,6 @@ class ComboBox(Button):
     ITEM_VERTICAL_PADDING = 12
     TEXT_HORIZONTAL_PADDING = 12
 
-    # "Gear-shifter" drag-select: hold the field for GEAR_HOLD_MS, or drag it
-    # sideways/vertically past GEAR_DRAG_THRESHOLD_PX right after pressing, to
-    # open the dropdown and scrub through rows by dragging — like sliding a
-    # gearbox knob into its slot. Releasing commits whichever row is under the
-    # field at that moment, immediately (no settle animation, no hold); a plain
-    # click/release still just toggles the list.
-    GEAR_HOLD_MS = 450
-    GEAR_DRAG_THRESHOLD_PX = 8
     # Keyboard typeahead window (typing_mode="jump"): keys typed within this
     # interval extend the query; a longer pause starts a new one.
     TYPEAHEAD_TIMEOUT_MS = 900
@@ -79,8 +71,6 @@ class ComboBox(Button):
             size=(0, self.BASE_HEIGHT),
             corner_radius=self.RADIUS,
             wheel_requires_focus=wheel_requires_focus,
-            long_press=True,
-            long_press_ms=self.GEAR_HOLD_MS,
             layers=[
                 _ComboFieldBgLayer(),
                 RippleLayer(),
@@ -136,16 +126,22 @@ class ComboBox(Button):
             # ignored, so the record survives the row click that commits.
             app.focusChanged.connect(self._on_app_focus_changed)
 
-        # Gear-shifter drag-select (see GEAR_HOLD_MS above) — behavior lives
-        # in GearDragCapability, mirroring Button's own capability system
-        # (LongPressCapability). Cached directly here (in addition to being
-        # reachable via get_capability) since hideDropdown() and the proxy
-        # properties below need cheap, frequent access.
-        self._gear = GearDragCapability(
-            hold_ms=self.GEAR_HOLD_MS,
-            drag_threshold_px=scaled_px(self.GEAR_DRAG_THRESHOLD_PX),
-        )
-        self.attach_capability(self._gear)
+        # Press-and-release selection: a press on the field (or a row) arms
+        # the gesture and the release commits the row under the pointer. The
+        # field holds the implicit mouse grab for the whole gesture, so the
+        # pointer's own travel arrives HERE, not at the rows — the row under it
+        # is derived from real geometry (``_row_index_at_global``), never by
+        # moving the cursor (Wayland forbids that: owner request 2026-11-24).
+        self._pointer_select_armed = False
+        self._pointer_select_index = -1
+        # True when the gesture began on the field. The popup parks the
+        # anchored row over the field, so a release back over the field must
+        # not count as "released over a row" — it is the opening click.
+        self._pointer_select_from_field = False
+        # A press on the field already opened/closed the list; ``clicked`` on
+        # the release is the same click, so ``_on_field_clicked`` must not
+        # toggle a second time (the signal itself still reaches the host).
+        self._press_toggled = False
 
         self.clicked.connect(self._on_field_clicked)
         connect_ui_metrics(
@@ -158,7 +154,6 @@ class ComboBox(Button):
         # reads no payload; the bus hands the merged axes frozenset, so the
         # factor forwarded below is a no-op.
         super().on_scale_changed(1.0)
-        self._gear.drag_threshold_px = scaled_px(self.GEAR_DRAG_THRESHOLD_PX)
         self.updateGeometry()
         # Row height is font-metrics + scale, so an open list must re-derive
         # its card height/rows or the text grows under a stale popup.
@@ -211,18 +206,6 @@ class ComboBox(Button):
         )
 
     @property
-    def _gear_active(self) -> bool:
-        """Proxy to GearDragCapability.active — _overlay.py reads this as a
-        plain ComboBox attribute and has no reason to know capabilities
-        exist."""
-        return self._gear.active
-
-    @property
-    def _gear_focus_index(self) -> int:
-        """Proxy to GearDragCapability.focus_index — see _gear_active."""
-        return self._gear.focus_index
-
-    @property
     def _typing_focus_index(self) -> int:
         """Row the typeahead buffer points at, or -1 when typing focus is off.
 
@@ -239,11 +222,12 @@ class ComboBox(Button):
     def _focus_row_index(self) -> int:
         """The one row drawn as "this is what a commit takes", or -1.
 
-        Two owners share that role and never overlap: an active gear-drag
-        (row under the field frame) wins; otherwise the typeahead highlight.
+        Two owners share that role and never overlap: an armed press-and-release
+        selection (row under the pointer) wins; otherwise the typeahead
+        highlight.
         """
-        if self._gear.active:
-            return self._gear.focus_index
+        if self._pointer_select_armed:
+            return self._pointer_select_index
         return self._typing_focus_index
 
     def _invalidate_visible_cache(self) -> None:
@@ -848,7 +832,7 @@ class ComboBox(Button):
         return self._overlay.slot_for_index(index)
 
     def hideDropdown(self):
-        self._gear.cancel()
+        self._end_pointer_selection()
         if self._overlay is not None:
             self._overlay.clear_hover()
             self._overlay.hide()
@@ -871,6 +855,11 @@ class ComboBox(Button):
             window.removeEventFilter(self)
 
     def _on_field_clicked(self):
+        if self._press_toggled:
+            # The press that produced this click already opened/closed the
+            # list (see mousePressEvent); toggling here would undo it.
+            self._press_toggled = False
+            return
         if self._expanded:
             self.hideDropdown()
         else:
@@ -919,27 +908,128 @@ class ComboBox(Button):
             return False
         return resolve_gesture_focus(reason)
 
-    # -------- gear-shifter drag-select (see GearDragCapability) --------
+    # -------- press opens, release picks (see _begin_pointer_selection) --------
+
+    def _begin_pointer_selection(self, *, from_field: bool) -> None:
+        """Arm a press-and-release selection: the pointer's moves highlight.
+
+        Nothing is committed here; the release commits the row under the
+        pointer (``_finish_pointer_selection``). ``from_field`` records where
+        the press landed so a release back over the field stays a click.
+        """
+        self._pointer_select_armed = True
+        self._pointer_select_from_field = from_field
+        self._pointer_select_index = -1
+
+    def _update_pointer_selection(self, global_pos: QPoint) -> None:
+        """Highlight the visible row under ``global_pos``, or none.
+
+        Driven only by the pointer's own motion, hit-tested against the rows'
+        real geometry. The field owns the implicit grab for the gesture, so Qt
+        delivers no native enter/leave to the rows during it — this is what
+        stands in for that, and it needs no cursor control.
+        """
+        if not self._pointer_select_armed or not self._expanded:
+            return
+        index = self._row_index_at_global(global_pos)
+        if index == self._pointer_select_index:
+            return
+        self._pointer_select_index = index
+        if self._overlay is not None:
+            # Rebind so the newly targeted row picks up the highlight look
+            # (``_SlotBgLayer`` reads ``owner._focus_row_index``).
+            self._overlay.update()
+
+    def _finish_pointer_selection(self, global_pos: QPoint) -> int:
+        """End the gesture and return the row under ``global_pos``, or -1.
+
+        Commits nothing itself: the field's and a row's own release path share
+        this hit test, and each applies its own commit + close.
+        """
+        index = (
+            self._row_index_at_global(global_pos)
+            if self._pointer_select_armed
+            else -1
+        )
+        self._end_pointer_selection()
+        return index
+
+    def _commit_pointer_selection(self, global_pos: QPoint) -> bool:
+        """Finish an armed gesture: commit the row under the pointer and close.
+
+        Returns whether a row was committed. A release that lands on no row
+        commits nothing new and leaves the list open.
+        """
+        if not self._pointer_select_armed:
+            return False
+        index = self._finish_pointer_selection(global_pos)
+        if index < 0:
+            return False
+        self.setCurrentIndex(index)
+        self._reset_typeahead()
+        self.hideDropdown()
+        return True
+
+    def _end_pointer_selection(self) -> None:
+        """Disarm the gesture and drop its highlight (also on any close)."""
+        if not self._pointer_select_armed and self._pointer_select_index < 0:
+            return
+        self._pointer_select_armed = False
+        self._pointer_select_from_field = False
+        self._pointer_select_index = -1
+        if self._overlay is not None:
+            self._overlay.update()
+
+    def _row_index_at_global(self, global_pos: QPoint) -> int:
+        """Item index of the visible row under a screen point, or -1."""
+        if not self._expanded or self._overlay is None:
+            return -1
+        if self._pointer_select_from_field and self.rect().contains(
+            self.mapFromGlobal(global_pos)
+        ):
+            # The popup parks the anchored row exactly over the field, so a
+            # release that returns to the field would hit that row
+            # geometrically. It is the opening click, not a row pick: the value
+            # is already that row and the list must stay open.
+            return -1
+        return self._overlay.row_index_at_global_pos(global_pos)
 
     def mousePressEvent(self, event: QMouseEvent):
-        self._gear.handle_press(event)
+        self._press_toggled = False
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self.isEnabled()
+            and self.count() > 0
+        ):
+            # A standard list opens on the PRESS, so the pointer can travel over
+            # the rows while the button is held and the release picks one. Qt
+            # gives the field the implicit grab for that whole travel, which is
+            # why those moves are handled here (see _update_pointer_selection).
+            self._press_toggled = True
+            if self._expanded:
+                self.hideDropdown()
+            else:
+                self.showDropdown()
+                self._begin_pointer_selection(from_field=True)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        if self._gear.handle_move(event):
+        if self._pointer_select_armed and (event.buttons() & Qt.MouseButton.LeftButton):
+            self._update_pointer_selection(event.globalPosition().toPoint())
             event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        outcome = self._gear.handle_release(event)
-        if outcome is not None:
-            self._suppress_next_click = outcome.suppress_click
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._commit_pointer_selection(event.globalPosition().toPoint())
+        try:
+            # ``clicked`` may fire here (release on the field); the toggle
+            # already happened on the press, so the handler for it is a no-op
+            # for this gesture — the signal itself still reaches the host.
             super().mouseReleaseEvent(event)
-            self._suppress_next_click = False
-            event.accept()
-            return
-        super().mouseReleaseEvent(event)
+        finally:
+            self._press_toggled = False
 
     def keyPressEvent(self, event):
         if self._expanded and event.key() not in (

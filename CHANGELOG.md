@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Changed
+
+- **The ComboBox list selects on mouse RELEASE, with the pointer's own motion — the "gear-shifter" drag is gone.** The
+  old gesture was built around controlling the pointer: holding the field translated the POPUP under a stationary real
+  cursor (blanked icon, `QCursor.setPos` on release), a fixed `_GearFrame` outline pinned to the field marked the row a
+  release would commit, and `_hover_suppressed` plus `HoverCoordinator.suppress_all` existed because Qt delivers no
+  native enter/leave to the rows during the implicit grab. Wayland makes `QCursor.setPos` a no-op, so that gesture cannot
+  exist there (owner request 2026-11-24: "the list opens as usual, and MOUSE RELEASE selects the cell"). Now the list
+  behaves like a list: the press on the field opens it, the pointer's own travel highlights the row under it (hit-tested
+  against real row geometry from the field's own move events — the field holds the grab for the whole gesture), and the
+  release commits that row and closes. A release that lands on no row commits nothing and leaves the list open; a release
+  back on the field is the opening click, not a pick (the popup parks the anchored row exactly over the field); a press
+  on an open list still closes it. Deleted with the gesture: `GearDragCapability` (and the now-empty
+  `ui/widgets/comboboxes/capabilities/` package), `_GearFrame`, `_hover_suppressed`,
+  `_DropdownOverlay.hover_row_at_global_pos`, `HoverCoordinator.suppress_all`, `ComboBox.GEAR_HOLD_MS` /
+  `GEAR_DRAG_THRESHOLD_PX`, and the field's long-press capability. Wheel policy, keyboard commit, filter/shrink, the
+  card height gate and the look are unchanged. Red-before, on the pre-change tree: 4 of the 7 new tests fail at the
+  first post-press assertion (`_expanded is False`, `_overlay is None` — a press on the field opened nothing). Tests:
+  `tests/test_combo_standard_selection.py` (7 — press opens, press on a row does not commit, a move highlights the row
+  under the pointer, the release commits exactly that index and closes, a release outside commits nothing, the keyboard
+  path and both wheel-policy behaviours, and the card staying parked while the pointer travels).
+
 ### Fixed
 
 - **The ComboBox card's height is read when it changes, not once at open.** A filter, an item mutation or a

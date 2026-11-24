@@ -11,13 +11,13 @@ def centered_inner_offset(outer: float, inner: float) -> int:
     Use this (never plain ``// 2``) anywhere a widget's own centered content
     must land in visual agreement with a *different* widget/overlay that
     centers the same-size inner box independently — e.g. ComboBox's field
-    label vs. its dropdown popup and gear-drag frame, which all align the
-    same row height inside the field height. ``//`` floors and ``round()``
-    rounds-half-to-even, so mixing the two across such call sites drifts
-    apart by a px whenever the height difference is odd — this bit twice in
-    the combo box (see ``combo_box.py``'s ``_ComboFieldContentLayer`` and
-    ``_overlay.py``'s ``_update_gear_frame``) before both were switched to
-    call this helper instead of re-deriving the formula by hand.
+    label vs. its dropdown popup, which both align the same row height inside
+    the field height. ``//`` floors and ``round()`` rounds-half-to-even, so
+    mixing the two across such call sites drifts apart by a px whenever the
+    height difference is odd — this bit twice in the combo box (see
+    ``combo_box.py``'s ``_ComboFieldContentLayer`` and ``_overlay.py``'s
+    popup placement) before both were switched to call this helper instead of
+    re-deriving the formula by hand.
     """
     return round((outer - inner) / 2)
 
@@ -62,8 +62,7 @@ def calculate_centered_overlay_geometry(
     # (12 visible -> the field sits between rows 5 and 6), so the selected row
     # reads as half a row off and the user has to nudge the list up by half a
     # row (owner report 2026-10-22). Aligning the row top to the field's inner
-    # top is exact for every parity and every scale factor, and it matches the
-    # gear-drag frame (``_GearFrame`` uses the same ``centered_inner_offset``).
+    # top is exact for every parity and every scale factor.
     selected_item_offset_y = visible_index * row_height
     ideal_y_global = (
         field_top_global

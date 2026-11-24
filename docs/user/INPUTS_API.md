@@ -41,9 +41,12 @@ ask the focused widget first: `ComboBox.acceptsTextKeys()` returns whether
 typing currently belongs to the field. Without that check the global route
 eats the overlay-movement letters before the ComboBox sees them.
 
-`ComboBox` also supports "gear" drag-select: press the field and drag (or hold
-for 450 ms) to open the list and scrub rows under the field; release commits
-the row under the field immediately — there is no settle animation or hold.
+`ComboBox` selects on mouse release, the way a list does: a press on the field
+opens the list, moving the pointer over the rows highlights the row under it,
+and the release commits that row and closes. A release that lands on no row
+commits nothing; a release back on the field is the opening click. Nothing in
+the gesture moves the pointer (`QCursor.setPos` is a no-op on Wayland) or
+depends on the popup moving under it.
 
 `CustomLineEdit` is a painted single-line editor (rendered by the toolkit
 painter pipeline; no stock text widget). Its public surface is the standard
