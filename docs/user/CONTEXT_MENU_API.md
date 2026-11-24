@@ -46,4 +46,16 @@ all. `defer_trigger=True` waits one ripple duration
 process-wide default rendering surface when a call site doesn't specify one
 explicitly — see [CONFIGURATION.md](CONFIGURATION.md).
 
+**Popup mode and QRhiWidgets.** A `popup` menu is a real `Qt.Popup` top-level
+whose QWidget parent is the host's top-level window. In a window that also
+hosts a `QRhiWidget` (including the toolkit's own `StripBand` and
+`FlyoutGpuFillWidget`), that combination breaks the window's compositing on
+Wayland/XWayland with NVIDIA: in-window translucent surfaces (toasts, flyouts)
+render opaque and existing QRhiWidgets slow down. The first popup menu opened
+in such a window logs one `logging` warning naming the `QRhiWidget` subclasses
+and the alternative; the menu still opens in the requested mode. Use
+`in_window` for menus in a window that owns QRhi surfaces. Recorded cases:
+BlinkTable `inv-2026-10-06-ql-rhi-menu-first`, REAL-Video-Enhancer commit
+`f471d71f` (its only `Qt.Popup` removed).
+
 See also [API_CATALOG.md](API_CATALOG.md) for the full widget index.
