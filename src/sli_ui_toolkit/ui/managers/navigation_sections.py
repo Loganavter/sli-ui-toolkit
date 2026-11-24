@@ -3,6 +3,62 @@
 App-specific sections (e.g. a session-picker card grid) stay in the host
 app; this module holds sections generic enough to serve any host built on
 this toolkit.
+
+Nested sub-sections — design note
+--------------------------------
+A host sometimes needs a section *inside* another section's row sequence:
+BlinkTable's recent-chips picker is a column of toolbar rows with a 2-D chip
+grid occupying one vertical slot (``src/ui/widgets/color/recents_nav.py``).
+Registering the grid as its own ``NavigationSection`` cannot express that.
+``NavigationManager`` only knows registration order, so when the grid declines
+a vertical key at its edge the manager hands it to the *adjacent section*
+(:meth:`NavigationManager._neighbor` → that section's ``focus_first`` /
+``focus_last``) — a whole-section edge, not the row above/below. The host
+worked around it by substituting the dialog's section class, i.e. by leaving
+the library's model.
+
+Two shapes were open:
+
+(a) a nested registration on the section that walks rows —
+    ``ToolbarRowsSection.add_sub_section(row_index, section)``;
+(b) a delegation protocol on ``NavigationSection`` (``owns``/``navigate``
+    hand a row to a nested navigator).
+
+**Chosen: (a).** A nested section is local state of its parent, not a graph
+node: it never enters ``NavigationManager._sections``, so the neighbour walk,
+the modal ceiling (``_modal_ceiling`` / ``_effective_section_index``) and the
+flyout owner handoff (``extension_owner``) keep seeing exactly one section and
+cannot be reached *through* the grid. Shape (b) would teach the manager (or
+every section) a new traversal rule for one host case, while the parent is
+already the only object that knows its own row order — so it is the only one
+that can answer "what is above/below this slot". A third registry is
+explicitly not wanted.
+
+Semantics of the chosen shape:
+
+* ``add_sub_section(row_index, section)`` makes the parent walk the row at
+  ``row_index`` (0-based, against the live ``_rows()`` list) as ``section``
+  instead of as one row. The slot keeps its vertical position, so the nested
+  section's top/bottom edges land on the rows at ``row_index - 1`` /
+  ``row_index + 1`` (or yield out of the parent at the sequence ends), never on
+  the parent's ``focus_first``/``focus_last``.
+* The parent owns the nested section's widgets (``owns()``), so no second
+  ``register()`` call is needed or wanted — registering it would put the same
+  widgets in two sections and reintroduce the neighbour handoff.
+* Horizontal keys inside the nested section are never reprocessed by the
+  parent's x-walk: if the nested section declines Left/Right at its own edge
+  the parent consumes the key (a flat x-sort of a grid's cells would step to
+  the next grid *row* instead).
+* Nesting contract: the nested section must **decline** (``return False``) an
+  Up/Down it cannot use at its edge. ``ToolbarRowsSection`` does; so does
+  ``IconListNavSection``. ``AutoNavigationSection`` consumes its edges by
+  default (its dialogs must not leak keys to a neighbour), so nesting it
+  requires ``yield_at_edges=True`` — the same behaviour, opted into.
+* Nothing changes for sections without sub-sections: ``_walk()`` is then just
+  the row list, and every code path is the original one.
+
+Design notes live next to the code they constrain: this docstring is canonical
+for the *why*; ``docs/dev/NAVIGATION.md`` §5 is the host-facing usage guide.
 """
 
 from __future__ import annotations
@@ -17,7 +73,7 @@ from PySide6.QtWidgets import QWidget
 
 from sli_ui_toolkit.ui.managers.nav_rows import group_visual_rows
 from sli_ui_toolkit.ui.managers.navigation_debug import nav_debug, nav_debug_enabled
-from sli_ui_toolkit.ui.managers.navigation_manager import widget_label
+from sli_ui_toolkit.ui.managers.navigation_manager import NavigationSection, widget_label
 
 if TYPE_CHECKING:
     # TYPE_CHECKING-only: the composite package's __init__ pulls in a lot
@@ -129,6 +185,11 @@ class ToolbarRowsSection:
     keeps the original behavior: Left/Right never escape a row, since
     Up/Down already own row-to-row (and, by extension, section-to-section)
     transitions.
+
+    A row can also be walked by a nested section ("row 3 is a 2-D grid, not
+    one line of buttons") via :meth:`add_sub_section` — see the module
+    docstring's "Nested sub-sections" design note for the chosen shape and
+    its contract.
     """
 
     def __init__(
@@ -143,6 +204,33 @@ class ToolbarRowsSection:
         self._tag = tag
         self._on_exit_left = on_exit_left
         self._on_exit_right = on_exit_right
+        # row index → section that walks that slot instead of one row; see
+        # the module docstring's "Nested sub-sections" design note.
+        self._sub_sections: dict[int, NavigationSection] = {}
+
+    def add_sub_section(self, row_index: int, section: NavigationSection) -> None:
+        """Walk the row at *row_index* as *section* instead of as one row.
+
+        The 0-based index addresses the live row list (``_rows()``, i.e.
+        visible rows, visual order), so call it once the rows exist or accept
+        that a hidden row above shifts the slot. The slot keeps its vertical
+        position: the nested section's Up/Down edges land on the rows at
+        ``row_index - 1`` / ``row_index + 1`` and, only at the ends of the
+        parent's sequence, yield out of the section.
+
+        Do **not** register *section* with ``NavigationManager`` — the parent
+        already owns its widgets, and a second registration would put the same
+        widgets into two graph nodes, restoring the neighbour handoff this
+        exists to remove. Registering again on the same index replaces the
+        previous section (the usual way to rebuild a slot's content).
+
+        *section* must decline (``return False``) Up/Down at the edges where
+        the parent should resume; ``AutoNavigationSection`` needs
+        ``yield_at_edges=True`` for that (its default consumes, by design).
+        """
+        if row_index < 0:
+            raise ValueError(f"sub-section row index must be >= 0, got {row_index}")
+        self._sub_sections[row_index] = section
 
     def _rows(self) -> list[QWidget]:
         """Visible rows in VISUAL order (top to bottom).
@@ -187,7 +275,120 @@ class ToolbarRowsSection:
         return None
 
     def owns(self, widget: QWidget) -> bool:
-        return self._row_of(widget) is not None
+        if self._row_of(widget) is not None:
+            return True
+        if not self._sub_sections:
+            return False
+        if self._is_above_rows(widget):
+            # Ancestors of the rows are not inside any slot. Without this a
+            # nested AutoNavigationSection would claim the whole dialog through
+            # its ancestor-bootstrap rule and take the parent's first key.
+            return False
+        return self._owning_sub_section(widget) is not None
+
+    # ------------------------------------------------------------------
+    # Nested sub-sections (see the module docstring's design note)
+    # ------------------------------------------------------------------
+
+    def _walk(self) -> list[tuple[QWidget | None, NavigationSection | None]]:
+        """The vertical walk: one item per row slot — its row, or its section.
+
+        A sub-section *replaces* its row in the walk (``add_sub_section``), so
+        slot indices stay equal to ``_rows()`` indices and the slot's geometry
+        (used by ``focus_nearest``) is the row container's. With no
+        sub-sections the items are exactly the rows, which is what keeps the
+        original behaviour for every existing host.
+        """
+        rows = self._rows()
+        if not self._sub_sections:
+            return [(row, None) for row in rows]
+        return [(row, self._sub_sections.get(idx)) for idx, row in enumerate(rows)]
+
+    def _is_above_rows(self, widget: QWidget) -> bool:
+        for row in self._rows():
+            if row is widget or widget.isAncestorOf(row):
+                return True
+        return False
+
+    def _owning_sub_section(self, widget: QWidget) -> NavigationSection | None:
+        for sub in self._sub_sections.values():
+            if sub.owns(widget):
+                return sub
+        return None
+
+    def _slot_of(
+        self,
+        walk: list[tuple[QWidget | None, NavigationSection | None]],
+        widget: QWidget,
+    ) -> int | None:
+        """Index in *walk* whose row or sub-section claims *widget*.
+
+        Rows are checked first: a nested section's content normally lives in
+        the slot's row container, and that match is the cheap, unambiguous one.
+        The sub-section's own ``owns()`` then covers content placed outside the
+        row containers (the parent still needs to claim it so the manager does
+        not resolve some other section for the key).
+        """
+        for idx, (row, _sub) in enumerate(walk):
+            if row is not None and (row is widget or row.isAncestorOf(widget)):
+                return idx
+        if not self._sub_sections or self._is_above_rows(widget):
+            return None
+        for idx, (_row, sub) in enumerate(walk):
+            if sub is not None and sub.owns(widget):
+                return idx
+        return None
+
+    def _focus_slot(
+        self,
+        item: tuple[QWidget | None, NavigationSection | None],
+        reference: QWidget,
+        key: int,
+        reason: Qt.FocusReason,
+    ) -> bool:
+        """Land focus in one walk item, entering a sub-section at its nearest cell."""
+        row, sub = item
+        if sub is not None:
+            pos = reference.mapToGlobal(reference.rect().center())
+            focus_nearest = getattr(sub, "focus_nearest", None)
+            if callable(focus_nearest) and focus_nearest(pos, reason=reason):
+                return True
+            ref_x = float(pos.x())
+            if key == Qt.Key.Key_Down:
+                return bool(sub.focus_first(ref_x, reason=reason))
+            return bool(sub.focus_last(ref_x, reason=reason))
+        if row is None:
+            return False
+        return self._focus_near_in(row, reference, reason)
+
+    def _navigate_nested(
+        self,
+        walk: list[tuple[QWidget | None, NavigationSection | None]],
+        slot: int,
+        sub: NavigationSection,
+        key: int,
+        widget: QWidget,
+        reason: Qt.FocusReason,
+    ) -> bool:
+        """Route a key from inside a nested slot, resuming the row walk at its edges."""
+        if nav_debug_enabled():
+            nav_debug(
+                "[nav-%s] nested key=%s widget=%s slot_idx=%d/%d section=%s",
+                self._tag, key, widget_label(widget), slot, len(walk), type(sub).__name__,
+            )
+        if sub.navigate(key, widget):
+            return True
+        if key == Qt.Key.Key_Down and slot < len(walk) - 1:
+            return self._focus_slot(walk[slot + 1], widget, key, reason)
+        if key == Qt.Key.Key_Up and slot > 0:
+            return self._focus_slot(walk[slot - 1], widget, key, reason)
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            # Declined at the nested section's own horizontal edge: consume,
+            # never fall through to the parent's x-walk. That walk sorts a
+            # grid's cells into one flat x order, so Right on the last column
+            # would step to a cell in the next grid ROW.
+            return True
+        return False
 
     @staticmethod
     def _focusable(row: QWidget) -> list[QWidget]:
@@ -272,17 +473,22 @@ class ToolbarRowsSection:
     def navigate(self, key: int, widget: QWidget) -> bool:
         from sli_ui_toolkit.ui.managers.nav_graph import focus_reason as _nav_focus_reason
         reason = _nav_focus_reason()
-        rows = self._rows()
-        row = self._row_of(widget)
-        if row is None or row not in rows:
+        walk = self._walk()
+        slot = self._slot_of(walk, widget)
+        if slot is None:
             return False
-        idx = rows.index(row)
+        row, sub = walk[slot]
+        if sub is not None:
+            return self._navigate_nested(walk, slot, sub, key, widget, reason)
+        if row is None:
+            return False
+        idx = slot
         if nav_debug_enabled():
             items = self._focusable(row)
             col = items.index(widget) if widget in items else -1
             nav_debug(
                 "[nav-%s] navigate key=%s widget=%s row_idx=%d/%d col_idx=%d/%d",
-                self._tag, key, widget_label(widget), idx, len(rows), col, len(items),
+                self._tag, key, widget_label(widget), idx, len(walk), col, len(items),
             )
         if key in (Qt.Key.Key_Down, Qt.Key.Key_Up):
             # Give the focused widget itself first refusal — a spinner-like
@@ -304,10 +510,10 @@ class ToolbarRowsSection:
             if extension is not None and hasattr(extension, "focus_first_child"):
                 if extension.focus_first_child():
                     return True
-            if idx < len(rows) - 1:
-                return self._focus_near_in(rows[idx + 1], widget, reason)
+            if idx < len(walk) - 1:
+                return self._focus_slot(walk[idx + 1], widget, key, reason)
             if nav_debug_enabled():
-                nav_debug('[nav-%s] at bottom idx=%d/%d key=Down — nowhere to scroll down', self._tag, idx, len(rows))
+                nav_debug('[nav-%s] at bottom idx=%d/%d key=Down — nowhere to scroll down', self._tag, idx, len(walk))
             # Last row — yield (e.g. canvas/no further row below).
             return False
         if key == Qt.Key.Key_Up:
@@ -320,9 +526,9 @@ class ToolbarRowsSection:
                 if _ext_up.focus_first_child():
                     return True
             if idx > 0:
-                return self._focus_near_in(rows[idx - 1], widget, reason)
+                return self._focus_slot(walk[idx - 1], widget, key, reason)
             if nav_debug_enabled():
-                nav_debug('[nav-%s] at top idx=%d/%d key=Up — nowhere to scroll up', self._tag, idx, len(rows))
+                nav_debug('[nav-%s] at top idx=%d/%d key=Up — nowhere to scroll up', self._tag, idx, len(walk))
             # First row — yield so NavigationManager can hand off upward
             # (title bar / tab strip).
             return False
@@ -387,20 +593,30 @@ class ToolbarRowsSection:
         return False
 
     def focus_first(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
-        rows = self._rows()
-        if not rows:
+        walk = self._walk()
+        if not walk:
+            return False
+        row, sub = walk[0]
+        if sub is not None:
+            return bool(sub.focus_first(ref_x, reason=reason))
+        if row is None:
             return False
         if ref_x is not None:
-            return self._focus_near_x(rows[0], ref_x, reason)
-        return self._focus_first_in(rows[0], reason)
+            return self._focus_near_x(row, ref_x, reason)
+        return self._focus_first_in(row, reason)
 
     def focus_last(self, ref_x: float | None = None, *, reason: Qt.FocusReason) -> bool:
-        rows = self._rows()
-        if not rows:
+        walk = self._walk()
+        if not walk:
+            return False
+        row, sub = walk[-1]
+        if sub is not None:
+            return bool(sub.focus_last(ref_x, reason=reason))
+        if row is None:
             return False
         if ref_x is not None:
-            return self._focus_near_x(rows[-1], ref_x, reason)
-        return self._focus_first_in(rows[-1], reason)
+            return self._focus_near_x(row, ref_x, reason)
+        return self._focus_first_in(row, reason)
 
     def _focus_near_x(self, row: QWidget, ref_x: float, reason: Qt.FocusReason) -> bool:
         items = self._focusable(row)
@@ -427,18 +643,41 @@ class ToolbarRowsSection:
         re-anchor needs the row nearest the click's y, not a row fixed by
         entry direction.
         """
-        rows = self._rows()
-        if not rows:
+        walk = self._walk()
+        if not walk:
             return False
-        row = min(
-            rows,
-            key=lambda r: abs(r.mapToGlobal(r.rect().center()).y() - pos.y()),
+        slot = min(
+            range(len(walk)),
+            key=lambda i: abs(self._slot_center_y(walk[i][0]) - pos.y()),
         )
+        row, sub = walk[slot]
+        if sub is not None:
+            focus_nearest = getattr(sub, "focus_nearest", None)
+            if callable(focus_nearest) and focus_nearest(pos, reason=reason):
+                return True
+            return bool(sub.focus_first(pos.x(), reason=reason))
+        if row is None:
+            return False
         return self._focus_near_x(row, pos.x(), reason)
+
+    @staticmethod
+    def _slot_center_y(row: QWidget | None) -> float:
+        if row is None:
+            return 0.0
+        try:
+            return float(row.mapToGlobal(row.rect().center()).y())
+        except Exception:
+            return 0.0
 
     @property
     def extra_keys(self) -> frozenset[int]:
-        return frozenset({Qt.Key.Key_Left, Qt.Key.Key_Right})
+        # Union with the nested sections' own extra keys so a host that nests
+        # a section wanting Enter/Escape still gets them routed: the manager
+        # only consults the *registered* section's extra_keys.
+        keys: set[int] = {Qt.Key.Key_Left, Qt.Key.Key_Right}
+        for sub in self._sub_sections.values():
+            keys |= set(getattr(sub, "extra_keys", frozenset()))
+        return frozenset(keys)
 
 
 class IconListNavSection:
@@ -572,6 +811,14 @@ class AutoNavigationSection:
 
     Или декларативно через WidgetDescriptor: owner.widget_descriptor =
     WidgetDescriptor(navigation=AutoNavigationSection(owner))
+
+    ``yield_at_edges`` (default ``False``) switches the vertical edge
+    behaviour: instead of consuming a Down on the last row / an Up on the
+    first, ``navigate`` returns ``False`` so the caller can continue. A
+    standalone dialog section must consume (nothing may leak to a neighbour
+    behind it), but a section nested in another section's row slot
+    (``ToolbarRowsSection.add_sub_section``) must yield so the parent can land
+    on the row above/below — see ``navigation_sections``' module docstring.
     """
 
     def __init__(
@@ -581,11 +828,13 @@ class AutoNavigationSection:
         tag: str = "auto",
         on_exit_left: Callable[..., bool] | None = None,
         on_exit_right: Callable[..., bool] | None = None,
+        yield_at_edges: bool = False,
     ) -> None:
         self._owner = owner
         self._tag = tag
         self._on_exit_left = on_exit_left
         self._on_exit_right = on_exit_right
+        self._yield_at_edges = yield_at_edges
 
     # ------------------------------------------------------------------
     # Row discovery
@@ -674,6 +923,13 @@ class AutoNavigationSection:
                     return True
             if row_index < len(rows) - 1:
                 return self._focus_near_in_row(rows[row_index + 1], widget, reason)
+            if self._yield_at_edges:
+                if nav_debug_enabled():
+                    nav_debug(
+                        "[nav-%s] at bottom row_idx=%s/%s key=Down — yield to parent slot",
+                        self._tag, row_index, len(rows),
+                    )
+                return False
             if nav_debug_enabled():
                 nav_debug(
                     "[nav-%s] at bottom row_idx=%s/%s key=Down — nowhere to scroll down (consumed)",
@@ -690,13 +946,14 @@ class AutoNavigationSection:
                     return True
             if row_index > 0:
                 return self._focus_near_in_row(rows[row_index - 1], widget, reason)
-            if self._tag == "help-sidebar":
+            if self._tag == "help-sidebar" or self._yield_at_edges:
                 # Help search+list column: Up at its top yields so the manager
-                # hands off to the bar above it.
+                # hands off to the bar above it. A nested section yields for
+                # the same reason (its parent resumes the row walk).
                 if nav_debug_enabled():
                     nav_debug(
-                        "[nav-auto] at top row_idx=%s/%s key=Up — yield to previous section (help-sidebar)",
-                        row_index, len(rows),
+                        "[nav-%s] at top row_idx=%s/%s key=Up — yield to previous section",
+                        self._tag, row_index, len(rows),
                     )
                 return False
             if nav_debug_enabled():

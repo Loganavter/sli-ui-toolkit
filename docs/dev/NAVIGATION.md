@@ -243,7 +243,60 @@ lookup (`_modal_ceiling`), effective-index resolution
 (`_reclaim_modal_focus`) are private manager internals. Behaviour with no modal
 section registered is unchanged.
 
-## 5. Checklists
+## 5. Nested sub-sections — a grid in one row slot
+
+Sometimes one vertical slot of a row section is not a row: BlinkTable's
+recent-colours picker has a 2-D chip grid between its toolbar rows
+(`src/ui/widgets/color/recents_nav.py`). Registering the grid as a second
+section cannot express that. `NavigationManager` only knows section order, so
+when the grid declines a vertical key at its edge the key goes to the adjacent
+*section* (`_neighbor` → that section's `focus_first`/`focus_last`), i.e. the
+picker's outer edge instead of the row above/below.
+
+Declare the grid as a **sub-section of the row section**:
+
+```python
+from sli_ui_toolkit.ui.managers.navigation_sections import (
+    AutoNavigationSection, ToolbarRowsSection,
+)
+
+rows = [search_row, filter_row, chips_row, footer_row]
+section = ToolbarRowsSection(lambda: rows)
+section.add_sub_section(
+    2,  # chips_row's slot: 0-based index into the visible rows
+    AutoNavigationSection(chips_row, yield_at_edges=True),
+)
+NavigationManager.get_instance().register(owner, section)
+```
+
+Semantics (the rationale is the `navigation_sections` module docstring's
+"Nested sub-sections" design note):
+
+- the sub-section *replaces* its row in the vertical walk, so its top/bottom
+  edges land on the rows at `index - 1` / `index + 1`; only at the ends of the
+  parent's sequence does the key yield out of the section;
+- the parent owns the nested widgets, so **do not register** the nested
+  section. One graph node means `_neighbor`, the modal ceiling and the
+  flyout-owner path cannot be reached through the grid; re-adding a section on
+  the same index replaces the slot's section;
+- Left/Right inside the nested section never fall through to the parent's
+  x-walk; a declined horizontal key there is consumed (a flat x-sort of a
+  grid's cells would make Right at the last column step to the next grid
+  *row*);
+- the nested section must **decline** Up/Down at the edges where the parent
+  resumes. `ToolbarRowsSection` and `IconListNavSection` already do;
+  `AutoNavigationSection` consumes its edges by default (a standalone dialog
+  must not leak keys to a section behind it), so pass `yield_at_edges=True`
+  when nesting it;
+- the parent's `extra_keys` is the union of its own and the nested sections',
+  so a nested section that wants `Enter`/`Escape` still receives them;
+- the row index addresses the live `_rows()` list (visible rows, visual
+  order): hide a row above the slot and the index shifts, so register against
+  the layout you actually show;
+- a section with no sub-sections behaves exactly as before — the row walk,
+  edge yields and `focus_first`/`focus_last`/`focus_nearest` are unchanged.
+
+## 6. Checklists
 
 **Adding a new widget with its own arrow-key handling:**
 
@@ -271,6 +324,16 @@ section registered is unchanged.
       make sure those rows go through `builder.extend(...)` — a
       contributor that adds widgets straight to a layout without going
       through the builder is invisible to keyboard navigation.
+
+**Nesting a grid or list inside a row slot (§5):**
+
+- [ ] Call `section.add_sub_section(row_index, nested)` on the **registered**
+      row section; do not register `nested` separately.
+- [ ] Make `nested` decline Up/Down at its edges (`AutoNavigationSection`
+      needs `yield_at_edges=True`; the row/icon-list sections already yield).
+- [ ] Prove the slot's vertical edges land on the neighbouring rows and that
+      Left/Right at the nested section's edge cannot reach the parent's
+      x-walk — `tests/test_nav_nested_section.py` is the worked example.
 
 **Adding a modal overlay section:**
 
