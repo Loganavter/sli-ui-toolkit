@@ -53,6 +53,12 @@ chart.set_segments(
 overrides individual theme tokens per-instance (anything left `None` falls
 back to the active theme). Feed view state via `update_view(vm)`.
 
+The defaults are neutral plus one family key: the plate is `surface.background`,
+the ink the `Text` role, the cell hover default `surface.list`, and the chip on
+a day that carries data `calendar.background.data` (the calendar family owns
+that state; the palette ships no `calendar.*` plate or ink because the neutral
+tokens already carry those values).
+
 ```python
 calendar = CalendarWidget(accent_color="#3A7AFE", weekend_bg="#2A2A2A")
 calendar.update_view(

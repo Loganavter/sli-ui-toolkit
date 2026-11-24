@@ -4,6 +4,48 @@
 
 ### Changed
 
+- **The remaining painters read their own family's tokens, not a neighbour's.** P3b closes the borrows the gate
+  still recorded in the calendar, the flyout body, the progress bar, the painted text renderer and the group
+  frame. Each site now reads a key its own file's family owns; a site whose family had no key got one in both
+  palettes, at the exact value the painter borrowed, so no shipped pixel moves (measured pair by pair in both
+  themes):
+  - **Calendar** (`calendar_widget/widget.py`, 3 → 0). The palette ships no `calendar.*` plate or ink, so the plate,
+    the ink and the cell-hover default are neutral: `surface.background` (unchanged), the Qt `Text` role (the value
+    `dialog.text` carried) and `surface.list` (the hover default was a `dialog.button.hover` read whose attribute no
+    painter consumes). The chip on a day that carries data stays the family's own key,
+    `calendar.background.data` (new; the value `button.toggle.background.checked` carried) because no neutral token
+    carries a mid-grey plate and `separator.color` would leave the marker nearly invisible on the light plate.
+  - **Menus** (`context_menu/rows.py`, 1 → 0). `menu.background.hover` (new, the value the rows borrowed from
+    `list_item.background.hover`) owns the row hover/current plate, so a host restyling menus no longer repaints
+    list rows; the palette keeps AA on the hover plate (`tests/test_contrast.py`) and parity with the list step.
+  - **Flyouts** (`base_flyout/builder.py`, 3 → 0). A flyout body's section/row/radio labels read `flyout.text`
+    (new) instead of `dialog.text`.
+  - **Progress bar** (`atomic/progress_bar.py`, 3 → 0). The centred label reads `progress.text` (new); the trough's
+    no-token fallback is the neutral `separator.color` instead of `dialog.border`, so a host palette that predates
+    the key gets a neutral hairline rather than a dialog's edge.
+  - **Painted text** (`text/engine/layout/builder.py`, 4 → 0). The label family owns its own ink now: the body
+    default is `label.text` and a figure caption `label.text.muted` (both new, the values `dialog.text` and
+    `list_item.text.rating` carried). A palette without them still falls back to `WindowText` in `build_text_layout`.
+  - **Group box** (`atomic/custom_group_widget.py`, 5 → 0) declares `# token-family: dialog` instead of moving its
+    values: its fieldset frame and legend are dialog-body chrome, no palette family owns a frame, and
+    `separator.color` is 37/255 lighter than `dialog.border` in the light theme — a host
+    (`magnifier_settings_flyout`) mirrors this exact paint routine to dock flush underneath a group, so the frame
+    must not move.
+  - **Underline painter** (`helpers/underline_painter.py`, 3 literal + 1 dynamic → 0) declares
+    `# token-family: button`: its default rule is the button family's `class` → `button.primary`/`button.default`
+    prefix, and a caller may still name its own family (`token_prefix="input"`). That caller-supplied prefix stays
+    the file's one `token-ownership-unresolved` finding — it is a genuinely runtime family, so a `# token-prefix:`
+    declaration would lie about it.
+  Library total (`token-ownership` + `-dynamic` + `-unresolved`): 67 → 44 (65 → 43, 1 → 0, 1 → 1). Each
+  `inspect_spec.token_family` names what its painter now reads. Docs: `docs/dev/DESIGN_LANGUAGE.md`,
+  `docs/user/API_CATALOG.md`, `docs/user/INPUTS_API.md`, `docs/user/CHARTS_API.md`, `docs/user/LABELS_API.md`.
+  Tests: `tests/test_painter_family_tokens.py` (18 — each site's owned vs borrowed token as sentinels in both
+  themes; 16 of 18 fail on the pre-migration tree, the two that pass pin the group frame's unchanged dialog ink),
+  `tests/test_menu_row_tokens.py` (the hover plate test now proves the menu key owns it),
+  `tests/test_contrast.py` (5 new pairs: `menu.text` on the hover plate, `flyout.text`, `progress.text`,
+  `label.text` on the surface and on a flyout card, plus the hover-step assertion for `menu.background.hover`),
+  `tests/test_theme_token_parity.py` (the six new keys are parity-checked in both palettes).
+
 - **The token-ownership gate exempts tables and lets a runtime prefix be declared.** A table names other families'
   keys by design — the inspector panels display a family's tokens, and the variant registries map a variant to its
   token prefix — but the gate counted every one of them as a borrow, training readers to ignore the baseline. The

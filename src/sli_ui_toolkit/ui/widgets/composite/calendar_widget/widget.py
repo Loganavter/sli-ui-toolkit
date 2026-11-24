@@ -23,8 +23,12 @@ from sli_ui_toolkit.ui.widgets.composite.calendar_widget.models import (
 
 _THEME_KEYS = {
     "accent": "accent",
-    "hover": "dialog.button.hover",
-    "text": "dialog.text",
+    # The palette ships no `calendar.*` family for the plate, the ink or the hover step, so those read neutral
+    # tokens: the calendar surface (`surface.background`), the ink (`Text`, the Qt role the borrowed `dialog.text`
+    # carried), and the cell hover default (`surface.list`, the neutral list plate). `calendar.background.data`
+    # stays the family's own key: no neutral carries the mid-grey chip a data day wears.
+    "hover": "surface.list",
+    "text": "Text",
     "bg": "surface.background",
 }
 
@@ -132,7 +136,7 @@ class CalendarWidget(QWidget):
         text = QColor(_theme_color(tm, _THEME_KEYS["text"], "#F2F2F2"))
         accent = QColor(_theme_color(tm, _THEME_KEYS["accent"], "#3A7AFE"))
         checked = QColor(
-            _theme_color(tm, "button.toggle.background.checked", "#C0C0C0")
+            _theme_color(tm, "calendar.background.data", "#C0C0C0")
         )
         is_dark = bool(getattr(tm, "is_dark", lambda: False)())
 
@@ -152,6 +156,8 @@ class CalendarWidget(QWidget):
 
         palette = {**defaults, **self._color_overrides}
         self._accent = palette["accent"]
+        # `hover` is only the default behind the public `hover_color=` override: no day-view painter reads it yet,
+        # so it stands on the neutral list plate rather than another family's dialog button step.
         self._hover = palette["hover"]
         self._text = palette["text"]
         self._bg = palette["bg"]
@@ -197,9 +203,9 @@ class CalendarWidget(QWidget):
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
-        """Fill the calendar surface from the resolved ``dialog.background``
+        """Fill the calendar surface from the resolved ``surface.background``
         token (``self._bg``) — a plain QWidget would otherwise fall back to
-        the QPalette ``Window`` role, darker than the dialog surface token.
+        the QPalette ``Window`` role, darker than the surface token.
         The view stack, the views and the day buttons are transparent, so
         the fill shows through them."""
         painter = QPainter(self)

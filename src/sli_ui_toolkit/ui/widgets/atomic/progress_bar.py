@@ -207,8 +207,8 @@ class ProgressBar(ThemedWidget, QWidget):
         colour = self._theme_manager.try_get_color(token)
         if colour is not None and colour.isValid():
             return QColor(colour)
-        # A host palette that omits the token still gets a usable bar: the trough falls back to a neutral border rather
-        # than to the accent (which would make the empty part look like the filled one).
+        # A host palette that omits the token still gets a usable bar: the trough falls back to the shared neutral
+        # hairline rather than to the accent (which would make the empty part look like the filled one).
         return QColor(self._theme_manager.get_color(fallback))
 
     def _track_rect(self) -> QRectF:
@@ -229,7 +229,7 @@ class ProgressBar(ThemedWidget, QWidget):
                 return
             radius = rect.height() * 0.5
 
-            painter.setBrush(QBrush(self._colour("progress.track.background", "dialog.border")))
+            painter.setBrush(QBrush(self._colour("progress.track.background", "separator.color")))
             painter.drawRoundedRect(rect, radius, radius)
 
             painter.setBrush(QBrush(self._colour(_STATE_TOKENS[self._state], "accent")))
@@ -259,7 +259,9 @@ class ProgressBar(ThemedWidget, QWidget):
 
     def _paint_text(self, painter: QPainter, rect: QRectF) -> None:
         painter.setFont(self.font())
-        painter.setPen(QColor(self._colour("dialog.text", "WindowText")))
+        # The bar's own label ink (`progress.text`); the neutral `Text` role is the fallback for a host palette that
+        # predates the key, and both carry the colour this label used to borrow from `dialog.text`.
+        painter.setPen(QColor(self._colour("progress.text", "Text")))
         metrics = painter.fontMetrics()
         label = metrics.elidedText(self._text or "", Qt.TextElideMode.ElideRight, int(rect.width()) - 4)
         painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), label)
@@ -281,7 +283,7 @@ ProgressBar.inspect_spec = InspectSpec(
         "progress.fill",
         "progress.success",
         "progress.error",
-        "dialog.text",
+        "progress.text",
     ),
     docs="docs/user/API_CATALOG.md",
 )

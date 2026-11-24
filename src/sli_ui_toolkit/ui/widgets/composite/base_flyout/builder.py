@@ -2,6 +2,9 @@
 
 Pure construction over ``self.content_layout``; no state beyond the layout
 the facade already owns.
+
+Body labels read ``flyout.text`` — the card's own ink. They used to fall back
+to ``dialog.text``, so a host restyling dialogs recolored every flyout body.
 """
 
 from __future__ import annotations
@@ -30,7 +33,7 @@ class _FlyoutBuilderApi:
             mode="plain",
             pixel_size=pixel_size,
             bold=True,
-            color_token="dialog.text",
+            color_token="flyout.text",
         )
         self.content_layout.addWidget(label)
         return label
@@ -52,7 +55,7 @@ class _FlyoutBuilderApi:
             label_text,
             mode="plain",
             pixel_size=label_pixel_size,
-            color_token="dialog.text",
+            color_token="flyout.text",
         )
         row.addWidget(label)
         if stretch_before_widget:
@@ -73,7 +76,7 @@ class _FlyoutBuilderApi:
             label_text,
             mode="plain",
             pixel_size=11,
-            color_token="dialog.text",
+            color_token="flyout.text",
         )
         self.content_layout.addWidget(label)
 

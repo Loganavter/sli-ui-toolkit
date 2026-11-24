@@ -446,7 +446,10 @@ size (fixed 40x40 px) and animation speed (15ms tick) are fixed; use
 
 `CustomGroupWidget(title_text="", parent=None)` draws a titled border frame
 around whatever is added via `add_widget(widget)`/`add_layout(layout)`;
-`set_title(title)` updates it at runtime. `CustomGroupBuilder` is a
+`set_title(title)` updates it at runtime. The frame and the legend read the
+dialog family's `dialog.border` / `dialog.text` over `surface.background` (the
+file declares `# token-family: dialog`): a group box is dialog-body chrome, and
+a palette without a frame family must not repaint it. `CustomGroupBuilder` is a
 chainable wrapper over the same API:
 
 ```python

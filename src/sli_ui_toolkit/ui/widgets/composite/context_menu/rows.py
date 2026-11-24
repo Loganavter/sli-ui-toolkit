@@ -128,10 +128,9 @@ class _RowBgLayer(Layer):
         p = ctx.painter
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
-        # The menu family owns no hover plate (its keys are the card plate, ink and separator), and these rows are
-        # list-shaped, so they borrow the list family's one-step hover plate — documented in API_CATALOG. The
-        # token-ownership gate keeps the borrow on the record.
-        p.setBrush(QBrush(tm.get_color("list_item.background.hover")))
+        # The menu family owns its own one-step hover plate (`menu.background.hover`, the value these rows used to
+        # borrow from `list_item.background.hover`), so a host that restyles menus leaves list rows alone.
+        p.setBrush(QBrush(tm.get_color("menu.background.hover")))
         pos = getattr(widget, "position", "middle")
         if pos == "middle":
             p.drawRoundedRect(rect, self.INNER_R, self.INNER_R)

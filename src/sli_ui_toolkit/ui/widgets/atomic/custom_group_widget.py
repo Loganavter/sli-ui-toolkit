@@ -1,4 +1,10 @@
 from __future__ import annotations
+
+# token-family: dialog — the fieldset frame and legend this file paints are dialog-body chrome (`dialog.border`,
+# `dialog.text` over `surface.background`), so the dialog family owns them. The palette ships no group/frame family
+# and the neutral candidates do not carry the values: `separator.color` is 37/255 lighter than `dialog.border` in the
+# light theme, and a host (`magnifier_settings_flyout`) mirrors this exact paint routine to dock flush underneath a
+# group, so the frame must not move.
 from sli_ui_toolkit.ui.inspector.spec import InspectSpec, SpecField  # noqa: E402
 
 from typing import TYPE_CHECKING, ClassVar, Literal

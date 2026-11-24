@@ -64,8 +64,8 @@ widgets with `setStyleSheet`.
 - `@dialog.background` — dialog surfaces
 - `@dialog.border` — subtle borders
 - `@dialog.input.background` — input field fill
-- `@flyout.background` / `@flyout.border` — flyout surfaces
-- `@list_item.background.hover` — hovered/current rows inside flyouts and menus; ctrl+LMB-selected rows get a soft accent wash over this base (current row included when selected)
+- `@flyout.background` / `@flyout.border` / `@flyout.text` — flyout surfaces and body ink
+- `@list_item.background.hover` — hovered/current list rows (flyout rows, combobox cards); menus read their own `@menu.background.hover`; ctrl+LMB-selected rows get a soft accent wash over this base (current row included when selected)
 - `@input.border.thin` — hairline input borders
 
 ## Typography
@@ -312,9 +312,10 @@ Grouped by widget family (full keys in `src/sli_ui_toolkit/palettes.py`):
 - **Check boxes** — `checkbox.check`, `checkbox.background.checked`,
   `checkbox.text`, `checkbox.text.disabled`, `checkbox.border`,
   `checkbox.background.hover`, `checkbox.background.pressed`.
-- **Flyouts & overlays** — `flyout.background`, `flyout.border`, `shadow.color`,
-  `separator.color`.
-- **Menus** — `menu.background` (the in-window card plate), `menu.text`,
+- **Flyouts & overlays** — `flyout.background`, `flyout.border`, `flyout.text`,
+  `shadow.color`, `separator.color`.
+- **Menus** — `menu.background` (the in-window card plate),
+  `menu.background.hover` (the row hover/current plate), `menu.text`,
   `menu.text.disabled`, `menu.separator` (follows `separator.color`).
 - **List items** — `list_item.background.normal`, `list_item.background.hover`,
   `list_item.background.focused` (accent-tinted focus plate),
@@ -327,7 +328,14 @@ Grouped by widget family (full keys in `src/sli_ui_toolkit/palettes.py`):
 - **Dialogs** — `dialog.background`, `dialog.text`, `dialog.border`,
   `dialog.input.background`, `dialog.button.background`, `dialog.button.hover`,
   `dialog.button.ok.background`.
-- **Labels** — `label.image.background`.
+- **Labels** — `label.text` (the `Text` renderer's body ink), `label.text.muted`
+  (captions and the secondary step), `label.image.background`.
+- **Progress bar** — `progress.track.background` (falls back to the neutral
+  `separator.color`), `progress.fill`, `progress.success`, `progress.error`,
+  `progress.text` (the centred label).
+- **Calendar** — `calendar.background.data` (the chip on a day that carries data).
+  The plate, the ink and the cell hover default are neutral: a calendar paints
+  `surface.background`, the `Text` role and `surface.list`.
 - **Help dialog** — `help.separator`, `help.code.background`, `help.nav.background`,
   `help.nav.border`, `help.nav.hover`, `help.nav.selected`, `help.nav.selected.text`.
 - **Toasts** — `toast.background`, `toast.text`, `toast.border`,
@@ -354,7 +362,10 @@ key (or a new palette) has to keep:
 
 - **A label reads on the plate its family owns.** `input.text`,
   `input.text.disabled` and `input.placeholder` resolve against
-  `input.background`; `menu.text` against `menu.background`;
+  `input.background`; `menu.text` against `menu.background` (and on
+  `menu.background.hover`); `flyout.text` against `flyout.background`;
+  `progress.text` against `progress.track.background`; `label.text` against
+  `surface.background` and `flyout.background`;
   `list_item.text.selected` against `list_item.background.selected`;
   `checkbox.text` and `switch.text` against `surface.background`;
   `titlebar.menu.text` against `titlebar.background`. The enabled pairs clear

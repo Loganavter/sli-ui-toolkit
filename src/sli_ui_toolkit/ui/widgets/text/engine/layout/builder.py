@@ -176,7 +176,7 @@ class _LayoutBuilder:
         x: float,
         max_width: float,
         base_font: QFont,
-        color_token: str = "dialog.text",
+        color_token: str = "label.text",
         caption_spans: tuple[InlineSpan, ...] | None = None,
         wrap_mode: QTextOption.WrapMode = QTextOption.WrapMode.WordWrap,
         code_tint: bool = True,
@@ -532,7 +532,7 @@ class _LayoutBuilder:
                 x=cap_x,
                 max_width=cap_w,
                 base_font=self._caption_font(),
-                color_token="list_item.text.rating",
+                color_token="label.text.muted",
                 caption_spans=parse_inline(block.caption) if block.caption else None,
             )
             self.y += cap_h
@@ -599,7 +599,7 @@ class _LayoutBuilder:
                     x=fig_x,
                     max_width=float(figure_w),
                     base_font=self._caption_font(),
-                    color_token="list_item.text.rating",
+                    color_token="label.text.muted",
                     caption_spans=parse_inline(group.figure.caption),
                 )
                 fig_h += CAPTION_SPACING + cap_h
@@ -648,7 +648,7 @@ class _LayoutBuilder:
                     x=0.0,
                     max_width=self.width,
                     base_font=self._caption_font(),
-                    color_token="list_item.text.rating",
+                    color_token="label.text.muted",
                     caption_spans=parse_inline(group.figure.caption),
                 )
                 self.y += cap_h

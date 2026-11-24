@@ -76,10 +76,17 @@ CONTROL_STATE_TOKENS = (
     "list_item.text.disabled",
     "list_item.background.focused",
     "menu.background",
+    "menu.background.hover",
     "menu.text",
     "menu.text.disabled",
     "menu.separator",
     "titlebar.menu.text",
+    # P3b: the remaining painters own their ink, their hover step and the calendar chip.
+    "flyout.text",
+    "progress.text",
+    "label.text",
+    "label.text.muted",
+    "calendar.background.data",
 )
 
 

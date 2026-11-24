@@ -138,6 +138,10 @@ note = Text(config=TextConfig(text="Pinned", bold=True, selectable=True))
   `underline`, `strike_out`, `family` and the variant's `pixel_size`/`bold`;
   document mode honors `pixel_size` and `family` for body text. `color` /
   `color_token` set the code-mode base color (syntax colors stay).
+- Document-mode ink: the body reads the label family's `label.text` and a figure
+  caption `label.text.muted` (it used to borrow `dialog.text` and
+  `list_item.text.rating`); a host palette without those keys falls back to
+  `WindowText`.
 - Plain mode hover: I-beam only over glyphs, Arrow over empty space (for
   `selectable=True`).
 - `selectable=True` adds mouse drag, double-click word selection, `Ctrl+A`,

@@ -1,3 +1,8 @@
+# token-family: button — the default colour rule below reads the widget's `class` property and maps it to the button
+# family's `button.primary` / `button.default` prefix; a caller that names its own family (`token_prefix="input"`
+# → `input.underline`) overrides it. Declaring the default keeps the family checkable instead of reading as a borrow
+# from a file that owns nothing.
+
 from dataclasses import dataclass
 from typing import List, Optional, Union
 

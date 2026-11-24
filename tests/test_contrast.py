@@ -61,7 +61,14 @@ TEXT_PAIRS = [
     ("switch.text", "surface.background", "switch label on the surface"),
     ("list_item.text.selected", "list_item.background.selected", "selected list row text"),
     ("menu.text", "menu.background", "menu row text"),
+    ("menu.text", "menu.background.hover", "menu row text on the hover plate"),
     ("titlebar.menu.text", "titlebar.background", "title-bar menu label"),
+    # The generic ink families (P3b): a flyout body, a progress label, the painted label family and the calendar
+    # read their own family's text token instead of borrowing `dialog.text`.
+    ("flyout.text", "flyout.background", "flyout body label"),
+    ("progress.text", "progress.track.background", "progress label on the trough"),
+    ("label.text", "surface.background", "label text on the surface"),
+    ("label.text", "flyout.background", "label text on a flyout card"),
 ]
 
 # Disabled states are allowed below the AA text target - they must instead read as visibly dimmer than the enabled
@@ -164,7 +171,11 @@ def test_control_hover_steps_away_from_the_plate(palette_name, palette):
     # take: light plates darken, dark plates lighten. Menu separators follow the shared separator colour.
     plate = _relative_luminance(_opaque(palette, "surface.background"))
     light = palette_name == "light"
-    for key in ("checkbox.background.hover", "checkbox.background.pressed"):
+    for key in (
+        "checkbox.background.hover",
+        "checkbox.background.pressed",
+        "menu.background.hover",
+    ):
         step = _relative_luminance(_opaque(palette, key))
         assert (step < plate) if light else (step > plate), (
             f"[{palette_name}] {key} does not step away from surface.background as its family does"

@@ -79,8 +79,13 @@ FLUENT_LIGHT = {
     "input.selection.background": QColor("#330078D4"),
     "flyout.background": QColor("#ffffff"),
     "flyout.border": QColor("#e0e0e0"),
-    #: The in-window menu card (menu strip / context menu rows); the separator follows `separator.color`.
+    #: The flyout card's ink: the body labels a flyout builds read their own family, so a host that restyles
+    #: dialogs does not recolor a flyout body (the value is the dialog ink the labels used to borrow).
+    "flyout.text": QColor("#1f1f1f"),
+    #: The in-window menu card (menu strip / context menu rows): plate, its one-step hover plate (the rows used
+    #: to borrow `list_item.background.hover`), ink and separator (the separator follows `separator.color`).
     "menu.background": QColor("#ffffff"),
+    "menu.background.hover": QColor("#f5f5f5"),
     "menu.text": QColor("#1f1f1f"),
     "menu.text.disabled": QColor("#9e9e9e"),
     "menu.separator": QColor("#e5e5e5"),
@@ -95,6 +100,9 @@ FLUENT_LIGHT = {
     "list_item.text.rating": QColor("#7f7f7f"),
     "separator.color": QColor("#e5e5e5"),
     "shadow.color": QColor("#64000000"),
+    #: The chip behind a calendar day that carries data (`CalendarWidget.data_bg`): no neutral token carries a
+    #: mid-grey plate, so the calendar family owns this state (it used to borrow `button.toggle.background.checked`).
+    "calendar.background.data": QColor("#c0c0c0"),
     "dialog.background": QColor("#ffffff"),
     "dialog.text": QColor("#1f1f1f"),
     "dialog.border": QColor("#c0c0c0"),
@@ -102,6 +110,10 @@ FLUENT_LIGHT = {
     "dialog.button.background": QColor("#e1e1e1"),
     "dialog.button.hover": QColor("#d8d8d8"),
     "dialog.button.ok.background": QColor("#0078D4"),
+    #: Generic label ink and its muted step: `text/` is the label family, so its painters read these instead of
+    #: borrowing `dialog.text` for body copy and `list_item.text.rating` for a caption (same values they borrowed).
+    "label.text": QColor("#1f1f1f"),
+    "label.text.muted": QColor("#7f7f7f"),
     "label.image.background": QColor("#ffffff"),
     "help.separator": QColor("#e5e5e5"),
     "help.code.background": QColor("#0D000000"),
@@ -122,6 +134,8 @@ FLUENT_LIGHT = {
     "progress.fill": QColor("#0078D4"),
     "progress.success": QColor("#0F7B0F"),
     "progress.error": QColor("#C42B1C"),
+    #: The bar's own label ink (its percentage text), so a host restyling dialogs does not recolor a progress label.
+    "progress.text": QColor("#1f1f1f"),
     "slider.track.unfilled": QColor("#706f6f"),
     #: Filled portion (the accent), its hover step lighter, its disabled step a washed accent; disabled thumb plate.
     "slider.track.filled": QColor("#0078D4"),
@@ -217,8 +231,12 @@ FLUENT_DARK = {
     "input.selection.background": QColor("#4D0096FF"),
     "flyout.background": QColor("#383838"),
     "flyout.border": QColor("#4a4a4a"),
+    #: See FLUENT_LIGHT - the flyout body's own ink.
+    "flyout.text": QColor("#dfdfdf"),
     #: See FLUENT_LIGHT - the card uses the dialog plate, the separator the shared separator colour.
     "menu.background": QColor("#2b2b2b"),
+    #: See FLUENT_LIGHT - dark plates lighten one step on hover, the direction `list_item.*` takes.
+    "menu.background.hover": QColor("#424242"),
     "menu.text": QColor("#dfdfdf"),
     "menu.text.disabled": QColor("#7a7a7a"),
     "menu.separator": QColor("#4f4f4f"),
@@ -232,6 +250,8 @@ FLUENT_DARK = {
     "list_item.text.rating": QColor("#9a9a9a"),
     "separator.color": QColor("#4f4f4f"),
     "shadow.color": QColor("#50000000"),
+    #: See FLUENT_LIGHT - the data chip on the dark calendar plate.
+    "calendar.background.data": QColor("#555555"),
     "dialog.background": QColor("#2b2b2b"),
     "dialog.text": QColor("#dfdfdf"),
     "dialog.border": QColor("#555"),
@@ -239,6 +259,9 @@ FLUENT_DARK = {
     "dialog.button.background": QColor("#3c3c3c"),
     "dialog.button.hover": QColor("#4f4f4f"),
     "dialog.button.ok.background": QColor("#0096FF"),
+    #: See FLUENT_LIGHT - the label ink the text renderer borrowed from the dialog family.
+    "label.text": QColor("#dfdfdf"),
+    "label.text.muted": QColor("#9a9a9a"),
     "label.image.background": QColor("#2b2b2b"),
     "help.separator": QColor("#4f4f4f"),
     "help.code.background": QColor("#1AFFFFFF"),
@@ -258,6 +281,8 @@ FLUENT_DARK = {
     "progress.fill": QColor("#0096FF"),
     "progress.success": QColor("#6CCB5F"),
     "progress.error": QColor("#FF99A4"),
+    #: See FLUENT_LIGHT - the bar's label ink.
+    "progress.text": QColor("#dfdfdf"),
     "slider.track.unfilled": QColor("#9a9a9a"),
     #: See FLUENT_LIGHT - the disabled fill is the accent at ~45 % over the dark plate, the thumb plate a dim tray.
     "slider.track.filled": QColor("#0096FF"),

@@ -3,9 +3,10 @@
 Before the migration the row label (and the section title) read `dialog.text`
 — the menu strip had no family of its own — and a disabled row faked its
 disabled state by fading that borrowed colour through layer opacity. `menu.text`
-and `menu.text.disabled` now own both. The hover/current plate stays the shared
-`list_item.background.hover`: the `menu.*` family defines no hover key, the rows
-are list-shaped, and the token-ownership baseline records that borrow.
+and `menu.text.disabled` now own both, and the hover/current plate is
+`menu.background.hover` — the palette ships it at the exact value the rows used
+to borrow from `list_item.background.hover`, so a host that restyles menus no
+longer repaints list rows (or the other way round).
 """
 
 from __future__ import annotations
@@ -21,16 +22,21 @@ from sli_ui_toolkit.ui.widgets.composite.context_menu.models import ContextMenuA
 from sli_ui_toolkit.ui.widgets.composite.context_menu.rows import ContextMenuRow
 
 #: Unmistakable inks: `dialog.text` is the token the rows used to borrow, so a
-#: blue pixel would mean the migration regressed.
+#: blue pixel would mean the migration regressed. The two hover plates are
+#: sentinels too, so "the row paints *this* plate" is decidable by pixel.
 _INK_LIGHT = {
     "dialog.text": QColor("#0000ff"),
     "menu.text": QColor("#00ff00"),
     "menu.text.disabled": QColor("#ff0000"),
+    "menu.background.hover": QColor("#00ffff"),
+    "list_item.background.hover": QColor("#ffff00"),
 }
 _INK_DARK = {
     "dialog.text": QColor("#0000ff"),
     "menu.text": QColor("#ffff00"),
     "menu.text.disabled": QColor("#ff00ff"),
+    "menu.background.hover": QColor("#00ffff"),
+    "list_item.background.hover": QColor("#ffff00"),
 }
 
 
@@ -103,8 +109,8 @@ def test_row_label_reads_the_menu_family_ink(qapp, theme, ink, disabled_ink):
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])
-def test_row_hover_plate_stays_the_shared_list_plate(qapp, qtbot, theme):
-    """`menu.*` owns no hover key, so the row keeps the documented list plate."""
+def test_row_hover_plate_is_the_menu_familys_own(qapp, qtbot, theme):
+    """`menu.background.hover` owns the hover/current plate, not the list plate."""
     manager = _theme(qapp, theme)
 
     # A real hover: move the cursor onto a shown row. `Button.moveEvent` drops
@@ -126,6 +132,15 @@ def test_row_hover_plate_stays_the_shared_list_plate(qapp, qtbot, theme):
     qapp.processEvents()
     assert row._hovered, "the cursor move must light the row"
 
+    plate = manager.get_color("menu.background.hover")
+    borrowed = manager.get_color("list_item.background.hover")
+    assert plate.name() != borrowed.name(), "the sentinels must differ to be decidable"
+
     image = row.grab().toImage()
-    hover = QColor(manager.get_color("list_item.background.hover"))
-    assert image.pixelColor(row.width() - 4, row.height() // 2).name() == hover.name()
+    sample = image.pixelColor(row.width() - 4, row.height() // 2)
+    assert sample.name() == plate.name(), (
+        f"{theme}: the hover plate is the menu family's own key"
+    )
+    assert sample.name() != borrowed.name(), (
+        f"{theme}: the row no longer borrows the list family's hover plate"
+    )

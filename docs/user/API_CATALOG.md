@@ -323,8 +323,8 @@ setters for every widget below: **[INPUTS_API.md](INPUTS_API.md)**.
 | `SurfaceScrollArea` | Scroll area painting its surface from a theme token (`dialog.background` default) — token fill or transparent mode; `content_inset` reproduces a stock `QScrollArea` frame. |
 | `SurfacePanel` | Container that paints a token background (`background_token`, optional `radius` and `border_token`) — the toolkit answer to a page's `QWidget{background-color}` rule, with no stylesheet involved. |
 | `LoadingSpinner` | Animated conical-gradient loading spinner. |
-| `ProgressBar` | Painted progress bar: determinate fill or an indeterminate moving chunk, `normal`/`success`/`error` states from tokens, optional centred text; no stylesheet and no `QProgressBar` subclass. |
-| `CustomGroupWidget` / `CustomGroupBuilder` | Grouped widget container with builder pattern. |
+| `ProgressBar` | Painted progress bar: determinate fill or an indeterminate moving chunk, `normal`/`success`/`error` states from tokens (`progress.track.background`, `progress.fill`/`success`/`error`, `progress.text` for the centred label), optional centred text; no stylesheet and no `QProgressBar` subclass. |
+| `CustomGroupWidget` / `CustomGroupBuilder` | Grouped widget container with builder pattern. Its fieldset frame and legend are dialog-family chrome (`dialog.border` / `dialog.text` over `surface.background`) and the file declares `# token-family: dialog`. |
 | `WheelScrollPolicyMixin` | Mixin for widgets that must ignore wheel scrolling until they own focus (opt-in `WheelScrollPolicy` handling; see INPUTS_API.md). |
 
 `ProgressBar` replaces a hand-painted bar in one import swap:
@@ -612,7 +612,7 @@ and flyouts. A host overlay object should provide `host`, `attach(widget)`,
 `anchor_rect(anchor)`, and `clamp_rect(rect, margin=...)`. Button dropdown menus
 fall back to the top-level window when no overlay layer is resolved. Their
 surface uses `flyout.background` / `flyout.border`; rows use
-`list_item.background.hover` only for hover/current feedback.
+`menu.background.hover` only for hover/current feedback.
 
 ---
 
