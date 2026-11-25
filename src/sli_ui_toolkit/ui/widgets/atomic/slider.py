@@ -267,19 +267,20 @@ class Slider(WheelScrollPolicyMixin, TokenOverrideMixin, QSlider):
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
-            if self._is_point_in_thumb(e.pos()):
-                self._pressed = True
-                self._animate_inner_to_target()
-                e.accept()
-                self.update()
-                return
-            else:
+            # The value moves to the pointer FIRST, so a consumer that commits on `sliderPressed` (the preview's
+            # timeline scrubber) announces the position the user asked for, not the one the thumb was left at.
+            if not self._is_point_in_thumb(e.pos()):
                 self._set_value_from_pos(self._axis_coord(e.pos()))
-                self._pressed = True
-                self._animate_inner_to_target()
-                e.accept()
-                self.update()
-                return
+            self._pressed = True
+            self._animate_inner_to_target()
+            # This widget draws the groove and owns the pointer, so the base class's press handling never runs - and
+            # with it the whole drag contract. `setSliderDown(True)` is what emits `sliderPressed`; without it every
+            # consumer of the standard signals was silently dead (measured 2026-11-25: the preview timeline moved its
+            # thumb and never asked the host to seek).
+            self.setSliderDown(True)
+            e.accept()
+            self.update()
+            return
         super().mousePressEvent(e)
 
     def mouseMoveEvent(self, e):
@@ -294,6 +295,8 @@ class Slider(WheelScrollPolicyMixin, TokenOverrideMixin, QSlider):
         if e.button() == Qt.MouseButton.LeftButton and self._pressed:
             self._pressed = False
             self._animate_inner_to_target()
+            # The counterpart of the press: `setSliderDown(False)` emits `sliderReleased`.
+            self.setSliderDown(False)
             self.update()
             e.accept()
             return
