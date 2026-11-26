@@ -20,7 +20,10 @@ from sli_ui_toolkit.ui.widgets.buttons.layers import RippleLayer
 from sli_ui_toolkit.ui.widgets.buttons.layers._base import Layer
 from sli_ui_toolkit.ui.widgets.buttons.state import ButtonState
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
-from sli_ui_toolkit.ui.widgets.helpers import calculate_centered_overlay_geometry
+from sli_ui_toolkit.ui.widgets.helpers import (
+    calculate_centered_overlay_geometry,
+    field_row_offset,
+)
 from sli_ui_toolkit.ui.widgets.virtual_list import RowPool, visible_window
 
 if TYPE_CHECKING:
@@ -288,6 +291,33 @@ class _DropdownOverlay(BaseFlyout):
     def _item_height(self) -> int:
         return self._owner._item_height()
 
+    def _field_rect(self) -> QRect:
+        return self._owner.field_rect()
+
+    def _card_top_pad(self) -> int:
+        """Blank card surface above the first row, in px.
+
+        The card's top edge is flush with the DRAWN field's top (see
+        ``_reposition``), while the anchored row must stay on the field's own
+        text line — so the card carries the field's row offset as its top
+        padding instead of the field's rounded plate peeking above the popup.
+        Same formula the field's label uses, so the two cannot drift.
+        """
+        return field_row_offset(self._field_rect(), self._item_height())
+
+    def _content_size(self) -> QSize:
+        """Size of the painted card: the list plus the field's row offset.
+
+        The WIDTH is the drawn field's — a host whose plate is inset inside a
+        taller or wider widget gets a popup on the plate, not on the widget —
+        with ``minimumWidth`` still honoured as a floor.
+        """
+        field = self._field_rect()
+        return QSize(
+            max(field.width(), self._owner.minimumWidth()),
+            self._list_height() + self._card_top_pad(),
+        )
+
     def _visible_items(self) -> int:
         return self._owner._visible_items()
 
@@ -306,10 +336,20 @@ class _DropdownOverlay(BaseFlyout):
         return self._owner._max_scroll_offset() > 0
 
     def _list_rect(self) -> QRect:
+        """The rows' viewport, in container coordinates.
+
+        Offset by the card's top pad (``_card_top_pad``): the card is flush with
+        the field's top, the rows start on the field's text line.
+        """
         width = self._content_rect().width()
         if self._has_scrollbar():
             width -= overlay_scrollbar_max_inset()
-        return QRect(0, 0, max(0, width), self._list_height())
+        return QRect(
+            0,
+            self._card_top_pad(),
+            max(0, width),
+            self._list_height(),
+        )
 
     # -------- slot pool management (shared VirtualRowPool) --------
 
@@ -526,22 +566,24 @@ class _DropdownOverlay(BaseFlyout):
         if window is None:
             return
 
-        # Same selection-centered geometry as a normal click so the list stays
-        # aligned with the field. Find Action only changes which row gets the
+        # The popup is placed from the field's DRAWN rect (Button.field_rect),
+        # never from the widget rect: a plate inset inside its widget would
+        # otherwise be offset by that inset, sized to the widget instead of the
+        # field, and its rounded top edge would peek above the card (owner
+        # report 2026-11-26). Find Action only changes which row gets the
         # accent wash (``_focus_row``), not where the popup is parked.
-        # Deliberately not routed through BaseFlyout.show_aligned — no
-        # existing anchor-point mode centers content on a specific row (see
-        # plan §2.3 Option A); this stays a local override calling
-        # setGeometry directly.
+        # Deliberately not routed through BaseFlyout.show_aligned — no existing
+        # anchor-point mode is field-rect based (see plan §2.3 Option A); this
+        # stays a local override calling setGeometry directly.
         # The row the scroll targeted (a Find Action reveal may point at a row
         # that is not ``currentIndex``) — the popup must park on THAT row.
+        self._sync_card_radius()
         anchor_index = owner._focus_or_current_index()
         outer = calculate_centered_overlay_geometry(
             anchor_widget=owner,
+            field_rect=self._field_rect(),
             owner_window=window,
-            content_size=QSize(
-                max(owner.width(), owner.minimumWidth()), self._list_height()
-            ),
+            content_size=self._content_size(),
             shadow_radius=self.SHADOW_RADIUS,
             current_index=anchor_index,
             visible_index=max(
@@ -554,17 +596,42 @@ class _DropdownOverlay(BaseFlyout):
         self.setGeometry(outer)
         self._position_scrollbar()
 
+    def _sync_card_radius(self) -> None:
+        """Make the card's corners the FIELD's corners.
+
+        ``BaseFlyout.CONTENT_RADIUS`` is a card-family constant in design px,
+        while the field's radius is the combo's own token scaled by
+        ``UiScale`` — two different numbers for the same visible corner. The
+        card's top corners sit ON the field's top corners (see ``_reposition``),
+        so a mismatch exposes the field's plate in the wedge between the two
+        arcs, and the size of that wedge follows the scale factor. The card
+        therefore takes the field's SCALED radius; the clip effect (which
+        rounds the rows) and the shadow follow the same value.
+        """
+        radius = scaled_px(self._owner.field_corner_radius())
+        if radius == self.CONTENT_RADIUS:
+            return
+        self.CONTENT_RADIUS = radius
+        clip = getattr(self, "_container_clip", None)
+        if clip is not None:
+            clip.set_radius(radius)
+        self.update()
+
     def _position_scrollbar(self):
+        # The bar tracks the LIST area, not the whole card: the card's top pad
+        # (``_card_top_pad``) is blank surface and the thumb's travel must stay
+        # proportional to the rows.
         content = self._content_rect()
+        list_rect = self._list_rect()
         if not self._has_scrollbar():
             self.custom_v_scrollbar.setVisible(False)
             return
         x = content.right() - self._scrollbar_width + 1
         self.custom_v_scrollbar.setGeometry(
             x,
-            content.y(),
+            content.y() + list_rect.y(),
             self._scrollbar_width,
-            content.height(),
+            list_rect.height(),
         )
         self.custom_v_scrollbar.raise_()
 

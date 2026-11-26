@@ -159,6 +159,7 @@ from sli_ui_toolkit.ui.widgets.helpers import (
     calculate_centered_overlay_geometry,
     draw_bottom_underline,
     draw_rounded_shadow,
+    field_row_offset,
     resolve_token,
 )
 from sli_ui_toolkit.ui.widgets.helpers.icon_pixmap import normalized_icon_pixmap
@@ -386,6 +387,7 @@ __all__ = [
     "apply_editable_text_behavior",
     "calculate_centered_overlay_geometry",
     "draw_bottom_underline",
+    "field_row_offset",
     "normalized_icon_pixmap",
     "painter_dpr",
     "widget_dpr",

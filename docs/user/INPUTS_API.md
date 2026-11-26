@@ -145,6 +145,31 @@ reads `input.text` for its label; its plate still comes from the shared button
 variant layer (`variant="surface"` → `button.dialog.default.background`), which
 is the next migration for that widget.
 
+### The field's drawn rect owns the dropdown's geometry
+
+`ComboBox.field_rect()` is the one answer to "where is the plate a person sees
+and clicks" (`Button.field_rect()`, widget coordinates; the stock field fills
+the whole widget rect because the hairline border is stroked centred on the
+edge, inside it). `field_row_rect()` is the row-sized box inside it that holds
+the painted label, and the dropdown's placement reads only these:
+
+- the popup card is **flush with the drawn field's top** and exactly the drawn
+  field's **width** (plus the flyout shadow on both sides), never the widget's
+  size — a host whose plate is inset inside a taller or wider trigger gets the
+  popup on the plate (override `field_rect()` once);
+- the anchored row lands in `field_row_rect()`, so the row's text sits on the
+  field's own text line. The card carries that offset as top padding
+  (`helpers.field_row_offset`) instead of leaving a strip of the field's
+  rounded plate above the popup;
+- the card's corner radius is the field's own (`field_corner_radius()`,
+  scaled), so the two corner arcs nest at every `UiScale` factor;
+- the below/above mode (`calculate_anchored_dropdown_geometry`) measures its
+  gap from the drawn field's bottom edge.
+
+Nothing in that chain reads `anchor_widget.rect()`: an inset plate used to
+offset the popup by the inset and size it to the widget (owner report
+2026-11-26).
+
 The dropdown card and its rows are a list surface, not the field — they keep
 `list_item.background.hover` / `list_item.text.*`, and the card's plate stays a
 neutral `surface.*`. The `ComboBox` field's hover plate still follows

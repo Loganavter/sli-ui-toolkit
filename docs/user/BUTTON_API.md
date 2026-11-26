@@ -527,6 +527,24 @@ for ctx in button.iter_regions(paint_ctx):
     ...
 ```
 
+#### The painted field rect (`field_rect` / `field_corner_radius`)
+
+Two accessors describe the plate a person actually sees, so that anything
+placed *against* a control (a dropdown, a drop shadow, a host's own chrome)
+anchors to the paint and not to the widget box:
+
+```python
+field = button.field_rect()             # QRect, widget coordinates
+radius = button.field_corner_radius()   # int, DESIGN px (paint scales it)
+```
+
+The default is the whole widget rect — where `BackgroundLayer` / `BorderLayer`
+paint a single-region Button; the border is stroked centred on the edge, so the
+hairline lives *inside* the box and does not shrink it. A widget whose plate is
+inset inside a taller/wider widget overrides `field_rect()` once and every
+consumer follows (`ComboBox` is the in-tree example — its dropdown placement,
+its label and its border all read it).
+
 #### Updating one region at runtime
 
 Two problems come up once a button has more than one region: changing one

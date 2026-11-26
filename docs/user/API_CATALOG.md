@@ -488,7 +488,9 @@ Row widgets meant to be dropped into a host-owned list/flyout, imported from
 | Name | Description |
 |------|-------------|
 | `apply_editable_text_behavior(widget)` | Normalize QLineEdit focus/enter behavior. |
-| `calculate_centered_overlay_geometry(...)` | Compute centered overlay position relative to parent. |
+| `calculate_centered_overlay_geometry(...)` | Place a field-centric overlay card against the anchor's DRAWN field rect (`anchor_widget.field_rect()`): card flush with the field's top, the field's width, the field's radius. |
+| `field_row_offset(field_rect, row_height)` | The row box's offset inside a drawn field (`round((field_height - row_height) / 2)`) — the field's label and the dropdown's anchored row both use it, and the popup card carries it as top padding. |
+| `calculate_anchored_dropdown_geometry(...)` | Place a dropdown below/above the anchor's DRAWN field rect; the `gap` is measured from the painted edge. |
 | `draw_bottom_underline(painter, ...)` | Draw a themed bottom underline on a widget. Prefer widget-level underline APIs for `Button`, `CustomLineEdit`, and `ComboBox`. `token_prefix="input"` names the caller's own family (`{token_prefix}.underline`) instead of the button colour. |
 | `draw_rounded_shadow(painter, ...)` | Draw a rounded drop shadow behind a rect. |
 | `paint_focus_ring(widget, painter, theme_manager=None, *, corner_radius=None)` | Draw the one keyboard-focus ring for hand-painted atomic widgets (same accent/alpha/thickness as the button `FocusLayer`); returns whether it drew. Gate it on `widget._keyboard_focus and widget.hasFocus()`. |

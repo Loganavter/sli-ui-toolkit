@@ -38,6 +38,7 @@ from sli_ui_toolkit.ui.widgets.comboboxes._search import (
     normalize_for_search,
     visible_indices_normalized,
 )
+from sli_ui_toolkit.ui.widgets.helpers.overlay_geometry import field_row_offset
 
 
 class ComboBox(Button):
@@ -49,6 +50,12 @@ class ComboBox(Button):
 
     BASE_HEIGHT = 33
     RADIUS = 6
+    #: Stroke width of the field's plate border, DESIGN px (unscaled, like the
+    #: paint path's own pen). The plate box (``field_rect``) is NOT shrunk by
+    #: it: the stroke is centred on the box's edge, so the hairline lives
+    #: inside the field. One constant feeds the pen and the crispness inset so
+    #: the drawn edge and the placed popup cannot drift apart.
+    FIELD_BORDER_WIDTH = 1.0
     ITEM_VERTICAL_PADDING = 12
     TEXT_HORIZONTAL_PADDING = 12
 
@@ -203,7 +210,7 @@ class ComboBox(Button):
         apply_elided_tooltip(
             self,
             self._field_display_text(),
-            self.width() - 2 * scaled_px(self.TEXT_HORIZONTAL_PADDING),
+            self.field_row_rect().width() - 2 * scaled_px(self.TEXT_HORIZONTAL_PADDING),
         )
 
     @property
@@ -766,7 +773,36 @@ class ComboBox(Button):
         return QSize(max(scaled_px(80), self._content_width_hint()), scaled_px(self.BASE_HEIGHT))
 
     def _field_rect(self) -> QRect:
-        return QRect(0, 0, self.width(), scaled_px(self.BASE_HEIGHT))
+        """Deprecated alias of the public ``field_rect()`` (kept for hosts)."""
+        return self.field_rect()
+
+    def field_rect(self) -> QRect:
+        """The rect the field's plate is actually painted in (widget coords).
+
+        The combo's plate fills the whole widget rect: the border hairline is
+        stroked centred on the edge (``FIELD_BORDER_WIDTH``), so it sits inside
+        the field rather than shrinking it. Everything that talks about "the
+        field" — the painted label and chevron (``_ComboFieldContentLayer``),
+        the opening-click containment and the dropdown's placement — reads this
+        one rect (see ``Button.field_rect``).
+        """
+        return super().field_rect()
+
+    def field_row_rect(self) -> QRect:
+        """The row-sized box inside the drawn field that holds its label.
+
+        The dropdown parks its anchored row in exactly this box
+        (``helpers.overlay_geometry.field_row_offset``), so the painted value
+        and the row's own text share one line at every field height and scale.
+        """
+        field = self.field_rect()
+        row_h = self._item_height()
+        return QRect(
+            field.x(),
+            field.y() + field_row_offset(field, row_h),
+            field.width(),
+            row_h,
+        )
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -985,7 +1021,7 @@ class ComboBox(Button):
         """Item index of the visible row under a screen point, or -1."""
         if not self._expanded or self._overlay is None:
             return -1
-        if self._pointer_select_from_field and self.rect().contains(
+        if self._pointer_select_from_field and self.field_rect().contains(
             self.mapFromGlobal(global_pos)
         ):
             # The popup parks the anchored row exactly over the field, so a

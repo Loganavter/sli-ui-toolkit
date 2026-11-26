@@ -115,6 +115,29 @@
 
 ### Fixed
 
+- **The ComboBox dropdown is placed from the field's DRAWN rect, not the widget's.** Owner report (2026-11-26): the
+  popup ignored the trigger field's height and rounding, so it constantly missed on geometry. One hook now owns "where
+  the plate is painted" — `Button.field_rect()` (widget coordinates, overridable by a host whose plate is inset inside
+  a taller/wider trigger) and `Button.field_corner_radius()` (design px) — and every consumer reads it:
+  - `_ComboFieldBgLayer` fills the same rect with the same radius, so the painted plate and the placed popup cannot
+    drift; `ComboBox.FIELD_BORDER_WIDTH` is the one hairline constant feeding both the pen and the crispness inset (the
+    stroke is centred on the edge, so it lives inside the field and does not shrink it), and
+    `setCornerRadiusPx()` now actually reaches the plate (it used to paint the class `RADIUS` regardless).
+  - `calculate_centered_overlay_geometry` / `calculate_anchored_dropdown_geometry` take an explicit `field_rect` and
+    measure everything from it: the card is flush with the drawn field's top and exactly the drawn field's width (plus
+    the flyout shadow), and the anchored gap is measured from the drawn bottom edge. A plate inset inside its widget
+    no longer offsets the popup by that inset or sizes it to the widget (measured at scale 1.0/1.5).
+  - The card's top edge is no longer parked on the anchored row, which used to leave `(field_height - row_height) / 2`
+    px of the field's own rounded plate visible above the popup (2 px at scale 1.0, 4 px at 1.5 — the seam). The card
+    instead carries that offset as its top padding (`field_row_offset`), so the anchored row still lands on the field's
+    text line — the 2026-10-22 fix — while the two surfaces meet flush.
+  - The card takes the FIELD's scaled corner radius instead of `BaseFlyout.CONTENT_RADIUS` (a design-px constant), so
+    the card's top corners nest in the plate's; the clip effect and the shadow follow the same value. `UiScale`-driven
+    radius drift (6/8 at 1.0, 9/8 at 1.5 → 8/12 before) is gone.
+  Note for hosts: both placement helpers now REQUIRE `field_rect` (pass `anchor_widget.field_rect()`); the old
+  private `ComboBox._field_rect()` survives as an alias of the public `field_rect()`.
+  Tests: `tests/test_combo_field_geometry.py` (13 cases, scale 1.0 + 1.5).
+
 - **List rows, menu rows and menu-strip triggers paint with their own families' keys.** The queue list
   (`TextListWidget`) still painted `dialog.text`, `dialog.button.hover` and
   `button.dialog.default.background.pressed`; context-menu rows and section titles painted `dialog.text`; the menu

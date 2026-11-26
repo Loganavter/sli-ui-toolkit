@@ -142,7 +142,7 @@ including `sizeHint`s and fixed sizes — and re-flows live via
 | `SpinBox` | Fixed 32 px height (`field_height` overrides; the host's stock row is 29), width based on numeric range + gutter | `setFixedHeight(scaled_px(field_height))`; opt-in ▲/▼ gutter: one `STEP_BUTTON_WIDTH` (20 px) right-hand column, stacked, arrows 10 px |
 | `TimeLineEdit` | Fixed 32 px `HH:mm` input + two right-side 22 px step buttons | `CustomLineEdit.setFixedHeight(32)` |
 | `CustomLineEdit` | Fixed 32 px height | `setFixedHeight(32)` |
-| `ComboBox` | 33 px fixed height, 8 px corner radius, 24 px arrow area | `ComboBox.BASE_HEIGHT` |
+| `ComboBox` | 33 px fixed height, `ComboBox.RADIUS` corner radius (6 design px, scaled by `UiScale`; the dropdown card takes the same radius via `field_corner_radius()`), 24 px arrow area | `ComboBox.BASE_HEIGHT` / `ComboBox.RADIUS` |
 | `ScrollableComboBox` | 33 px fixed height | `setFixedHeight(33)` |
 | `Button` (icon) | 44×44 px default, 22×22 px icon | `Button` constructor `size=` / `icon_size=` |
 | `Button` (icon, dropdown menu trigger) | 36×36 px when used as a flyout anchor | `button.py:435` / `button.py:454` |

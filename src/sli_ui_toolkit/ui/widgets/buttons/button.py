@@ -27,7 +27,7 @@ import time
 from collections.abc import Sequence
 from typing import Any, ClassVar, TYPE_CHECKING, cast
 
-from PySide6.QtCore import QEvent, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, QRectF, Qt, QTimer, Signal
 import shiboken6 as sip
 
 logger = logging.getLogger(__name__)
@@ -227,6 +227,37 @@ class Button(QWidget, WheelScrollPolicyMixin, TokenOverrideMixin, _ButtonStyleAp
 
     def heightForWidth(self, width: int):
         return _ButtonStyleApi.heightForWidth(self, width)
+
+    # -------- public API: the PAINTED plate rect --------
+
+    def field_rect(self) -> QRect:
+        """The rect this widget's plate is actually painted in (widget coords).
+
+        One source of truth for "where does a person see this control": the
+        paint layers fill the plate on ``effective_rect`` (the widget rect for a
+        single-region Button) and flyout placement must anchor to the same box,
+        not to whatever rect the widget happens to have. A widget that draws its
+        plate inside the widget rect — a host chrome/border inset, or a
+        control whose visible field is a part of a taller trigger — overrides
+        this, and every consumer (the plate's own layers, a dropdown's
+        placement) follows without a second copy of the inset.
+
+        Default: the whole widget rect, which is where Button's own
+        ``BackgroundLayer``/``BorderLayer`` paint it (the border is stroked
+        centred on the edge, so the hairline lives INSIDE this box and does not
+        shrink it).
+        """
+        return QRect(self.rect())
+
+    def field_corner_radius(self) -> int:
+        """The drawn corner radius of the plate, in DESIGN px.
+
+        Design px on purpose: the paint boundary scales it
+        (``scaled_px``), exactly like ``make_draw_context`` does, and a
+        flyout/card that must nest on the plate's corners asks for the same
+        value instead of re-deriving it from a button/card constant.
+        """
+        return max(0, int(self._corner_radius_px))
 
     @staticmethod
     def _drop_singleton_slots(pairs) -> None:

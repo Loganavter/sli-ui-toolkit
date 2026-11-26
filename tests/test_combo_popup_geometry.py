@@ -11,8 +11,10 @@ are hardcoded by height, so they can desync."
 What is pinned here, all with a NON-DEFAULT visible count (3) and a SCALED
 font (``UiScale`` 2.0):
 
-- the popup card is exactly ``visible_items * item_height`` plus the flyout
-  shadow, and the container / viewport / row pitch agree with it;
+- the popup card is exactly ``visible_items * item_height`` plus the field's
+  row offset (the blank strip that keeps the anchored row on the field's text
+  line while the card's top edge stays flush with the drawn field) plus the
+  flyout shadow, and the container / viewport / row pitch agree with it;
 - the last visible row's rect (its hit area) lies inside the popup, and a click
   on it commits that row — a row half outside the card would still be painted
   but not reachable;
@@ -47,7 +49,10 @@ from PySide6.QtWidgets import QApplication, QWidget
 from sli_ui_toolkit.managers import UiScale, scaled_px
 from sli_ui_toolkit.ui.managers.ui_font import paint_font
 from sli_ui_toolkit.ui.widgets.composite.base_flyout import BaseFlyout
-from sli_ui_toolkit.ui.widgets.helpers import calculate_anchored_dropdown_geometry
+from sli_ui_toolkit.ui.widgets.helpers import (
+    calculate_anchored_dropdown_geometry,
+    field_row_offset,
+)
 from sli_ui_toolkit.widgets import ComboBox
 
 SCALE = 2.0
@@ -115,13 +120,16 @@ def test_popup_height_is_visible_rows_times_the_one_row_height(qtbot):
     assert combo.maxVisibleItems() == VISIBLE, "fixture must leave the default 12"
 
     list_h = VISIBLE * item_h
+    pad = field_row_offset(combo.field_rect(), item_h)
     assert overlay._visible_items() == VISIBLE
     assert overlay._list_height() == list_h
-    assert overlay.height() == list_h + 2 * overlay.SHADOW_RADIUS, (
-        "the popup card must be the list's content height plus the flyout shadow"
+    assert overlay._card_top_pad() == pad
+    assert overlay.height() == list_h + pad + 2 * overlay.SHADOW_RADIUS, (
+        "the popup card must be the list's content height, the field's row "
+        "offset and the flyout shadow"
     )
-    assert overlay.container.height() == list_h, (
-        "the painted card must be exactly the list's content height"
+    assert overlay.container.height() == list_h + pad, (
+        "the painted card must be the list's content height plus the field's row offset"
     )
     assert overlay._list_viewport.height() == list_h
 
@@ -226,18 +234,19 @@ def test_an_open_popup_follows_a_filter_that_changes_the_row_count(qtbot):
     overlay = combo._overlay
     item_h = combo._item_height()
 
+    pad = field_row_offset(combo.field_rect(), item_h)
     assert overlay._visible_items() == 6
-    assert overlay.height() == 6 * item_h + 2 * overlay.SHADOW_RADIUS
+    assert overlay.height() == 6 * item_h + pad + 2 * overlay.SHADOW_RADIUS
 
     combo._set_search_text("ap")  # apple, apricot, grape
     _settle(app)
     narrowed = len(combo._visible_indices())
     assert 0 < narrowed < 6, "the fixture query must narrow the rows"
     assert overlay._visible_items() == narrowed
-    assert overlay.height() == narrowed * item_h + 2 * overlay.SHADOW_RADIUS, (
+    assert overlay.height() == narrowed * item_h + pad + 2 * overlay.SHADOW_RADIUS, (
         "the popup must shrink with the filtered rows, not keep its open-time height"
     )
-    assert overlay.container.height() == narrowed * item_h
+    assert overlay.container.height() == narrowed * item_h + pad
     assert overlay._list_viewport.height() == narrowed * item_h
     last = combo.dropdown_row_widget(combo._visible_indices()[-1])
     if last is not None:
@@ -247,8 +256,9 @@ def test_an_open_popup_follows_a_filter_that_changes_the_row_count(qtbot):
 
     combo.clearSearch()
     _settle(app)
+    pad = field_row_offset(combo.field_rect(), item_h)
     assert overlay._visible_items() == 6
-    assert overlay.height() == 6 * item_h + 2 * overlay.SHADOW_RADIUS, (
+    assert overlay.height() == 6 * item_h + pad + 2 * overlay.SHADOW_RADIUS, (
         "clearing the filter must grow the popup back"
     )
 
@@ -261,13 +271,14 @@ def test_adding_items_while_open_grows_the_popup(qtbot):
     overlay = combo._overlay
     item_h = combo._item_height()
 
-    assert overlay.height() == 2 * item_h + 2 * overlay.SHADOW_RADIUS
+    pad = field_row_offset(combo.field_rect(), item_h)
+    assert overlay.height() == 2 * item_h + pad + 2 * overlay.SHADOW_RADIUS
     combo.addItem("two")
     combo.addItem("three")
     _settle(app)
 
     assert overlay._visible_items() == 4
-    assert overlay.height() == 4 * item_h + 2 * overlay.SHADOW_RADIUS, (
+    assert overlay.height() == 4 * item_h + pad + 2 * overlay.SHADOW_RADIUS, (
         "an item added while the list is open must reach the popup's own height"
     )
     visible_rows = [s._item_index for s in overlay._slots if s.isVisible()]
@@ -305,6 +316,7 @@ def test_the_flip_compares_the_space_below_with_the_full_popup_height(qtbot):
         _settle(app)
         rect = calculate_anchored_dropdown_geometry(
             anchor_widget=combo,
+            field_rect=combo.field_rect(),
             owner_window=host,
             content_size=content,
             shadow_radius=shadow,

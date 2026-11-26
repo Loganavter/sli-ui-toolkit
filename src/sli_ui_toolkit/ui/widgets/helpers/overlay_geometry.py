@@ -22,9 +22,28 @@ def centered_inner_offset(outer: float, inner: float) -> int:
     return round((outer - inner) / 2)
 
 
+def field_row_offset(field_rect: QRect, row_height: int) -> int:
+    """Distance from a field's DRAWN top to the top of its row box, in px.
+
+    One formula for two consumers, so they cannot drift:
+
+    - the field paints its label in the box ``field_rect`` inset by this
+      offset (``_ComboFieldContentLayer``);
+    - the dropdown card carries exactly this much blank surface above its
+      first row, which is what keeps the anchored row on the field's own text
+      line while the card's top edge stays flush with the field's drawn top.
+
+    Centered, not top-aligned: a row parked at the field's very top would ride
+    ``(field_height - row_height) / 2`` px above the painted value — the
+    "label jumps when the list opens" class of report (2026-10-22).
+    """
+    return centered_inner_offset(field_rect.height(), row_height)
+
+
 def calculate_centered_overlay_geometry(
     *,
     anchor_widget: QWidget,
+    field_rect: QRect,
     owner_window: QWidget,
     content_size: QSize,
     shadow_radius: int,
@@ -33,45 +52,39 @@ def calculate_centered_overlay_geometry(
     row_height: int,
     scrollable: bool,
 ) -> QRect:
-    """Place an overlay so ``visible_index``'s row sits exactly under the anchor.
+    """Place a field-centric overlay card against the field's DRAWN rect.
 
-    Both the fitted and the scrollable case align the ROW, never the list's
-    centre: with an even number of visible rows a centred list puts the
-    anchor's centre on a row boundary, leaving the selected row half a row
-    off (owner report 2026-10-22). ``scrollable`` is kept in the signature for
-    callers that pass their own scroll state; both branches share the
-    alignment formula.
+    ``field_rect`` is the box the anchor's plate is painted in — the widget's
+    own coordinates, from ``anchor_widget.field_rect()`` — and never
+    ``anchor_widget.rect()``: a control whose plate is inset inside its widget
+    (border/padding chrome) must have its popup follow the plate, or the card
+    is offset by that inset and sized to the widget instead of the field
+    (owner report 2026-11-26).
+
+    The card's top edge is flush with ``field_rect.top()``, shifted up by the
+    rows scrolled out above ``visible_index``. It is NOT placed on the
+    anchored row: a card parked on the row leaves ``field_row_offset`` px of
+    the field's plate (with its own rounded corners) peeking above the popup —
+    the seam this function exists to remove. The caller pads the card by
+    ``field_row_offset(field_rect, row_height)`` so the anchored row still
+    lands on the field's text line. ``current_index`` and ``scrollable`` are
+    accepted for callers that pass their own scroll state and are not read.
     """
     outer_width = content_size.width() + shadow_radius * 2
     outer_height = content_size.height() + shadow_radius * 2
 
-    combo_rect = anchor_widget.rect()
-    field_top_global = anchor_widget.mapToGlobal(combo_rect.topLeft()).y()
-    owner_top_left_global = anchor_widget.mapToGlobal(combo_rect.topLeft())
-    window_top_left_global = owner_window.mapToGlobal(QPoint(0, 0))
-    window_global_rect = QRect(window_top_left_global, owner_window.size())
-
-    if current_index < 0:
-        current_index = 0
     if visible_index < 0:
         visible_index = 0
 
-    # Anchor the selected ROW, never the list's centre — for both overflow and
-    # fitted lists. Centring the outer box on the field puts the field's centre
-    # on a row BOUNDARY whenever the visible window has an even number of rows
-    # (12 visible -> the field sits between rows 5 and 6), so the selected row
-    # reads as half a row off and the user has to nudge the list up by half a
-    # row (owner report 2026-10-22). Aligning the row top to the field's inner
-    # top is exact for every parity and every scale factor.
-    selected_item_offset_y = visible_index * row_height
-    ideal_y_global = (
-        field_top_global
-        + centered_inner_offset(combo_rect.height(), row_height)
-        - selected_item_offset_y
-        - shadow_radius
-    )
+    field_top_left_global = anchor_widget.mapToGlobal(field_rect.topLeft())
+    window_top_left_global = owner_window.mapToGlobal(QPoint(0, 0))
+    window_global_rect = QRect(window_top_left_global, owner_window.size())
 
-    ideal_x_global = int(owner_top_left_global.x() - shadow_radius)
+    # The card follows the field: its top is the field's top, pulled up only
+    # by the rows the list scrolled past (they render above it, still inside
+    # the card).
+    ideal_y_global = field_top_left_global.y() - visible_index * row_height - shadow_radius
+    ideal_x_global = int(field_top_left_global.x() - shadow_radius)
 
     final_x_global = max(
         window_global_rect.left(),
@@ -89,6 +102,7 @@ def calculate_centered_overlay_geometry(
 def calculate_anchored_dropdown_geometry(
     *,
     anchor_widget: QWidget,
+    field_rect: QRect,
     owner_window: QWidget,
     content_size: QSize,
     shadow_radius: int,
@@ -99,13 +113,16 @@ def calculate_anchored_dropdown_geometry(
     Used when Find Action reveals a non-current option: the selection-centered
     layout would park the committed row on the button and steal visual focus
     from the highlighted target row.
+
+    ``field_rect`` is the anchor's DRAWN plate rect in its own coordinates
+    (``anchor_widget.field_rect()``): the ``gap`` is measured from the painted
+    bottom edge, not from the edge of a possibly taller/inset widget.
     """
     outer_width = content_size.width() + shadow_radius * 2
     outer_height = content_size.height() + shadow_radius * 2
 
-    combo_rect = anchor_widget.rect()
-    field_bottom_left = anchor_widget.mapToGlobal(combo_rect.bottomLeft())
-    field_top_left = anchor_widget.mapToGlobal(combo_rect.topLeft())
+    field_bottom_left = anchor_widget.mapToGlobal(field_rect.bottomLeft())
+    field_top_left = anchor_widget.mapToGlobal(field_rect.topLeft())
     window_top_left_global = owner_window.mapToGlobal(QPoint(0, 0))
     window_global_rect = QRect(window_top_left_global, owner_window.size())
 

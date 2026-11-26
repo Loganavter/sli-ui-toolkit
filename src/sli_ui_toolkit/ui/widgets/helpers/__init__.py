@@ -16,6 +16,7 @@ from sli_ui_toolkit.ui.widgets.helpers.overlay_geometry import (
     calculate_anchored_dropdown_geometry,
     calculate_centered_overlay_geometry,
     centered_inner_offset,
+    field_row_offset,
 )
 from sli_ui_toolkit.ui.widgets.helpers.rounded_clip import RoundedClipEffect
 from sli_ui_toolkit.ui.widgets.helpers.shadow_painter import draw_rounded_shadow
@@ -49,6 +50,7 @@ __all__ = [
     "calculate_anchored_dropdown_geometry",
     "calculate_centered_overlay_geometry",
     "centered_inner_offset",
+    "field_row_offset",
     "draw_bottom_underline",
     "draw_marquee_text",
     "draw_rounded_shadow",
