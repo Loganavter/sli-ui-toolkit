@@ -185,10 +185,11 @@ should reach for a fork:
   `paintEvent` via `read_widget_style()`. The toolkit re-polishes the widget
   for you. See `sli_ui_toolkit.style`.
 - **Palette overrides.** Pass a custom dict to
-  `ThemeManager.register_palettes(...)` with the same keys as
-  `FLUENT_LIGHT` / `FLUENT_DARK`. Required tokens must be present; optional
-  ones fall back to the bundled defaults; app-specific tokens use a
-  host-namespaced prefix (see the *Token Tiers* section).
+  `ThemeManager.register_palettes(...)` with the keys you want to style; the
+  dict is layered over `FLUENT_LIGHT` / `FLUENT_DARK` (`register_palettes`
+  merges), so a key you omit keeps its shipped value instead of resolving to
+  `None`. A host may therefore pass only its deviations; app-specific tokens
+  use a host-namespaced prefix (see the *Token Tiers* section).
 - **Class-level geometry constants.** Slider `TRACK_HEIGHT`, Switch
   `TRACK_WIDTH`, ComboBox `BASE_HEIGHT`, etc. are class attributes — a
   short-lived subclass can override them without touching the painter.
