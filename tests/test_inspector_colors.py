@@ -28,8 +28,11 @@ from sli_ui_toolkit.ui.inspector.contract import WidgetInspection
 from sli_ui_toolkit.ui.inspector.view import InspectorWindow
 from sli_ui_toolkit.widgets import Button
 
-_LIGHT = {"Window": "#000000", "surface.background": "#222222", "Text": "#111111"}
-_DARK = {"Window": "#000000", "surface.background": "#333333", "Text": "#dddddd"}
+# The host palette is layered over FLUENT_* (register_palettes merges), so a
+# token the fixture exercises is named here instead of inheriting through the
+# unknown-token fallback.
+_LIGHT = {"Window": "#000000", "surface.background": "#222222", "dialog.background": "#222222", "Text": "#111111"}
+_DARK = {"Window": "#000000", "surface.background": "#333333", "dialog.background": "#333333", "Text": "#dddddd"}
 
 
 @pytest.fixture

@@ -292,11 +292,26 @@ class ThemeManager(QObject):
         return cls._instance
 
     def register_palettes(self, light_palette: Dict, dark_palette: Dict | None = None):
-        self._light_palette = copy.deepcopy(light_palette)
-        if dark_palette:
-            self._dark_palette = copy.deepcopy(dark_palette)
-        else:
-            self._dark_palette = copy.deepcopy(light_palette)
+        """Register the host palette, layered over the bundled default palettes.
+
+        A host passes the tokens it styles. Every key it omits keeps the value
+        from ``sli_ui_toolkit.palettes.FLUENT_LIGHT`` / ``FLUENT_DARK`` instead
+        of resolving to ``None`` at paint time (``resolve_token`` would then
+        paint its neutral ``#808080`` and log ``unknown theme token``). Host
+        keys always win, including runtime ``set_color`` writes on top of them;
+        a key present in neither dict still returns ``None`` from
+        ``try_get_color``, which is the signal the "this palette predates the
+        token" compatibility paths key on.
+
+        ``dark_palette=None`` keeps the documented "dark mirrors light"
+        shorthand: the host's light dict is layered over ``FLUENT_DARK``.
+        """
+        from sli_ui_toolkit.palettes import FLUENT_DARK, FLUENT_LIGHT
+
+        host_light = copy.deepcopy(light_palette) if light_palette else {}
+        host_dark = copy.deepcopy(dark_palette) if dark_palette else dict(host_light)
+        self._light_palette = {**copy.deepcopy(FLUENT_LIGHT), **host_light}
+        self._dark_palette = {**copy.deepcopy(FLUENT_DARK), **host_dark}
 
     def register_qss_path(self, qss_path: str):
         if os.path.exists(qss_path):

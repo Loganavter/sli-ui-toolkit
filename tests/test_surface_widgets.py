@@ -73,6 +73,9 @@ def test_text_scroll_viewport_shows_host_background_by_default(qapp, qtbot, them
     layout = QVBoxLayout(host)
     layout.setContentsMargins(0, 0, 0, 0)
     view = TextScrollArea("")
+    # The frame reads the shipped `separator.color` default now that the host
+    # palette is layered over FLUENT_*; this test observes the viewport alone.
+    view.set_frame_visible(False)
     layout.addWidget(view)
     host.show()
     qapp.processEvents()

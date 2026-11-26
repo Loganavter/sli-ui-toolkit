@@ -182,7 +182,7 @@ theme_manager.set_theme("light", app)  # requires QApplication to exist
 
 | Call | When | Effect |
 |---|---|---|
-| `register_palettes(light_palette, dark_palette=None)` | Startup, before `set_theme`. | Registers your color token dicts (`{"accent": QColor(...), "button.default.background": QColor(...), ...}`). Omitting `dark_palette` reuses `light_palette` for dark mode. |
+| `register_palettes(light_palette, dark_palette=None)` | Startup, before `set_theme`. | Registers your color token dicts (`{"accent": QColor(...), "button.default.background": QColor(...), ...}`), layered over `FLUENT_LIGHT` / `FLUENT_DARK`: a key you omit keeps its shipped value, so passing only your deviations is enough. Omitting `dark_palette` reuses `light_palette` for dark mode, layered over `FLUENT_DARK`. |
 | `register_qss_path(path)` | Startup, any time before/after `register_palettes`. | Loads a Qt stylesheet template applied on top of the palette; call again to add more paths (cumulative). |
 | `set_theme(name, app=None, *, await_ripples=True)` | Startup (to pick the initial theme) and any time later (to switch). | Applies `"light"`/`"dark"` process-wide and emits `theme_changed`. Deferred briefly if a button ripple is mid-animation so the switch doesn't freeze it (`await_ripples=True`, the default). |
 | `set_color(key, color)` | Runtime, for one-off overrides. | Patches a single token in the *currently active* palette and re-applies immediately. |
@@ -192,9 +192,9 @@ black (`get_color`) or `None` (`try_get_color`). Always call
 `register_palettes` before showing any themed widget.
 
 `sli_ui_toolkit.palettes` ships `FLUENT_LIGHT` / `FLUENT_DARK` as a ready-to-
-use starting point — copy and adjust the dict rather than starting from
-scratch; see [DESIGN_LANGUAGE.md](../dev/DESIGN_LANGUAGE.md) for what each
-token key means.
+use starting point. Since `register_palettes` layers your dict over them, you
+can pass only the tokens you restyle; see
+[DESIGN_LANGUAGE.md](../dev/DESIGN_LANGUAGE.md) for what each token key means.
 
 Qt's own native widgets (`QListWidget`, tooltips drawn by Qt itself, etc.)
 are **not** themed by `ThemeManager` — see `_native_qss` in

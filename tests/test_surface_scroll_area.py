@@ -24,8 +24,8 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from sli_ui_toolkit import ThemeManager
 from sli_ui_toolkit.widgets import SurfaceScrollArea
 
-_LIGHT = {"Window": "#101010", "surface.background": "#202020"}
-_DARK = {"Window": "#1e1e1e", "surface.background": "#2b2b2b"}
+_LIGHT = {"Window": "#101010", "surface.background": "#202020", "dialog.background": "#202020"}
+_DARK = {"Window": "#1e1e1e", "surface.background": "#2b2b2b", "dialog.background": "#2b2b2b"}
 
 
 class _SolidHost(QWidget):
