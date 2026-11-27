@@ -3,7 +3,8 @@
 The console renders its own text through the toolkit painter pipeline
 (``QPainter.drawText`` + ``QFontMetrics``) with word-wrapped lines,
 per-line color/bold/italic, a ``MinimalistScrollBar``, follow-the-tail
-auto-scroll, mouse selection and clipboard copy.
+auto-scroll, mouse selection, clipboard copy and a themed right-click menu
+(Copy / Select all / Clear) through ``ContextMenuMixin``.
 
 The widget owns its own surface (background/border read from
 ``ThemeManager``), so it needs no QSS. Hosts append :class:`ConsoleLine`
@@ -14,7 +15,7 @@ their level semantics on top.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import (
@@ -47,6 +48,20 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
     MinimalistScrollBar,
 )
+from sli_ui_toolkit.ui.widgets.helpers.context_menu import (
+    ContextMenuMixin,
+    TriggeredCallback,
+)
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
+        ContextMenuEntry,
+    )
+
+#: Context-menu action ids (stable for hosts that bind their own translator).
+CONSOLE_COPY_ACTION_ID = "console.copy"
+CONSOLE_SELECT_ALL_ACTION_ID = "console.select_all"
+CONSOLE_CLEAR_ACTION_ID = "console.clear"
 
 #: Design-px surface metrics (scaled through ``UiScale`` at read time).
 _RADIUS = 6
@@ -89,7 +104,52 @@ class VisualLine:
     end: int
 
 
-class ConsoleView(QWidget):
+def _build_console_menu(
+    view: "ConsoleView",
+) -> tuple[tuple[ContextMenuEntry, ...], TriggeredCallback]:
+    """Copy / Select all / Clear entries for the console's right-click menu.
+
+    Consumed by :class:`~sli_ui_toolkit.ui.widgets.helpers.context_menu.ContextMenuMixin`
+    (and through it the toolkit ``ContextMenu`` composite, never a raw
+    ``QMenu``), so the popup paints in the active theme and keeps the platform
+    placement the other toolkit menus use.
+    """
+    # Imported here, not at module scope: importing the submodule runs
+    # ``context_menu/__init__``, which pulls the flyout stack and cycles back
+    # through ``composite`` — the console must stay importable on its own.
+    from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
+        ContextMenuAction,
+    )
+
+    def on_triggered(action_id: str, _data: object) -> None:
+        if action_id == CONSOLE_COPY_ACTION_ID:
+            view.copy()
+        elif action_id == CONSOLE_SELECT_ALL_ACTION_ID:
+            view.select_all()
+        elif action_id == CONSOLE_CLEAR_ACTION_ID:
+            view.clear()
+
+    has_lines = bool(view.lines())
+    entries: tuple[ContextMenuEntry, ...] = (
+        ContextMenuAction(
+            CONSOLE_COPY_ACTION_ID,
+            "Copy",
+            enabled=bool(view.selected_text()),
+        ),
+        ContextMenuAction(
+            CONSOLE_SELECT_ALL_ACTION_ID,
+            "Select all",
+            enabled=has_lines,
+        ),
+        ContextMenuAction(
+            CONSOLE_CLEAR_ACTION_ID,
+            "Clear",
+        ),
+    )
+    return entries, on_triggered
+
+
+class ConsoleView(ContextMenuMixin, QWidget):
     """Painted, read-only console surface (no stock text widget)."""
 
     def __init__(self, parent: QWidget | None = None, *, max_lines: int | None = None) -> None:
@@ -511,6 +571,18 @@ class ConsoleView(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         self._dragging = False
         super().mouseReleaseEvent(event)
+
+    def build_context_menu(
+        self,
+    ) -> tuple[tuple[ContextMenuEntry, ...], TriggeredCallback]:
+        """Right-click menu: Copy (with a selection) / Select all / Clear.
+
+        The console had no menu at all (owner report 2026-11-28); it is the
+        first consumer of the shared :class:`ContextMenuMixin`, so a second
+        toolkit widget only has to return its entries instead of re-copying
+        the popup plumbing ``Text`` already had.
+        """
+        return _build_console_menu(self)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.matches(QKeySequence.StandardKey.Copy) or (
