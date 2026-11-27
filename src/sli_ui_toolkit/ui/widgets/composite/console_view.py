@@ -1,9 +1,11 @@
 """ConsoleView — painted, read-only multi-line console surface.
 
-The console renders its own text through the toolkit painter pipeline
-(``QPainter.drawText`` + ``QFontMetrics``) with word-wrapped lines,
-per-line color/bold/italic, a ``MinimalistScrollBar``, follow-the-tail
-auto-scroll, mouse selection and clipboard copy.
+The console's glyphs are shaped and drawn by the toolkit's text engine: one
+``QTextLayout`` per source line (``build_text_layout``, wrapped at the content
+width, the line's colour/bold/italic baked into its ``QTextCharFormat``
+spans), painted through the engine's ``paint_layout``. What the widget owns is
+the console: the line model, max-lines trimming, a ``MinimalistScrollBar``,
+follow-the-tail auto-scroll, the selection state and clipboard copy.
 
 The widget owns its own surface (background/border read from
 ``ThemeManager``), so it needs no QSS. Hosts append :class:`ConsoleLine`
@@ -13,6 +15,7 @@ their level semantics on top.
 
 from __future__ import annotations
 
+import bisect
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -22,7 +25,6 @@ from PySide6.QtGui import (
     QLinearGradient,
     QFont,
     QFontMetrics,
-    QFontMetricsF,
     QGuiApplication,
     QKeyEvent,
     QKeySequence,
@@ -31,7 +33,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPen,
     QResizeEvent,
-    QStaticText,
+    QTextLayout,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -48,6 +50,27 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
     MinimalistScrollBar,
 )
+from sli_ui_toolkit.ui.widgets.text.engine.layout.coords import (
+    fragment_layout_to_index,
+    line_for_y,
+)
+from sli_ui_toolkit.ui.widgets.text.engine.layout.hit_test import (
+    hit_test_text_offset,
+)
+from sli_ui_toolkit.ui.widgets.text.engine.layout.paint import paint_layout
+from sli_ui_toolkit.ui.widgets.text.engine.layout.text_layout import (
+    build_text_layout,
+)
+from sli_ui_toolkit.ui.widgets.text.engine.layout.types import (
+    LayoutResult,
+    TextFragment,
+)
+from sli_ui_toolkit.ui.widgets.text.engine.markdown import InlineKind
+from sli_ui_toolkit.ui.widgets.text.engine.text_index import (
+    CharStyle,
+    TextRole,
+    TextRoleKind,
+)
 
 #: Design-px surface metrics (scaled through ``UiScale`` at read time).
 _RADIUS = 6
@@ -55,10 +78,12 @@ _PADDING = 6
 _BOTTOM_TOLERANCE = 2
 #: Height of the clipped-edge ramp, design px - enough to read as a fade, short enough not to hide a text line.
 _EDGE_FADE_HEIGHT = 24
-#: Prepared-row cache bound (~11 full viewports). A log's rows are mostly
-#: unique, so this is a working-set cache, not a document cache: past the cap
-#: it is dropped whole rather than evicted per entry (see `_static_line`).
-_STATIC_LINE_CACHE_LIMIT = 512
+#: Alpha of the selection wash (the engine's document bodies use 80; the
+#: console shipped 90 and a log's low-contrast rows need it).
+_SELECTION_ALPHA = 90
+#: Bound on the prepared-line layouts. A trimmed log keeps the layouts of
+#: lines it no longer holds, so past this the cache is dropped whole.
+_ROW_CACHE_LIMIT = 4096
 
 
 @dataclass(frozen=True)
@@ -104,17 +129,24 @@ class ConsoleView(QWidget):
         self._row_height = 1
         self._pad = scaled_px(_PADDING)
         self._scroll_reserve = scaled_px(MINIMAL_SCROLLBAR_WIDTH)
-        self._visual: list[VisualLine] = []
         self._layout_dirty = True
-        self._wrap_cache: dict[str, list[tuple[int, int]]] = {}
         self._plain_text_cache: str | None = None
         self._wrap_width: int | None = None
-        # Paint caches: the bold/italic variants are two fixed faces (not
-        # per-line data) and a prepared QStaticText skips re-shaping a wrapped
-        # row on each repaint. The faces are re-derived when `_font` changes;
-        # the prepared rows also when the wrap width (their key) changes.
-        self._font_variants: dict[tuple[bool, bool], tuple[QFont, float]] = {}
-        self._static_lines: dict[tuple[str, bool, bool], QStaticText] = {}
+        # Every glyph is shaped and drawn by the text engine: one prepared
+        # QTextLayout per source line (wrapped at the content width), cached
+        # per (text, colour, emphasis) for the life of one wrap width. `_rows`
+        # is the engine's own geometry table - paint and hit-testing build
+        # `TextFragment`s from it on demand, no second painter exists here.
+        self._rows: list[tuple[float, float, int, int, QTextLayout]] = []
+        self._frag_tops: list[float] = []
+        self._line_offsets: list[int] = []
+        self._row_count = 0
+        #: key -> (layout, wrapped rows, layout ascent); the rows/ascent are
+        #: read on every layout pass, so they ride with the layout.
+        self._row_cache: dict[tuple[str, int, bool, bool], tuple[QTextLayout, int, float]] = {}
+        #: per-character style runs are identical for every line of the same
+        #: length/emphasis; a log has a few distinct lengths, not thousands.
+        self._span_cache: dict[tuple[int, bool, bool], tuple[tuple, tuple]] = {}
 
         self._readonly_requested = True
         self._v_scroll_policy = None
@@ -273,7 +305,7 @@ class ConsoleView(QWidget):
         """
         self._font = pin_font_size(QFont(font))
         self._font_external = True
-        self._clear_paint_caches()
+        self._reset_layout_cache()
         # The BASE class on purpose: `setFont` below routes through here, so calling the override would recurse.
         QWidget.setFont(self, font)
         self._mark_dirty()
@@ -417,17 +449,32 @@ class ConsoleView(QWidget):
     # -- geometry / introspection (used by the widget and by tests) ---------
 
     def visual_lines(self) -> list[VisualLine]:
-        """Wrapped visual rows, in paint order, each bound to its source line."""
+        """Wrapped visual rows, in paint order, each bound to its source line.
+
+        Derived from the engine layouts (the console no longer keeps its own
+        wrap table): every ``QTextLine`` is one painted row, and its character
+        range is the slice of the source line it shows.
+        """
         self._ensure_layout()
-        return list(self._visual)
+        rows: list[VisualLine] = []
+        for source_index, row in enumerate(self._rows):
+            layout = row[4]
+            text = layout.text()
+            for index in range(layout.lineCount()):
+                line = layout.lineAt(index)
+                start = max(0, int(line.textStart()))
+                end = min(len(text), start + int(line.textLength()))
+                rows.append(VisualLine(text[start:end], source_index, start, end))
+        return rows
 
     def line_index_at(self, y: int) -> int:
         """Source line index whose row contains pixel ``y`` (-1 when none)."""
         self._ensure_layout()
-        visual_index = self._visual_index_at(y)
-        if visual_index is None:
+        if not self._rows:
             return -1
-        return self._visual[visual_index].source_index
+        if y < self._pad:
+            return -1
+        return self._fragment_at_row(self._row_at(float(y)))
 
     # -- selection / clipboard ---------------------------------------------
 
@@ -538,15 +585,23 @@ class ConsoleView(QWidget):
 
         self._ensure_layout()
         painter.setClipRect(QRect(0, 0, self.width(), self.height()))
-        fm = QFontMetrics(self._font)
         offset = self._vbar.value()
-        first = max(0, offset // max(1, self._row_height))
-        y = self._pad + first * self._row_height - offset
-        for visual_index in range(first, len(self._visual)):
-            if y > self.height():
-                break
-            self._paint_visual_line(painter, visual_index, y, fm)
-            y += self._row_height
+        start, end = self._selection_globals()
+        if self._rows:
+            # The painter is moved to content coordinates: the engine paints a
+            # laid-out body at its own positions, and the console owns only
+            # which slice of it is on screen.
+            painter.save()
+            painter.translate(0.0, float(-offset))
+            paint_layout(
+                painter,
+                self._visible_body(offset, self.height()),
+                selection_start=start,
+                selection_end=end,
+                theme=self.theme_manager,
+                selection_color=self._selection_wash(),
+            )
+            painter.restore()
 
         self._paint_edge_fade(painter, rounded)
 
@@ -588,58 +643,79 @@ class ConsoleView(QWidget):
             )
         painter.restore()
 
-    def _paint_visual_line(
-        self, painter: QPainter, visual_index: int, y: int, fm: QFontMetrics
-    ) -> None:
-        visual = self._visual[visual_index]
-        self._paint_selection(painter, visual, y, fm)
-        line = self._lines[visual.source_index]
-        color = line.color
-        painter.setPen(QColor(color) if color is not None and color.isValid() else self._text_color)
-        font, ascent = self._line_style(line)
-        painter.setFont(font)
-        # Top-aligned, not baseline-aligned: `drawStaticText` takes the layout's
-        # top-left, so the fractional layout ascent is subtracted to land the
-        # baseline exactly where `drawText(x, y + fm.ascent())` puts it (an
-        # integer `fm.ascent()` alone is off by a device pixel at DPR 2).
-        painter.drawStaticText(
-            QPointF(float(self._pad), float(y) + fm.ascent() - ascent),
-            self._static_line(visual.text, line, font, painter),
+    def _selection_wash(self) -> QColor:
+        """The console's own selection wash (accent at its own alpha)."""
+        accent = QColor(self.theme_manager.get_color("accent"))
+        accent.setAlpha(_SELECTION_ALPHA)
+        return accent
+
+    def _selection_globals(self) -> tuple[int | None, int | None]:
+        """Selection in the engine's body-offset coordinates (None when empty)."""
+        bounds = self._selection_bounds()
+        if bounds is None or not self._line_offsets:
+            return None, None
+        (start_line, start_char), (end_line, end_char) = bounds
+        if start_line >= len(self._line_offsets) or end_line >= len(self._line_offsets):
+            return None, None
+        return (
+            self._line_offsets[start_line] + start_char,
+            self._line_offsets[end_line] + end_char,
         )
 
-    def _paint_selection(
-        self, painter: QPainter, visual: VisualLine, y: int, fm: QFontMetrics
-    ) -> None:
-        bounds = self._selection_bounds()
-        if bounds is None:
-            return
-        (start_line, start_char), (end_line, end_char) = bounds
-        source_index = visual.source_index
-        if source_index < start_line or source_index > end_line:
-            return
-        source = self._lines[source_index].text
-        start = start_char if source_index == start_line else 0
-        end = end_char if source_index == end_line else len(source)
-        start = max(start, visual.start)
-        end = min(end, visual.end)
-        if start >= end:
-            return
-        x0 = self._pad + fm.horizontalAdvance(visual.text[: start - visual.start])
-        x1 = self._pad + fm.horizontalAdvance(visual.text[: end - visual.start])
-        accent = QColor(self.theme_manager.get_color("accent"))
-        accent.setAlpha(90)
-        painter.fillRect(
-            QRect(int(x0), int(y), max(1, int(x1 - x0)), self._row_height), accent
+    def _row_fragment(self, index: int) -> TextFragment:
+        """The engine fragment for one laid-out source line (built on demand)."""
+        top, height, start, end, layout = self._rows[index]
+        return TextFragment(
+            rect=QRectF(float(self._pad), top, float(self._wrap_width or 1), height),
+            global_start=start,
+            global_end=end,
+            layout=layout,
+            links=(),
+        )
+
+    def _visible_body(self, offset: int, height: int) -> LayoutResult:
+        """The slice of the laid-out body the viewport shows.
+
+        The engine paints what it is given; a console keeps a log far larger
+        than its viewport, so the slice is cut here rather than by handing the
+        painter a clip and walking thousands of fragments per frame. Fragments
+        are materialised for the slice only - the row table itself is plain
+        numbers, so a layout pass allocates nothing per line.
+        """
+        if not self._rows:
+            return LayoutResult(
+                width=float(self._wrap_width or 1),
+                height=float(self._content_height()),
+                text_fragments=(),
+                pixmaps=(),
+                anchors={},
+            )
+        # The painter is translated by -offset, so widget y=0 is content y=offset.
+        top = float(offset)
+        bottom = top + float(height)
+        first = bisect.bisect_right(self._frag_tops, top) - 1
+        first = max(0, min(first, len(self._frag_tops) - 1))
+        last = bisect.bisect_left(self._frag_tops, bottom)
+        last = max(first + 1, min(last, len(self._rows)))
+        return LayoutResult(
+            width=float(self._wrap_width or 1),
+            height=float(self._content_height()),
+            text_fragments=tuple(
+                self._row_fragment(index) for index in range(first, last)
+            ),
+            pixmaps=(),
+            anchors={},
         )
 
     # -- layout -------------------------------------------------------------
 
     def _mark_dirty(self) -> None:
-        """Mark the layout stale - NEVER re-wrap here.
+        """Mark the layout stale - NEVER lay out here.
 
-        `_ensure_layout` re-wraps every line, so calling it from every append/set turned a log that grows during a render
-        into O(n^2): 10 ticks a second over a growing log froze the GUI thread (py-spy: setPlainText -> set_lines ->
-        _wrap_line). The layout is rebuilt where it is actually needed (paint, scroll range, hit-testing).
+        `_ensure_layout` rebuilds every line's engine layout, so calling it from every append/set turned a log that
+        grows during a render into O(n^2): 10 ticks a second over a growing log froze the GUI thread (py-spy:
+        setPlainText -> set_lines -> the wrap pass). The layout is rebuilt where it is actually needed (paint, scroll
+        range, hit-testing).
         """
         self._layout_dirty = True
         self.update()
@@ -650,64 +726,96 @@ class ConsoleView(QWidget):
         fm = QFontMetrics(self._font)
         self._row_height = max(1, fm.lineSpacing())
         width = self._content_width()
-        # Wrapping depends on (text, width) only, so a line already wrapped at this width is free on the next pass. A log
-        # that grows by a few lines per tick then costs only those lines, not the whole history.
-        if getattr(self, "_wrap_width", None) != width:
-            self._wrap_cache = {}
+        # A line's layout depends on (text, ink, emphasis, width): a log that
+        # grows by a few lines per tick then lays out only those lines.
+        if self._wrap_width != width:
+            self._row_cache = {}
+            self._span_cache = {}
             self._wrap_width = width
-            # Wrapped slices are the static-text keys; a new width retires them.
-            self._static_lines.clear()
-        cache = self._wrap_cache
-        self._visual = []
-        for source_index, line in enumerate(self._lines):
-            spans = cache.get(line.text)
-            if spans is None:
-                spans = self._wrap_line(line.text, fm, width)
-                cache[line.text] = spans
-            for start, end in spans:
-                self._visual.append(
-                    VisualLine(line.text[start:end], source_index, start, end)
-                )
+        rows: list[tuple[float, float, int, int, QTextLayout]] = []
+        tops: list[float] = []
+        offsets: list[int] = []
+        row_height = float(self._row_height)
+        baseline = float(fm.ascent())
+        y = float(self._pad)
+        offset = 0
+        rows_total = 0
+        for line in self._lines:
+            layout, line_rows, ascent = self._line_layout(line, width)
+            height = line_rows * row_height
+            # The engine draws a layout from its top-left, so the layout's own
+            # (fractional) ascent decides where the baseline lands. Shift the
+            # rect by the difference to the integer ascent the console has
+            # always painted at - without it a row sits half a device pixel
+            # higher at DPR 2, which changes the antialiasing.
+            rows.append((y + baseline - ascent, height, offset, offset + len(line.text), layout))
+            tops.append(y)
+            offsets.append(offset)
+            y += height
+            offset += len(line.text) + 1
+            rows_total += line_rows
+        self._rows = rows
+        self._frag_tops = tops
+        self._line_offsets = offsets
+        self._row_count = rows_total
         self._layout_dirty = False
         self._update_scroll_range()
+
+    def _line_layout(
+        self, line: ConsoleLine, width: int
+    ) -> tuple[QTextLayout, int, float]:
+        """The engine layout for one source line, wrapped at *width*.
+
+        Returns ``(layout, wrapped rows, first-line ascent)`` - the two scalars
+        are read on every layout pass and cost more than the lookup.
+        """
+        ink = line.color if line.color is not None and line.color.isValid() else self._text_color
+        key = (line.text, ink.rgba(), line.bold, line.italic)
+        cached = self._row_cache.get(key)
+        if cached is not None:
+            return cached
+        styles, roles = self._span_styles(len(line.text), line.bold, line.italic)
+        layout, _links = build_text_layout(
+            line.text,
+            styles,
+            roles,
+            base_font=self._font,
+            theme=self.theme_manager,
+            width=float(width),
+            color=ink,
+        )
+        rows = max(1, layout.lineCount())
+        ascent = 0.0
+        first = layout.lineAt(0) if rows else None
+        if first is not None and first.isValid():
+            ascent = float(first.ascent())
+        entry = (layout, rows, ascent)
+        # A trimmed log keeps the cache keys of lines it no longer holds; drop
+        # the whole thing at the cap rather than evicting per entry.
+        if len(self._row_cache) >= _ROW_CACHE_LIMIT:
+            self._row_cache.clear()
+        self._row_cache[key] = entry
+        return entry
+
+    def _span_styles(self, length: int, bold: bool, italic: bool) -> tuple[tuple, tuple]:
+        """Per-character style runs for a uniformly styled line (cached by shape)."""
+        key = (length, bold, italic)
+        entry = self._span_cache.get(key)
+        if entry is None:
+            kind = InlineKind.ITALIC if italic else (InlineKind.BOLD if bold else InlineKind.TEXT)
+            entry = (
+                tuple(CharStyle(kind, None, bold) for _ in range(length)),
+                tuple(TextRole(TextRoleKind.BODY) for _ in range(length)),
+            )
+            self._span_cache[key] = entry
+        return entry
 
     def _content_width(self) -> int:
         return max(1, self.width() - 2 * self._pad - self._scroll_reserve)
 
-    def _wrap_line(self, text: str, fm: QFontMetrics, width: int) -> list[tuple[int, int]]:
-        if not text:
-            return [(0, 0)]
-        if fm.horizontalAdvance(text) <= width:
-            return [(0, len(text))]
-        spans: list[tuple[int, int]] = []
-        length = len(text)
-        i = 0
-        while i < length:
-            measured = 0
-            last_space = -1
-            j = i
-            while j < length:
-                advance = fm.horizontalAdvance(text[j])
-                if measured + advance > width and j > i:
-                    break
-                measured += advance
-                if text[j] == " ":
-                    last_space = j
-                j += 1
-            if j >= length:
-                spans.append((i, length))
-                break
-            if last_space >= i:
-                spans.append((i, last_space + 1))
-                i = last_space + 1
-            else:
-                spans.append((i, j))
-                i = j
-        return spans or [(0, length)]
-
     def _content_height(self) -> int:
         """Painted content height in px - one owner for the scroll range and the scrollbar facade."""
-        return 2 * self._pad + len(self._visual) * self._row_height
+        return 2 * self._pad + self._row_count * self._row_height
 
     def _update_scroll_range(self) -> None:
         self._ensure_layout()
@@ -736,39 +844,71 @@ class ConsoleView(QWidget):
 
     # -- point <-> model ----------------------------------------------------
 
-    def _visual_index_at(self, y: int) -> int | None:
-        if not self._visual:
-            return None
+    def _row_at(self, y: float) -> int:
+        """Visual row under *y* (clamped to the body - a drag past the edge still selects)."""
+        self._ensure_layout()
+        rows = self._row_count
+        if rows <= 0:
+            return 0
         rel = y - self._pad + self._vbar.value()
-        if rel < 0:
-            return None
-        index = int(rel // max(1, self._row_height))
-        if index < 0 or index >= len(self._visual):
-            return None
-        return index
+        row = int(rel // max(1, self._row_height))
+        return max(0, min(row, rows - 1))
+
+    def _fragment_at_row(self, row: int) -> int:
+        """Index of the source line that owns visual *row*."""
+        if not self._frag_tops:
+            return 0
+        row = max(0, min(row, self._row_count - 1))
+        y = self._pad + row * self._row_height
+        index = bisect.bisect_right(self._frag_tops, float(y)) - 1
+        return max(0, min(index, len(self._frag_tops) - 1))
 
     def _point_at(self, x: float, y: float) -> tuple[int, int] | None:
-        if not self._visual:
+        """(source line, char) under a widget point, through the layout's own mapping."""
+        self._ensure_layout()
+        if not self._rows:
             return None
-        visual_index = self._visual_index_at(int(y))
-        if visual_index is None:
-            visual_index = 0 if y < self._pad else len(self._visual) - 1
-        visual = self._visual[visual_index]
-        offset = self._char_offset_at(visual, x)
-        return (visual.source_index, visual.start + offset)
+        # Fragment rects are content coordinates (the body starts at `_pad`),
+        # so a widget point maps into the body by adding the scroll offset - not
+        # by subtracting the pad (the paint path translates by -offset only).
+        content_y = y + self._vbar.value()
+        row = self._row_at(y)
+        index = self._fragment_at_row(row)
+        fragment = self._row_fragment(index)
+        offset = hit_test_text_offset(
+            LayoutResult(
+                width=fragment.rect.width(),
+                height=fragment.rect.height(),
+                text_fragments=(fragment,),
+                pixmaps=(),
+                anchors={},
+            ),
+            QPointF(float(x), float(content_y)),
+        )
+        if offset is None:
+            # Empty space (past the last glyph, below the body): land on the
+            # nearest row's cursor instead of dropping the gesture.
+            frag_index = index
+            frag = fragment
+            local_x = min(max(x, frag.rect.left()), frag.rect.right())
+            local_y = min(max(content_y, frag.rect.top()), frag.rect.bottom() - 0.5)
+            line = line_for_y(frag.layout, local_y - frag.rect.top())
+            if line is None or not line.isValid():
+                return (frag_index, 0)
+            cursor = line.xToCursor(local_x - frag.rect.left())
+            if isinstance(cursor, tuple):
+                cursor = cursor[1]
+            local = fragment_layout_to_index(frag, int(cursor))
+            return self._offset_to_point(local)
+        return self._offset_to_point(offset)
 
-    def _char_offset_at(self, visual: VisualLine, x: float) -> int:
-        fm = QFontMetrics(self._font)
-        rel = x - self._pad
-        if rel <= 0:
-            return 0
-        measured = 0
-        for index, char in enumerate(visual.text):
-            advance = fm.horizontalAdvance(char)
-            if rel < measured + advance / 2.0:
-                return index
-            measured += advance
-        return len(visual.text)
+    def _offset_to_point(self, offset: int) -> tuple[int, int]:
+        """Body-offset -> (source line, char)."""
+        if not self._line_offsets:
+            return (0, 0)
+        index = bisect.bisect_right(self._line_offsets, offset) - 1
+        index = max(0, min(index, len(self._line_offsets) - 1))
+        return (index, max(0, offset - self._line_offsets[index]))
 
     def _selection_bounds(self) -> tuple[tuple[int, int], tuple[int, int]] | None:
         if self._sel_anchor is None or self._sel_cursor is None:
@@ -792,55 +932,11 @@ class ConsoleView(QWidget):
             self._lines = self._lines[-self._max_lines :] if self._max_lines > 0 else []
             self._clear_selection()
 
-    def _line_font(self, line: ConsoleLine) -> QFont:
-        return self._line_style(line)[0]
-
-    def _line_style(self, line: ConsoleLine) -> tuple[QFont, float]:
-        """The paint face for a line plus its fractional layout ascent.
-
-        Bold/italic are three fixed variants of `_font`, not per-line data, so
-        they are derived once instead of allocating a `QFont` per bold row per
-        paint (warnings/errors/phase headers are exactly those rows, and they
-        are what streams in during a render).
-        """
-        key = (line.bold, line.italic)
-        style = self._font_variants.get(key)
-        if style is None:
-            if key == (False, False):
-                font = self._font
-            else:
-                font = QFont(self._font)
-                font.setBold(line.bold)
-                font.setItalic(line.italic)
-            style = (font, QFontMetricsF(font).ascent())
-            self._font_variants[key] = style
-        return style
-
-    def _static_line(
-        self, text: str, line: ConsoleLine, font: QFont, painter: QPainter
-    ) -> QStaticText:
-        """Prepared (shaped) row text, reused across repaints.
-
-        Selection, scroll and hover repaint the same rows; `drawText` re-shapes
-        the string every time, which measured ~35% of this widget's paint cost
-        at 462x701. Colour is the painter's pen, so it stays out of the key.
-        """
-        key = (text, line.bold, line.italic)
-        cached = self._static_lines.get(key)
-        if cached is not None:
-            return cached
-        static = QStaticText(text)
-        static.setTextFormat(Qt.TextFormat.PlainText)
-        static.prepare(painter.transform(), font)
-        if len(self._static_lines) >= _STATIC_LINE_CACHE_LIMIT:
-            self._static_lines.clear()
-        self._static_lines[key] = static
-        return static
-
-    def _clear_paint_caches(self) -> None:
-        """Drop the row caches - the face they were derived from changed."""
-        self._font_variants.clear()
-        self._static_lines.clear()
+    def _reset_layout_cache(self) -> None:
+        """Drop the engine layouts - their face, ink or width is about to change."""
+        self._row_cache = {}
+        self._span_cache = {}
+        self._mark_dirty()
 
     def _refresh_theme(self) -> None:
         try:
@@ -854,6 +950,10 @@ class ConsoleView(QWidget):
 
     def _on_theme_changed(self, *_args) -> None:
         self._refresh_theme()
+        # Every line's ink is a QTextCharFormat inside its engine layout: a new
+        # theme means new formats, not just a repaint.
+        self._reset_layout_cache()
+        self._update_scroll_range()
         self.update()
 
     def _on_metrics_changed(self, *_args) -> None:
@@ -865,7 +965,7 @@ class ConsoleView(QWidget):
         """
         if not self._font_external:
             self._font = apply_ui_font(self)
-        self._clear_paint_caches()
+        self._reset_layout_cache()
         self._pad = scaled_px(_PADDING)
         self._scroll_reserve = scaled_px(MINIMAL_SCROLLBAR_WIDTH)
         was_bottom = self.is_at_bottom()
