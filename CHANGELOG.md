@@ -20,8 +20,9 @@
   and `paint_layout(..., selection_color=None)` (a caller keeps its own selection wash; the document default is
   still accent at 80, the console keeps its 90). Measured offscreen at the Logs tab's 462x701, mixed plain/bold log
   lines over 200/500 source lines, `render()` median of 40 against the pre-re-home painter in the same process:
-  paint 0.85 → 0.83/0.80 ms; one full layout pass (`append` + `_ensure_layout`) at 2000/5000 lines 2.7/6.0 → 2.8/5.9
-  ms; 2000 lines appended in batches of 20 with a paint per tick 214 → 177 ms total. Pixels: content that does not
+  paint 0.83/0.84 → 0.80/0.86 ms (parity — the difference is inside run-to-run noise); one full layout pass
+  (`append` + `_ensure_layout`) at 2000/5000 lines 2.5/5.3 → 2.7/5.2 ms; 2000 lines appended in batches of 20 with a
+  paint per tick 194 → 163 ms total. Pixels: content that does not
   wrap at the console width renders byte-identically (same `QImage` SHA-256 at DPR 1 and 2, bold/italic/coloured
   rows included); a row that DOES wrap can break at a different word, because the break rule is `QTextLayout`'s now
   and not the old per-character advance loop (86 of 309 rows on the measured log; same total row count, glyphs,
