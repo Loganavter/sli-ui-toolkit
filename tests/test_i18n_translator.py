@@ -9,6 +9,8 @@ declarative fields. Against the pre-change base these fail with
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 from sli_ui_toolkit import (
@@ -357,6 +359,86 @@ def test_install_covers_descendant_of_later_child(qapp, qtbot):
     emit_language_changed("yy")
     qapp.processEvents()
     assert deep.text() == "yy:d2.key"
+
+
+# ---------------------------------------------------------------------------
+# Silent teardown: exactly one disconnect per binding
+# ---------------------------------------------------------------------------
+
+
+def _destroy(widget, qapp) -> None:
+    """Destroy *widget* for real (``deleteLater`` alone is only queued)."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    qapp.processEvents()
+
+
+def _disconnect_warnings(records) -> list[str]:
+    return [str(r.message) for r in records if "Failed to disconnect" in str(r.message)]
+
+
+def test_teardown_after_failed_retranslate_is_silent(qapp):
+    """A binding detached by a failed retranslate must not disconnect twice.
+
+    Red-before (measured on the base tree, PySide6 6.12): the failed
+    ``retranslate`` path dropped the subscription and the widget's
+    ``destroyed`` cleanup dropped it again, so PySide6 printed
+    ``RuntimeWarning: Failed to disconnect (function) from signal
+    "_language_changed(QString)"`` — the warning seen once on app start. No
+    ``except`` can swallow it: PySide6 reports it through ``warnings``.
+    """
+    from PySide6.QtWidgets import QWidget
+
+    class Boom(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def set_translator(self, tr_func, *, defer_when_hidden=False):
+            pass
+
+        def retranslate(self, lang):
+            # The initial apply (call 1) succeeds; the later language change
+            # fails, which is the self-detach path.
+            self.calls += 1
+            if self.calls > 1:
+                raise RuntimeError("widget rejected the language change")
+
+    widget = Boom()
+    bind_translator(widget, _lang_prefix)
+    emit_language_changed("ru")
+
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        _destroy(widget, qapp)
+
+    assert _disconnect_warnings(records) == []
+
+
+def test_bind_translator_on_destroyed_widget_is_silent(qapp):
+    """Binding a widget whose C++ side is gone raises and warns nothing.
+
+    Red-before: ``destroyed.connect(_cleanup)`` raised
+    ``RuntimeError: Signal source has been deleted`` from ``bind_translator``.
+    """
+    from PySide6.QtWidgets import QWidget
+
+    class Dead(QWidget):
+        def retranslate(self, lang):
+            pass
+
+    widget = Dead()
+    _destroy(widget, qapp)
+
+    with warnings.catch_warnings(record=True) as records:
+        warnings.simplefilter("always")
+        bind_translator(widget, _lang_prefix)
+        emit_language_changed("ru")
+        qapp.processEvents()
+
+    assert _disconnect_warnings(records) == []
 
 
 # ---------------------------------------------------------------------------

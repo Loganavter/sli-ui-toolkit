@@ -393,7 +393,21 @@ def _bind_widget(
         except Exception:
             return False
 
-    state: dict[str, str | None] = {"pending": None}
+    # ``connected`` is the single source of truth for the subscription's
+    # lifetime: PySide6 reports a disconnect of a NOT-connected callable as a
+    # ``RuntimeWarning`` ("Failed to disconnect ..."), which no ``except`` can
+    # catch, so every detach path must go through ``_detach`` and see the flag.
+    state: dict[str, Any] = {"pending": None, "connected": False}
+
+    def _detach() -> None:
+        """Drop the ``language_changed`` subscription at most once."""
+        if not state["connected"]:
+            return
+        state["connected"] = False
+        try:
+            events.language_changed.disconnect(_on_lang)
+        except (TypeError, RuntimeError):
+            pass
 
     def _apply(lang: str) -> None:
         try:
@@ -402,17 +416,11 @@ def _bind_widget(
             # Widget already deleted on the C++ side, or one of its children
             # returned NULL from a Qt factory (typical when a parent QObject
             # was deleteLater'd but Python still holds a stale reference).
-            try:
-                events.language_changed.disconnect(_on_lang)
-            except (TypeError, RuntimeError):
-                pass
+            _detach()
 
     def _on_lang(lang: str) -> None:
         if not _widget_alive():
-            try:
-                events.language_changed.disconnect(_on_lang)
-            except (TypeError, RuntimeError):
-                pass
+            _detach()
             return
         if defer_when_hidden:
             try:
@@ -432,10 +440,14 @@ def _bind_widget(
         state["pending"] = None
         _apply(pending)
 
-    callback(get_current_language())
-    events.language_changed.connect(_on_lang)
+    # A widget whose C++ side is already gone has nothing to retranslate, and
+    # ``destroyed.connect`` would raise "Signal source has been deleted".
+    if _widget_alive():
+        callback(get_current_language())
+        events.language_changed.connect(_on_lang)
+        state["connected"] = True
 
-    if defer_when_hidden:
+    if defer_when_hidden and _widget_alive():
         from PySide6.QtCore import QEvent, QObject
 
         class _ShowFlushFilter(QObject):
@@ -450,11 +462,13 @@ def _bind_widget(
     destroyed_signal = getattr(widget, "destroyed", None)
     if destroyed_signal is not None:
         def _cleanup(*_args) -> None:
-            try:
-                events.language_changed.disconnect(_on_lang)
-            except (TypeError, RuntimeError):
-                pass
-        destroyed_signal.connect(_cleanup)
+            _detach()
+        try:
+            destroyed_signal.connect(_cleanup)
+        except (RuntimeError, SystemError):
+            # C++ side died between the liveness check and this connect; the
+            # language subscription (if made) detaches via ``_on_lang``.
+            pass
 
 
 def translatable_text(
