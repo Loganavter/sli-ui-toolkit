@@ -13,12 +13,14 @@ their level semantics on top.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from typing import Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import (
     QColor,
+    QContextMenuEvent,
     QLinearGradient,
     QFont,
     QFontMetrics,
@@ -46,6 +48,19 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
     MinimalistScrollBar,
 )
+
+if TYPE_CHECKING:
+    from sli_ui_toolkit.ui.widgets.composite.context_menu.menu import ContextMenu
+    from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
+        ContextMenuEntry,
+    )
+
+logger = logging.getLogger(__name__)
+
+#: Context-menu action ids (stable for hosts that bind their own translator).
+CONSOLE_COPY_ACTION_ID = "console.copy"
+CONSOLE_SELECT_ALL_ACTION_ID = "console.select_all"
+CONSOLE_CLEAR_ACTION_ID = "console.clear"
 
 #: Design-px surface metrics (scaled through ``UiScale`` at read time).
 _RADIUS = 6
@@ -85,6 +100,50 @@ class VisualLine:
     end: int
 
 
+def _build_console_menu(
+    view: "ConsoleView",
+) -> tuple[tuple[ContextMenuEntry, ...], Callable[[str, object], None]]:
+    """Copy / Select all / Clear entries for the console's right-click menu.
+
+    Consumed by the toolkit ``ContextMenu`` composite (never a raw ``QMenu``)
+    so the popup paints in the active theme and keeps the platform placement
+    the other toolkit menus use.
+    """
+    # Imported here, not at module scope: importing the submodule runs
+    # ``context_menu/__init__``, which pulls the flyout stack and cycles back
+    # through ``composite`` — the console must stay importable on its own.
+    from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
+        ContextMenuAction,
+    )
+
+    def on_triggered(action_id: str, _data: object) -> None:
+        if action_id == CONSOLE_COPY_ACTION_ID:
+            view.copy()
+        elif action_id == CONSOLE_SELECT_ALL_ACTION_ID:
+            view.select_all()
+        elif action_id == CONSOLE_CLEAR_ACTION_ID:
+            view.clear()
+
+    has_lines = bool(view.lines())
+    entries: tuple[ContextMenuEntry, ...] = (
+        ContextMenuAction(
+            CONSOLE_COPY_ACTION_ID,
+            "Copy",
+            enabled=bool(view.selected_text()),
+        ),
+        ContextMenuAction(
+            CONSOLE_SELECT_ALL_ACTION_ID,
+            "Select all",
+            enabled=has_lines,
+        ),
+        ContextMenuAction(
+            CONSOLE_CLEAR_ACTION_ID,
+            "Clear",
+        ),
+    )
+    return entries, on_triggered
+
+
 class ConsoleView(QWidget):
     """Painted, read-only console surface (no stock text widget)."""
 
@@ -115,6 +174,9 @@ class ConsoleView(QWidget):
         self._sel_anchor: tuple[int, int] | None = None
         self._sel_cursor: tuple[int, int] | None = None
         self._dragging = False
+        # The live right-click menu (popup top-level), so a second right-click
+        # can dismiss the previous one instead of stacking popups.
+        self._context_menu: ContextMenu | None = None
 
         self._bg_color = QColor("#000000")
         self._border_color = QColor("#000000")
@@ -494,6 +556,40 @@ class ConsoleView(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         self._dragging = False
         super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
+        """Right-click opens the toolkit Copy / Select all / Clear menu.
+
+        The console had no menu at all (owner report 2026-11-28): ``Text``
+        already opens the themed composite, so the console follows the same
+        path instead of a raw ``QMenu``. Fail-open by contract — a stray
+        right-click must never crash the host.
+        """
+        try:
+            # Imported here for the same reason as in the entry builder: the
+            # flyout stack should not load with the console widget.
+            from sli_ui_toolkit.ui.widgets.composite.context_menu.menu import (
+                ContextMenu,
+            )
+
+            previous = self._context_menu
+            if previous is not None:
+                try:
+                    previous.hide()
+                except RuntimeError:
+                    pass
+            entries, on_triggered = _build_console_menu(self)
+            menu = ContextMenu(
+                self,
+                entries=entries,
+                on_triggered=on_triggered,
+                surface="popup",
+            )
+            self._context_menu = menu
+            menu.popup_at(event.globalPos())
+        except Exception:  # noqa: BLE001 - fail-open by contract
+            logger.debug("console context menu failed to open", exc_info=True)
+        event.accept()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.matches(QKeySequence.StandardKey.Copy) or (

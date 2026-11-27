@@ -8,11 +8,23 @@ Ctrl+C clipboard copy.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFontMetrics, QGuiApplication
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QFontMetrics,
+    QGuiApplication,
+)
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
-from sli_ui_toolkit.ui.widgets.composite.console_view import ConsoleLine, ConsoleView
+from sli_ui_toolkit.ui.widgets.composite.console_view import (
+    CONSOLE_CLEAR_ACTION_ID,
+    CONSOLE_COPY_ACTION_ID,
+    CONSOLE_SELECT_ALL_ACTION_ID,
+    ConsoleLine,
+    ConsoleView,
+)
 
 
 def _make_view(qtbot, width: int = 420, height: int = 200, **kwargs) -> ConsoleView:
@@ -21,6 +33,37 @@ def _make_view(qtbot, width: int = 420, height: int = 200, **kwargs) -> ConsoleV
     view.resize(width, height)
     view._ensure_layout()
     return view
+
+
+def _context_menu_event() -> QContextMenuEvent:
+    return QContextMenuEvent(
+        QContextMenuEvent.Reason.Mouse,
+        QPoint(5, 5),
+        QPoint(50, 50),
+    )
+
+
+def _open_context_menu(qtbot, view: ConsoleView):
+    """Deliver a real right-click; return the popup the console opened.
+
+    ``ContextMenu.popup_at`` is non-blocking (only ``exec_at`` runs a nested
+    loop), so the test drives the same handler a live right-click does.
+    """
+    view.resize(420, 200)
+    view.show()
+    event = _context_menu_event()
+    QApplication.sendEvent(view, event)
+    assert event.isAccepted()
+    menu = view._context_menu
+    assert menu is not None, "right-click did not build a context menu"
+    return menu
+
+
+def _spec(menu, action_id: str):
+    for row in menu._rows:
+        if row._spec.action_id == action_id:
+            return row._spec
+    raise AssertionError(f"no row for action {action_id!r}")
 
 
 def test_visual_lines_map_to_own_source(qtbot):
@@ -136,3 +179,88 @@ def test_set_lines_preserves_scroll_when_not_at_bottom(qtbot):
     view.set_lines([ConsoleLine(f"new-{i}") for i in range(60)])
     assert [line.text for line in view.lines()][0] == "new-0"
     assert view.scroll_value() == 0
+
+
+# -- right-click menu -------------------------------------------------------
+
+
+def test_right_click_opens_themed_menu_with_three_items(qtbot):
+    view = _make_view(qtbot)
+    view.append("hello")
+    menu = _open_context_menu(qtbot, view)
+    try:
+        assert menu.isVisible()
+        assert menu.is_popup_surface()
+        assert [row._spec.text for row in menu._rows] == [
+            "Copy",
+            "Select all",
+            "Clear",
+        ]
+        assert [row._spec.action_id for row in menu._rows] == [
+            CONSOLE_COPY_ACTION_ID,
+            CONSOLE_SELECT_ALL_ACTION_ID,
+            CONSOLE_CLEAR_ACTION_ID,
+        ]
+    finally:
+        menu.hide()
+
+
+def test_menu_copy_is_disabled_without_a_selection(qtbot):
+    view = _make_view(qtbot)
+    view.append("hello")
+    menu = _open_context_menu(qtbot, view)
+    try:
+        assert _spec(menu, CONSOLE_COPY_ACTION_ID).enabled is False
+    finally:
+        menu.hide()
+
+    view.select_all()
+    menu = _open_context_menu(qtbot, view)
+    try:
+        assert _spec(menu, CONSOLE_COPY_ACTION_ID).enabled is True
+    finally:
+        menu.hide()
+
+
+def test_menu_copy_action_writes_the_selection_to_the_clipboard(qtbot):
+    view = _make_view(qtbot)
+    view.append("hello")
+    view.append("world")
+    view.select_all()
+    menu = _open_context_menu(qtbot, view)
+    row = menu.row_for_action(CONSOLE_COPY_ACTION_ID)
+    assert row is not None
+    QGuiApplication.clipboard().setText("<stale clipboard>")
+
+    menu._on_row_clicked(row, row._spec)
+
+    assert QGuiApplication.clipboard().text() == "hello\nworld"
+    # Copy never drops the console's selection (unlike the label menu).
+    assert view.selected_text() == "hello\nworld"
+
+
+def test_menu_select_all_action_selects_every_line(qtbot):
+    view = _make_view(qtbot)
+    view.append("a")
+    view.append("b")
+    menu = _open_context_menu(qtbot, view)
+    row = menu.row_for_action(CONSOLE_SELECT_ALL_ACTION_ID)
+    assert row is not None
+
+    menu._on_row_clicked(row, row._spec)
+
+    assert view.selected_text() == "a\nb"
+
+
+def test_menu_clear_action_empties_the_lines(qtbot):
+    view = _make_view(qtbot)
+    view.append("a")
+    view.append("b")
+    menu = _open_context_menu(qtbot, view)
+    row = menu.row_for_action(CONSOLE_CLEAR_ACTION_ID)
+    assert row is not None
+
+    menu._on_row_clicked(row, row._spec)
+
+    assert view.lines() == ()
+    assert view.text() == ""
