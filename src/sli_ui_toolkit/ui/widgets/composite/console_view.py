@@ -30,6 +30,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPen,
     QResizeEvent,
+    QShowEvent,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -53,6 +54,9 @@ _PADDING = 6
 _BOTTOM_TOLERANCE = 2
 #: Height of the clipped-edge ramp, design px - enough to read as a fade, short enough not to hide a text line.
 _EDGE_FADE_HEIGHT = 24
+#: Characters a long unspaced token may break AFTER when no space fits earlier on the row. Engine/model paths and URLs
+#: arrive as one token, and a hard cut every ``width`` px chopped them mid-word (``..._opt-:`` / ``tiling-...``).
+_SOFT_BREAKS = frozenset("-_/\\.,:;")
 
 
 @dataclass(frozen=True)
@@ -459,6 +463,19 @@ class ConsoleView(QWidget):
         if was_bottom:
             self.scroll_to_bottom()
 
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        """Re-validate the layout and the scroll range whenever the console becomes visible.
+
+        A pane that lived on a hidden page laid itself out against the width it had while hidden, and a bar shown while
+        the ancestor chain is unmapped is never positioned (``_position_scrollbar`` skips it) — the reported first show
+        of the Logs tab: a range for a viewport that was gone, the bar at its default rect over the first rows, all of
+        it cured only by the next appended line. Qt usually hands a hidden widget its resize event at show time, but not
+        every path into a shown page does, so the show itself is the guard.
+        """
+        super().showEvent(event)
+        self._mark_dirty()
+        self._update_scroll_range()
+
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         bar = self._vbar
         if bar.minimum() == bar.maximum():
@@ -625,14 +642,18 @@ class ConsoleView(QWidget):
         self.update()
 
     def _ensure_layout(self) -> None:
-        if not self._layout_dirty:
+        # A width that moved without an event reaching us is dirty too. A pane laid out while hidden (at a construction
+        # width or a page width it no longer has) otherwise keeps that wrap until something else marks the layout
+        # stale, which is what made a first show carry a range for a viewport that was gone and a tiny thumb — the
+        # appended line that finally marked it dirty "fixed everything at once" (reported 2026-11-28).
+        width = self._content_width()
+        if not self._layout_dirty and width == self._wrap_width:
             return
         fm = QFontMetrics(self._font)
         self._row_height = max(1, fm.lineSpacing())
-        width = self._content_width()
         # Wrapping depends on (text, width) only, so a line already wrapped at this width is free on the next pass. A log
         # that grows by a few lines per tick then costs only those lines, not the whole history.
-        if getattr(self, "_wrap_width", None) != width:
+        if self._wrap_width != width:
             self._wrap_cache = {}
             self._wrap_width = width
         cache = self._wrap_cache
@@ -653,6 +674,13 @@ class ConsoleView(QWidget):
         return max(1, self.width() - 2 * self._pad - self._scroll_reserve)
 
     def _wrap_line(self, text: str, fm: QFontMetrics, width: int) -> list[tuple[int, int]]:
+        """Split one source line into rows: last SPACE that fits, else the last soft point, else the hard cut.
+
+        Spans are contiguous, non-overlapping, non-empty and cover the whole string; a line that fits is one span. The
+        space a row breaks at stays on that row (it is part of the span), and only when no space fits does a soft
+        breakpoint (``_SOFT_BREAKS``) get the turn — a path or an engine name reads far better split after ``-`` than
+        chopped at an arbitrary pixel.
+        """
         if not text:
             return [(0, 0)]
         if fm.horizontalAdvance(text) <= width:
@@ -663,6 +691,7 @@ class ConsoleView(QWidget):
         while i < length:
             measured = 0
             last_space = -1
+            last_soft = -1
             j = i
             while j < length:
                 advance = fm.horizontalAdvance(text[j])
@@ -671,16 +700,20 @@ class ConsoleView(QWidget):
                 measured += advance
                 if text[j] == " ":
                     last_space = j
+                elif text[j] in _SOFT_BREAKS:
+                    last_soft = j
                 j += 1
             if j >= length:
                 spans.append((i, length))
                 break
             if last_space >= i:
-                spans.append((i, last_space + 1))
-                i = last_space + 1
+                end = last_space + 1
+            elif last_soft >= i:
+                end = last_soft + 1
             else:
-                spans.append((i, j))
-                i = j
+                end = j
+            spans.append((i, end))
+            i = end
         return spans or [(0, length)]
 
     def _content_height(self) -> int:
@@ -703,7 +736,10 @@ class ConsoleView(QWidget):
         self._position_scrollbar()
 
     def _position_scrollbar(self) -> None:
-        if not self._vbar.isVisible():
+        # `isHidden`, not `isVisible`: a page that is BEING shown (the tab switch, the first show of a hidden pane) has
+        # already asked for the bar while the ancestor chain is still unmapped, and `isVisible` then skipped the geometry
+        # and never retried - the bar was drawn at its default rect over the first rows until the next append.
+        if self._vbar.isHidden():
             return
         self._vbar.setGeometry(
             self.width() - self._scroll_reserve,

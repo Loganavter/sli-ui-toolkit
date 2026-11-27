@@ -115,6 +115,31 @@
 
 ### Fixed
 
+- **A log pane that was laid out while hidden no longer keeps that layout until the next line arrives.** Owner report
+  (2026-11-28, the Logs tab): on the first show the restored console came up with a wrap and a scroll range built for a
+  viewport it did not have — the scrollbar thumb implied far more text than existed, the wrapped rows were chopped
+  mid-token, and the bar itself sat at its default rect over the first rows — and ONE appended line fixed all of it at
+  once. Both holes were state that only an append re-validated:
+  - `_ensure_layout` returns early unless the layout is dirty, and it was the only reader of the width: a console that
+    laid itself out while hidden (at its construction width, or a page width it no longer has) kept that wrap. The guard
+    is now the width comparison itself — a changed `_content_width()` re-wraps, a same-width pass still costs nothing
+    (measured on the base tree: a console resized 100 → 360 px while hidden reported 248 visual rows and
+    `maximum()=4198` against the 56 rows / `764` the real width asks for; after the fix the same read is 56 / `764`).
+  - A bar asked for while the ancestor chain is unmapped was never positioned (`_position_scrollbar` bailed on
+    `isVisible()`, which is false until the page is mapped, and nothing retried), and a show re-validated nothing. The
+    check is now `isHidden()` (an explicitly hidden bar is still left alone), and `showEvent` marks the layout dirty and
+    re-runs `_update_scroll_range()`. Measured on the base tree for a console on a non-current tab: after the switch the
+    bar's rect was `(0, 0, 14, 54)` — the construction default — instead of `(306, 6, 10, 167)`; after the fix the show
+    itself places it.
+  - Wrap break points are natural now: a break is allowed after any of `- _ / \ . : , ;` when no space fits earlier on
+    the row (last space, else last soft point, else the hard cut), so a TensorRT engine name splits at `-`/`_`/`.`
+    instead of `..._opt-:` / `tiling-...` / `...dev16.e` / `gine.`. Spans stay contiguous, non-overlapping, non-empty
+    and cover the whole string; a line that fits stays one span; the wrap cache key is still `(text, width)`.
+  Tests: new `tests/test_console_stale_layout.py` (2 — the tab-switch shape and a plain show of a hidden console, each
+  asserted against a fresh view built at the real size) and new `tests/test_console_wrap_breaks.py` (5 — engine-name
+  soft breaks, space-over-soft preference, hard cut, a plain sentence, and a coverage property over paths, URLs, long
+  numbers and Cyrillic).
+
 - **The ComboBox dropdown is placed from the field's DRAWN rect, not the widget's.** Owner report (2026-11-26): the
   popup ignored the trigger field's height and rounding, so it constantly missed on geometry. One hook now owns "where
   the plate is painted" — `Button.field_rect()` (widget coordinates, overridable by a host whose plate is inset inside
