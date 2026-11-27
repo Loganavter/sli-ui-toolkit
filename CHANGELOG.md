@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added
+
+- **`ConsoleView` answers a right-click, and toolkit widgets now have one shared place to get a menu.**
+  `ConsoleView` shows the themed `ContextMenu` composite (Copy — enabled only with a selection, Select all, Clear;
+  action ids `console.copy` / `console.select_all` / `console.clear`) at the event's `globalPos()`, calling the
+  existing selection/`copy()`/`clear()` API. The audit that preceded it found the plumbing copied per widget: `Label`
+  and the plain `Text` path each override `contextMenuEvent` and open `label_context_menu` (a label-shaped builder,
+  duck-typed by `Text`), `Button` / `ComboBox` / `CustomLineEdit` / list surfaces have no menu at all, and the
+  document canvas / calendar / tab strip only emit a request signal for the host to wire. The new
+  `ContextMenuMixin` (`sli_ui_toolkit.widgets`) owns the event, the popup surface, the fail-open guard and
+  "second right-click dismisses the first"; a widget opts in with one `build_context_menu()` returning
+  `(entries, on_triggered)`, and an empty tuple falls through to Qt's default. `ConsoleView` is the first consumer;
+  every existing widget keeps its current path and public surface. Tests: `tests/test_console_view.py` (the menu on a
+  real `QContextMenuEvent`, the three labels, Copy disabled/enabled, clipboard, Clear, plus a non-console mixin
+  consumer and the empty-entries fall-through).
+
 ### Changed
 
 - **The remaining painters read their own family's tokens, not a neighbour's.** P3b closes the borrows the gate

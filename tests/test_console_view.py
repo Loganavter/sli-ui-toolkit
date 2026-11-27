@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QGuiApplication,
 )
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from sli_ui_toolkit.ui.widgets.composite.console_view import (
     CONSOLE_CLEAR_ACTION_ID,
@@ -25,6 +25,10 @@ from sli_ui_toolkit.ui.widgets.composite.console_view import (
     ConsoleLine,
     ConsoleView,
 )
+from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
+    ContextMenuAction,
+)
+from sli_ui_toolkit.ui.widgets.helpers.context_menu import ContextMenuMixin
 
 
 def _make_view(qtbot, width: int = 420, height: int = 200, **kwargs) -> ConsoleView:
@@ -43,8 +47,8 @@ def _context_menu_event() -> QContextMenuEvent:
     )
 
 
-def _open_context_menu(qtbot, view: ConsoleView):
-    """Deliver a real right-click; return the popup the console opened.
+def _open_context_menu(qtbot, view: QWidget):
+    """Deliver a real right-click; return the popup the widget opened.
 
     ``ContextMenu.popup_at`` is non-blocking (only ``exec_at`` runs a nested
     loop), so the test drives the same handler a live right-click does.
@@ -54,7 +58,7 @@ def _open_context_menu(qtbot, view: ConsoleView):
     event = _context_menu_event()
     QApplication.sendEvent(view, event)
     assert event.isAccepted()
-    menu = view._context_menu
+    menu = view._owned_context_menu
     assert menu is not None, "right-click did not build a context menu"
     return menu
 
@@ -264,3 +268,55 @@ def test_menu_clear_action_empties_the_lines(qtbot):
 
     assert view.lines() == ()
     assert view.text() == ""
+
+
+# -- shared opt-in plumbing (ConsoleView is the first consumer) -------------
+
+
+class _DemoMenuWidget(ContextMenuMixin, QWidget):
+    """Minimal non-console consumer: proves the mixin is genuinely shared."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.triggered: list[str] = []
+        self.entries = (
+            ContextMenuAction("demo.action", "Demo action", data="payload"),
+        )
+
+    def build_context_menu(self):
+        return self.entries, lambda action_id, _data: self.triggered.append(
+            action_id
+        )
+
+
+def test_mixin_gives_any_widget_the_same_menu_without_new_plumbing(qtbot):
+    widget = _DemoMenuWidget()
+    qtbot.addWidget(widget)
+    menu = _open_context_menu(qtbot, widget)
+    try:
+        assert menu.isVisible()
+        assert [row._spec.text for row in menu._rows] == ["Demo action"]
+    finally:
+        menu.hide()
+
+    menu = _open_context_menu(qtbot, widget)
+    row = menu.row_for_action("demo.action")
+    assert row is not None
+    menu._on_row_clicked(row, row._spec)
+    assert widget.triggered == ["demo.action"]
+
+
+def test_mixin_falls_through_when_the_widget_offers_no_entries(qtbot):
+    class _EmptyMenuWidget(ContextMenuMixin, QWidget):
+        def build_context_menu(self):
+            return (), lambda _action_id, _data: None
+
+    widget = _EmptyMenuWidget()
+    qtbot.addWidget(widget)
+    widget.resize(120, 40)
+    widget.show()
+    event = _context_menu_event()
+    QApplication.sendEvent(widget, event)
+
+    assert getattr(widget, "_owned_context_menu", None) is None
+    assert not event.isAccepted()

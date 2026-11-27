@@ -152,7 +152,9 @@ from sli_ui_toolkit.ui.widgets.atomic.tooltips import (
 )
 from sli_ui_toolkit.ui.widgets.helpers import (
     NEUTRAL_TOKEN_FALLBACK,
+    ContextMenuMixin,
     TokenOverrideMixin,
+    TriggeredCallback,
     UnderlineConfig,
     WheelScrollPolicyMixin,
     apply_editable_text_behavior,
@@ -384,6 +386,8 @@ __all__ = [
     "UnderlineConfig",
     "NEUTRAL_TOKEN_FALLBACK",
     "TokenOverrideMixin",
+    "ContextMenuMixin",
+    "TriggeredCallback",
     "apply_editable_text_behavior",
     "calculate_centered_overlay_geometry",
     "draw_bottom_underline",

@@ -3,7 +3,8 @@
 The console renders its own text through the toolkit painter pipeline
 (``QPainter.drawText`` + ``QFontMetrics``) with word-wrapped lines,
 per-line color/bold/italic, a ``MinimalistScrollBar``, follow-the-tail
-auto-scroll, mouse selection and clipboard copy.
+auto-scroll, mouse selection, clipboard copy and a themed right-click menu
+(Copy / Select all / Clear) through ``ContextMenuMixin``.
 
 The widget owns its own surface (background/border read from
 ``ThemeManager``), so it needs no QSS. Hosts append :class:`ConsoleLine`
@@ -13,14 +14,12 @@ their level semantics on top.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from PySide6.QtCore import QPointF, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import (
     QColor,
-    QContextMenuEvent,
     QLinearGradient,
     QFont,
     QFontMetrics,
@@ -48,14 +47,15 @@ from sli_ui_toolkit.ui.widgets.atomic.minimalist_scrollbar import (
     MINIMAL_SCROLLBAR_WIDTH,
     MinimalistScrollBar,
 )
+from sli_ui_toolkit.ui.widgets.helpers.context_menu import (
+    ContextMenuMixin,
+    TriggeredCallback,
+)
 
 if TYPE_CHECKING:
-    from sli_ui_toolkit.ui.widgets.composite.context_menu.menu import ContextMenu
     from sli_ui_toolkit.ui.widgets.composite.context_menu.models import (
         ContextMenuEntry,
     )
-
-logger = logging.getLogger(__name__)
 
 #: Context-menu action ids (stable for hosts that bind their own translator).
 CONSOLE_COPY_ACTION_ID = "console.copy"
@@ -102,12 +102,13 @@ class VisualLine:
 
 def _build_console_menu(
     view: "ConsoleView",
-) -> tuple[tuple[ContextMenuEntry, ...], Callable[[str, object], None]]:
+) -> tuple[tuple[ContextMenuEntry, ...], TriggeredCallback]:
     """Copy / Select all / Clear entries for the console's right-click menu.
 
-    Consumed by the toolkit ``ContextMenu`` composite (never a raw ``QMenu``)
-    so the popup paints in the active theme and keeps the platform placement
-    the other toolkit menus use.
+    Consumed by :class:`~sli_ui_toolkit.ui.widgets.helpers.context_menu.ContextMenuMixin`
+    (and through it the toolkit ``ContextMenu`` composite, never a raw
+    ``QMenu``), so the popup paints in the active theme and keeps the platform
+    placement the other toolkit menus use.
     """
     # Imported here, not at module scope: importing the submodule runs
     # ``context_menu/__init__``, which pulls the flyout stack and cycles back
@@ -144,7 +145,7 @@ def _build_console_menu(
     return entries, on_triggered
 
 
-class ConsoleView(QWidget):
+class ConsoleView(ContextMenuMixin, QWidget):
     """Painted, read-only console surface (no stock text widget)."""
 
     def __init__(self, parent: QWidget | None = None, *, max_lines: int | None = None) -> None:
@@ -174,9 +175,6 @@ class ConsoleView(QWidget):
         self._sel_anchor: tuple[int, int] | None = None
         self._sel_cursor: tuple[int, int] | None = None
         self._dragging = False
-        # The live right-click menu (popup top-level), so a second right-click
-        # can dismiss the previous one instead of stacking popups.
-        self._context_menu: ContextMenu | None = None
 
         self._bg_color = QColor("#000000")
         self._border_color = QColor("#000000")
@@ -557,39 +555,17 @@ class ConsoleView(QWidget):
         self._dragging = False
         super().mouseReleaseEvent(event)
 
-    def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
-        """Right-click opens the toolkit Copy / Select all / Clear menu.
+    def build_context_menu(
+        self,
+    ) -> tuple[tuple[ContextMenuEntry, ...], TriggeredCallback]:
+        """Right-click menu: Copy (with a selection) / Select all / Clear.
 
-        The console had no menu at all (owner report 2026-11-28): ``Text``
-        already opens the themed composite, so the console follows the same
-        path instead of a raw ``QMenu``. Fail-open by contract — a stray
-        right-click must never crash the host.
+        The console had no menu at all (owner report 2026-11-28); it is the
+        first consumer of the shared :class:`ContextMenuMixin`, so a second
+        toolkit widget only has to return its entries instead of re-copying
+        the popup plumbing ``Text`` already had.
         """
-        try:
-            # Imported here for the same reason as in the entry builder: the
-            # flyout stack should not load with the console widget.
-            from sli_ui_toolkit.ui.widgets.composite.context_menu.menu import (
-                ContextMenu,
-            )
-
-            previous = self._context_menu
-            if previous is not None:
-                try:
-                    previous.hide()
-                except RuntimeError:
-                    pass
-            entries, on_triggered = _build_console_menu(self)
-            menu = ContextMenu(
-                self,
-                entries=entries,
-                on_triggered=on_triggered,
-                surface="popup",
-            )
-            self._context_menu = menu
-            menu.popup_at(event.globalPos())
-        except Exception:  # noqa: BLE001 - fail-open by contract
-            logger.debug("console context menu failed to open", exc_info=True)
-        event.accept()
+        return _build_console_menu(self)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.matches(QKeySequence.StandardKey.Copy) or (
