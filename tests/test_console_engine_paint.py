@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, QRect, Qt
+from PySide6.QtCore import QPoint, QPointF, QRect
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QImage, QPainter
 
 from sli_ui_toolkit import FLUENT_DARK, FLUENT_LIGHT
