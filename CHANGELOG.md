@@ -27,7 +27,7 @@
   and not the old per-character advance loop (86 of 309 rows on the measured log; same total row count, glyphs,
   colours and baselines unchanged — pinned by rendering the same rows through both rules). The selection wash is
   painted by the engine over the glyphs (document-mode layering) instead of under them, at the same alpha and from
-  the layout's cursor geometry. Tests: `tests/test_console_engine_paint.py` (21 — engine-vs-`drawText` pixel
+  the layout's cursor geometry. Tests: `tests/test_console_engine_paint.py` (12 — engine-vs-`drawText` pixel
   equality at DPR 1/2, repeat-paint stability, layout cache keying/bounding, font/width invalidation, point→char
   mapping, drag selection, select-all/copy) plus the existing console contracts
   (`tests/test_console_view.py`, `tests/test_console_follow_and_fade.py`).
