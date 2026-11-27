@@ -20,6 +20,35 @@
 
 ### Changed
 
+- **`ConsoleView` paints through the shared text engine — the fourth text painter is gone.** The console kept its
+  own word wrapper (per-character `QFontMetrics.horizontalAdvance`), its own visual-row table, its own selection
+  rects and `painter.drawText` per row, with a fresh `QFont` per bold line: a second text painter beside
+  `ui/widgets/text/engine/`, which is exactly what `docs/dev/TEXT_UNIFICATION.md` was meant to leave behind. It now
+  holds one prepared `QTextLayout` per source `ConsoleLine` — built by the engine's `build_text_layout` with the
+  line's colour/bold/italic as `QTextCharFormat` spans, wrapped at the content width — and paints the body with the
+  engine's `paint_layout`; hit-testing and selection ride the layout's own `xToCursor`/`cursorToX` mapping through
+  `hit_test_text_offset` and `line_for_y`. What stays in the widget is the console: the line model, max-lines
+  trimming, follow-the-tail, the scrollbar facade, the edge fade, the selection state and clipboard copy — the
+  public API is unchanged. Deleted: `_wrap_line`, `_visual`, `_visual_index_at`, `_char_offset_at`,
+  `_paint_visual_line`, `_paint_selection`, `_line_font` and every per-row `drawText`. Two small engine extensions
+  made it expressible without a second painter: `build_text_layout(..., color=None, color_token="")` (a caller
+  painting a list of rows supplies each row's ink instead of a theme token; the document/code paths are unchanged)
+  and `paint_layout(..., selection_color=None)` (a caller keeps its own selection wash; the document default is
+  still accent at 80, the console keeps its 90). Measured offscreen at the Logs tab's 462x701, mixed plain/bold log
+  lines over 200/500 source lines, `render()` median of 40 against the pre-re-home painter in the same process:
+  paint 0.83/0.84 → 0.80/0.86 ms (parity — the difference is inside run-to-run noise); one full layout pass
+  (`append` + `_ensure_layout`) at 2000/5000 lines 2.5/5.3 → 2.7/5.2 ms; 2000 lines appended in batches of 20 with a
+  paint per tick 194 → 163 ms total. Pixels: content that does not
+  wrap at the console width renders byte-identically (same `QImage` SHA-256 at DPR 1 and 2, bold/italic/coloured
+  rows included); a row that DOES wrap can break at a different word, because the break rule is `QTextLayout`'s now
+  and not the old per-character advance loop (86 of 309 rows on the measured log; same total row count, glyphs,
+  colours and baselines unchanged — pinned by rendering the same rows through both rules). The selection wash is
+  painted by the engine over the glyphs (document-mode layering) instead of under them, at the same alpha and from
+  the layout's cursor geometry. Tests: `tests/test_console_engine_paint.py` (12 — engine-vs-`drawText` pixel
+  equality at DPR 1/2, repeat-paint stability, layout cache keying/bounding, font/width invalidation, point→char
+  mapping, drag selection, select-all/copy) plus the existing console contracts
+  (`tests/test_console_view.py`, `tests/test_console_follow_and_fade.py`).
+
 - **The remaining painters read their own family's tokens, not a neighbour's.** P3b closes the borrows the gate
   still recorded in the calendar, the flyout body, the progress bar, the painted text renderer and the group
   frame. Each site now reads a key its own file's family owns; a site whose family had no key got one in both

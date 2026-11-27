@@ -6,6 +6,7 @@ from typing import cast
 
 from PySide6.QtCore import QPointF, QRectF
 from PySide6.QtGui import (
+    QColor,
     QFont,
     QTextCharFormat,
     QTextLayout,
@@ -58,16 +59,27 @@ def build_text_layout(
     *,
     base_font: QFont,
     theme: ThemeManager,
-    color_token: str,
     width: float,
     tab_stop_px: float = PARAGRAPH_TAB_STOP_PX,
     wrap_mode: QTextOption.WrapMode = QTextOption.WrapMode.WordWrap,
     code_tint: bool = True,
+    color_token: str = "",
+    color: QColor | None = None,
 ) -> tuple[QTextLayout, tuple[LinkHitBox, ...]]:
+    """Lay out one styled run of text.
+
+    ``color`` overrides the base ink for a caller that paints a LIST of rows
+    with per-row colour (``ConsoleView``, whose lines carry their own ink);
+    such a caller passes no ``color_token`` at all. The document/code paths
+    leave ``color`` None and keep resolving ``color_token``.
+    """
     cursor = QTextCharFormat()
-    text_color = theme.try_get_color(color_token) or theme.try_get_color("dialog.text")
-    if text_color is not None and text_color.isValid():
-        cursor.setForeground(text_color)
+    if color is not None and color.isValid():
+        cursor.setForeground(color)
+    else:
+        text_color = theme.try_get_color(color_token) or theme.try_get_color("dialog.text")
+        if text_color is not None and text_color.isValid():
+            cursor.setForeground(text_color)
 
     option = QTextOption()
     option.setWrapMode(wrap_mode)

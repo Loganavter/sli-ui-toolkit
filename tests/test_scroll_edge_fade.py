@@ -75,7 +75,7 @@ def test_content_that_fits_has_no_fade(qapp):
 
 def test_the_fade_is_an_overlay_and_is_opt_in(qapp):
     """An overlay, not a graphics effect: an effect renders the WHOLE widget into a pixmap per paint, which is seconds per
-    frame on a render log (that froze the GUI thread, py-spy: setPlainText -> _wrap_line)."""
+    frame on a render log (that froze the GUI thread, py-spy: setPlainText -> the whole-log layout pass)."""
     _host, area = _area(qapp)
     assert area.edge_fade_enabled() is False
     assert area._edge_fade is None

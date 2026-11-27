@@ -33,13 +33,25 @@ def paint_layout(
     selection_start: int | None,
     selection_end: int | None,
     theme: ThemeManager,
+    selection_color: QColor | None = None,
 ) -> None:
+    """Paint a laid-out body.
+
+    ``selection_color`` lets a caller paint its own selection wash (the
+    console's accent at its own alpha) instead of the document default;
+    ``None`` keeps the accent-at-80 the document bodies use.
+    """
     sel_a, sel_b = normalized_range(selection_start, selection_end)
-    highlight = theme.try_get_color("accent")
-    if highlight is None or not highlight.isValid():
-        highlight = QColor(59, 130, 246, 80)
+    highlight = selection_color
+    if highlight is None:
+        highlight = theme.try_get_color("accent")
+        if highlight is None or not highlight.isValid():
+            highlight = QColor(59, 130, 246, 80)
+        else:
+            highlight = QColor(highlight)
+            highlight.setAlpha(80)
     else:
-        highlight.setAlpha(80)
+        highlight = QColor(highlight)
 
     _paint_tables(painter, layout, theme)
     _paint_code_boxes(painter, layout, theme)
