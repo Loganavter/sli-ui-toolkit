@@ -358,7 +358,11 @@ class TextListWidget(SurfacePanel):
                 self._select_only(index)
                 self._anchor = index
                 self._rows.update()
-                self.currentRowChanged.emit(index)
+                # NO `currentRowChanged` here: that signal is the host's ACTIVATION hook (the render queue opens the
+                # row's file in the pane), and a right press is "show me the menu", not "open this". The owner reported
+                # exactly that on 2026-11-28: "в render queue пкм открывает видео, вместо лкм". The selection still
+                # moves (file-manager behaviour, so the menu acts on what the user pointed at) - it just does not
+                # announce an activation.
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return

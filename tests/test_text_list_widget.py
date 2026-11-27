@@ -225,3 +225,23 @@ def test_row_ink_follows_the_list_family_tokens_in_both_themes(qapp):
         assert _pixels_matching(image, other, selected) == 0
         # The borrowed dialog ink must not paint either row.
         assert _pixels_matching(image, chosen.united(other), QColor("#0000ff")) == 0
+
+
+def test_a_right_press_selects_but_does_not_announce_an_activation(qapp):
+    """Owner, 2026-11-28: "в render queue пкм открывает видео, вместо лкм".
+
+    `currentRowChanged` is the host's ACTIVATION hook (the queue opens the row's file in the pane). A right press means
+    "show me the menu": the selection still moves to the row under the cursor so the menu acts on it, but the row must
+    not be announced as activated. A left press still announces, and keyboard navigation still reports.
+    """
+    rows = _list(qapp)
+    seen: list[int] = []
+    rows.currentRowChanged.connect(seen.append)
+
+    QTest.mouseClick(rows._rows, Qt.MouseButton.RightButton, pos=QPoint(10, rows.row_height() * 1 + 5))
+    assert rows.currentRow() == 1, "the right press still points the menu at the row under the cursor"
+    assert seen == [], "a right press must not read as an activation"
+
+    QTest.mouseClick(rows._rows, Qt.MouseButton.LeftButton, pos=QPoint(10, rows.row_height() * 2 + 5))
+    assert rows.currentRow() == 2
+    assert seen == [2], "a left press still announces the row"
