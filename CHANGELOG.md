@@ -4,6 +4,26 @@
 
 ### Changed
 
+- **`ConsoleView` stops re-shaping and re-allocating a font for every visible log row.** Each visual row was drawn
+  with `painter.drawText`, and every bold/italic line built a fresh `QFont` — exactly the rows a render streams in
+  (warnings, errors, phase headers). Rows now paint from a prepared `QStaticText` cached per
+  `(row text, bold, italic)`, and the emphasis faces are derived once instead of per row per paint. The caches are
+  dropped on a font change, a metrics (face/scale) change and a wrap-width change; colour stays painter-side so it
+  is not in the key, and `QStaticText` tracks the painter transform itself (verified identical at DPR 2 after a
+  DPR-1 prepare). Measured offscreen at the Logs tab's 462x701, mixed plain/bold log lines, `render()` median of 40
+  (legacy body vs cached, one process, three runs): 200 lines 0.85-0.88 → 0.54-0.57 ms, 500 lines 0.82-0.87 →
+  0.53-0.56 ms. The viewport paints ~41 rows either way, so the line count only changes which rows are prepared.
+  The rendered image is byte-identical to the old body's (same `QImage` SHA-256 at DPR 1 and 2, with a selection
+  active and a scrolled offset). Nothing is prepared until a row is visible, and the row cache is dropped whole at
+  512 entries, so a growing log keeps a working set, not a copy of the document. The font cache alone measured no
+  better than noise (0.85 → 0.84 ms); it is kept because it feeds the prepared-row key and removes an allocation
+  per bold row — the `QStaticText` cache is what pays. Tests: `tests/test_console_paint_cache.py` (9 — cached vs
+  `drawText` pixel equality at DPR 1/2, repeat-paint stability, per-variant font identity, cached ascent, font/width
+  invalidation, cache bound, colour out of the key). No public API change; selection, wrap, scroll and edge-fade
+  behaviour are untouched. A refreshed survey of every other `drawText` site found no comparable waste — the
+  short-label painters (button, combo field, tab, checkbox…) cost 0.03-0.26 ms per paint, and `MarqueeText`
+  already blits a cached pixmap strip.
+
 - **The remaining painters read their own family's tokens, not a neighbour's.** P3b closes the borrows the gate
   still recorded in the calendar, the flyout body, the progress bar, the painted text renderer and the group
   frame. Each site now reads a key its own file's family owns; a site whose family had no key got one in both

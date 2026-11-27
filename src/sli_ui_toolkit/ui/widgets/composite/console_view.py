@@ -22,6 +22,7 @@ from PySide6.QtGui import (
     QLinearGradient,
     QFont,
     QFontMetrics,
+    QFontMetricsF,
     QGuiApplication,
     QKeyEvent,
     QKeySequence,
@@ -30,6 +31,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPen,
     QResizeEvent,
+    QStaticText,
     QWheelEvent,
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
@@ -53,6 +55,10 @@ _PADDING = 6
 _BOTTOM_TOLERANCE = 2
 #: Height of the clipped-edge ramp, design px - enough to read as a fade, short enough not to hide a text line.
 _EDGE_FADE_HEIGHT = 24
+#: Prepared-row cache bound (~11 full viewports). A log's rows are mostly
+#: unique, so this is a working-set cache, not a document cache: past the cap
+#: it is dropped whole rather than evicted per entry (see `_static_line`).
+_STATIC_LINE_CACHE_LIMIT = 512
 
 
 @dataclass(frozen=True)
@@ -103,6 +109,12 @@ class ConsoleView(QWidget):
         self._wrap_cache: dict[str, list[tuple[int, int]]] = {}
         self._plain_text_cache: str | None = None
         self._wrap_width: int | None = None
+        # Paint caches: the bold/italic variants are two fixed faces (not
+        # per-line data) and a prepared QStaticText skips re-shaping a wrapped
+        # row on each repaint. The faces are re-derived when `_font` changes;
+        # the prepared rows also when the wrap width (their key) changes.
+        self._font_variants: dict[tuple[bool, bool], tuple[QFont, float]] = {}
+        self._static_lines: dict[tuple[str, bool, bool], QStaticText] = {}
 
         self._readonly_requested = True
         self._v_scroll_policy = None
@@ -261,6 +273,7 @@ class ConsoleView(QWidget):
         """
         self._font = pin_font_size(QFont(font))
         self._font_external = True
+        self._clear_paint_caches()
         # The BASE class on purpose: `setFont` below routes through here, so calling the override would recurse.
         QWidget.setFont(self, font)
         self._mark_dirty()
@@ -583,9 +596,16 @@ class ConsoleView(QWidget):
         line = self._lines[visual.source_index]
         color = line.color
         painter.setPen(QColor(color) if color is not None and color.isValid() else self._text_color)
-        painter.setFont(self._line_font(line))
-        baseline = y + fm.ascent()
-        painter.drawText(QPointF(float(self._pad), float(baseline)), visual.text)
+        font, ascent = self._line_style(line)
+        painter.setFont(font)
+        # Top-aligned, not baseline-aligned: `drawStaticText` takes the layout's
+        # top-left, so the fractional layout ascent is subtracted to land the
+        # baseline exactly where `drawText(x, y + fm.ascent())` puts it (an
+        # integer `fm.ascent()` alone is off by a device pixel at DPR 2).
+        painter.drawStaticText(
+            QPointF(float(self._pad), float(y) + fm.ascent() - ascent),
+            self._static_line(visual.text, line, font, painter),
+        )
 
     def _paint_selection(
         self, painter: QPainter, visual: VisualLine, y: int, fm: QFontMetrics
@@ -635,6 +655,8 @@ class ConsoleView(QWidget):
         if getattr(self, "_wrap_width", None) != width:
             self._wrap_cache = {}
             self._wrap_width = width
+            # Wrapped slices are the static-text keys; a new width retires them.
+            self._static_lines.clear()
         cache = self._wrap_cache
         self._visual = []
         for source_index, line in enumerate(self._lines):
@@ -771,12 +793,54 @@ class ConsoleView(QWidget):
             self._clear_selection()
 
     def _line_font(self, line: ConsoleLine) -> QFont:
-        if not line.bold and not line.italic:
-            return self._font
-        font = QFont(self._font)
-        font.setBold(line.bold)
-        font.setItalic(line.italic)
-        return font
+        return self._line_style(line)[0]
+
+    def _line_style(self, line: ConsoleLine) -> tuple[QFont, float]:
+        """The paint face for a line plus its fractional layout ascent.
+
+        Bold/italic are three fixed variants of `_font`, not per-line data, so
+        they are derived once instead of allocating a `QFont` per bold row per
+        paint (warnings/errors/phase headers are exactly those rows, and they
+        are what streams in during a render).
+        """
+        key = (line.bold, line.italic)
+        style = self._font_variants.get(key)
+        if style is None:
+            if key == (False, False):
+                font = self._font
+            else:
+                font = QFont(self._font)
+                font.setBold(line.bold)
+                font.setItalic(line.italic)
+            style = (font, QFontMetricsF(font).ascent())
+            self._font_variants[key] = style
+        return style
+
+    def _static_line(
+        self, text: str, line: ConsoleLine, font: QFont, painter: QPainter
+    ) -> QStaticText:
+        """Prepared (shaped) row text, reused across repaints.
+
+        Selection, scroll and hover repaint the same rows; `drawText` re-shapes
+        the string every time, which measured ~35% of this widget's paint cost
+        at 462x701. Colour is the painter's pen, so it stays out of the key.
+        """
+        key = (text, line.bold, line.italic)
+        cached = self._static_lines.get(key)
+        if cached is not None:
+            return cached
+        static = QStaticText(text)
+        static.setTextFormat(Qt.TextFormat.PlainText)
+        static.prepare(painter.transform(), font)
+        if len(self._static_lines) >= _STATIC_LINE_CACHE_LIMIT:
+            self._static_lines.clear()
+        self._static_lines[key] = static
+        return static
+
+    def _clear_paint_caches(self) -> None:
+        """Drop the row caches - the face they were derived from changed."""
+        self._font_variants.clear()
+        self._static_lines.clear()
 
     def _refresh_theme(self) -> None:
         try:
@@ -801,6 +865,7 @@ class ConsoleView(QWidget):
         """
         if not self._font_external:
             self._font = apply_ui_font(self)
+        self._clear_paint_caches()
         self._pad = scaled_px(_PADDING)
         self._scroll_reserve = scaled_px(MINIMAL_SCROLLBAR_WIDTH)
         was_bottom = self.is_at_bottom()
